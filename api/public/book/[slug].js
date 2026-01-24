@@ -349,6 +349,40 @@ export default async function handler(req, res) {
               .update({ form_submission_id: winningRequest.form_submission_id })
               .eq('id', booking.id);
             
+            // Add history log entry to the DD submission
+            try {
+              const { data: ddSubmission } = await supabase
+                .from('form_submission_due_diligence')
+                .select('id, history_log')
+                .eq('form_submission_id', winningRequest.form_submission_id)
+                .eq('tenant_id', tenantId)
+                .single();
+              
+              if (ddSubmission) {
+                const historyLog = ddSubmission.history_log || [];
+                historyLog.push({
+                  timestamp: new Date().toISOString(),
+                  event_type: 'meeting_booked',
+                  user_email: attendee_email,
+                  details: {
+                    meeting_name: selectedTemplate?.name || meetingTitle,
+                    date_time: startTime.toISOString(),
+                    attendee: attendee_name,
+                    agent_name: profile?.first_name ? `${profile.first_name} ${profile.last_name || ''}`.trim() : null
+                  }
+                });
+                
+                await supabase
+                  .from('form_submission_due_diligence')
+                  .update({ history_log: historyLog })
+                  .eq('id', ddSubmission.id);
+                
+                console.log('[Public Booking] Added meeting_booked history log to DD submission');
+              }
+            } catch (historyError) {
+              console.error('[Public Booking] Failed to add history log:', historyError);
+            }
+            
             // Cancel ALL other pending requests for the same form_submission + meeting_template (first-past-the-post)
             const { data: othersToCancel } = await supabase
               .from('dd_meeting_request')

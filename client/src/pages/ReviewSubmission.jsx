@@ -434,7 +434,171 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
   );
 }
 
-function HistoryLogModal({ isOpen, onClose, historyLog }) {
+function getEventIcon(eventType) {
+  const icons = {
+    submission_received: <ClipboardList className="w-4 h-4 text-blue-500" />,
+    submission_updated: <Save className="w-4 h-4 text-green-500" />,
+    status_changed: <ArrowLeft className="w-4 h-4 text-purple-500 rotate-180" />,
+    score_calculated: <Calculator className="w-4 h-4 text-orange-500" />,
+    email_sent: <Mail className="w-4 h-4 text-blue-500" />,
+    contract_sent: <ClipboardList className="w-4 h-4 text-indigo-500" />,
+    contract_signed: <Check className="w-4 h-4 text-green-500" />,
+    meeting_request_sent: <Calendar className="w-4 h-4 text-teal-500" />,
+    meeting_booked: <Calendar className="w-4 h-4 text-green-500" />,
+    member_created: <Check className="w-4 h-4 text-green-500" />,
+    swapped_from_form: <RotateCcw className="w-4 h-4 text-amber-500" />,
+    archived_due_to_swap: <X className="w-4 h-4 text-gray-500" />
+  };
+  return icons[eventType] || <History className="w-4 h-4 text-muted-foreground" />;
+}
+
+function getEventLabel(eventType) {
+  const labels = {
+    submission_received: 'Submission Received',
+    submission_updated: 'Review Saved',
+    status_changed: 'Stage Changed',
+    score_calculated: 'Score Calculated',
+    email_sent: 'Email Sent',
+    contract_sent: 'Contract Sent',
+    contract_signed: 'Contract Signed',
+    meeting_request_sent: 'Meeting Request Sent',
+    meeting_booked: 'Meeting Booked',
+    member_created: 'Member Created',
+    swapped_from_form: 'Form Swapped',
+    archived_due_to_swap: 'Archived (Swap)'
+  };
+  return labels[eventType] || eventType?.replace(/_/g, ' ') || 'Event';
+}
+
+function formatEventDetails(entry, stages = []) {
+  const { event_type, details } = entry;
+  if (!details) return null;
+  
+  const getStageName = (stageId) => {
+    const stage = stages.find(s => s.id === stageId);
+    return stage?.name || stageId;
+  };
+  
+  switch (event_type) {
+    case 'status_changed': {
+      const from = getStageName(details.previous_status);
+      const to = getStageName(details.new_status);
+      const trigger = details.trigger === 'first_edit_auto_transition' ? ' (auto)' : '';
+      return (
+        <div className="space-y-1">
+          <p className="text-sm">
+            <span className="text-muted-foreground">From:</span> <span className="font-medium">{from}</span>
+            <span className="mx-2 text-muted-foreground">→</span>
+            <span className="text-muted-foreground">To:</span> <span className="font-medium">{to}</span>
+            {trigger && <span className="text-xs text-muted-foreground">{trigger}</span>}
+          </p>
+          {details.custom_message && (
+            <p className="text-sm text-muted-foreground italic">"{details.custom_message}"</p>
+          )}
+        </div>
+      );
+    }
+    
+    case 'submission_updated': {
+      const fields = details.fields_updated || [];
+      if (fields.length === 0) return null;
+      return (
+        <p className="text-sm text-muted-foreground">
+          Updated {fields.length} field{fields.length !== 1 ? 's' : ''}
+        </p>
+      );
+    }
+    
+    case 'score_calculated': {
+      return (
+        <div className="flex items-center gap-3 text-sm">
+          <span>Score: <span className="font-medium">{details.score}</span></span>
+          {details.risk_level && (
+            <Badge variant="outline" className={cn(
+              details.risk_level === 'low' && 'bg-green-50 text-green-700 border-green-200',
+              details.risk_level === 'medium' && 'bg-amber-50 text-amber-700 border-amber-200',
+              details.risk_level === 'high' && 'bg-red-50 text-red-700 border-red-200'
+            )}>
+              {details.risk_level} risk
+            </Badge>
+          )}
+        </div>
+      );
+    }
+    
+    case 'email_sent': {
+      return (
+        <div className="space-y-1 text-sm">
+          {details.template_name && <p>Template: <span className="font-medium">{details.template_name}</span></p>}
+          {details.recipient && <p className="text-muted-foreground">To: {details.recipient}</p>}
+          {details.recipients && details.recipients.length > 0 && (
+            <p className="text-muted-foreground">To: {details.recipients.join(', ')}</p>
+          )}
+        </div>
+      );
+    }
+    
+    case 'contract_sent': {
+      return (
+        <div className="space-y-1 text-sm">
+          {details.contract_name && <p>Contract: <span className="font-medium">{details.contract_name}</span></p>}
+          {details.signers && details.signers.length > 0 && (
+            <p className="text-muted-foreground">Sent to: {details.signers.join(', ')}</p>
+          )}
+        </div>
+      );
+    }
+    
+    case 'contract_signed': {
+      return (
+        <div className="space-y-1 text-sm">
+          {details.contract_name && <p>Contract: <span className="font-medium">{details.contract_name}</span></p>}
+          {details.signer && <p className="text-muted-foreground">Signed by: {details.signer}</p>}
+        </div>
+      );
+    }
+    
+    case 'meeting_request_sent': {
+      return (
+        <div className="space-y-1 text-sm">
+          {details.template_name && <p>Meeting: <span className="font-medium">{details.template_name}</span></p>}
+          {details.recipient && <p className="text-muted-foreground">Sent to: {details.recipient}</p>}
+          {details.agent_name && <p className="text-muted-foreground">Agent: {details.agent_name}</p>}
+        </div>
+      );
+    }
+    
+    case 'meeting_booked': {
+      return (
+        <div className="space-y-1 text-sm">
+          {details.meeting_name && <p>Meeting: <span className="font-medium">{details.meeting_name}</span></p>}
+          {details.date_time && <p className="text-muted-foreground">Scheduled: {format(new Date(details.date_time), 'MMM d, yyyy h:mm a')}</p>}
+          {details.attendee && <p className="text-muted-foreground">Attendee: {details.attendee}</p>}
+        </div>
+      );
+    }
+    
+    case 'member_created': {
+      return (
+        <div className="space-y-1 text-sm">
+          {details.member_name && <p>Member: <span className="font-medium">{details.member_name}</span></p>}
+          {details.member_email && <p className="text-muted-foreground">{details.member_email}</p>}
+        </div>
+      );
+    }
+    
+    case 'swapped_from_form': {
+      return details.source_form_name ? (
+        <p className="text-sm text-muted-foreground">From: {details.source_form_name}</p>
+      ) : null;
+    }
+    
+    default:
+      return null;
+  }
+}
+
+function HistoryLogModal({ isOpen, onClose, historyLog, stages = [] }) {
   if (!isOpen) return null;
   
   return (
@@ -446,24 +610,36 @@ function HistoryLogModal({ isOpen, onClose, historyLog }) {
             Submission History
           </DialogTitle>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto space-y-3 py-4">
+        <div className="flex-1 overflow-y-auto py-4">
           {historyLog && historyLog.length > 0 ? (
-            [...historyLog].reverse().map((entry, index) => (
-              <div key={index} className="p-3 bg-muted rounded-lg space-y-1" data-testid={`history-entry-${index}`}>
-                <div className="flex items-center justify-between">
-                  <Badge variant="outline">{entry.event_type?.replace(/_/g, ' ')}</Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {entry.timestamp ? format(new Date(entry.timestamp), 'MMM d, yyyy h:mm a') : ''}
-                  </span>
-                </div>
-                <p className="text-sm">{entry.user_email}</p>
-                {entry.details && (
-                  <pre className="text-xs text-muted-foreground bg-background p-2 rounded mt-2 overflow-x-auto">
-                    {JSON.stringify(entry.details, null, 2)}
-                  </pre>
-                )}
+            <div className="relative">
+              <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-border" />
+              <div className="space-y-4">
+                {[...historyLog].reverse().map((entry, index) => (
+                  <div 
+                    key={index} 
+                    className="relative pl-10"
+                    data-testid={`history-entry-${index}`}
+                  >
+                    <div className="absolute left-2 top-1 w-5 h-5 rounded-full bg-background border-2 border-border flex items-center justify-center">
+                      {getEventIcon(entry.event_type)}
+                    </div>
+                    <div className="p-3 bg-muted rounded-lg space-y-2">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm">{getEventLabel(entry.event_type)}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {entry.timestamp ? format(new Date(entry.timestamp), 'MMM d, yyyy h:mm a') : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{entry.user_email}</p>
+                      {formatEventDetails(entry, stages)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))
+            </div>
           ) : (
             <p className="text-center text-muted-foreground py-8">No history entries</p>
           )}
@@ -1533,6 +1709,7 @@ export default function ReviewSubmissionPage() {
         isOpen={showHistoryModal}
         onClose={setShowHistoryModal}
         historyLog={ddSubmission.history_log}
+        stages={ddConfig?.workflow_stages || []}
       />
 
       <Dialog open={agentSelectionModal.open} onOpenChange={(open) => !open && handleCancelAgentSelection()}>

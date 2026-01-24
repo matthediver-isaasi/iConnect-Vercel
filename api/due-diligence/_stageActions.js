@@ -1,6 +1,33 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 
+async function addHistoryLogEntry(ddSubmissionId, tenantId, eventType, userEmail, details) {
+  try {
+    const { data: submission } = await supabase
+      .from('form_submission_due_diligence')
+      .select('history_log')
+      .eq('id', ddSubmissionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    const historyLog = submission?.history_log || [];
+    historyLog.push({
+      timestamp: new Date().toISOString(),
+      event_type: eventType,
+      user_email: userEmail,
+      details
+    });
+
+    await supabase
+      .from('form_submission_due_diligence')
+      .update({ history_log: historyLog })
+      .eq('id', ddSubmissionId)
+      .eq('tenant_id', tenantId);
+  } catch (err) {
+    console.error('[DD History] Failed to add log entry:', err);
+  }
+}
+
 function extractContactFromFieldValue(fieldValue) {
   if (!fieldValue) return null;
   
@@ -325,7 +352,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .eq('tenant_id', tenantId);
       }
 
-      results.push({
+      const resultEntry = {
         action: 'send_contract',
         field_id: fieldId,
         field_label: field.label || field.name,
@@ -333,7 +360,16 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         status: sentCount > 0 ? 'success' : 'failed',
         sent_count: sentCount,
         failed_count: failedCount
-      });
+      };
+      results.push(resultEntry);
+
+      if (sentCount > 0) {
+        await addHistoryLogEntry(ddSubmission.id, tenantId, 'contract_sent', triggeredBy, {
+          contract_name: contractForm?.name,
+          signers: sentSignerEmails,
+          sent_count: sentCount
+        });
+      }
     }
   } catch (error) {
     console.error('[DD Stage Actions] Error executing contract sending:', error);
@@ -633,6 +669,12 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           recipient_email: recipientEmail,
           status: 'success'
         });
+
+        await addHistoryLogEntry(ddSubmission.id, tenantId, 'meeting_request_sent', triggeredBy, {
+          template_name: template.name,
+          recipient: recipientEmail,
+          agent_name: agent?.first_name ? `${agent.first_name} ${agent.last_name || ''}`.trim() : agent?.email
+        });
       } catch (emailError) {
         console.error(`[DD Stage Actions] Failed to send meeting invitation to ${recipientEmail}:`, emailError);
         results.push({
@@ -864,6 +906,12 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
           template_name: template.name,
           recipient_email: normalizedEmail,
           status: 'success'
+        });
+
+        await addHistoryLogEntry(ddSubmission.id, tenantId, 'email_sent', triggeredBy, {
+          template_name: template.name,
+          recipient: normalizedEmail,
+          recipients: emailOptions.cc ? [normalizedEmail, ...emailOptions.cc] : [normalizedEmail]
         });
       } catch (emailError) {
         console.error(`[DD Email Action] Failed to send email to ${normalizedEmail}:`, emailError);
@@ -1260,6 +1308,11 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         email: normalizedEmail,
         status: 'success',
         custom_field_errors: customFieldErrors.length > 0 ? customFieldErrors : undefined
+      });
+
+      await addHistoryLogEntry(ddSubmission.id, tenantId, 'member_created', triggeredBy, {
+        member_email: normalizedEmail,
+        member_name: `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim() || normalizedEmail
       });
     }
   } catch (error) {

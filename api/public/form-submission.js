@@ -233,7 +233,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // Generate PDF for contract signatures
+    // Generate PDF for contract signatures and add history log
     if (contract_instance_id) {
       const hasSignatureData = Object.values(submission_data || {}).some(v => 
         v && typeof v === 'object' && (v.type === 'signature' || (v.data && v.signed_at))
@@ -262,6 +262,54 @@ export default async function handler(req, res) {
               const pdfError = await pdfResponse.json().catch(() => ({}));
               console.error('[Public Form Submission] PDF generation failed:', pdfError);
             }
+          }
+          
+          // Add history log entry to related DD submission for contract signature
+          try {
+            const { data: contractInstance } = await supabase
+              .from('contract_instance')
+              .select('id, form_submission_id, form_id')
+              .eq('id', contract_instance_id)
+              .single();
+            
+            if (contractInstance?.form_submission_id) {
+              const { data: ddSubmission } = await supabase
+                .from('form_submission_due_diligence')
+                .select('id, history_log')
+                .eq('form_submission_id', contractInstance.form_submission_id)
+                .eq('tenant_id', tenantData.id)
+                .single();
+              
+              if (ddSubmission) {
+                const { data: contractForm } = await supabase
+                  .from('form')
+                  .select('name')
+                  .eq('id', contractInstance.form_id)
+                  .single();
+                
+                const signerEmail = submission_data?.signer_email || submission_data?.email || 'Unknown';
+                
+                const historyLog = ddSubmission.history_log || [];
+                historyLog.push({
+                  timestamp: new Date().toISOString(),
+                  event_type: 'contract_signed',
+                  user_email: signerEmail,
+                  details: {
+                    contract_name: contractForm?.name || 'Contract',
+                    signer: signerEmail
+                  }
+                });
+                
+                await supabase
+                  .from('form_submission_due_diligence')
+                  .update({ history_log: historyLog })
+                  .eq('id', ddSubmission.id);
+                
+                console.log('[Public Form Submission] Added contract_signed history log to DD submission');
+              }
+            }
+          } catch (historyError) {
+            console.error('[Public Form Submission] Failed to add history log:', historyError);
           }
         } catch (pdfErr) {
           console.error('[Public Form Submission] PDF generation error:', pdfErr);
