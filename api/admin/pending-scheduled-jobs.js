@@ -22,16 +22,10 @@ export default async function handler(req, res) {
     const todayStr = now.toISOString().split('T')[0];
     const pendingJobs = [];
 
-    // Fetch contract instances for this tenant
+    // Fetch contract instances for this tenant (no joins due to missing FK relationships)
     const { data: contractInstances, error: instancesError } = await supabase
       .from('contract_instance')
-      .select(`
-        *,
-        organization:organization_id (
-          id,
-          name
-        )
-      `)
+      .select('*')
       .eq('tenant_id', tenant_id)
       .in('status', ['out_for_signing', 'pending', 'expired']);
 
@@ -61,6 +55,19 @@ export default async function handler(req, res) {
     const formsById = {};
     for (const form of (forms || [])) {
       formsById[form.id] = form;
+    }
+
+    // Get unique organization IDs and fetch organizations
+    const orgIds = [...new Set(contractInstances.map(i => i.organization_id).filter(Boolean))];
+    let orgsById = {};
+    if (orgIds.length > 0) {
+      const { data: orgs } = await supabase
+        .from('organization')
+        .select('id, name')
+        .in('id', orgIds);
+      for (const org of (orgs || [])) {
+        orgsById[org.id] = org;
+      }
     }
 
     // Fetch all reminder logs for today to check which reminders were already sent
@@ -102,6 +109,7 @@ export default async function handler(req, res) {
       const form = formsById[instance.form_id];
       if (!form) continue;
 
+      const org = orgsById[instance.organization_id];
       const contractSettings = form.contract_settings || {};
       const signers = instance.signers || [];
       const timeoutDays = instance.timeout_days || contractSettings.timeout_days || 30;
@@ -150,7 +158,7 @@ export default async function handler(req, res) {
             type: 'timeout',
             contract_id: instance.id,
             contract_name: form.name,
-            organization_name: instance.organization?.name || null,
+            organization_name: org?.name || null,
             signers: signers.map(s => ({
               name: s.first_name ? `${s.first_name} ${s.last_name || ''}`.trim() : s.name || s.email,
               email: s.email,
@@ -226,7 +234,7 @@ export default async function handler(req, res) {
             type: 'reminder',
             contract_id: instance.id,
             contract_name: form.name,
-            organization_name: instance.organization?.name || null,
+            organization_name: org?.name || null,
             signers: (willTrigger ? signersToRemind : unsignedSigners).map(s => ({
               name: s.first_name ? `${s.first_name} ${s.last_name || ''}`.trim() : s.name || s.email,
               email: s.email,
