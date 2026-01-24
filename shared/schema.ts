@@ -392,6 +392,12 @@ export const formSubmissionDueDiligence = pgTable("form_submission_due_diligence
   reviewed_by: varchar("reviewed_by", { length: 255 }), // Email of reviewer
   reviewed_date: timestamp("reviewed_date"),
   
+  // Swap/Archive tracking
+  archived_at: timestamp("archived_at"), // When this submission was archived (e.g., due to form swap)
+  archived_reason: text("archived_reason"), // Reason for archiving (e.g., "Swapped to form: XYZ")
+  swapped_from_submission_id: varchar("swapped_from_submission_id"), // If this submission was created from a swap, reference to original
+  swapped_to_submission_id: varchar("swapped_to_submission_id"), // If this submission was swapped out, reference to new submission
+  
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 });

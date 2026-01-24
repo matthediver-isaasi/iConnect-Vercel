@@ -24,6 +24,9 @@ export default async function handler(req, res) {
   try {
     const { formId, status, riskLevel, limit = 50, offset = 0 } = req.query;
 
+    // Check if we should include archived submissions
+    const includeArchived = req.query.includeArchived === 'true';
+
     let query = supabase
       .from('form_submission_due_diligence')
       .select(`
@@ -38,6 +41,10 @@ export default async function handler(req, res) {
         created_at,
         updated_at,
         original_form_values,
+        archived_at,
+        archived_reason,
+        swapped_from_submission_id,
+        swapped_to_submission_id,
         form_submission:form_submission_id(
           id,
           form_id,
@@ -50,6 +57,11 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantCtx.tenantId)
       .order('created_at', { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    // By default, exclude archived submissions
+    if (!includeArchived) {
+      query = query.is('archived_at', null);
+    }
 
     if (status) {
       query = query.eq('workflow_status', status);

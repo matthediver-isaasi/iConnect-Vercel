@@ -18,8 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings, GripVertical, Trash2 } from "lucide-react";
+import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings, GripVertical, Trash2, ArrowRightLeft, ArrowRight, Check, X, FileSignature } from "lucide-react";
 import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
@@ -31,6 +40,7 @@ const DEFAULT_COLUMN_WIDTHS = {
   riskLevel: 130,
   created: 120,
   reviewedBy: 160,
+  swap: 160,
   actions: 80
 };
 
@@ -88,12 +98,13 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
-function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, cardReferenceField, columnWidths }) {
+function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, onSwap, cardReferenceField, columnWidths, eligibleForms }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
   
   const formValues = submission.form_submission?.submission_data || {};
   const linkedOrgName = submission.form_submission?.organization?.name;
+  const currentFormId = submission.form_submission?.form_id;
   
   let displayReference = submission.application_uid;
   if (cardReferenceField === '__organization_name__' && linkedOrgName) {
@@ -110,6 +121,14 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
     e.stopPropagation();
     onDelete(submission);
   };
+
+  const handleSwapSelect = (targetFormId) => {
+    if (targetFormId) {
+      onSwap(submission, targetFormId);
+    }
+  };
+
+  const swapTargetForms = eligibleForms.filter(f => f.id !== currentFormId);
   
   return (
     <TableRow 
@@ -161,6 +180,27 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
       </TableCell>
       <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.reviewedBy, minWidth: columnWidths.reviewedBy }}>
         {reviewerDisplay}
+      </TableCell>
+      <TableCell style={{ width: columnWidths.swap, minWidth: columnWidths.swap }} onClick={(e) => e.stopPropagation()}>
+        {swapTargetForms.length > 0 ? (
+          <Select onValueChange={handleSwapSelect}>
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-swap-form-${submission.id}`}>
+              <SelectValue placeholder="Swap form..." />
+            </SelectTrigger>
+            <SelectContent>
+              {swapTargetForms.map(form => (
+                <SelectItem key={form.id} value={form.id}>
+                  <div className="flex items-center gap-2">
+                    <ArrowRightLeft className="w-3 h-3" />
+                    <span className="truncate">{form.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="text-muted-foreground text-xs">No other forms</span>
+        )}
       </TableCell>
       <TableCell style={{ width: columnWidths.actions, minWidth: columnWidths.actions }}>
         <Button
@@ -244,6 +284,13 @@ export default function DueDiligenceDashboardPage() {
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
   const isTransitioningRef = useRef(false);
+  
+  const [swapModalOpen, setSwapModalOpen] = useState(false);
+  const [swapSubmission, setSwapSubmission] = useState(null);
+  const [swapTargetFormId, setSwapTargetFormId] = useState(null);
+  const [swapPreview, setSwapPreview] = useState(null);
+  const [swapPreviewLoading, setSwapPreviewLoading] = useState(false);
+  const [swapConfirmStep, setSwapConfirmStep] = useState('preview');
   
   const [columnWidths, setColumnWidths] = useState(() => {
     try {
@@ -422,6 +469,68 @@ export default function DueDiligenceDashboardPage() {
     }
   };
 
+  const handleSwapClick = async (submission, targetFormId) => {
+    setSwapSubmission(submission);
+    setSwapTargetFormId(targetFormId);
+    setSwapPreview(null);
+    setSwapConfirmStep('preview');
+    setSwapModalOpen(true);
+    setSwapPreviewLoading(true);
+    
+    try {
+      const response = await apiRequest('POST', '/api/due-diligence/swap-preview', {
+        sourceSubmissionId: submission.id,
+        targetFormId
+      });
+      setSwapPreview(response.preview);
+    } catch (error) {
+      console.error('[Swap] Preview error:', error);
+      toast.error('Failed to generate swap preview');
+      setSwapModalOpen(false);
+    } finally {
+      setSwapPreviewLoading(false);
+    }
+  };
+
+  const handleCancelSwap = () => {
+    setSwapModalOpen(false);
+    setSwapSubmission(null);
+    setSwapTargetFormId(null);
+    setSwapPreview(null);
+    setSwapConfirmStep('preview');
+  };
+
+  const swapMutation = useMutation({
+    mutationFn: async ({ sourceSubmissionId, targetFormId }) => {
+      const response = await apiRequest('POST', '/api/due-diligence/swap-execute', {
+        sourceSubmissionId,
+        targetFormId,
+        contractAction: 'relink'
+      });
+      return response;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['dd-submissions'] });
+      toast.success('Form swapped successfully');
+      handleCancelSwap();
+      if (data.newSubmission?.id) {
+        navigate(`/ReviewSubmission?id=${data.newSubmission.id}`);
+      }
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to swap form');
+    }
+  });
+
+  const handleConfirmSwap = () => {
+    if (swapSubmission && swapTargetFormId) {
+      swapMutation.mutate({
+        sourceSubmissionId: swapSubmission.id,
+        targetFormId: swapTargetFormId
+      });
+    }
+  };
+
   if (!isAccessReady || formsLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen" data-testid="loading-spinner">
@@ -556,6 +665,7 @@ export default function DueDiligenceDashboardPage() {
                     <ResizableTableHead label="Risk Level" columnKey="riskLevel" width={columnWidths.riskLevel} onResize={handleColumnResize} />
                     <ResizableTableHead label="Created" columnKey="created" width={columnWidths.created} onResize={handleColumnResize} />
                     <ResizableTableHead label="Reviewed By" columnKey="reviewedBy" width={columnWidths.reviewedBy} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Swap Form" columnKey="swap" width={columnWidths.swap} onResize={handleColumnResize} />
                     <TableHead style={{ width: columnWidths.actions, minWidth: columnWidths.actions }}>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -571,8 +681,10 @@ export default function DueDiligenceDashboardPage() {
                         riskLevels={riskLevels}
                         onClick={handleRowClick}
                         onDelete={handleDeleteClick}
+                        onSwap={handleSwapClick}
                         cardReferenceField={refField}
                         columnWidths={columnWidths}
+                        eligibleForms={ddForms}
                       />
                     );
                   })}
@@ -704,6 +816,163 @@ export default function DueDiligenceDashboardPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={swapModalOpen} onOpenChange={(open) => { if (!open && !swapMutation.isPending) handleCancelSwap(); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" data-testid="swap-form-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="w-5 h-5" />
+              Swap Due Diligence Form
+            </DialogTitle>
+            <DialogDescription>
+              {swapPreview ? (
+                <>Swap from <strong>{swapPreview.sourceForm?.name}</strong> to <strong>{swapPreview.targetForm?.name}</strong></>
+              ) : 'Loading preview...'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {swapPreviewLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : swapPreview ? (
+            <ScrollArea className="flex-1 max-h-[50vh]">
+              <div className="space-y-6 pr-4">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <Card className="p-3">
+                    <div className="text-2xl font-bold text-green-600">{swapPreview.summary.fieldsWithValues}</div>
+                    <div className="text-xs text-muted-foreground">Fields copied</div>
+                  </Card>
+                  <Card className="p-3">
+                    <div className="text-2xl font-bold text-amber-500">{swapPreview.summary.newEmptyFieldsCount}</div>
+                    <div className="text-xs text-muted-foreground">New empty fields</div>
+                  </Card>
+                  <Card className="p-3">
+                    <div className="text-2xl font-bold text-slate-500">{swapPreview.summary.ignoredFieldsWithValues}</div>
+                    <div className="text-xs text-muted-foreground">Fields ignored</div>
+                  </Card>
+                </div>
+
+                {swapPreview.fieldMapping.mapped.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <Check className="w-4 h-4 text-green-600" />
+                      Fields to Copy ({swapPreview.fieldMapping.mapped.filter(f => f.hasValue).length})
+                    </h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {swapPreview.fieldMapping.mapped.filter(f => f.hasValue).map((field, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-xs bg-muted/50 p-2 rounded">
+                          <span className="truncate flex-1">{field.sourceFieldLabel}</span>
+                          <ArrowRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                          <span className="truncate flex-1">{field.targetFieldLabel}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {swapPreview.fieldMapping.newEmpty.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      New Empty Fields ({swapPreview.fieldMapping.newEmpty.length})
+                    </h4>
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                      {swapPreview.fieldMapping.newEmpty.map((field, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-xs bg-amber-500/10 p-2 rounded">
+                          <span className="truncate">{field.fieldLabel}</span>
+                          {field.required && <Badge variant="outline" className="text-[10px] h-4">Required</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {swapPreview.fieldMapping.ignored.filter(f => f.hasValue).length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <X className="w-4 h-4 text-slate-500" />
+                      Fields to Ignore ({swapPreview.fieldMapping.ignored.filter(f => f.hasValue).length})
+                    </h4>
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                      {swapPreview.fieldMapping.ignored.filter(f => f.hasValue).map((field, idx) => (
+                        <div key={idx} className="text-xs bg-muted/50 p-2 rounded text-muted-foreground">
+                          {field.fieldLabel}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {swapPreview.contractStatus.totalActive > 0 && (
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <FileSignature className="w-4 h-4" />
+                      Contract Status
+                    </h4>
+                    {swapPreview.contractStatus.willRelink.length > 0 && (
+                      <div className="mb-2">
+                        <span className="text-xs text-green-600 font-medium">Will be moved to new submission:</span>
+                        <div className="space-y-1 mt-1">
+                          {swapPreview.contractStatus.willRelink.map((contract, idx) => (
+                            <div key={idx} className="text-xs bg-green-500/10 p-2 rounded flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px]">{contract.status}</Badge>
+                              <span>{contract.sourceContactFieldLabel}</span>
+                              <ArrowRight className="w-3 h-3" />
+                              <span>{contract.targetContactFieldLabel}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {swapPreview.contractStatus.willArchive.length > 0 && (
+                      <div>
+                        <span className="text-xs text-amber-600 font-medium">Will remain with archived submission:</span>
+                        <div className="space-y-1 mt-1">
+                          {swapPreview.contractStatus.willArchive.map((contract, idx) => (
+                            <div key={idx} className="text-xs bg-amber-500/10 p-2 rounded flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px]">{contract.status}</Badge>
+                              <span>{contract.sourceContactFieldLabel}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="bg-muted/50 p-3 rounded text-sm">
+                  <strong>Note:</strong> The original submission will be archived. You can still view it by 
+                  including archived submissions in your search.
+                </div>
+              </div>
+            </ScrollArea>
+          ) : null}
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={handleCancelSwap} disabled={swapMutation.isPending} data-testid="button-cancel-swap">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmSwap} 
+              disabled={swapPreviewLoading || swapMutation.isPending}
+              data-testid="button-confirm-swap"
+            >
+              {swapMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Swapping...
+                </>
+              ) : (
+                <>
+                  <ArrowRightLeft className="w-4 h-4 mr-2" />
+                  Confirm Swap
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
