@@ -397,7 +397,8 @@ export default function DueDiligenceDashboardPage() {
     }
   });
 
-  const handleFinalDelete = () => {
+  const handleFinalDelete = (e) => {
+    e.preventDefault();
     if (submissionToDelete) {
       deleteMutation.mutate(submissionToDelete.id);
     }
