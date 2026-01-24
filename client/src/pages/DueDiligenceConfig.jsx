@@ -279,7 +279,11 @@ export default function DueDiligenceConfigPage() {
       f.type === 'email' || 
       f.type === 'text' || 
       f.type === 'short_text' ||
+      f.type === 'long_text' ||
+      f.type === 'textarea' ||
       f.type === 'contact' ||
+      f.type === 'input' ||
+      f.type === 'string' ||
       (f.label || f.name || '').toLowerCase().includes('email')
     );
   };
@@ -288,9 +292,17 @@ export default function DueDiligenceConfigPage() {
     return (form?.fields || []).filter(f => 
       f.type === 'text' || 
       f.type === 'short_text' || 
+      f.type === 'long_text' ||
+      f.type === 'textarea' ||
       f.type === 'name' ||
       f.type === 'contact' ||
-      (f.label || f.name || '').toLowerCase().includes('name')
+      f.type === 'input' ||
+      f.type === 'string' ||
+      f.type === 'select' ||
+      f.type === 'dropdown' ||
+      (f.label || f.name || '').toLowerCase().includes('name') ||
+      (f.label || f.name || '').toLowerCase().includes('first') ||
+      (f.label || f.name || '').toLowerCase().includes('last')
     );
   };
 
