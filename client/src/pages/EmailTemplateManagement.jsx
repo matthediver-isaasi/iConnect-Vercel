@@ -29,7 +29,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -55,21 +57,64 @@ const TEMPLATE_CATEGORIES = [
   { value: 'other', label: 'Other' },
 ];
 
-// Core database field placeholders - use [[placeholder]] syntax for DB values
-// These are auto-resolved from member/organization records, not form field mappings
-const AVAILABLE_PLACEHOLDERS = [
-  { value: '[[member.id]]', label: 'Member ID' },
-  { value: '[[member.full_name]]', label: 'Member Full Name' },
-  { value: '[[member.first_name]]', label: 'Member First Name' },
-  { value: '[[member.last_name]]', label: 'Member Last Name' },
-  { value: '[[member.email]]', label: 'Member Email' },
-  { value: '[[member.phone]]', label: 'Member Phone' },
-  { value: '[[organization.id]]', label: 'Organisation ID' },
-  { value: '[[organization.name]]', label: 'Organisation Name' },
-  { value: '[[organization.invoicing_email]]', label: 'Organisation Email' },
-  { value: '[[organization.phone]]', label: 'Organisation Phone' },
-  { value: '{{set_password_url}}', label: 'Set Password URL' },
+// System placeholders grouped by category
+// [[placeholder]] syntax for DB values, {{placeholder}} syntax for dynamic values
+const PLACEHOLDER_GROUPS = [
+  {
+    label: 'Member',
+    placeholders: [
+      { value: '[[member.id]]', label: 'Member ID' },
+      { value: '[[member.full_name]]', label: 'Member Full Name' },
+      { value: '[[member.first_name]]', label: 'Member First Name' },
+      { value: '[[member.last_name]]', label: 'Member Last Name' },
+      { value: '[[member.email]]', label: 'Member Email' },
+      { value: '[[member.phone]]', label: 'Member Phone' },
+    ]
+  },
+  {
+    label: 'Organisation',
+    placeholders: [
+      { value: '[[organization.id]]', label: 'Organisation ID' },
+      { value: '[[organization.name]]', label: 'Organisation Name' },
+      { value: '[[organization.invoicing_email]]', label: 'Organisation Email' },
+      { value: '[[organization.phone]]', label: 'Organisation Phone' },
+    ]
+  },
+  {
+    label: 'Due Diligence',
+    placeholders: [
+      { value: '{{due_diligence_status}}', label: 'DD Status' },
+      { value: '{{due_diligence_stage}}', label: 'DD Stage Name' },
+      { value: '{{due_diligence_score}}', label: 'DD Score' },
+      { value: '{{due_diligence_risk_level}}', label: 'DD Risk Level' },
+      { value: '{{due_diligence_form_name}}', label: 'DD Form Name' },
+      { value: '{{due_diligence_reviewer}}', label: 'DD Reviewer' },
+      { value: '{{due_diligence_review_date}}', label: 'DD Review Date' },
+    ]
+  },
+  {
+    label: 'Contract',
+    placeholders: [
+      { value: '{{contract_name}}', label: 'Contract Name' },
+      { value: '{{signer_name}}', label: 'Signer Full Name' },
+      { value: '{{signer_first_name}}', label: 'Signer First Name' },
+      { value: '{{signer_last_name}}', label: 'Signer Last Name' },
+      { value: '{{signer_email}}', label: 'Signer Email' },
+      { value: '{{sign_url}}', label: 'Signing URL' },
+      { value: '{{days_remaining}}', label: 'Days Until Expiry' },
+      { value: '{{days_since_sent}}', label: 'Days Since Sent' },
+    ]
+  },
+  {
+    label: 'System',
+    placeholders: [
+      { value: '{{set_password_url}}', label: 'Set Password URL' },
+    ]
+  }
 ];
+
+// Flattened list for backward compatibility
+const AVAILABLE_PLACEHOLDERS = PLACEHOLDER_GROUPS.flatMap(group => group.placeholders);
 
 // System placeholders that are auto-resolved (not mapped from form fields)
 const SYSTEM_PLACEHOLDER_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
@@ -808,15 +853,22 @@ export default function EmailTemplateManagement() {
                   <Label htmlFor="body">Email Body *</Label>
                   <div className="flex items-center gap-2">
                     <Select onValueChange={insertPlaceholder}>
-                      <SelectTrigger className="w-[200px] h-8" data-testid="select-insert-placeholder">
+                      <SelectTrigger className="w-[220px] h-8" data-testid="select-insert-placeholder">
                         <Code className="w-3 h-3 mr-2" />
                         <SelectValue placeholder="Insert placeholder" />
                       </SelectTrigger>
-                      <SelectContent>
-                        {AVAILABLE_PLACEHOLDERS.map(p => (
-                          <SelectItem key={p.value} value={p.value}>
-                            {p.label}
-                          </SelectItem>
+                      <SelectContent className="max-h-[300px]">
+                        {PLACEHOLDER_GROUPS.map(group => (
+                          <SelectGroup key={group.label}>
+                            <SelectLabel className="font-semibold text-xs text-muted-foreground uppercase tracking-wide px-2 py-1.5">
+                              {group.label}
+                            </SelectLabel>
+                            {group.placeholders.map(p => (
+                              <SelectItem key={p.value} value={p.value}>
+                                {p.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         ))}
                       </SelectContent>
                     </Select>
@@ -873,9 +925,10 @@ export default function EmailTemplateManagement() {
                   <div className="flex items-start gap-2">
                     <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
                     <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
-                      <p className="font-medium">Placeholder Syntax</p>
-                      <p><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">[[placeholder]]</code> - Core database values (member/organisation fields from the dropdown above)</p>
-                      <p><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">{"{{placeholder}}"}</code> - Form field values (mapped in Form Builder when using this template)</p>
+                      <p className="font-medium">System Placeholders</p>
+                      <p>Use the dropdown above to insert placeholders for <strong>Member</strong>, <strong>Organisation</strong>, <strong>Due Diligence</strong>, and <strong>Contract</strong> fields.</p>
+                      <p><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">[[placeholder]]</code> - Core database values (auto-resolved from records)</p>
+                      <p><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">{"{{placeholder}}"}</code> - Dynamic values (DD, contracts, form fields)</p>
                     </div>
                   </div>
                 </div>
