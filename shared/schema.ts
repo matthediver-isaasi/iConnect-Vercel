@@ -329,6 +329,12 @@ export const formDueDiligenceConfig = pgTable("form_due_diligence_config", {
   // Dashboard display configuration
   card_reference_field: text("card_reference_field"),
   
+  // Review display settings
+  show_description_fields: boolean("show_description_fields").default(false),
+  
+  // Auto-transition on first edit
+  on_first_edit_stage: varchar("on_first_edit_stage", { length: 100 }),
+  
   is_active: boolean("is_active").default(true),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
@@ -397,6 +403,9 @@ export const formSubmissionDueDiligence = pgTable("form_submission_due_diligence
   archived_reason: text("archived_reason"), // Reason for archiving (e.g., "Swapped to form: XYZ")
   swapped_from_submission_id: varchar("swapped_from_submission_id"), // If this submission was created from a swap, reference to original
   swapped_to_submission_id: varchar("swapped_to_submission_id"), // If this submission was swapped out, reference to new submission
+  
+  // First edit transition guard
+  first_edit_triggered: boolean("first_edit_triggered").default(false), // Prevents duplicate auto-transitions on first edit
   
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),

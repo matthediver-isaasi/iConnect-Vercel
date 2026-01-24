@@ -61,6 +61,7 @@ export default function DueDiligenceConfigPage() {
   const [defaultReviewState, setDefaultReviewState] = useState('amended');
   const [cardReferenceField, setCardReferenceField] = useState('');
   const [showDescriptionFields, setShowDescriptionFields] = useState(false);
+  const [onFirstEditStage, setOnFirstEditStage] = useState('');
   const [scoringRules, setScoringRules] = useState({ rules: [], risk_thresholds: {} });
   const [staticQuestions, setStaticQuestions] = useState([]);
   const [customRiskLevels, setCustomRiskLevels] = useState(DEFAULT_RISK_LEVELS);
@@ -244,6 +245,7 @@ export default function DueDiligenceConfigPage() {
     setDefaultReviewState('amended');
     setCardReferenceField('');
     setShowDescriptionFields(false);
+    setOnFirstEditStage('');
     setScoringRules({ rules: [], risk_thresholds: {} });
     setStaticQuestions([]);
     setCustomRiskLevels(DEFAULT_RISK_LEVELS);
@@ -259,6 +261,7 @@ export default function DueDiligenceConfigPage() {
       setDefaultReviewState(ddConfig.default_review_state || 'amended');
       setCardReferenceField(ddConfig.card_reference_field || '');
       setShowDescriptionFields(ddConfig.show_description_fields || false);
+      setOnFirstEditStage(ddConfig.on_first_edit_stage || '');
       setScoringRules(ddConfig.scoring_rules || { rules: [], risk_thresholds: {} });
       setStaticQuestions(normalizeStaticQuestions(ddConfig.static_questions));
       setCustomRiskLevels(ddConfig.custom_risk_levels?.length > 0 ? ddConfig.custom_risk_levels : DEFAULT_RISK_LEVELS);
@@ -277,6 +280,7 @@ export default function DueDiligenceConfigPage() {
         default_review_state: data.defaultReviewState,
         card_reference_field: data.cardReferenceField || null,
         show_description_fields: data.showDescriptionFields || false,
+        on_first_edit_stage: data.onFirstEditStage || null,
         scoring_rules: data.scoringRules,
         static_questions: data.staticQuestions,
         custom_risk_levels: data.customRiskLevels,
@@ -306,6 +310,7 @@ export default function DueDiligenceConfigPage() {
       defaultReviewState,
       cardReferenceField,
       showDescriptionFields,
+      onFirstEditStage,
       scoringRules,
       staticQuestions,
       customRiskLevels,
@@ -716,6 +721,39 @@ export default function DueDiligenceConfigPage() {
                     data-testid="switch-show-description-fields"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <Label className="text-base font-medium">Auto-Transition on First Edit</Label>
+                <p className="text-sm text-muted-foreground">
+                  Automatically move submissions to a specific stage when they are first edited by a reviewer. Any actions configured on the target stage will run as usual.
+                </p>
+                <Select
+                  value={onFirstEditStage || '__none__'}
+                  onValueChange={(val) => setOnFirstEditStage(val === '__none__' ? '' : val)}
+                  data-testid="select-on-first-edit-stage"
+                >
+                  <SelectTrigger className="w-full max-w-md">
+                    <SelectValue placeholder="Select a stage..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No automatic transition</SelectItem>
+                    {workflowStages
+                      .filter(stage => !stage.is_initial)
+                      .map((stage) => (
+                        <SelectItem key={stage.id} value={stage.id}>
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-3 h-3 rounded-full" 
+                              style={{ backgroundColor: stage.color }}
+                            />
+                            {stage.label}
+                          </div>
+                        </SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
