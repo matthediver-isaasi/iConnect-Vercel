@@ -1006,11 +1006,12 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
 
       const normalizedEmail = email.toLowerCase().trim();
 
-      // Check if member already exists with this email in this organization
+      // Check if member already exists with this email in the tenant (not just organization)
+      // This ensures uniqueness across the entire tenant
       const { data: existingMember } = await supabase
         .from('member')
-        .select('id, email')
-        .eq('organization_id', organizationId)
+        .select('id, email, organization_id')
+        .eq('tenant_id', tenantId)
         .ilike('email', normalizedEmail)
         .single();
 
@@ -1019,7 +1020,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
           action: 'create_member',
           member_action_id: ma.id,
           status: 'skipped',
-          reason: `Member with email ${normalizedEmail} already exists in organization`,
+          reason: `Member with email ${normalizedEmail} already exists in tenant`,
           existing_member_id: existingMember.id
         });
         continue;
@@ -1073,20 +1074,82 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         }
       }
 
-      // Create the member
-      const { data: newMember, error: createError } = await supabase
-        .from('member')
-        .insert(memberData)
-        .select()
-        .single();
+      // Create the member - wrapped in try-catch to handle race conditions
+      // If another process creates the same email between our check and insert,
+      // the unique constraint will cause a database error which we handle gracefully
+      let newMember;
+      try {
+        const { data, error: createError } = await supabase
+          .from('member')
+          .insert(memberData)
+          .select()
+          .single();
 
-      if (createError || !newMember) {
-        console.error('[DD Member Action] Failed to create member:', createError);
+        if (createError) {
+          // Check if this is a unique constraint violation (race condition)
+          const isUniqueViolation = 
+            createError.code === '23505' || // PostgreSQL unique_violation error code
+            createError.message?.includes('duplicate key') ||
+            createError.message?.includes('unique constraint') ||
+            createError.message?.includes('member_email_tenant_unique');
+          
+          if (isUniqueViolation) {
+            console.log(`[DD Member Action] Race condition detected - member with email ${normalizedEmail} was just created by another process`);
+            results.push({
+              action: 'create_member',
+              member_action_id: ma.id,
+              status: 'skipped',
+              reason: `Member with email ${normalizedEmail} was just created (race condition handled)`
+            });
+            continue;
+          }
+          
+          // Other database errors
+          console.error('[DD Member Action] Failed to create member:', createError);
+          results.push({
+            action: 'create_member',
+            member_action_id: ma.id,
+            status: 'failed',
+            reason: createError?.message || 'Failed to create member'
+          });
+          continue;
+        }
+        
+        newMember = data;
+      } catch (err) {
+        // Handle any unexpected errors (including constraint violations thrown as exceptions)
+        const isUniqueViolation = 
+          err?.code === '23505' ||
+          err?.message?.includes('duplicate key') ||
+          err?.message?.includes('unique constraint');
+        
+        if (isUniqueViolation) {
+          console.log(`[DD Member Action] Race condition caught - member with email ${normalizedEmail} already exists`);
+          results.push({
+            action: 'create_member',
+            member_action_id: ma.id,
+            status: 'skipped',
+            reason: `Member with email ${normalizedEmail} was just created (race condition handled)`
+          });
+          continue;
+        }
+        
+        console.error('[DD Member Action] Unexpected error creating member:', err);
         results.push({
           action: 'create_member',
           member_action_id: ma.id,
           status: 'failed',
-          reason: createError?.message || 'Failed to create member'
+          reason: err?.message || 'Unexpected error creating member'
+        });
+        continue;
+      }
+
+      if (!newMember) {
+        results.push({
+          action: 'create_member',
+          member_action_id: ma.id,
+          status: 'failed',
+          reason: 'Failed to create member - no data returned'
         });
         continue;
       }
