@@ -479,6 +479,11 @@ export default function DueDiligenceConfigPage() {
 
   const availableFields = useMemo(() => form?.fields || [], [form]);
 
+  const getFieldLabel = (fieldId) => {
+    const field = availableFields.find(f => f.id === fieldId || f.name === fieldId);
+    return field?.label || field?.name || fieldId;
+  };
+
   // Get contact fields that have an associated contract form (signatories)
   const signatoryFields = useMemo(() => {
     return (form?.fields || []).filter(f => f.type === 'contact' && f.contract_form_id);
@@ -1281,9 +1286,9 @@ export default function DueDiligenceConfigPage() {
                                                       <div className="flex items-center gap-2 flex-wrap">
                                                         <Calendar className="w-4 h-4 text-muted-foreground" />
                                                         <span className="text-sm">{mr.meeting_template?.name || 'Unknown meeting type'}</span>
-                                                        <Badge variant="outline" className="text-xs">Email: {mr.recipient_email_field}</Badge>
+                                                        <Badge variant="outline" className="text-xs">Email: {getFieldLabel(mr.recipient_email_field)}</Badge>
                                                         {mr.first_name_field && (
-                                                          <Badge variant="outline" className="text-xs">Name: {mr.first_name_field}</Badge>
+                                                          <Badge variant="outline" className="text-xs">Name: {getFieldLabel(mr.first_name_field)}</Badge>
                                                         )}
                                                       </div>
                                                       <div className="flex items-center gap-1">
