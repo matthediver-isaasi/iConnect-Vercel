@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -488,8 +488,10 @@ export default function ReviewSubmissionPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [agentSelectionModal, setAgentSelectionModal] = useState({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
+  const [agentSelectionModal, setAgentSelectionModal] = useState({ open: false, agents: [], pendingStatus: null, meetingActions: [], requiresCustomMessage: false, emailActions: [] });
   const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [customMessageModal, setCustomMessageModal] = useState({ open: false, pendingStatus: null, emailActions: [], pendingAgentId: null });
+  const [customMessageText, setCustomMessageText] = useState('');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -685,11 +687,12 @@ export default function ReviewSubmissionPage() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ newStatus, selectedAgentId }) => {
+    mutationFn: async ({ newStatus, selectedAgentId, customMessage }) => {
       return await apiRequest('POST', '/api/due-diligence/update-status', {
         submissionId: submissionId,
         newStatus: newStatus,
-        selectedAgentId: selectedAgentId || null
+        selectedAgentId: selectedAgentId || null,
+        customMessage: customMessage || null
       });
     },
     onSuccess: (data) => {
@@ -754,12 +757,18 @@ export default function ReviewSubmissionPage() {
       return;
     }
     
-    // Check if this stage has meeting request actions with multiple agents
+    // Check if this stage has meeting request actions with multiple agents or email actions with custom message
     try {
       const formId = form?.id || ddSubmission?.form_submission?.form_id;
       console.log('[ReviewSubmission] formId:', formId);
       console.log('[ReviewSubmission] form:', form);
       console.log('[ReviewSubmission] ddSubmission?.form_submission?.form_id:', ddSubmission?.form_submission?.form_id);
+      
+      let requiresAgentSelection = false;
+      let requiresCustomMessage = false;
+      let allAgents = [];
+      let emailActions = [];
+      let meetingActions = [];
       
       if (formId) {
         console.log('[ReviewSubmission] Calling check-stage-actions API...');
@@ -770,14 +779,20 @@ export default function ReviewSubmissionPage() {
         
         console.log('[ReviewSubmission] check-stage-actions response:', checkResult);
         console.log('[ReviewSubmission] requires_agent_selection:', checkResult.requires_agent_selection);
+        console.log('[ReviewSubmission] requires_custom_message:', checkResult.requires_custom_message);
         console.log('[ReviewSubmission] meeting_actions length:', checkResult.meeting_actions?.length);
+        console.log('[ReviewSubmission] email_actions length:', checkResult.email_actions?.length);
         console.log('[ReviewSubmission] DEBUG INFO:', checkResult._debug);
         
-        if (checkResult.requires_agent_selection && checkResult.meeting_actions?.length > 0) {
+        requiresAgentSelection = checkResult.requires_agent_selection;
+        requiresCustomMessage = checkResult.requires_custom_message;
+        meetingActions = checkResult.meeting_actions || [];
+        emailActions = checkResult.email_actions || [];
+        
+        if (requiresAgentSelection && meetingActions.length > 0) {
           // Get all unique agents from all meeting actions
-          const allAgents = [];
           const seenIds = new Set();
-          checkResult.meeting_actions.forEach(action => {
+          meetingActions.forEach(action => {
             action.agents.forEach(agent => {
               if (!seenIds.has(agent.identity_id)) {
                 seenIds.add(agent.identity_id);
@@ -796,7 +811,9 @@ export default function ReviewSubmissionPage() {
               open: true,
               agents: allAgents,
               pendingStatus: newStatus,
-              meetingActions: checkResult.meeting_actions
+              meetingActions: meetingActions,
+              requiresCustomMessage: requiresCustomMessage,
+              emailActions: emailActions
             });
             setSelectedAgentId(allAgents[0]?.identity_id || null);
             return;
@@ -806,12 +823,24 @@ export default function ReviewSubmissionPage() {
             return;
           }
           console.log('[ReviewSubmission] Only 1 agent, auto-selecting');
-          // If only 1 agent, proceed without modal (will auto-select first)
         } else {
           console.log('[ReviewSubmission] Agent selection not required or no meeting actions');
         }
+        
+        // If no agent selection needed but custom message is required, show custom message modal
+        if (!requiresAgentSelection && requiresCustomMessage) {
+          console.log('[ReviewSubmission] Opening custom message modal (no agent selection needed)');
+          setCustomMessageModal({
+            open: true,
+            pendingStatus: newStatus,
+            emailActions: emailActions,
+            pendingAgentId: null
+          });
+          setCustomMessageText('');
+          return;
+        }
       } else {
-        console.log('[ReviewSubmission] No formId available, skipping agent check');
+        console.log('[ReviewSubmission] No formId available, skipping stage action checks');
       }
     } catch (error) {
       console.error('[ReviewSubmission] Error checking stage actions:', error);
@@ -822,23 +851,55 @@ export default function ReviewSubmissionPage() {
       }
     }
     
-    // No agent selection needed, proceed directly
-    console.log('[ReviewSubmission] Proceeding with status update, no agent selection needed');
-    updateStatusMutation.mutate({ newStatus, selectedAgentId: null });
+    // No modals needed, proceed directly
+    console.log('[ReviewSubmission] Proceeding with status update, no modals needed');
+    updateStatusMutation.mutate({ newStatus, selectedAgentId: null, customMessage: null });
   };
 
   const handleConfirmAgentSelection = () => {
-    const { pendingStatus } = agentSelectionModal;
+    const { pendingStatus, requiresCustomMessage, emailActions } = agentSelectionModal;
     console.log('[ReviewSubmission] handleConfirmAgentSelection called');
     console.log('[ReviewSubmission] pendingStatus:', pendingStatus);
     console.log('[ReviewSubmission] selectedAgentId:', selectedAgentId);
-    setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
-    updateStatusMutation.mutate({ newStatus: pendingStatus, selectedAgentId });
+    console.log('[ReviewSubmission] requiresCustomMessage:', requiresCustomMessage);
+    
+    setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [], requiresCustomMessage: false, emailActions: [] });
+    
+    // If custom message is also required, show that modal next
+    if (requiresCustomMessage) {
+      console.log('[ReviewSubmission] Opening custom message modal after agent selection');
+      setCustomMessageModal({
+        open: true,
+        pendingStatus: pendingStatus,
+        emailActions: emailActions || [],
+        pendingAgentId: selectedAgentId
+      });
+      setCustomMessageText('');
+      return;
+    }
+    
+    updateStatusMutation.mutate({ newStatus: pendingStatus, selectedAgentId, customMessage: null });
   };
 
   const handleCancelAgentSelection = () => {
-    setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
+    setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [], requiresCustomMessage: false, emailActions: [] });
     setSelectedAgentId(null);
+  };
+
+  const handleConfirmCustomMessage = () => {
+    const { pendingStatus, pendingAgentId } = customMessageModal;
+    console.log('[ReviewSubmission] handleConfirmCustomMessage called');
+    console.log('[ReviewSubmission] pendingStatus:', pendingStatus);
+    console.log('[ReviewSubmission] pendingAgentId:', pendingAgentId);
+    console.log('[ReviewSubmission] customMessageText:', customMessageText);
+    
+    setCustomMessageModal({ open: false, pendingStatus: null, emailActions: [], pendingAgentId: null });
+    updateStatusMutation.mutate({ newStatus: pendingStatus, selectedAgentId: pendingAgentId, customMessage: customMessageText });
+  };
+
+  const handleCancelCustomMessage = () => {
+    setCustomMessageModal({ open: false, pendingStatus: null, emailActions: [], pendingAgentId: null });
+    setCustomMessageText('');
   };
 
   // Check if we should show description/instructions fields
@@ -1488,6 +1549,40 @@ export default function ReviewSubmissionPage() {
               Cancel
             </Button>
             <Button onClick={handleConfirmAgentSelection} disabled={!selectedAgentId} data-testid="button-confirm-agent">
+              Confirm & Change Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={customMessageModal.open} onOpenChange={(open) => !open && handleCancelCustomMessage()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              Add Custom Message
+            </DialogTitle>
+            <DialogDescription>
+              Enter a custom message to include in the email{customMessageModal.emailActions?.length > 1 ? 's' : ''} that will be sent when changing to this stage.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Textarea
+              value={customMessageText}
+              onChange={(e) => setCustomMessageText(e.target.value)}
+              placeholder="Enter your custom message here..."
+              rows={4}
+              data-testid="textarea-custom-message"
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              This message will replace the <code className="bg-muted px-1 rounded">{"{{custom_message}}"}</code> placeholder in the email template.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelCustomMessage} data-testid="button-cancel-custom-message">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmCustomMessage} data-testid="button-confirm-custom-message">
               Confirm & Change Status
             </Button>
           </DialogFooter>

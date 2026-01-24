@@ -59,7 +59,7 @@ export default async function handler(req, res) {
         recipient_email_field, 
         recipient_name_field,
         cc_emails,
-        custom_message,
+        prompt_custom_message,
         sort_order,
         is_active 
       } = req.body;
@@ -83,7 +83,7 @@ export default async function handler(req, res) {
           recipient_email_field,
           recipient_name_field: recipient_name_field || null,
           cc_emails: cc_emails || null,
-          custom_message: custom_message || null,
+          prompt_custom_message: prompt_custom_message || false,
           sort_order: sort_order || 0,
           is_active: is_active !== false
         })

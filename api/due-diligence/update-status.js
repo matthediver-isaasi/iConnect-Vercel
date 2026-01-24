@@ -128,7 +128,7 @@ export default async function handler(req, res) {
       ddSubmission,
       tenantCtx.tenantId,
       member.email,
-      { selectedAgentId }
+      { selectedAgentId, customMessage }
     );
     const stageActionsResults = actionResults.stage_actions_results || [];
 

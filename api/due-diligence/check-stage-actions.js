@@ -35,7 +35,10 @@ export default async function handler(req, res) {
     const result = {
       has_meeting_actions: false,
       meeting_actions: [],
-      requires_agent_selection: false
+      requires_agent_selection: false,
+      has_email_actions: false,
+      email_actions: [],
+      requires_custom_message: false
     };
 
     // Query stage_meeting_request for this stage
@@ -194,6 +197,38 @@ export default async function handler(req, res) {
     
     // Always require agent selection when there are meeting actions (even with 1 agent for better UX)
     result.requires_agent_selection = allUniqueAgents.size >= 1;
+
+    // Check for email actions that require custom message prompt
+    console.log('[DD Check Stage Actions] Querying stage_email_action for stageId:', stageId);
+    const { data: emailActions, error: eaError } = await supabase
+      .from('stage_email_action')
+      .select(`
+        id,
+        due_diligence_stage_id,
+        is_active,
+        prompt_custom_message,
+        email_template:email_template_id (
+          id, name, subject
+        )
+      `)
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (!eaError && emailActions && emailActions.length > 0) {
+      result.has_email_actions = true;
+      result.email_actions = emailActions.map(ea => ({
+        id: ea.id,
+        template_id: ea.email_template?.id,
+        template_name: ea.email_template?.name,
+        prompt_custom_message: ea.prompt_custom_message || false
+      }));
+      
+      // Check if any email action requires custom message prompt
+      result.requires_custom_message = emailActions.some(ea => ea.prompt_custom_message === true);
+      console.log('[DD Check Stage Actions] Email actions found:', emailActions.length, 'requires_custom_message:', result.requires_custom_message);
+    }
 
     console.log('[DD Check Stage Actions] Final result:', JSON.stringify(result, null, 2));
     console.log('[DD Check Stage Actions] ========== END ==========');

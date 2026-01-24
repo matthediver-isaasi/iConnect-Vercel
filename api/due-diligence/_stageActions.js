@@ -657,10 +657,12 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
   return results;
 }
 
-export async function executeEmailTemplateActions(stageId, ddSubmission, tenantId, triggeredBy) {
+export async function executeEmailTemplateActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+  const { customMessage } = options;
   const results = [];
   
   console.log('[DD Email Action] ========== START executeEmailTemplateActions ==========');
+  console.log('[DD Email Action] customMessage from options:', customMessage);
   console.log('[DD Email Action] Params:', { stageId, tenantId, triggeredBy });
   console.log('[DD Email Action] ddSubmission ID:', ddSubmission?.id);
   console.log('[DD Email Action] form_submission_id:', ddSubmission?.form_submission_id);
@@ -795,13 +797,13 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
         }
       }
 
-      // Get custom message from email action config
-      const customMessage = ea.custom_message || '';
+      // Get custom message - use options.customMessage if prompt_custom_message is enabled
+      const customMessageValue = ea.prompt_custom_message ? (customMessage || '') : '';
 
       // Replace common placeholders
       const replacePlaceholders = (text) => {
         return text
-          .replace(/\{\{custom_message\}\}/gi, customMessage)
+          .replace(/\{\{custom_message\}\}/gi, customMessageValue)
           .replace(/\{\{recipient_name\}\}/gi, fullName || 'there')
           .replace(/\{\{recipient_first_name\}\}/gi, firstName || 'there')
           .replace(/\{\{recipient_last_name\}\}/gi, lastName)
@@ -949,7 +951,8 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     stageId,
     ddSubmission,
     tenantId,
-    triggeredBy
+    triggeredBy,
+    options
   );
   results.push(...emailResults);
 
