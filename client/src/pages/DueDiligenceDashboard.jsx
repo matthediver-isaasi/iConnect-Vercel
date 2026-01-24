@@ -130,6 +130,7 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
   };
 
   const swapTargetForms = eligibleForms.filter(f => f.id !== currentFormId);
+  const isSwapAllowed = stage.allow_swap !== false;
   
   return (
     <TableRow 
@@ -173,7 +174,9 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
         {reviewerDisplay}
       </TableCell>
       <TableCell style={{ width: columnWidths.swap, minWidth: columnWidths.swap }} onClick={(e) => e.stopPropagation()}>
-        {swapTargetForms.length > 0 ? (
+        {!isSwapAllowed ? (
+          <span className="text-muted-foreground text-xs">Swap disabled</span>
+        ) : swapTargetForms.length > 0 ? (
           <Select onValueChange={handleSwapSelect}>
             <SelectTrigger className="h-8 text-xs" data-testid={`select-swap-form-${submission.id}`}>
               <SelectValue placeholder="Swap form..." />
@@ -325,6 +328,16 @@ export default function DueDiligenceDashboardPage() {
     ddConfigs.forEach(config => {
       if (config.form_id && config.card_reference_field) {
         lookup[config.form_id] = config.card_reference_field;
+      }
+    });
+    return lookup;
+  }, [ddConfigs]);
+
+  const workflowStagesByFormId = useMemo(() => {
+    const lookup = {};
+    ddConfigs.forEach(config => {
+      if (config.form_id && config.workflow_stages?.length > 0) {
+        lookup[config.form_id] = config.workflow_stages;
       }
     });
     return lookup;
@@ -665,11 +678,12 @@ export default function DueDiligenceDashboardPage() {
                   {filteredSubmissions.map((submission) => {
                     const formId = submission.form_submission?.form_id;
                     const refField = formId ? cardReferenceFieldByFormId[formId] : null;
+                    const formWorkflowStages = (formId && workflowStagesByFormId[formId]) || workflowStages;
                     return (
                       <SubmissionRow
                         key={submission.id}
                         submission={submission}
-                        workflowStages={workflowStages}
+                        workflowStages={formWorkflowStages}
                         riskLevels={riskLevels}
                         onClick={handleRowClick}
                         onDelete={handleDeleteClick}

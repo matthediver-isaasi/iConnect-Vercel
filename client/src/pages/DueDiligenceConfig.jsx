@@ -1260,6 +1260,14 @@ export default function DueDiligenceConfigPage() {
                                   >
                                     <Star className={cn("w-4 h-4", stage.is_initial && "fill-current")} />
                                   </Button>
+                                  <div className="flex items-center gap-2 px-2 border-l">
+                                    <Switch
+                                      checked={stage.allow_swap !== false}
+                                      onCheckedChange={(checked) => updateWorkflowStage(index, 'allow_swap', checked)}
+                                      data-testid={`switch-allow-swap-${index}`}
+                                    />
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap">Allow Swap</span>
+                                  </div>
                                   <Button
                                     variant="ghost"
                                     size="icon"
