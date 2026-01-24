@@ -70,6 +70,7 @@ export default function DueDiligenceConfigPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
+  const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, editId? }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -140,6 +141,27 @@ export default function DueDiligenceConfigPage() {
   });
   const stageMeetingRequests = stageMeetingRequestsData || [];
 
+  const { data: emailTemplatesData } = useQuery({
+    queryKey: ['email-templates'],
+    queryFn: async () => {
+      return await base44.entities.EmailTemplate.list();
+    },
+    enabled: !!formId && accessChecked
+  });
+  const emailTemplates = emailTemplatesData || [];
+
+  const { data: stageEmailActionsData, refetch: refetchStageEmailActions } = useQuery({
+    queryKey: ['stage-email-actions'],
+    queryFn: async () => {
+      const response = await fetch('/api/stage-email-actions', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.email_actions || [];
+    },
+    enabled: !!formId && accessChecked
+  });
+  const stageEmailActions = stageEmailActionsData || [];
+
   const addStageMeetingRequest = async (stageId, meetingTemplateId, recipientEmailField, firstNameField) => {
     try {
       const response = await fetch('/api/stage-meeting-requests', {
@@ -192,6 +214,63 @@ export default function DueDiligenceConfigPage() {
       toast.success('Meeting request action updated');
     } catch (err) {
       toast.error(err.message || 'Failed to update meeting request');
+    }
+  };
+
+  const addStageEmailAction = async (stageId, emailTemplateId, recipientEmailField, recipientNameField, ccEmails) => {
+    try {
+      const response = await fetch('/api/stage-email-actions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          due_diligence_stage_id: stageId,
+          email_template_id: emailTemplateId,
+          recipient_email_field: recipientEmailField,
+          recipient_name_field: recipientNameField,
+          cc_emails: ccEmails
+        })
+      });
+      if (!response.ok) throw new Error('Failed to add email action');
+      await refetchStageEmailActions();
+      toast.success('Email template action added');
+    } catch (err) {
+      toast.error(err.message || 'Failed to add email action');
+    }
+  };
+
+  const removeStageEmailAction = async (id) => {
+    try {
+      const response = await fetch(`/api/stage-email-actions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to remove email action');
+      await refetchStageEmailActions();
+      toast.success('Email template action removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove email action');
+    }
+  };
+
+  const updateStageEmailAction = async (id, emailTemplateId, recipientEmailField, recipientNameField, ccEmails) => {
+    try {
+      const response = await fetch(`/api/stage-email-actions/${id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_template_id: emailTemplateId,
+          recipient_email_field: recipientEmailField,
+          recipient_name_field: recipientNameField,
+          cc_emails: ccEmails
+        })
+      });
+      if (!response.ok) throw new Error('Failed to update email action');
+      await refetchStageEmailActions();
+      toast.success('Email template action updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update email action');
     }
   };
 
@@ -253,6 +332,7 @@ export default function DueDiligenceConfigPage() {
     setStatusWebhooks([]);
     setOpenStageSection({});
     setPendingMeetingRequest(null);
+    setPendingEmailAction(null);
   }, [formId]);
 
   useEffect(() => {
@@ -1061,7 +1141,9 @@ export default function DueDiligenceConfigPage() {
                                   >
                                     <Play className="w-4 h-4 mr-1" />
                                     Actions
-                                    {(stage.stage_actions?.send_contracts?.length > 0) && (
+                                    {(stage.stage_actions?.send_contracts?.length > 0 || 
+                                      stageMeetingRequests.some(mr => mr.due_diligence_stage_id === stage.id) ||
+                                      stageEmailActions.some(ea => ea.due_diligence_stage_id === stage.id)) && (
                                       <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
                                     )}
                                   </Button>
@@ -1426,6 +1508,189 @@ export default function DueDiligenceConfigPage() {
                                                     >
                                                       <Plus className="w-4 h-4 mr-1" />
                                                       Add Meeting Invitation
+                                                    </Button>
+                                                  )}
+                                                </>
+                                              );
+                                            })()}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <Mail className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">Send Email Template</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Send an email using a template when this stage is selected.
+                                          The recipient email and name will be pulled from the form submission.
+                                        </p>
+                                        {emailTemplates.length === 0 ? (
+                                          <p className="text-sm text-muted-foreground italic">
+                                            No email templates configured. Create email templates in Email Template Management.
+                                          </p>
+                                        ) : (
+                                          <div className="space-y-2">
+                                            {(() => {
+                                              const stageActions = stageEmailActions.filter(ea => ea.due_diligence_stage_id === stage.id);
+                                              return (
+                                                <>
+                                                  {stageActions.map((ea) => (
+                                                    <div key={ea.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
+                                                      <div className="flex items-center gap-2 flex-wrap">
+                                                        <Mail className="w-4 h-4 text-muted-foreground" />
+                                                        <span className="text-sm">{ea.email_template?.name || 'Unknown template'}</span>
+                                                        <Badge variant="outline" className="text-xs">To: {getFieldLabel(ea.recipient_email_field)}</Badge>
+                                                        {ea.recipient_name_field && (
+                                                          <Badge variant="outline" className="text-xs">Name: {getFieldLabel(ea.recipient_name_field)}</Badge>
+                                                        )}
+                                                        {ea.cc_emails && (
+                                                          <Badge variant="outline" className="text-xs">CC: {ea.cc_emails}</Badge>
+                                                        )}
+                                                      </div>
+                                                      <div className="flex items-center gap-1">
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => setPendingEmailAction({
+                                                            stageId: stage.id,
+                                                            templateId: ea.email_template_id,
+                                                            emailField: ea.recipient_email_field,
+                                                            nameField: ea.recipient_name_field || '',
+                                                            ccEmails: ea.cc_emails || '',
+                                                            editId: ea.id
+                                                          })}
+                                                          data-testid={`button-edit-email-action-${ea.id}`}
+                                                        >
+                                                          <Pencil className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => removeStageEmailAction(ea.id)}
+                                                          data-testid={`button-remove-email-action-${ea.id}`}
+                                                        >
+                                                          <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  ))}
+                                                  
+                                                  {pendingEmailAction?.stageId === stage.id ? (
+                                                    <div className="space-y-3 p-3 border rounded bg-muted/30">
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Email Template</Label>
+                                                        <Select
+                                                          value={pendingEmailAction.templateId || ''}
+                                                          onValueChange={(v) => setPendingEmailAction(prev => ({ ...prev, templateId: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-email-template-${index}`}>
+                                                            <SelectValue placeholder="Select email template..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {emailTemplates.map(template => (
+                                                              <SelectItem key={template.id} value={template.id}>
+                                                                {template.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Recipient Email Field</Label>
+                                                        <Select
+                                                          value={pendingEmailAction.emailField || ''}
+                                                          onValueChange={(v) => setPendingEmailAction(prev => ({ ...prev, emailField: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-email-field-${index}`}>
+                                                            <SelectValue placeholder="Select email field..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {getEmailFields().map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Name Field (optional)</Label>
+                                                        <Select
+                                                          value={pendingEmailAction.nameField || ''}
+                                                          onValueChange={(v) => setPendingEmailAction(prev => ({ ...prev, nameField: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-name-field-${index}`}>
+                                                            <SelectValue placeholder="Select name field (optional)..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            <SelectItem value="">None</SelectItem>
+                                                            {getTextFields().map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">CC Emails (optional, comma-separated)</Label>
+                                                        <Input
+                                                          value={pendingEmailAction.ccEmails || ''}
+                                                          onChange={(e) => setPendingEmailAction(prev => ({ ...prev, ccEmails: e.target.value }))}
+                                                          placeholder="e.g. admin@example.com, team@example.com"
+                                                          data-testid={`input-pending-cc-emails-${index}`}
+                                                        />
+                                                      </div>
+                                                      <div className="flex gap-2 justify-end">
+                                                        <Button
+                                                          size="sm"
+                                                          variant="ghost"
+                                                          onClick={() => setPendingEmailAction(null)}
+                                                          data-testid={`button-cancel-email-action-${index}`}
+                                                        >
+                                                          Cancel
+                                                        </Button>
+                                                        <Button
+                                                          size="sm"
+                                                          disabled={!pendingEmailAction.templateId || !pendingEmailAction.emailField}
+                                                          onClick={async () => {
+                                                            if (pendingEmailAction.editId) {
+                                                              await updateStageEmailAction(
+                                                                pendingEmailAction.editId,
+                                                                pendingEmailAction.templateId,
+                                                                pendingEmailAction.emailField,
+                                                                pendingEmailAction.nameField || null,
+                                                                pendingEmailAction.ccEmails || null
+                                                              );
+                                                            } else {
+                                                              await addStageEmailAction(
+                                                                stage.id,
+                                                                pendingEmailAction.templateId,
+                                                                pendingEmailAction.emailField,
+                                                                pendingEmailAction.nameField || null,
+                                                                pendingEmailAction.ccEmails || null
+                                                              );
+                                                            }
+                                                            setPendingEmailAction(null);
+                                                          }}
+                                                          data-testid={`button-confirm-email-action-${index}`}
+                                                        >
+                                                          {pendingEmailAction.editId ? 'Update' : 'Add'}
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      onClick={() => setPendingEmailAction({ stageId: stage.id, templateId: '', emailField: '', nameField: '', ccEmails: '' })}
+                                                      className="mt-2"
+                                                      data-testid={`button-add-email-action-${index}`}
+                                                    >
+                                                      <Plus className="w-4 h-4 mr-1" />
+                                                      Add Email Template
                                                     </Button>
                                                   )}
                                                 </>

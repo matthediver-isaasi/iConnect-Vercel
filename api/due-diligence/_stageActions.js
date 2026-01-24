@@ -657,6 +657,232 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
   return results;
 }
 
+export async function executeEmailTemplateActions(stageId, ddSubmission, tenantId, triggeredBy) {
+  const results = [];
+  
+  console.log('[DD Email Action] ========== START executeEmailTemplateActions ==========');
+  console.log('[DD Email Action] Params:', { stageId, tenantId, triggeredBy });
+  console.log('[DD Email Action] ddSubmission ID:', ddSubmission?.id);
+  console.log('[DD Email Action] form_submission_id:', ddSubmission?.form_submission_id);
+  
+  try {
+    // Fetch email action configs for this stage
+    console.log('[DD Email Action] Querying stage_email_action for stageId:', stageId, 'tenantId:', tenantId);
+    const { data: emailActions, error: eaError } = await supabase
+      .from('stage_email_action')
+      .select(`
+        *,
+        email_template:email_template_id (
+          id, name, subject, body, from_email, reply_to
+        )
+      `)
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (eaError) {
+      console.log('[DD Email Action] Query error:', eaError);
+      return results;
+    }
+    if (!emailActions || emailActions.length === 0) {
+      console.log('[DD Email Action] No email action configs found for this stage. Returning empty results.');
+      return results;
+    }
+    console.log('[DD Email Action] Found', emailActions.length, 'email action config(s):', emailActions.map(ea => ({ id: ea.id, template_id: ea.email_template_id, template_name: ea.email_template?.name })));
+
+    const formSubmissionId = ddSubmission.form_submission_id;
+    if (!formSubmissionId) {
+      console.log('[DD Email Action] No form submission ID, skipping email actions');
+      return results;
+    }
+
+    // Get form submission data
+    const { data: formSubmission, error: subError } = await supabase
+      .from('form_submission')
+      .select('form_id, submission_data, organization_id')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (subError || !formSubmission) {
+      console.error('[DD Email Action] Could not find form submission:', subError);
+      return results;
+    }
+
+    for (const ea of emailActions) {
+      const template = ea.email_template;
+      if (!template) {
+        results.push({
+          action: 'send_email_template',
+          email_action_id: ea.id,
+          status: 'skipped',
+          reason: 'Email template not found'
+        });
+        continue;
+      }
+
+      // Get recipient email from form values - try both field id and name
+      const formValues = formSubmission.submission_data || {};
+      let recipientEmail = formValues[ea.recipient_email_field] || formValues[`field_${ea.recipient_email_field}`];
+      
+      // If still not found, try to find field by searching common patterns
+      if (!recipientEmail) {
+        const emailFieldKey = Object.keys(formValues).find(key => 
+          key === ea.recipient_email_field || 
+          key.includes(ea.recipient_email_field) ||
+          key.endsWith(`_${ea.recipient_email_field}`)
+        );
+        if (emailFieldKey) {
+          recipientEmail = formValues[emailFieldKey];
+        }
+      }
+      
+      // Handle contact field type (email might be nested in an object)
+      if (typeof recipientEmail === 'object' && recipientEmail !== null) {
+        recipientEmail = recipientEmail.email || null;
+      }
+      
+      // Get recipient name with same fallback logic
+      let recipientName = null;
+      if (ea.recipient_name_field) {
+        recipientName = formValues[ea.recipient_name_field] || formValues[`field_${ea.recipient_name_field}`];
+        if (!recipientName) {
+          const nameFieldKey = Object.keys(formValues).find(key => 
+            key === ea.recipient_name_field || 
+            key.includes(ea.recipient_name_field) ||
+            key.endsWith(`_${ea.recipient_name_field}`)
+          );
+          if (nameFieldKey) {
+            recipientName = formValues[nameFieldKey];
+          }
+        }
+      }
+
+      if (!recipientEmail) {
+        results.push({
+          action: 'send_email_template',
+          email_action_id: ea.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: `No email found in field: ${ea.recipient_email_field}`
+        });
+        continue;
+      }
+
+      // Normalize email
+      const normalizedEmail = recipientEmail.toLowerCase().trim();
+
+      // Prepare email content with placeholder replacement
+      let subject = template.subject || 'Notification';
+      let body = template.body || '';
+
+      // Handle name which could be a string or object
+      let firstName = '';
+      let lastName = '';
+      let fullName = '';
+      
+      if (recipientName) {
+        if (typeof recipientName === 'object') {
+          firstName = recipientName.first_name || recipientName.firstName || '';
+          lastName = recipientName.last_name || recipientName.lastName || '';
+          fullName = [firstName, lastName].filter(Boolean).join(' ');
+        } else {
+          fullName = recipientName;
+          const nameParts = recipientName.split(' ');
+          firstName = nameParts[0] || '';
+          lastName = nameParts.slice(1).join(' ') || '';
+        }
+      }
+
+      // Replace common placeholders
+      const replacePlaceholders = (text) => {
+        return text
+          .replace(/\{\{recipient_name\}\}/gi, fullName || 'there')
+          .replace(/\{\{recipient_first_name\}\}/gi, firstName || 'there')
+          .replace(/\{\{recipient_last_name\}\}/gi, lastName)
+          .replace(/\{\{recipient_email\}\}/gi, normalizedEmail)
+          .replace(/\{\{first_name\}\}/gi, firstName || 'there')
+          .replace(/\{\{last_name\}\}/gi, lastName)
+          .replace(/\{\{name\}\}/gi, fullName || 'there')
+          .replace(/\{\{email\}\}/gi, normalizedEmail);
+      };
+
+      subject = replacePlaceholders(subject);
+      body = replacePlaceholders(body);
+
+      // Build email options
+      const emailOptions = {
+        to: normalizedEmail,
+        subject,
+        html: body,
+        from: template.from_email,
+        replyTo: template.reply_to,
+        tenantId
+      };
+
+      // Add CC if configured - validate email format
+      if (ea.cc_emails) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const ccList = ea.cc_emails
+          .split(',')
+          .map(e => e.trim().toLowerCase())
+          .filter(e => {
+            if (!e) return false;
+            if (!emailRegex.test(e)) {
+              console.log(`[DD Email Action] Skipping invalid CC email: ${e}`);
+              return false;
+            }
+            return true;
+          });
+        if (ccList.length > 0) {
+          emailOptions.cc = ccList;
+        }
+      }
+
+      try {
+        console.log('[DD Email Action] About to send email:', {
+          to: normalizedEmail,
+          subject,
+          from: template.from_email,
+          cc: emailOptions.cc || null
+        });
+        
+        await sendEmail(emailOptions);
+        
+        console.log('[DD Email Action] Email sent successfully!');
+        
+        results.push({
+          action: 'send_email_template',
+          email_action_id: ea.id,
+          template_name: template.name,
+          recipient_email: normalizedEmail,
+          status: 'success'
+        });
+      } catch (emailError) {
+        console.error(`[DD Email Action] Failed to send email to ${normalizedEmail}:`, emailError);
+        results.push({
+          action: 'send_email_template',
+          email_action_id: ea.id,
+          template_name: template.name,
+          recipient_email: normalizedEmail,
+          status: 'error',
+          error: emailError.message
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[DD Email Action] Error executing email template actions:', error);
+    results.push({
+      action: 'send_email_template',
+      status: 'error',
+      error: error.message
+    });
+  }
+
+  return results;
+}
+
 export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
   
@@ -713,6 +939,15 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     options
   );
   results.push(...meetingResults);
+
+  // Execute email template actions (stored in stage_email_action table)
+  const emailResults = await executeEmailTemplateActions(
+    stageId,
+    ddSubmission,
+    tenantId,
+    triggeredBy
+  );
+  results.push(...emailResults);
 
   return { stage_actions_results: results };
 }
