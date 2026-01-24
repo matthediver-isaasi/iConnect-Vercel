@@ -1215,7 +1215,7 @@ export default function DueDiligenceConfigPage() {
                                   <Input
                                     value={stage.label}
                                     onChange={(e) => updateWorkflowStage(index, 'label', e.target.value)}
-                                    className="flex-1"
+                                    className="w-48 flex-shrink-0"
                                     data-testid={`input-stage-label-${index}`}
                                   />
                                   <Button 
