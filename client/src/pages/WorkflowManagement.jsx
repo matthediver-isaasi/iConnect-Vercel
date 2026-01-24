@@ -1762,18 +1762,16 @@ export default function WorkflowManagementPage() {
                                 <Select
                                   value={action.config?.contract_form_id || '_none'}
                                   onValueChange={(val) => {
-                                    const selectedForm = contractForms.find(f => f.id === val);
-                                    const requiredSigners = selectedForm?.contract_settings?.required_signers_count || 1;
-                                    const signerMappings = Array.from({ length: requiredSigners }, (_, i) => ({
+                                    const existingMappings = action.config?.signer_mappings || [];
+                                    const signerMappings = existingMappings.length > 0 ? existingMappings : [{
                                       first_name_field: '',
                                       last_name_field: '',
                                       email_field: ''
-                                    }));
+                                    }];
                                     updateAction(index, { 
                                       config: { 
                                         ...action.config, 
                                         contract_form_id: val === '_none' ? null : val,
-                                        required_signers_count: requiredSigners,
                                         signer_mappings: signerMappings
                                       } 
                                     });
@@ -1786,7 +1784,7 @@ export default function WorkflowManagementPage() {
                                     <SelectItem value="_none">Select contract template...</SelectItem>
                                     {contractForms.map(form => (
                                       <SelectItem key={form.id} value={form.id}>
-                                        {form.name} ({form.contract_settings?.required_signers_count || 1} signer{(form.contract_settings?.required_signers_count || 1) !== 1 ? 's' : ''})
+                                        {form.name}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -1834,19 +1832,51 @@ export default function WorkflowManagementPage() {
                                   <Separator />
 
                                   <div className="space-y-3">
-                                    <div className="flex items-center gap-2">
-                                      <Users className="w-4 h-4 text-slate-500" />
-                                      <Label className="font-medium">Signer Mappings</Label>
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <Users className="w-4 h-4 text-slate-500" />
+                                        <Label className="font-medium">Signer Mappings</Label>
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          const mappings = [...(action.config?.signer_mappings || [])];
+                                          mappings.push({ first_name_field: '', last_name_field: '', email_field: '' });
+                                          updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                        }}
+                                        data-testid={`button-add-signer-${index}`}
+                                      >
+                                        <Plus className="w-3 h-3 mr-1" />
+                                        Add Signer
+                                      </Button>
                                     </div>
                                     <p className="text-xs text-slate-500">
-                                      Map fields from the trigger record to each signer's details. This contract requires {action.config?.required_signers_count || 1} signer(s).
+                                      Map fields from the trigger record to each signer's details.
                                     </p>
 
                                     {(action.config?.signer_mappings || []).map((signer, signerIdx) => (
                                       <Card key={signerIdx} className="bg-slate-50">
                                         <CardContent className="p-3 space-y-3">
-                                          <div className="flex items-center gap-2">
+                                          <div className="flex items-center justify-between">
                                             <Badge variant="outline" className="text-xs">Signer {signerIdx + 1}</Badge>
+                                            {(action.config?.signer_mappings || []).length > 1 && (
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 text-slate-400 hover:text-red-500"
+                                                onClick={() => {
+                                                  const mappings = [...(action.config?.signer_mappings || [])];
+                                                  mappings.splice(signerIdx, 1);
+                                                  updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                }}
+                                                data-testid={`button-remove-signer-${signerIdx}-${index}`}
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </Button>
+                                            )}
                                           </div>
                                           <div className="grid grid-cols-3 gap-2">
                                             <div className="space-y-1">

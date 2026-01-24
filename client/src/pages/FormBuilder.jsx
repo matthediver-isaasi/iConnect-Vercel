@@ -4315,35 +4315,6 @@ export default function FormBuilderPage() {
                     </Select>
                   </div>
 
-                  {/* Number of Signers Required */}
-                  <div className="space-y-3 pt-4 border-t border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-slate-500" />
-                      <Label className="text-sm font-medium">Number of Signers Required</Label>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      Specify how many signers are required for this contract template. The actual signer details will be provided when the contract is created via a workflow action.
-                    </p>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      value={formData.contract_settings?.required_signers_count || 1}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        contract_settings: {
-                          ...formData.contract_settings,
-                          required_signers_count: parseInt(e.target.value) || 1
-                        }
-                      })}
-                      className="w-32"
-                      data-testid="input-required-signers-count"
-                    />
-                    <p className="text-xs text-slate-400">
-                      {formData.contract_settings?.required_signers_count || 1} signer{(formData.contract_settings?.required_signers_count || 1) !== 1 ? 's' : ''} will be required to sign this contract.
-                    </p>
-                  </div>
-
                   {/* Reminder Schedule */}
                   <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex items-center justify-between">
