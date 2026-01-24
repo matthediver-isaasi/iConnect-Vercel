@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
