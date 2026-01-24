@@ -34,7 +34,6 @@ import {
   XCircle,
   AlertTriangle,
   RefreshCw,
-  Calendar,
   Timer,
   Minus,
   Bell,
@@ -187,25 +186,6 @@ export default function AdminScheduledTasks() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid gap-6 md:grid-cols-2 mb-8">
-          {logsData?.schedule?.map((task) => (
-            <Card key={task.task_name} className="bg-slate-800 border-slate-700" data-testid={`card-schedule-${task.task_name}`}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base font-medium text-white">{task.display_name}</CardTitle>
-                  <Badge variant="outline" className="font-mono text-xs border-slate-600 text-slate-300">
-                    <Calendar className="w-3 h-3 mr-1" />
-                    {task.schedule}
-                  </Badge>
-                </div>
-                <CardDescription className="text-sm text-slate-400">
-                  {task.description}
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          ))}
-        </div>
-
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="bg-slate-800 border-slate-700" data-testid="tabs-scheduled-tasks">
             <TabsTrigger value="pending" className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400" data-testid="tab-pending">
