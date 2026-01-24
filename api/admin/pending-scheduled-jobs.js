@@ -22,24 +22,17 @@ export default async function handler(req, res) {
     const todayStr = now.toISOString().split('T')[0];
     const pendingJobs = [];
 
-    // Fetch contract instances with tenant filter at DB level via form join
+    // Fetch contract instances for this tenant
     const { data: contractInstances, error: instancesError } = await supabase
       .from('contract_instance')
       .select(`
         *,
-        form:form_id!inner (
-          id,
-          name,
-          slug,
-          tenant_id,
-          contract_settings
-        ),
         organization:organization_id (
           id,
           name
         )
       `)
-      .eq('form.tenant_id', tenant_id)
+      .eq('tenant_id', tenant_id)
       .in('status', ['out_for_signing', 'pending', 'expired']);
 
     if (instancesError) {
@@ -55,6 +48,19 @@ export default async function handler(req, res) {
         pending_jobs: [], 
         summary: { timeouts: 0, reminders: 0, will_send_next_run: 0 } 
       });
+    }
+
+    // Get unique form IDs and fetch forms
+    const formIds = [...new Set(contractInstances.map(i => i.form_id).filter(Boolean))];
+    const { data: forms } = await supabase
+      .from('form')
+      .select('id, name, slug, tenant_id, contract_settings')
+      .eq('tenant_id', tenant_id)
+      .in('id', formIds);
+
+    const formsById = {};
+    for (const form of (forms || [])) {
+      formsById[form.id] = form;
     }
 
     // Fetch all reminder logs for today to check which reminders were already sent
@@ -93,7 +99,7 @@ export default async function handler(req, res) {
     }
 
     for (const instance of contractInstances) {
-      const form = instance.form;
+      const form = formsById[instance.form_id];
       if (!form) continue;
 
       const contractSettings = form.contract_settings || {};
@@ -160,7 +166,6 @@ export default async function handler(req, res) {
       }
 
       // Check for pending reminders (only for out_for_signing contracts not yet expired)
-      // Matches CRON logic exactly
       if (instance.status === 'out_for_signing' && now <= expiryDate) {
         const reminders = contractSettings.reminders || [];
         
@@ -182,7 +187,6 @@ export default async function handler(req, res) {
           
           // Match CRON timing windows exactly
           if (timingType === 'before_timeout') {
-            // CRON: daysUntilExpiry <= reminderDays && daysUntilExpiry > (reminderDays - 1)
             willTrigger = daysUntilExpiry <= reminderDays && daysUntilExpiry > (reminderDays - 1);
             triggerReason = willTrigger 
               ? `In window: ${reminderDays} days before timeout (${daysUntilExpiry} days remaining)`
@@ -190,7 +194,6 @@ export default async function handler(req, res) {
                 ? `Scheduled: ${reminderDays} days before timeout (${daysUntilExpiry} days remaining)`
                 : `Window passed: was ${reminderDays} days before timeout`;
           } else if (timingType === 'after_first_send') {
-            // CRON: daysSinceSent >= reminderDays && daysSinceSent < (reminderDays + 1)
             willTrigger = daysSinceSent >= reminderDays && daysSinceSent < (reminderDays + 1);
             triggerReason = willTrigger
               ? `In window: ${reminderDays} days after send (${daysSinceSent} days elapsed)`
