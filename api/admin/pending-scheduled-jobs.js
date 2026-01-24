@@ -154,6 +154,20 @@ export default async function handler(req, res) {
             reason = 'No source submission linked (cannot send notification)';
           }
 
+          // Calculate expected action date for timeout
+          // Only compute if job is eligible (has form_submission_id)
+          let expectedActionDate = null;
+          if (instance.form_submission_id) {
+            if (willSend) {
+              expectedActionDate = now.toISOString(); // Will send on next CRON run
+            } else if (instance.timeout_notification_sent_at) {
+              // Next send will be 24h after last notification
+              const nextSendDate = new Date(instance.timeout_notification_sent_at);
+              nextSendDate.setHours(nextSendDate.getHours() + 24);
+              expectedActionDate = nextSendDate.toISOString();
+            }
+          }
+
           pendingJobs.push({
             type: 'timeout',
             contract_id: instance.id,
@@ -167,6 +181,7 @@ export default async function handler(req, res) {
             expired_at: expiryDate.toISOString(),
             days_overdue: Math.abs(daysUntilExpiry),
             will_send_on_next_run: willSend,
+            expected_action_date: expectedActionDate,
             reason,
             timeout_round: instance.timeout_notification_round || 0
           });
@@ -230,6 +245,33 @@ export default async function handler(req, res) {
             triggerReason = 'Already sent today to all unsigned signers';
           }
 
+          // Calculate expected action date for reminder
+          // Only compute if job is eligible (has email template and window not passed)
+          let expectedActionDate = null;
+          const hasEmailTemplate = !!reminder.email_template_id;
+          const windowPassed = (timingType === 'before_timeout' && daysUntilExpiry <= (reminderDays - 1)) ||
+                               (timingType === 'after_first_send' && daysSinceSent >= (reminderDays + 1));
+          
+          if (hasEmailTemplate && !windowPassed) {
+            if (willTrigger) {
+              expectedActionDate = now.toISOString(); // Will send on next CRON run
+            } else if (timingType === 'before_timeout') {
+              // Expected date is when daysUntilExpiry reaches reminderDays
+              const triggerDate = new Date(expiryDate);
+              triggerDate.setDate(triggerDate.getDate() - reminderDays);
+              if (triggerDate > now) {
+                expectedActionDate = triggerDate.toISOString();
+              }
+            } else if (timingType === 'after_first_send') {
+              // Expected date is sentDate + reminderDays
+              const triggerDate = new Date(sentDate);
+              triggerDate.setDate(triggerDate.getDate() + reminderDays);
+              if (triggerDate > now) {
+                expectedActionDate = triggerDate.toISOString();
+              }
+            }
+          }
+
           pendingJobs.push({
             type: 'reminder',
             contract_id: instance.id,
@@ -248,6 +290,7 @@ export default async function handler(req, res) {
             days_until_expiry: daysUntilExpiry,
             days_since_sent: daysSinceSent,
             will_send_on_next_run: willTrigger,
+            expected_action_date: expectedActionDate,
             reason: triggerReason
           });
         }

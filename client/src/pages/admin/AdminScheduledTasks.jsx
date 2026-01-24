@@ -263,6 +263,7 @@ export default function AdminScheduledTasks() {
                           <TableHead>Contract</TableHead>
                           <TableHead>Organization</TableHead>
                           <TableHead>Signers</TableHead>
+                          <TableHead data-testid="header-expected-date">Expected Date</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Details</TableHead>
                         </TableRow>
@@ -297,6 +298,32 @@ export default function AdminScheduledTasks() {
                                   <span className="text-xs text-slate-500">+{job.signers.length - 2} more</span>
                                 )}
                               </div>
+                            </TableCell>
+                            <TableCell data-testid={`cell-expected-date-${job.contract_id}-${job.type}`}>
+                              {job.will_send_on_next_run ? (
+                                <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400" data-testid={`text-next-cron-${job.contract_id}-${job.type}`}>
+                                  <Clock className="w-3 h-3" />
+                                  <span className="text-sm font-medium">Next CRON run</span>
+                                </div>
+                              ) : job.expected_action_date ? (
+                                <div className="flex flex-col" data-testid={`text-expected-date-${job.contract_id}-${job.type}`}>
+                                  <span className="text-sm">
+                                    {new Date(job.expected_action_date).toLocaleDateString(undefined, { 
+                                      month: 'short', 
+                                      day: 'numeric',
+                                      year: 'numeric'
+                                    })}
+                                  </span>
+                                  <span className="text-xs text-slate-500">
+                                    {new Date(job.expected_action_date).toLocaleTimeString(undefined, {
+                                      hour: 'numeric',
+                                      minute: '2-digit'
+                                    })}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-slate-400" data-testid={`text-no-date-${job.contract_id}-${job.type}`}>N/A</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               {job.will_send_on_next_run ? (
