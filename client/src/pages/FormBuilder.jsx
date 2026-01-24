@@ -4481,69 +4481,60 @@ export default function FormBuilderPage() {
                     {formData.contract_settings?.timeout_email_template_id && (
                       <>
                         <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Alternative Signer Form</Label>
+                          <Label className="text-xs text-slate-600">Alternative Signer Form Header Message</Label>
                           <p className="text-xs text-slate-400 mb-1">
-                            Form where the applicant can provide new signer details
+                            Custom message shown at the top of the alternative signer form
                           </p>
-                          <Select
-                            value={formData.contract_settings?.alternative_signer_form_id || "_none"}
-                            onValueChange={(value) => setFormData({
+                          <Input
+                            value={formData.contract_settings?.alternative_signer_message || ""}
+                            onChange={(e) => setFormData({
                               ...formData,
                               contract_settings: {
                                 ...formData.contract_settings,
-                                alternative_signer_form_id: value === "_none" ? null : value
+                                alternative_signer_message: e.target.value || null
                               }
                             })}
-                          >
-                            <SelectTrigger data-testid="select-alternative-signer-form">
-                              <SelectValue placeholder="Select form..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">No form selected</SelectItem>
-                              {allForms.map(form => (
-                                <SelectItem key={form.id} value={form.id}>{form.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            placeholder="e.g., Please provide an alternative signer for this contract"
+                            data-testid="input-alternative-signer-message"
+                          />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-xs text-slate-600">Applicant Name Field ID</Label>
-                            <p className="text-xs text-slate-400 mb-1">
-                              Field ID from the source DD form (e.g., "first_name")
-                            </p>
-                            <Input
-                              value={formData.contract_settings?.applicant_name_field || ""}
-                              onChange={(e) => setFormData({
-                                ...formData,
-                                contract_settings: {
-                                  ...formData.contract_settings,
-                                  applicant_name_field: e.target.value || null
-                                }
-                              })}
-                              placeholder="e.g., first_name"
-                              data-testid="input-applicant-name-field"
-                            />
+                        <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 mt-3">
+                          <div className="flex items-center gap-2 mb-3">
+                            <UserPlus className="w-4 h-4 text-blue-600" />
+                            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Alternative Signer Form Preview</span>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs text-slate-600">Applicant Email Field ID</Label>
-                            <p className="text-xs text-slate-400 mb-1">
-                              Field ID from the source DD form (e.g., "email")
-                            </p>
-                            <Input
-                              value={formData.contract_settings?.applicant_email_field || ""}
-                              onChange={(e) => setFormData({
-                                ...formData,
-                                contract_settings: {
-                                  ...formData.contract_settings,
-                                  applicant_email_field: e.target.value || null
-                                }
-                              })}
-                              placeholder="e.g., email"
-                              data-testid="input-applicant-email-field"
-                            />
+                          <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                            <div className="text-center pb-3 border-b border-slate-100 dark:border-slate-700">
+                              <UserPlus className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                              <p className="font-medium text-sm">Provide Alternative Signer</p>
+                              {formData.contract_settings?.alternative_signer_message && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
+                                  "{formData.contract_settings.alternative_signer_message}"
+                                </p>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">First Name *</span>
+                                <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">Last Name *</span>
+                                <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs text-slate-500">Email Address *</span>
+                              <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
+                            </div>
+                            <div className="h-9 bg-blue-600 rounded flex items-center justify-center">
+                              <span className="text-xs text-white font-medium">Add Signer & Send Contract</span>
+                            </div>
                           </div>
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 text-center">
+                            This is a fixed form - applicants will always provide First Name, Last Name, and Email
+                          </p>
                         </div>
 
                         <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded text-xs text-amber-700 dark:text-amber-300">

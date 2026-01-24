@@ -92,15 +92,18 @@ export default async function handler(req, res) {
 
     const { data: contractForm, error: formError } = await supabase
       .from('form')
-      .select('id, name')
+      .select('id, name, contract_settings')
       .eq('id', contractInstance.form_id)
       .single();
+
+    const alternativeSignerMessage = contractForm?.contract_settings?.alternative_signer_message || null;
 
     return res.status(200).json({
       valid: true,
       contract_id: contractInstance.id,
       contract_name: contractForm?.name || 'Contract',
-      status: contractInstance.status
+      status: contractInstance.status,
+      alternative_signer_message: alternativeSignerMessage
     });
 
   } catch (error) {

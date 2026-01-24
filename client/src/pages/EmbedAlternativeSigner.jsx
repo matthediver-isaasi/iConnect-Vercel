@@ -166,7 +166,12 @@ export default function EmbedAlternativeSignerPage() {
             <UserPlus className="w-10 h-10 text-blue-600" />
           </div>
           <CardTitle>Provide Alternative Signer</CardTitle>
-          <CardDescription>
+          {contractInfo?.alternative_signer_message && (
+            <p className="text-sm text-slate-700 dark:text-slate-300 mt-2 font-medium">
+              {contractInfo.alternative_signer_message}
+            </p>
+          )}
+          <CardDescription className="mt-2">
             {contractInfo?.contract_name 
               ? `The contract "${contractInfo.contract_name}" was not signed in time. Please provide an alternative signer below.`
               : 'Please provide the details of an alternative signer for this contract.'}
