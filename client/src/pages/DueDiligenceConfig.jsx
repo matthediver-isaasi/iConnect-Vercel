@@ -1225,15 +1225,17 @@ export default function DueDiligenceConfigPage() {
                                       ...prev, 
                                       [index]: prev[index] === 'conditions' ? null : 'conditions' 
                                     }))}
+                                    className={cn(
+                                      (stage.selection_conditions?.score_condition?.enabled || 
+                                        stage.selection_conditions?.signatories_received || 
+                                        stage.selection_conditions?.documents_approved) && 
+                                        openStageSection[index] !== 'conditions' &&
+                                        "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:border-green-800 dark:text-green-300"
+                                    )}
                                     data-testid={`button-toggle-conditions-${index}`}
                                   >
                                     <Lock className="w-4 h-4 mr-1" />
                                     Conditions
-                                    {(stage.selection_conditions?.score_condition?.enabled || 
-                                      stage.selection_conditions?.signatories_received || 
-                                      stage.selection_conditions?.documents_approved) && (
-                                      <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
-                                    )}
                                   </Button>
                                   <Button 
                                     variant={openStageSection[index] === 'actions' ? 'default' : 'outline'} 
@@ -1242,15 +1244,17 @@ export default function DueDiligenceConfigPage() {
                                       ...prev, 
                                       [index]: prev[index] === 'actions' ? null : 'actions' 
                                     }))}
+                                    className={cn(
+                                      (stage.stage_actions?.send_contracts?.length > 0 || 
+                                        stageMeetingRequests.some(mr => mr.due_diligence_stage_id === stage.id) ||
+                                        stageEmailActions.some(ea => ea.due_diligence_stage_id === stage.id)) &&
+                                        openStageSection[index] !== 'actions' &&
+                                        "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:border-green-800 dark:text-green-300"
+                                    )}
                                     data-testid={`button-toggle-actions-${index}`}
                                   >
                                     <Play className="w-4 h-4 mr-1" />
                                     Actions
-                                    {(stage.stage_actions?.send_contracts?.length > 0 || 
-                                      stageMeetingRequests.some(mr => mr.due_diligence_stage_id === stage.id) ||
-                                      stageEmailActions.some(ea => ea.due_diligence_stage_id === stage.id)) && (
-                                      <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
-                                    )}
                                   </Button>
                                   <Button
                                     variant={stage.is_initial ? "default" : "outline"}
