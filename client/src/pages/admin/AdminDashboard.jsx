@@ -27,7 +27,8 @@ import {
   Check,
   Plus,
   Mail,
-  Clock
+  Clock,
+  Plug
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -227,6 +228,13 @@ export default function AdminDashboard() {
       icon: Clock,
       href: "/admin/scheduled-tasks",
       color: "text-violet-400"
+    },
+    {
+      title: "Integrations",
+      description: "Connect Zoom and other services",
+      icon: Plug,
+      href: "/admin/integrations",
+      color: "text-orange-400"
     }
   ];
 

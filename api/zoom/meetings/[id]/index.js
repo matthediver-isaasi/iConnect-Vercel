@@ -1,46 +1,5 @@
 import { supabase } from '../../../_lib/database.js';
-
-let zoomTokenCache = null;
-
-async function getZoomAccessToken() {
-  if (zoomTokenCache && Date.now() < zoomTokenCache.expiresAt - 60000) {
-    return zoomTokenCache.token;
-  }
-  
-  const accountId = process.env.ZOOM_ACCOUNT_ID;
-  const clientId = process.env.ZOOM_CLIENT_ID;
-  const clientSecret = process.env.ZOOM_CLIENT_SECRET;
-  
-  if (!accountId || !clientId || !clientSecret) {
-    throw new Error('Zoom credentials not configured');
-  }
-  
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  
-  const response = await fetch('https://zoom.us/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: `grant_type=account_credentials&account_id=${accountId}`
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Zoom] Token error:', errorText);
-    throw new Error(`Failed to get Zoom access token: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  
-  zoomTokenCache = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in * 1000)
-  };
-  
-  return data.access_token;
-}
+import { getZoomAccessToken, getTenantIdFromSession } from '../../../_lib/zoomClient.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -53,6 +12,11 @@ export default async function handler(req, res) {
 
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const tenantId = await getTenantIdFromSession(req);
+  if (!tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
 
   const { id } = req.query;
@@ -94,7 +58,7 @@ export default async function handler(req, res) {
       }
       
       if (updates.topic || updates.start_time || updates.duration_minutes || updates.agenda || updates.timezone) {
-        const token = await getZoomAccessToken();
+        const token = await getZoomAccessToken(req);
         
         const zoomUpdates = {};
         if (updates.topic) zoomUpdates.topic = updates.topic;
@@ -156,7 +120,7 @@ export default async function handler(req, res) {
       }
       
       if (deleteFromZoom === 'true' && meeting.zoom_meeting_id) {
-        const token = await getZoomAccessToken();
+        const token = await getZoomAccessToken(req);
         
         const zoomResponse = await fetch(
           `https://api.zoom.us/v2/meetings/${meeting.zoom_meeting_id}`,

@@ -36,6 +36,7 @@ import { toast } from 'sonner';
 const MEETING_TYPES = [
   { value: 'phone', label: 'Phone Call', icon: Phone },
   { value: 'google_meet', label: 'Google Meet', icon: Video },
+  { value: 'zoom', label: 'Zoom Meeting', icon: Video },
   { value: 'in_person', label: 'In Person', icon: MapPin }
 ];
 

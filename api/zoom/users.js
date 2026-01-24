@@ -1,53 +1,5 @@
 import { supabase } from '../_lib/database.js';
-
-let zoomTokenCache = null;
-
-async function getZoomAccessToken() {
-  if (zoomTokenCache && Date.now() < zoomTokenCache.expiresAt - 60000) {
-    return zoomTokenCache.token;
-  }
-  
-  const accountId = process.env.ZOOM_ACCOUNT_ID;
-  const clientId = process.env.ZOOM_CLIENT_ID;
-  const clientSecret = process.env.ZOOM_CLIENT_SECRET;
-  
-  if (!accountId || !clientId || !clientSecret) {
-    const missing = [];
-    if (!accountId) missing.push('ZOOM_ACCOUNT_ID');
-    if (!clientId) missing.push('ZOOM_CLIENT_ID');
-    if (!clientSecret) missing.push('ZOOM_CLIENT_SECRET');
-    throw new Error(`Zoom credentials not configured. Missing: ${missing.join(', ')}`);
-  }
-  
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  
-  const response = await fetch('https://zoom.us/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: `grant_type=account_credentials&account_id=${accountId}`
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Zoom] Token error:', errorText);
-    throw new Error(`Failed to get Zoom access token: ${response.status} - ${errorText}`);
-  }
-  
-  const data = await response.json();
-  
-  console.log('[Zoom] Token scopes:', data.scope);
-  
-  zoomTokenCache = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in * 1000),
-    scopes: data.scope
-  };
-  
-  return data.access_token;
-}
+import { getZoomAccessToken, getTenantIdFromSession } from '../_lib/zoomClient.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -62,18 +14,17 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Force refresh token if requested
-  if (req.query.refreshToken === 'true') {
-    zoomTokenCache = null;
+  const tenantId = await getTenantIdFromSession(req);
+  if (!tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
   }
 
   // Debug mode - show token scopes
   if (req.query.debug === 'true') {
     try {
-      const token = await getZoomAccessToken();
+      const token = await getZoomAccessToken(req);
       return res.json({ 
         success: true, 
-        scopes: zoomTokenCache?.scopes || 'unknown',
         message: 'Token generated successfully'
       });
     } catch (error) {
@@ -82,7 +33,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const token = await getZoomAccessToken();
+    const token = await getZoomAccessToken(req);
     
     const response = await fetch('https://api.zoom.us/v2/users?status=active', {
       headers: {

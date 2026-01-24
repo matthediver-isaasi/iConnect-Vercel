@@ -4,6 +4,7 @@ import { getSession, getSessionMember } from '../_lib/session.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { getZoomAccessToken } from '../_lib/zoomClient.js';
 
 const stripe = process.env.STRIPE_SECRET_KEY 
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
@@ -166,48 +167,7 @@ async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
   throw new Error('Failed to create Xero contact');
 }
 
-// Zoom OAuth token cache
-let zoomTokenCache = null;
-
-async function getZoomAccessToken() {
-  if (zoomTokenCache && Date.now() < zoomTokenCache.expiresAt - 60000) {
-    return zoomTokenCache.token;
-  }
-  
-  const accountId = process.env.ZOOM_ACCOUNT_ID;
-  const clientId = process.env.ZOOM_CLIENT_ID;
-  const clientSecret = process.env.ZOOM_CLIENT_SECRET;
-  
-  if (!accountId || !clientId || !clientSecret) {
-    throw new Error('Zoom credentials not configured');
-  }
-  
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  
-  const response = await fetch('https://zoom.us/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: `grant_type=account_credentials&account_id=${accountId}`
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[Zoom] Token error:', errorText);
-    throw new Error(`Failed to get Zoom access token: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  
-  zoomTokenCache = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in * 1000)
-  };
-  
-  return data.access_token;
-}
+// Zoom OAuth token is now handled by the shared zoomClient module
 
 // Helper: Send confirmation emails using event_email configuration
 // personalizedZoomUrl: Optional attendee-specific Zoom join URL from webinar registration
