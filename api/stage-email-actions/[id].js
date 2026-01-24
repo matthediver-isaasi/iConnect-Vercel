@@ -58,6 +58,7 @@ export default async function handler(req, res) {
         recipient_email_field, 
         recipient_name_field,
         cc_emails,
+        custom_message,
         sort_order,
         is_active 
       } = req.body;
@@ -67,6 +68,7 @@ export default async function handler(req, res) {
       if (recipient_email_field !== undefined) updateData.recipient_email_field = recipient_email_field;
       if (recipient_name_field !== undefined) updateData.recipient_name_field = recipient_name_field || null;
       if (cc_emails !== undefined) updateData.cc_emails = cc_emails || null;
+      if (custom_message !== undefined) updateData.custom_message = custom_message || null;
       if (sort_order !== undefined) updateData.sort_order = sort_order;
       if (is_active !== undefined) updateData.is_active = is_active;
 

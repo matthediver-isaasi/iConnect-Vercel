@@ -106,6 +106,12 @@ const PLACEHOLDER_GROUPS = [
     ]
   },
   {
+    label: 'Stage Actions',
+    placeholders: [
+      { value: '{{custom_message}}', label: 'Custom Message (from DD stage action)' },
+    ]
+  },
+  {
     label: 'System',
     placeholders: [
       { value: '{{set_password_url}}', label: 'Set Password URL' },

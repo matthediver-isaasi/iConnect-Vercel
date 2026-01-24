@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS stage_email_action (
   -- Optional manual CC recipients (comma-separated emails)
   cc_emails VARCHAR,
   
+  -- Custom message to insert via {{custom_message}} placeholder
+  custom_message TEXT,
+  
   -- Display order for multiple email actions per stage
   sort_order INTEGER DEFAULT 0,
   is_active BOOLEAN DEFAULT true,

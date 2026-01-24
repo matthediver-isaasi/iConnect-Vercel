@@ -70,7 +70,7 @@ export default function DueDiligenceConfigPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
-  const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, editId? }
+  const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, customMessage, editId? }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -217,7 +217,7 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const addStageEmailAction = async (stageId, emailTemplateId, recipientEmailField, recipientNameField, ccEmails) => {
+  const addStageEmailAction = async (stageId, emailTemplateId, recipientEmailField, recipientNameField, ccEmails, customMessage) => {
     try {
       const response = await fetch('/api/stage-email-actions', {
         method: 'POST',
@@ -228,7 +228,8 @@ export default function DueDiligenceConfigPage() {
           email_template_id: emailTemplateId,
           recipient_email_field: recipientEmailField,
           recipient_name_field: recipientNameField,
-          cc_emails: ccEmails
+          cc_emails: ccEmails,
+          custom_message: customMessage
         })
       });
       if (!response.ok) throw new Error('Failed to add email action');
@@ -253,7 +254,7 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const updateStageEmailAction = async (id, emailTemplateId, recipientEmailField, recipientNameField, ccEmails) => {
+  const updateStageEmailAction = async (id, emailTemplateId, recipientEmailField, recipientNameField, ccEmails, customMessage) => {
     try {
       const response = await fetch(`/api/stage-email-actions/${id}`, {
         method: 'PUT',
@@ -263,7 +264,8 @@ export default function DueDiligenceConfigPage() {
           email_template_id: emailTemplateId,
           recipient_email_field: recipientEmailField,
           recipient_name_field: recipientNameField,
-          cc_emails: ccEmails
+          cc_emails: ccEmails,
+          custom_message: customMessage
         })
       });
       if (!response.ok) throw new Error('Failed to update email action');
@@ -1571,6 +1573,7 @@ export default function DueDiligenceConfigPage() {
                                                             emailField: ea.recipient_email_field,
                                                             nameField: ea.recipient_name_field || '',
                                                             ccEmails: ea.cc_emails || '',
+                                                            customMessage: ea.custom_message || '',
                                                             editId: ea.id
                                                           })}
                                                           data-testid={`button-edit-email-action-${ea.id}`}
@@ -1655,6 +1658,19 @@ export default function DueDiligenceConfigPage() {
                                                           data-testid={`input-pending-cc-emails-${index}`}
                                                         />
                                                       </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Custom Message (optional)</Label>
+                                                        <Textarea
+                                                          value={pendingEmailAction.customMessage || ''}
+                                                          onChange={(e) => setPendingEmailAction(prev => ({ ...prev, customMessage: e.target.value }))}
+                                                          placeholder="Enter a custom message to insert into the email template..."
+                                                          rows={3}
+                                                          data-testid={`textarea-pending-custom-message-${index}`}
+                                                        />
+                                                        <p className="text-xs text-muted-foreground">
+                                                          Use <code className="bg-muted px-1 rounded">{"{{custom_message}}"}</code> in your email template to insert this message.
+                                                        </p>
+                                                      </div>
                                                       <div className="flex gap-2 justify-end">
                                                         <Button
                                                           size="sm"
@@ -1675,7 +1691,8 @@ export default function DueDiligenceConfigPage() {
                                                                 pendingEmailAction.templateId,
                                                                 pendingEmailAction.emailField,
                                                                 nameField,
-                                                                pendingEmailAction.ccEmails || null
+                                                                pendingEmailAction.ccEmails || null,
+                                                                pendingEmailAction.customMessage || null
                                                               );
                                                             } else {
                                                               await addStageEmailAction(
@@ -1683,7 +1700,8 @@ export default function DueDiligenceConfigPage() {
                                                                 pendingEmailAction.templateId,
                                                                 pendingEmailAction.emailField,
                                                                 nameField,
-                                                                pendingEmailAction.ccEmails || null
+                                                                pendingEmailAction.ccEmails || null,
+                                                                pendingEmailAction.customMessage || null
                                                               );
                                                             }
                                                             setPendingEmailAction(null);
@@ -1698,7 +1716,7 @@ export default function DueDiligenceConfigPage() {
                                                     <Button
                                                       size="sm"
                                                       variant="outline"
-                                                      onClick={() => setPendingEmailAction({ stageId: stage.id, templateId: '', emailField: '', nameField: '', ccEmails: '' })}
+                                                      onClick={() => setPendingEmailAction({ stageId: stage.id, templateId: '', emailField: '', nameField: '', ccEmails: '', customMessage: '' })}
                                                       className="mt-2"
                                                       data-testid={`button-add-email-action-${index}`}
                                                     >

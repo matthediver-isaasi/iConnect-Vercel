@@ -795,9 +795,13 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
         }
       }
 
+      // Get custom message from email action config
+      const customMessage = ea.custom_message || '';
+
       // Replace common placeholders
       const replacePlaceholders = (text) => {
         return text
+          .replace(/\{\{custom_message\}\}/gi, customMessage)
           .replace(/\{\{recipient_name\}\}/gi, fullName || 'there')
           .replace(/\{\{recipient_first_name\}\}/gi, firstName || 'there')
           .replace(/\{\{recipient_last_name\}\}/gi, lastName)
