@@ -889,6 +889,270 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
   return results;
 }
 
+export async function executeMemberCreationActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+  const results = [];
+  
+  console.log('[DD Member Action] ========== START executeMemberCreationActions ==========');
+  console.log('[DD Member Action] Params:', { stageId, tenantId, triggeredBy });
+  console.log('[DD Member Action] ddSubmission ID:', ddSubmission?.id);
+  
+  try {
+    // Fetch member creation configs for this stage
+    const { data: memberActions, error: maError } = await supabase
+      .from('stage_member_action')
+      .select('*, role:role_id(id, name)')
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (maError) {
+      console.log('[DD Member Action] Query error:', maError);
+      return results;
+    }
+    if (!memberActions || memberActions.length === 0) {
+      console.log('[DD Member Action] No member action configs found for this stage.');
+      return results;
+    }
+    console.log('[DD Member Action] Found', memberActions.length, 'member action config(s)');
+
+    const formSubmissionId = ddSubmission.form_submission_id;
+    if (!formSubmissionId) {
+      console.log('[DD Member Action] No form submission ID, skipping member actions');
+      return results;
+    }
+
+    // Get form submission data
+    const { data: formSubmission, error: subError } = await supabase
+      .from('form_submission')
+      .select('form_id, submission_data, organization_id')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (subError || !formSubmission) {
+      console.error('[DD Member Action] Could not find form submission:', subError);
+      return results;
+    }
+
+    const organizationId = formSubmission.organization_id;
+    if (!organizationId) {
+      console.log('[DD Member Action] No organization_id on form submission, skipping');
+      results.push({
+        action: 'create_member',
+        status: 'skipped',
+        reason: 'Form submission has no associated organization'
+      });
+      return results;
+    }
+
+    // Helper function to get field value with fallback patterns
+    const getFieldValue = (formValues, fieldKey) => {
+      if (!fieldKey) return null;
+      
+      let value = formValues[fieldKey] || formValues[`field_${fieldKey}`];
+      
+      if (value === undefined) {
+        const matchKey = Object.keys(formValues).find(key => 
+          key === fieldKey || 
+          key.includes(fieldKey) ||
+          key.endsWith(`_${fieldKey}`)
+        );
+        if (matchKey) {
+          value = formValues[matchKey];
+        }
+      }
+      
+      // Handle contact field type (value might be nested)
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        return value;
+      }
+      
+      return value;
+    };
+
+    for (const ma of memberActions) {
+      const formValues = formSubmission.submission_data || {};
+      
+      // Get mandatory fields
+      let firstName = getFieldValue(formValues, ma.first_name_field);
+      let lastName = getFieldValue(formValues, ma.last_name_field);
+      let email = getFieldValue(formValues, ma.email_field);
+      
+      // Handle if email comes from contact field
+      if (typeof email === 'object' && email !== null) {
+        email = email.email;
+      }
+      
+      // Handle if first/last names come from contact field
+      if (typeof firstName === 'object' && firstName !== null) {
+        const contact = firstName;
+        firstName = contact.first_name || contact.firstName || '';
+      }
+      if (typeof lastName === 'object' && lastName !== null) {
+        const contact = lastName;
+        lastName = contact.last_name || contact.lastName || '';
+      }
+
+      if (!email) {
+        results.push({
+          action: 'create_member',
+          member_action_id: ma.id,
+          status: 'skipped',
+          reason: `No email found in field: ${ma.email_field}`
+        });
+        continue;
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Check if member already exists with this email in this organization
+      const { data: existingMember } = await supabase
+        .from('member')
+        .select('id, email')
+        .eq('organization_id', organizationId)
+        .ilike('email', normalizedEmail)
+        .single();
+
+      if (existingMember) {
+        results.push({
+          action: 'create_member',
+          member_action_id: ma.id,
+          status: 'skipped',
+          reason: `Member with email ${normalizedEmail} already exists in organization`,
+          existing_member_id: existingMember.id
+        });
+        continue;
+      }
+
+      // Build member data
+      const memberData = {
+        tenant_id: tenantId,
+        organization_id: organizationId,
+        first_name: firstName || '',
+        last_name: lastName || '',
+        email: normalizedEmail,
+        login_enabled: false,
+        show_in_directory: true
+      };
+
+      // Get role - use configured role or find default
+      if (ma.role_id) {
+        memberData.role_id = ma.role_id;
+      } else {
+        const { data: defaultRole } = await supabase
+          .from('role')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('is_default', true)
+          .single();
+        
+        if (defaultRole) {
+          memberData.role_id = defaultRole.id;
+        }
+      }
+
+      // Process core field mappings
+      const fieldMappings = ma.field_mappings || { core: {}, custom: {} };
+      const coreMappings = fieldMappings.core || {};
+      
+      for (const [coreField, mapping] of Object.entries(coreMappings)) {
+        if (!mapping || !mapping.source) continue;
+        
+        let value;
+        if (mapping.source === 'form_field') {
+          value = getFieldValue(formValues, mapping.value);
+        } else if (mapping.source === 'manual') {
+          value = mapping.value;
+        }
+        
+        if (value !== undefined && value !== null && value !== '') {
+          // Skip fields already set (first_name, last_name, email)
+          if (['first_name', 'last_name', 'email'].includes(coreField)) continue;
+          memberData[coreField] = value;
+        }
+      }
+
+      // Create the member
+      const { data: newMember, error: createError } = await supabase
+        .from('member')
+        .insert(memberData)
+        .select()
+        .single();
+
+      if (createError || !newMember) {
+        console.error('[DD Member Action] Failed to create member:', createError);
+        results.push({
+          action: 'create_member',
+          member_action_id: ma.id,
+          status: 'failed',
+          reason: createError?.message || 'Failed to create member'
+        });
+        continue;
+      }
+
+      console.log(`[DD Member Action] Created member ${newMember.id} (${normalizedEmail})`);
+
+      // Process custom field mappings (preference values)
+      const customMappings = fieldMappings.custom || {};
+      const customFieldErrors = [];
+      
+      for (const [prefFieldId, mapping] of Object.entries(customMappings)) {
+        if (!mapping || !mapping.source) continue;
+        
+        let value;
+        if (mapping.source === 'form_field') {
+          value = getFieldValue(formValues, mapping.value);
+        } else if (mapping.source === 'manual') {
+          value = mapping.value;
+        }
+        
+        if (value !== undefined && value !== null && value !== '') {
+          // Store as string (preference values are stored as text)
+          const storedValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+          
+          const { error: prefError } = await supabase
+            .from('member_preference_value')
+            .insert({
+              member_id: newMember.id,
+              field_id: prefFieldId,
+              value: storedValue
+            });
+          
+          if (prefError) {
+            console.error(`[DD Member Action] Failed to set custom field ${prefFieldId}:`, prefError);
+            customFieldErrors.push(prefFieldId);
+          }
+        }
+      }
+
+      // Send welcome email if configured
+      if (ma.send_welcome_email) {
+        // TODO: Implement welcome email sending
+        console.log('[DD Member Action] Welcome email sending not yet implemented');
+      }
+
+      results.push({
+        action: 'create_member',
+        member_action_id: ma.id,
+        member_id: newMember.id,
+        email: normalizedEmail,
+        status: 'success',
+        custom_field_errors: customFieldErrors.length > 0 ? customFieldErrors : undefined
+      });
+    }
+  } catch (error) {
+    console.error('[DD Member Action] Error executing member creation actions:', error);
+    results.push({
+      action: 'create_member',
+      status: 'error',
+      error: error.message
+    });
+  }
+
+  return results;
+}
+
 export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
   
@@ -955,6 +1219,16 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     options
   );
   results.push(...emailResults);
+
+  // Execute member creation actions (stored in stage_member_action table)
+  const memberResults = await executeMemberCreationActions(
+    stageId,
+    ddSubmission,
+    tenantId,
+    triggeredBy,
+    options
+  );
+  results.push(...memberResults);
 
   return { stage_actions_results: results };
 }

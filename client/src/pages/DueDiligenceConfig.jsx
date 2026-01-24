@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil, UserPlus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
@@ -71,6 +71,7 @@ export default function DueDiligenceConfigPage() {
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
   const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, promptCustomMessage, editId? }
+  const [pendingMemberAction, setPendingMemberAction] = useState(null); // { stageId, firstNameField, lastNameField, emailField, roleId, sendWelcomeEmail, fieldMappings, editId? }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -149,6 +150,35 @@ export default function DueDiligenceConfigPage() {
     enabled: !!formId && accessChecked
   });
   const emailTemplates = emailTemplatesData || [];
+
+  const { data: stageMemberActionsData, refetch: refetchStageMemberActions } = useQuery({
+    queryKey: ['stage-member-actions'],
+    queryFn: async () => {
+      const response = await fetch('/api/stage-member-actions');
+      if (!response.ok) throw new Error('Failed to fetch stage member actions');
+      return response.json();
+    },
+    enabled: accessChecked
+  });
+  const stageMemberActions = stageMemberActionsData || [];
+
+  const { data: rolesData } = useQuery({
+    queryKey: ['roles'],
+    queryFn: async () => {
+      return await base44.entities.Role.list();
+    },
+    enabled: accessChecked
+  });
+  const roles = rolesData || [];
+
+  const { data: memberFieldsData } = useQuery({
+    queryKey: ['member-preference-fields'],
+    queryFn: async () => {
+      return await base44.entities.PreferenceField.list();
+    },
+    enabled: accessChecked
+  });
+  const memberCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'member' && f.is_active !== false);
 
   const { data: stageEmailActionsData, refetch: refetchStageEmailActions } = useQuery({
     queryKey: ['stage-email-actions'],
@@ -273,6 +303,67 @@ export default function DueDiligenceConfigPage() {
       toast.success('Email template action updated');
     } catch (err) {
       toast.error(err.message || 'Failed to update email action');
+    }
+  };
+
+  const addStageMemberAction = async (stageId, firstNameField, lastNameField, emailField, roleId, sendWelcomeEmail, fieldMappings) => {
+    try {
+      const response = await fetch('/api/stage-member-actions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          due_diligence_stage_id: stageId,
+          first_name_field: firstNameField,
+          last_name_field: lastNameField,
+          email_field: emailField,
+          role_id: roleId || null,
+          send_welcome_email: sendWelcomeEmail || false,
+          field_mappings: fieldMappings || { core: {}, custom: {} }
+        })
+      });
+      if (!response.ok) throw new Error('Failed to add member action');
+      await refetchStageMemberActions();
+      toast.success('Create Member action added');
+    } catch (err) {
+      toast.error(err.message || 'Failed to add member action');
+    }
+  };
+
+  const removeStageMemberAction = async (id) => {
+    try {
+      const response = await fetch(`/api/stage-member-actions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to remove member action');
+      await refetchStageMemberActions();
+      toast.success('Create Member action removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove member action');
+    }
+  };
+
+  const updateStageMemberAction = async (id, firstNameField, lastNameField, emailField, roleId, sendWelcomeEmail, fieldMappings) => {
+    try {
+      const response = await fetch(`/api/stage-member-actions/${id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name_field: firstNameField,
+          last_name_field: lastNameField,
+          email_field: emailField,
+          role_id: roleId || null,
+          send_welcome_email: sendWelcomeEmail || false,
+          field_mappings: fieldMappings || { core: {}, custom: {} }
+        })
+      });
+      if (!response.ok) throw new Error('Failed to update member action');
+      await refetchStageMemberActions();
+      toast.success('Create Member action updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update member action');
     }
   };
 
@@ -1729,6 +1820,408 @@ export default function DueDiligenceConfigPage() {
                                             })()}
                                           </div>
                                         )}
+                                      </div>
+
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <UserPlus className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">Create Member Record</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Create a new member record when this stage is selected.
+                                          The member will be added to the organization associated with the DD submission.
+                                        </p>
+                                        <div className="space-y-2">
+                                          {(() => {
+                                            const stageActions = stageMemberActions.filter(ma => ma.due_diligence_stage_id === stage.id);
+                                            return (
+                                              <>
+                                                {stageActions.map((ma) => (
+                                                  <div key={ma.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                      <UserPlus className="w-4 h-4 text-muted-foreground" />
+                                                      <span className="text-sm">Create Member</span>
+                                                      <Badge variant="outline" className="text-xs">Email: {getFieldLabel(ma.email_field)}</Badge>
+                                                      {ma.role?.name && (
+                                                        <Badge variant="outline" className="text-xs">Role: {ma.role.name}</Badge>
+                                                      )}
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => setPendingMemberAction({
+                                                          stageId: stage.id,
+                                                          firstNameField: ma.first_name_field,
+                                                          lastNameField: ma.last_name_field,
+                                                          emailField: ma.email_field,
+                                                          roleId: ma.role_id || '',
+                                                          sendWelcomeEmail: ma.send_welcome_email || false,
+                                                          fieldMappings: ma.field_mappings || { core: {}, custom: {} },
+                                                          editId: ma.id
+                                                        })}
+                                                        data-testid={`button-edit-member-action-${ma.id}`}
+                                                      >
+                                                        <Pencil className="w-4 h-4" />
+                                                      </Button>
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => removeStageMemberAction(ma.id)}
+                                                        data-testid={`button-remove-member-action-${ma.id}`}
+                                                      >
+                                                        <Trash2 className="w-4 h-4" />
+                                                      </Button>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                                
+                                                {pendingMemberAction?.stageId === stage.id ? (
+                                                  <div className="space-y-3 p-3 border rounded bg-muted/30">
+                                                    <div className="grid grid-cols-3 gap-3">
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">First Name Field *</Label>
+                                                        <Select
+                                                          value={pendingMemberAction.firstNameField || ''}
+                                                          onValueChange={(v) => setPendingMemberAction(prev => ({ ...prev, firstNameField: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-firstname-field-${index}`}>
+                                                            <SelectValue placeholder="Select field..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {getTextFields().filter(f => f.id || f.name).map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Last Name Field *</Label>
+                                                        <Select
+                                                          value={pendingMemberAction.lastNameField || ''}
+                                                          onValueChange={(v) => setPendingMemberAction(prev => ({ ...prev, lastNameField: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-lastname-field-${index}`}>
+                                                            <SelectValue placeholder="Select field..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {getTextFields().filter(f => f.id || f.name).map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Email Field *</Label>
+                                                        <Select
+                                                          value={pendingMemberAction.emailField || ''}
+                                                          onValueChange={(v) => setPendingMemberAction(prev => ({ ...prev, emailField: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-member-email-field-${index}`}>
+                                                            <SelectValue placeholder="Select field..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {getEmailFields().filter(f => f.id || f.name).map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Role (optional)</Label>
+                                                        <Select
+                                                          value={pendingMemberAction.roleId || ''}
+                                                          onValueChange={(v) => setPendingMemberAction(prev => ({ ...prev, roleId: v === 'default' ? '' : v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-member-role-${index}`}>
+                                                            <SelectValue placeholder="Use default role..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            <SelectItem value="default">Use default role</SelectItem>
+                                                            {roles.filter(r => r.id).map(role => (
+                                                              <SelectItem key={role.id} value={role.id}>
+                                                                {role.name}{role.is_default ? ' (default)' : ''}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="flex items-center gap-3 pt-5">
+                                                        <Switch
+                                                          checked={pendingMemberAction.sendWelcomeEmail || false}
+                                                          onCheckedChange={(checked) => setPendingMemberAction(prev => ({ ...prev, sendWelcomeEmail: checked }))}
+                                                          data-testid={`switch-send-welcome-email-${index}`}
+                                                        />
+                                                        <Label className="text-xs">Send Welcome Email</Label>
+                                                      </div>
+                                                    </div>
+                                                    
+                                                    <div className="space-y-2">
+                                                      <Label className="text-xs">Core Field Mappings (optional)</Label>
+                                                      <div className="space-y-2 p-2 border rounded bg-background">
+                                                        {[
+                                                          { key: 'mobile', label: 'Mobile' },
+                                                          { key: 'landline', label: 'Landline' },
+                                                          { key: 'job_title', label: 'Job Title' },
+                                                          { key: 'biography', label: 'Biography' },
+                                                          { key: 'linkedin_url', label: 'LinkedIn URL' },
+                                                          { key: 'website_url', label: 'Website URL' }
+                                                        ].map(coreField => {
+                                                          const mapping = pendingMemberAction.fieldMappings?.core?.[coreField.key] || null;
+                                                          const sourceType = mapping?.source || 'none';
+                                                          return (
+                                                            <div key={coreField.key} className="flex items-center gap-2">
+                                                              <span className="text-xs w-28 truncate" title={coreField.label}>{coreField.label}</span>
+                                                              <Select
+                                                                value={sourceType}
+                                                                onValueChange={(v) => {
+                                                                  setPendingMemberAction(prev => {
+                                                                    const newMappings = { ...prev.fieldMappings };
+                                                                    if (!newMappings.core) newMappings.core = {};
+                                                                    if (v === 'none') {
+                                                                      delete newMappings.core[coreField.key];
+                                                                    } else {
+                                                                      newMappings.core[coreField.key] = { source: v, value: '' };
+                                                                    }
+                                                                    return { ...prev, fieldMappings: newMappings };
+                                                                  });
+                                                                }}
+                                                              >
+                                                                <SelectTrigger className="w-32" data-testid={`select-core-source-${coreField.key}`}>
+                                                                  <SelectValue placeholder="Don't set" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                  <SelectItem value="none">Don't set</SelectItem>
+                                                                  <SelectItem value="form_field">From form field</SelectItem>
+                                                                  <SelectItem value="manual">Manual value</SelectItem>
+                                                                </SelectContent>
+                                                              </Select>
+                                                              {sourceType === 'form_field' && (
+                                                                <Select
+                                                                  value={mapping?.value || ''}
+                                                                  onValueChange={(v) => {
+                                                                    setPendingMemberAction(prev => {
+                                                                      const newMappings = { ...prev.fieldMappings };
+                                                                      if (!newMappings.core) newMappings.core = {};
+                                                                      newMappings.core[coreField.key] = { source: 'form_field', value: v };
+                                                                      return { ...prev, fieldMappings: newMappings };
+                                                                    });
+                                                                  }}
+                                                                >
+                                                                  <SelectTrigger className="flex-1" data-testid={`select-core-field-${coreField.key}`}>
+                                                                    <SelectValue placeholder="Select form field..." />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    {(form?.fields || []).filter(f => f.id || f.name).map(field => (
+                                                                      <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                        {field.label || field.name}
+                                                                      </SelectItem>
+                                                                    ))}
+                                                                  </SelectContent>
+                                                                </Select>
+                                                              )}
+                                                              {sourceType === 'manual' && (
+                                                                <Input
+                                                                  value={mapping?.value || ''}
+                                                                  onChange={(e) => {
+                                                                    setPendingMemberAction(prev => {
+                                                                      const newMappings = { ...prev.fieldMappings };
+                                                                      if (!newMappings.core) newMappings.core = {};
+                                                                      newMappings.core[coreField.key] = { source: 'manual', value: e.target.value };
+                                                                      return { ...prev, fieldMappings: newMappings };
+                                                                    });
+                                                                  }}
+                                                                  placeholder="Enter value..."
+                                                                  className="flex-1"
+                                                                  data-testid={`input-core-value-${coreField.key}`}
+                                                                />
+                                                              )}
+                                                            </div>
+                                                          );
+                                                        })}
+                                                      </div>
+                                                    </div>
+                                                    
+                                                    {memberCustomFields.length > 0 && (
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Custom Field Mappings (optional)</Label>
+                                                        <div className="space-y-2 p-2 border rounded bg-background">
+                                                          {memberCustomFields.map(cf => {
+                                                            const mapping = pendingMemberAction.fieldMappings?.custom?.[cf.id] || null;
+                                                            const sourceType = mapping?.source || 'none';
+                                                            return (
+                                                              <div key={cf.id} className="flex items-center gap-2">
+                                                                <span className="text-xs w-32 truncate" title={cf.label}>{cf.label}</span>
+                                                                <Select
+                                                                  value={sourceType}
+                                                                  onValueChange={(v) => {
+                                                                    setPendingMemberAction(prev => {
+                                                                      const newMappings = { ...prev.fieldMappings };
+                                                                      if (!newMappings.custom) newMappings.custom = {};
+                                                                      if (v === 'none') {
+                                                                        delete newMappings.custom[cf.id];
+                                                                      } else {
+                                                                        newMappings.custom[cf.id] = { source: v, value: '' };
+                                                                      }
+                                                                      return { ...prev, fieldMappings: newMappings };
+                                                                    });
+                                                                  }}
+                                                                >
+                                                                  <SelectTrigger className="w-32" data-testid={`select-cf-source-${cf.id}`}>
+                                                                    <SelectValue placeholder="Don't set" />
+                                                                  </SelectTrigger>
+                                                                  <SelectContent>
+                                                                    <SelectItem value="none">Don't set</SelectItem>
+                                                                    <SelectItem value="form_field">From form field</SelectItem>
+                                                                    <SelectItem value="manual">Manual value</SelectItem>
+                                                                  </SelectContent>
+                                                                </Select>
+                                                                {sourceType === 'form_field' && (
+                                                                  <Select
+                                                                    value={mapping?.value || ''}
+                                                                    onValueChange={(v) => {
+                                                                      setPendingMemberAction(prev => {
+                                                                        const newMappings = { ...prev.fieldMappings };
+                                                                        if (!newMappings.custom) newMappings.custom = {};
+                                                                        newMappings.custom[cf.id] = { source: 'form_field', value: v };
+                                                                        return { ...prev, fieldMappings: newMappings };
+                                                                      });
+                                                                    }}
+                                                                  >
+                                                                    <SelectTrigger className="flex-1" data-testid={`select-cf-field-${cf.id}`}>
+                                                                      <SelectValue placeholder="Select form field..." />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                      {(form?.fields || []).filter(f => f.id || f.name).map(field => (
+                                                                        <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                          {field.label || field.name}
+                                                                        </SelectItem>
+                                                                      ))}
+                                                                    </SelectContent>
+                                                                  </Select>
+                                                                )}
+                                                                {sourceType === 'manual' && (
+                                                                  cf.field_type === 'picklist' || cf.field_type === 'dropdown' || cf.field_type === 'select' ? (
+                                                                    <Select
+                                                                      value={mapping?.value || ''}
+                                                                      onValueChange={(v) => {
+                                                                        setPendingMemberAction(prev => {
+                                                                          const newMappings = { ...prev.fieldMappings };
+                                                                          if (!newMappings.custom) newMappings.custom = {};
+                                                                          newMappings.custom[cf.id] = { source: 'manual', value: v };
+                                                                          return { ...prev, fieldMappings: newMappings };
+                                                                        });
+                                                                      }}
+                                                                    >
+                                                                      <SelectTrigger className="flex-1" data-testid={`select-cf-value-${cf.id}`}>
+                                                                        <SelectValue placeholder="Select value..." />
+                                                                      </SelectTrigger>
+                                                                      <SelectContent>
+                                                                        {(cf.options || []).map((opt, oi) => (
+                                                                          <SelectItem key={oi} value={typeof opt === 'object' ? opt.value : opt}>
+                                                                            {typeof opt === 'object' ? opt.label : opt}
+                                                                          </SelectItem>
+                                                                        ))}
+                                                                      </SelectContent>
+                                                                    </Select>
+                                                                  ) : (
+                                                                    <Input
+                                                                      value={mapping?.value || ''}
+                                                                      onChange={(e) => {
+                                                                        setPendingMemberAction(prev => {
+                                                                          const newMappings = { ...prev.fieldMappings };
+                                                                          if (!newMappings.custom) newMappings.custom = {};
+                                                                          newMappings.custom[cf.id] = { source: 'manual', value: e.target.value };
+                                                                          return { ...prev, fieldMappings: newMappings };
+                                                                        });
+                                                                      }}
+                                                                      placeholder="Enter value..."
+                                                                      className="flex-1"
+                                                                      data-testid={`input-cf-value-${cf.id}`}
+                                                                    />
+                                                                  )
+                                                                )}
+                                                              </div>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      </div>
+                                                    )}
+                                                    
+                                                    <div className="flex gap-2 justify-end">
+                                                      <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => setPendingMemberAction(null)}
+                                                        data-testid={`button-cancel-member-action-${index}`}
+                                                      >
+                                                        Cancel
+                                                      </Button>
+                                                      <Button
+                                                        size="sm"
+                                                        disabled={!pendingMemberAction.firstNameField || !pendingMemberAction.lastNameField || !pendingMemberAction.emailField}
+                                                        onClick={async () => {
+                                                          if (pendingMemberAction.editId) {
+                                                            await updateStageMemberAction(
+                                                              pendingMemberAction.editId,
+                                                              pendingMemberAction.firstNameField,
+                                                              pendingMemberAction.lastNameField,
+                                                              pendingMemberAction.emailField,
+                                                              pendingMemberAction.roleId || null,
+                                                              pendingMemberAction.sendWelcomeEmail,
+                                                              pendingMemberAction.fieldMappings
+                                                            );
+                                                          } else {
+                                                            await addStageMemberAction(
+                                                              stage.id,
+                                                              pendingMemberAction.firstNameField,
+                                                              pendingMemberAction.lastNameField,
+                                                              pendingMemberAction.emailField,
+                                                              pendingMemberAction.roleId || null,
+                                                              pendingMemberAction.sendWelcomeEmail,
+                                                              pendingMemberAction.fieldMappings
+                                                            );
+                                                          }
+                                                          setPendingMemberAction(null);
+                                                        }}
+                                                        data-testid={`button-confirm-member-action-${index}`}
+                                                      >
+                                                        {pendingMemberAction.editId ? 'Update' : 'Add'}
+                                                      </Button>
+                                                    </div>
+                                                  </div>
+                                                ) : (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => setPendingMemberAction({ 
+                                                      stageId: stage.id, 
+                                                      firstNameField: '', 
+                                                      lastNameField: '', 
+                                                      emailField: '', 
+                                                      roleId: '', 
+                                                      sendWelcomeEmail: false, 
+                                                      fieldMappings: { core: {}, custom: {} } 
+                                                    })}
+                                                    className="mt-2"
+                                                    data-testid={`button-add-member-action-${index}`}
+                                                  >
+                                                    <Plus className="w-4 h-4 mr-1" />
+                                                    Add Create Member
+                                                  </Button>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
