@@ -27,6 +27,7 @@ export default async function handler(req, res) {
         .from('zoom_meeting')
         .select('*')
         .eq('id', id)
+        .eq('tenant_id', tenantId)
         .single();
       
       if (meetingError) {
@@ -51,6 +52,7 @@ export default async function handler(req, res) {
         .from('zoom_meeting')
         .select('zoom_meeting_id')
         .eq('id', id)
+        .eq('tenant_id', tenantId)
         .single();
       
       if (fetchError) {
@@ -90,6 +92,7 @@ export default async function handler(req, res) {
         .from('zoom_meeting')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id)
+        .eq('tenant_id', tenantId)
         .select()
         .single();
       
@@ -113,6 +116,7 @@ export default async function handler(req, res) {
         .from('zoom_meeting')
         .select('zoom_meeting_id')
         .eq('id', id)
+        .eq('tenant_id', tenantId)
         .single();
       
       if (fetchError) {
@@ -142,7 +146,8 @@ export default async function handler(req, res) {
       const { error: updateError } = await supabase
         .from('zoom_meeting')
         .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
       
       if (updateError) {
         console.error('[Zoom] DB update error:', updateError);
