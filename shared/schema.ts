@@ -588,3 +588,28 @@ export const insertContractReminderLogSchema = createInsertSchema(contractRemind
 
 export type InsertContractReminderLog = z.infer<typeof insertContractReminderLogSchema>;
 export type ContractReminderLog = typeof contractReminderLog.$inferSelect;
+
+// Scheduled Task Log - tracks execution of automated scheduled tasks
+export const scheduledTaskLog = pgTable("scheduled_task_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id"), // Null for cross-tenant tasks
+  task_name: text("task_name").notNull(), // e.g., 'contract_timeout_notifications', 'contract_reminders'
+  task_display_name: text("task_display_name").notNull(), // User-friendly name
+  status: text("status").notNull(), // 'success', 'partial', 'failed', 'no_action'
+  summary: text("summary"), // Brief summary e.g., "Sent 3 timeout notifications"
+  details: jsonb("details"), // Detailed execution info
+  items_processed: integer("items_processed").default(0),
+  items_succeeded: integer("items_succeeded").default(0),
+  items_failed: integer("items_failed").default(0),
+  error_message: text("error_message"),
+  executed_at: timestamp("executed_at").defaultNow(),
+  duration_ms: integer("duration_ms"), // How long the task took
+});
+
+export const insertScheduledTaskLogSchema = createInsertSchema(scheduledTaskLog).omit({
+  id: true,
+  executed_at: true,
+});
+
+export type InsertScheduledTaskLog = z.infer<typeof insertScheduledTaskLogSchema>;
+export type ScheduledTaskLog = typeof scheduledTaskLog.$inferSelect;
