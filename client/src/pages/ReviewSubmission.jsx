@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -682,6 +682,7 @@ export default function ReviewSubmissionPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [agentSelectionModal, setAgentSelectionModal] = useState({ open: false, agents: [], pendingStatus: null, meetingActions: [], requiresCustomMessage: false, emailActions: [] });
+  const [skipWarningModal, setSkipWarningModal] = useState({ open: false, pendingStatus: null, skippedStages: [] });
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [customMessageModal, setCustomMessageModal] = useState({ open: false, pendingStatus: null, emailActions: [], pendingAgentId: null });
   const [customMessageText, setCustomMessageText] = useState('');
@@ -967,13 +968,76 @@ export default function ReviewSubmissionPage() {
       return;
     }
     
+    const formId = form?.id || ddSubmission?.form_submission?.form_id;
+    
+    // Check if stages are being skipped and if they have actions
+    const currentStageIndex = workflowStages.findIndex(s => s.id === workflowStatus);
+    const targetStageIndex = workflowStages.findIndex(s => s.id === newStatus);
+    
+    if (targetStageIndex > currentStageIndex + 1 && formId) {
+      // Stages are being skipped - check if any have actions
+      const skippedStageIds = workflowStages
+        .slice(currentStageIndex + 1, targetStageIndex)
+        .map(s => s.id);
+      
+      console.log('[ReviewSubmission] Skipped stages:', skippedStageIds);
+      
+      try {
+        // Check each skipped stage for actions
+        const skippedWithActions = [];
+        for (const stageId of skippedStageIds) {
+          const checkResult = await apiRequest('POST', '/api/due-diligence/check-stage-actions', {
+            stageId,
+            formId
+          });
+          
+          const stage = workflowStages.find(s => s.id === stageId);
+          const actions = [];
+          
+          if (checkResult.email_actions?.length > 0) {
+            checkResult.email_actions.forEach(ea => {
+              actions.push({ type: 'email', name: ea.template_name || 'Email Action' });
+            });
+          }
+          if (checkResult.meeting_actions?.length > 0) {
+            checkResult.meeting_actions.forEach(ma => {
+              actions.push({ type: 'meeting', name: ma.template_name || 'Meeting Request' });
+            });
+          }
+          // Check stage_actions from workflow config for contracts
+          if (stage?.stage_actions?.send_contracts?.length > 0) {
+            stage.stage_actions.send_contracts.forEach(c => {
+              actions.push({ type: 'contract', name: c.form_name || 'Contract' });
+            });
+          }
+          
+          if (actions.length > 0) {
+            skippedWithActions.push({
+              stageId,
+              stageLabel: stage?.label || stageId,
+              stageColor: stage?.color || '#888',
+              actions
+            });
+          }
+        }
+        
+        if (skippedWithActions.length > 0) {
+          console.log('[ReviewSubmission] Skipped stages with actions:', skippedWithActions);
+          setSkipWarningModal({
+            open: true,
+            pendingStatus: newStatus,
+            skippedStages: skippedWithActions
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('[ReviewSubmission] Error checking skipped stage actions:', error);
+        // Continue with status change if we can't check skipped actions
+      }
+    }
+    
     // Check if this stage has meeting request actions with multiple agents or email actions with custom message
     try {
-      const formId = form?.id || ddSubmission?.form_submission?.form_id;
-      console.log('[ReviewSubmission] formId:', formId);
-      console.log('[ReviewSubmission] form:', form);
-      console.log('[ReviewSubmission] ddSubmission?.form_submission?.form_id:', ddSubmission?.form_submission?.form_id);
-      
       let requiresAgentSelection = false;
       let requiresCustomMessage = false;
       let allAgents = [];
@@ -1110,6 +1174,74 @@ export default function ReviewSubmissionPage() {
   const handleCancelCustomMessage = () => {
     setCustomMessageModal({ open: false, pendingStatus: null, emailActions: [], pendingAgentId: null });
     setCustomMessageText('');
+  };
+
+  const handleConfirmSkipWarning = async () => {
+    const { pendingStatus } = skipWarningModal;
+    setSkipWarningModal({ open: false, pendingStatus: null, skippedStages: [] });
+    
+    // Continue with status change flow - need to check target stage for agent selection/custom message
+    const formId = form?.id || ddSubmission?.form_submission?.form_id;
+    
+    if (formId) {
+      try {
+        const checkResult = await apiRequest('POST', '/api/due-diligence/check-stage-actions', {
+          stageId: pendingStatus,
+          formId
+        });
+        
+        const requiresAgentSelection = checkResult.requires_agent_selection;
+        const requiresCustomMessage = checkResult.requires_custom_message;
+        const meetingActions = checkResult.meeting_actions || [];
+        const emailActions = checkResult.email_actions || [];
+        
+        if (requiresAgentSelection && meetingActions.length > 0) {
+          const seenIds = new Set();
+          const allAgents = [];
+          meetingActions.forEach(action => {
+            action.agents.forEach(agent => {
+              if (!seenIds.has(agent.identity_id)) {
+                seenIds.add(agent.identity_id);
+                allAgents.push(agent);
+              }
+            });
+          });
+          
+          if (allAgents.length >= 1) {
+            setAgentSelectionModal({
+              open: true,
+              agents: allAgents,
+              pendingStatus: pendingStatus,
+              meetingActions: meetingActions,
+              requiresCustomMessage: requiresCustomMessage,
+              emailActions: emailActions
+            });
+            setSelectedAgentId(allAgents[0]?.identity_id || null);
+            return;
+          }
+        }
+        
+        if (!requiresAgentSelection && requiresCustomMessage) {
+          setCustomMessageModal({
+            open: true,
+            pendingStatus: pendingStatus,
+            emailActions: emailActions,
+            pendingAgentId: null
+          });
+          setCustomMessageText('');
+          return;
+        }
+      } catch (error) {
+        console.error('[ReviewSubmission] Error checking target stage actions after skip:', error);
+      }
+    }
+    
+    // No modals needed, proceed directly
+    updateStatusMutation.mutate({ newStatus: pendingStatus, selectedAgentId: null, customMessage: null });
+  };
+
+  const handleCancelSkipWarning = () => {
+    setSkipWarningModal({ open: false, pendingStatus: null, skippedStages: [] });
   };
 
   // Check if we should show description/instructions fields
@@ -1412,8 +1544,17 @@ export default function ReviewSubmissionPage() {
               <SelectContent>
                 {workflowStages.map((stage) => {
                   const conditionStatus = stageConditionStatus[stage.id];
-                  const isLocked = conditionStatus && !conditionStatus.met;
+                  const isConditionLocked = conditionStatus && !conditionStatus.met;
                   const isCurrentStage = stage.id === workflowStatus;
+                  
+                  // Check if stage is locked due to sequence enforcement
+                  const currentStageIndex = workflowStages.findIndex(s => s.id === workflowStatus);
+                  const stageIndex = workflowStages.findIndex(s => s.id === stage.id);
+                  // Only enforce sequence lock if current stage is found in the list
+                  const isSequenceLocked = ddConfig?.enforce_stage_sequence && 
+                    currentStageIndex >= 0 && stageIndex >= 0 && stageIndex < currentStageIndex;
+                  
+                  const isLocked = isConditionLocked || isSequenceLocked;
                   
                   return (
                     <Tooltip key={stage.id}>
@@ -1434,18 +1575,25 @@ export default function ReviewSubmissionPage() {
                           </SelectItem>
                         </div>
                       </TooltipTrigger>
-                      {isLocked && !isCurrentStage && conditionStatus.reasons.length > 0 && (
+                      {isLocked && !isCurrentStage && (isSequenceLocked || conditionStatus?.reasons?.length > 0) && (
                         <TooltipContent side="left" className="max-w-64">
                           <div className="space-y-1">
-                            <p className="font-medium text-xs">Conditions not met:</p>
-                            <ul className="text-xs space-y-0.5">
-                              {conditionStatus.reasons.map((reason, i) => (
-                                <li key={i} className="flex items-center gap-1">
-                                  <span className="w-1 h-1 rounded-full bg-current" />
-                                  {reason}
-                                </li>
-                              ))}
-                            </ul>
+                            {isSequenceLocked && (
+                              <p className="text-xs">This stage has been passed and cannot be selected (stage sequence is enforced)</p>
+                            )}
+                            {isConditionLocked && conditionStatus?.reasons?.length > 0 && (
+                              <>
+                                <p className="font-medium text-xs">Conditions not met:</p>
+                                <ul className="text-xs space-y-0.5">
+                                  {conditionStatus.reasons.map((reason, i) => (
+                                    <li key={i} className="flex items-center gap-1">
+                                      <span className="w-1 h-1 rounded-full bg-current" />
+                                      {reason}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            )}
                           </div>
                         </TooltipContent>
                       )}
@@ -1808,6 +1956,51 @@ export default function ReviewSubmissionPage() {
             </Button>
             <Button onClick={handleConfirmCustomMessage} data-testid="button-confirm-custom-message">
               Confirm & Change Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={skipWarningModal.open} onOpenChange={(open) => !open && handleCancelSkipWarning()}>
+        <DialogContent className="max-w-lg" data-testid="dialog-skip-warning">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="w-5 h-5" />
+              Skipping Stages with Actions
+            </DialogTitle>
+            <DialogDescription>
+              You are about to skip one or more stages that have actions configured. These actions will NOT be executed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {skipWarningModal.skippedStages.map((skippedStage) => (
+              <div key={skippedStage.stageId} className="border rounded-lg p-3 bg-amber-50 dark:bg-amber-950/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <div 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ backgroundColor: skippedStage.stageColor }} 
+                  />
+                  <span className="font-medium">{skippedStage.stageLabel}</span>
+                </div>
+                <ul className="space-y-1 ml-5">
+                  {skippedStage.actions.map((action, idx) => (
+                    <li key={idx} className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {action.type === 'email' && <Mail className="w-3 h-3" />}
+                      {action.type === 'meeting' && <Calendar className="w-3 h-3" />}
+                      {action.type === 'contract' && <FileSignature className="w-3 h-3" />}
+                      <span>{action.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelSkipWarning} data-testid="button-cancel-skip">
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmSkipWarning} data-testid="button-confirm-skip">
+              Skip Actions & Proceed
             </Button>
           </DialogFooter>
         </DialogContent>

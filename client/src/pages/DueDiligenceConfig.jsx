@@ -61,6 +61,7 @@ export default function DueDiligenceConfigPage() {
   const [defaultReviewState, setDefaultReviewState] = useState('amended');
   const [cardReferenceField, setCardReferenceField] = useState('');
   const [showDescriptionFields, setShowDescriptionFields] = useState(false);
+  const [enforceStageSequence, setEnforceStageSequence] = useState(false);
   const [onFirstEditStage, setOnFirstEditStage] = useState('');
   const [scoringRules, setScoringRules] = useState({ rules: [], risk_thresholds: {} });
   const [staticQuestions, setStaticQuestions] = useState([]);
@@ -446,6 +447,7 @@ export default function DueDiligenceConfigPage() {
       setDefaultReviewState(ddConfig.default_review_state || 'amended');
       setCardReferenceField(ddConfig.card_reference_field || '');
       setShowDescriptionFields(ddConfig.show_description_fields || false);
+      setEnforceStageSequence(ddConfig.enforce_stage_sequence || false);
       setOnFirstEditStage(ddConfig.on_first_edit_stage || '');
       setScoringRules(ddConfig.scoring_rules || { rules: [], risk_thresholds: {} });
       setStaticQuestions(normalizeStaticQuestions(ddConfig.static_questions));
@@ -465,6 +467,7 @@ export default function DueDiligenceConfigPage() {
         default_review_state: data.defaultReviewState,
         card_reference_field: data.cardReferenceField || null,
         show_description_fields: data.showDescriptionFields || false,
+        enforce_stage_sequence: data.enforceStageSequence || false,
         on_first_edit_stage: data.onFirstEditStage || null,
         scoring_rules: data.scoringRules,
         static_questions: data.staticQuestions,
@@ -495,6 +498,7 @@ export default function DueDiligenceConfigPage() {
       defaultReviewState,
       cardReferenceField,
       showDescriptionFields,
+      enforceStageSequence,
       onFirstEditStage,
       scoringRules,
       staticQuestions,
@@ -909,6 +913,22 @@ export default function DueDiligenceConfigPage() {
                     checked={showDescriptionFields}
                     onCheckedChange={setShowDescriptionFields}
                     data-testid="switch-show-description-fields"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-base font-medium">Enforce Stage Sequence</Label>
+                    <p className="text-sm text-muted-foreground">
+                      When enabled, reviewers can only move submissions forward through stages. Once a submission moves past a stage, that stage becomes locked and cannot be selected again.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={enforceStageSequence}
+                    onCheckedChange={setEnforceStageSequence}
+                    data-testid="switch-enforce-stage-sequence"
                   />
                 </div>
               </div>
