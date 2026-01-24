@@ -79,8 +79,8 @@ export default async function handler(req, res) {
         .eq('tenant_id', tenantCtx.tenantId);
       console.log('[DD Check Stage Actions] All stage_meeting_requests for tenant:', allMRs);
       
-      return res.status(200).json(result);
-    }
+      // Don't return early - continue to check for email actions below
+    } else {
 
     result.has_meeting_actions = true;
     console.log('[DD Check Stage Actions] Found', meetingRequests.length, 'meeting request configs');
@@ -197,6 +197,7 @@ export default async function handler(req, res) {
     
     // Always require agent selection when there are meeting actions (even with 1 agent for better UX)
     result.requires_agent_selection = allUniqueAgents.size >= 1;
+    } // Close the else block for meetingRequests.length > 0
 
     // Check for email actions that require custom message prompt
     console.log('[DD Check Stage Actions] Querying stage_email_action for stageId:', stageId);
