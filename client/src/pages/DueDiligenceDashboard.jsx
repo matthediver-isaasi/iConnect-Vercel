@@ -292,6 +292,22 @@ export default function DueDiligenceDashboardPage() {
     return lookup;
   }, [ddConfigs]);
 
+  const getDisplayReference = useCallback((submission) => {
+    if (!submission) return '';
+    const formId = submission.form_submission?.form_id;
+    const cardReferenceField = formId ? cardReferenceFieldByFormId[formId] : null;
+    const formValues = submission.form_submission?.submission_data || {};
+    const linkedOrgName = submission.form_submission?.organization?.name;
+    
+    if (cardReferenceField === '__organization_name__' && linkedOrgName) {
+      return linkedOrgName;
+    } else if (cardReferenceField && formValues[cardReferenceField]) {
+      return formValues[cardReferenceField];
+    } else {
+      return linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
+    }
+  }, [cardReferenceFieldByFormId]);
+
   const { data: submissionsData, isLoading: submissionsLoading, refetch } = useQuery({
     queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId],
     queryFn: async () => {
@@ -370,19 +386,16 @@ export default function DueDiligenceDashboardPage() {
   };
 
   const handleDeleteClick = (submission) => {
-    console.log('[DD Delete] handleDeleteClick called with:', submission);
     setSubmissionToDelete(submission);
     setDeleteConfirmStep(1);
   };
 
   const handleCancelDelete = () => {
-    console.log('[DD Delete] handleCancelDelete called');
     setSubmissionToDelete(null);
     setDeleteConfirmStep(1);
   };
 
   const handleFirstConfirm = () => {
-    console.log('[DD Delete] handleFirstConfirm called, moving to step 2');
     isTransitioningRef.current = true;
     setDeleteConfirmStep(2);
     setTimeout(() => { isTransitioningRef.current = false; }, 100);
@@ -390,30 +403,22 @@ export default function DueDiligenceDashboardPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (ddSubmissionId) => {
-      console.log('[DD Delete] mutationFn called with ID:', ddSubmissionId);
       const response = await apiRequest('DELETE', `/api/due-diligence/delete-submission/${ddSubmissionId}`);
-      console.log('[DD Delete] API response:', response);
       return response;
     },
     onSuccess: () => {
-      console.log('[DD Delete] Mutation success');
       queryClient.invalidateQueries({ queryKey: ['dd-submissions'] });
       toast.success('Due diligence submission deleted successfully');
       handleCancelDelete();
     },
     onError: (error) => {
-      console.error('[DD Delete] Mutation error:', error);
       toast.error(error.message || 'Failed to delete submission');
     }
   });
 
   const handleFinalDelete = () => {
-    console.log('[DD Delete] handleFinalDelete called, submissionToDelete:', submissionToDelete);
     if (submissionToDelete) {
-      console.log('[DD Delete] Calling mutate with ID:', submissionToDelete.id);
       deleteMutation.mutate(submissionToDelete.id);
-    } else {
-      console.log('[DD Delete] ERROR: submissionToDelete is null!');
     }
   };
 
@@ -674,7 +679,7 @@ export default function DueDiligenceDashboardPage() {
               {submissionToDelete && (
                 <p className="mt-3 p-2 bg-muted rounded text-sm">
                   <span className="font-medium">Submission Reference:</span>{' '}
-                  {submissionToDelete.application_uid || submissionToDelete.id}
+                  {getDisplayReference(submissionToDelete)}
                 </p>
               )}
             </AlertDialogDescription>
