@@ -243,6 +243,7 @@ export default function DueDiligenceDashboardPage() {
   
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
+  const isTransitioningRef = useRef(false);
   
   const [columnWidths, setColumnWidths] = useState(() => {
     try {
@@ -382,7 +383,9 @@ export default function DueDiligenceDashboardPage() {
 
   const handleFirstConfirm = () => {
     console.log('[DD Delete] handleFirstConfirm called, moving to step 2');
+    isTransitioningRef.current = true;
     setDeleteConfirmStep(2);
+    setTimeout(() => { isTransitioningRef.current = false; }, 100);
   };
 
   const deleteMutation = useMutation({
@@ -617,7 +620,7 @@ export default function DueDiligenceDashboardPage() {
         </Card>
       )}
 
-      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 1} onOpenChange={(open) => { if (!open && deleteConfirmStep === 1) handleCancelDelete(); }}>
+      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 1} onOpenChange={(open) => { if (!open && !isTransitioningRef.current) handleCancelDelete(); }}>
         <AlertDialogContent data-testid="delete-dd-confirm-step1">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -653,7 +656,7 @@ export default function DueDiligenceDashboardPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 2} onOpenChange={(open) => { if (!open && deleteConfirmStep === 2) handleCancelDelete(); }}>
+      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 2} onOpenChange={(open) => { if (!open && !deleteMutation.isPending) handleCancelDelete(); }}>
         <AlertDialogContent data-testid="delete-dd-confirm-step2">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
