@@ -19,14 +19,15 @@ export default async function handler(req, res) {
 
   try {
     const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
     const pendingJobs = [];
 
-    // Fetch contract instances for this tenant
+    // Fetch contract instances with tenant filter at DB level via form join
     const { data: contractInstances, error: instancesError } = await supabase
       .from('contract_instance')
       .select(`
         *,
-        form:form_id (
+        form:form_id!inner (
           id,
           name,
           slug,
@@ -38,6 +39,7 @@ export default async function handler(req, res) {
           name
         )
       `)
+      .eq('form.tenant_id', tenant_id)
       .in('status', ['out_for_signing', 'pending', 'expired']);
 
     if (instancesError) {
@@ -48,12 +50,49 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch contract instances' });
     }
 
-    // Filter to this tenant's contracts
-    const tenantContracts = (contractInstances || []).filter(
-      instance => instance.form?.tenant_id === tenant_id
-    );
+    if (!contractInstances || contractInstances.length === 0) {
+      return res.status(200).json({ 
+        pending_jobs: [], 
+        summary: { timeouts: 0, reminders: 0, will_send_next_run: 0 } 
+      });
+    }
 
-    for (const instance of tenantContracts) {
+    // Fetch all reminder logs for today to check which reminders were already sent
+    const { data: todayReminders } = await supabase
+      .from('contract_reminder_log')
+      .select('reminder_key')
+      .eq('tenant_id', tenant_id)
+      .gte('sent_at', `${todayStr}T00:00:00.000Z`);
+
+    const todayReminderKeys = new Set((todayReminders || []).map(r => r.reminder_key));
+
+    // Fetch form submissions to determine which signers have signed
+    const instanceIds = contractInstances.map(i => i.id);
+    const { data: submissions } = await supabase
+      .from('form_submission')
+      .select('contract_instance_id, submission_data, submitted_by_email')
+      .in('contract_instance_id', instanceIds);
+
+    // Build a map of signed emails per contract instance
+    const signedEmailsByInstance = {};
+    for (const sub of (submissions || [])) {
+      const instanceId = sub.contract_instance_id;
+      if (!signedEmailsByInstance[instanceId]) {
+        signedEmailsByInstance[instanceId] = new Set();
+      }
+      const data = sub.submission_data || sub.data;
+      if (data) {
+        const hasSignature = Object.values(data).some(v => 
+          typeof v === 'object' && v?.type === 'signature'
+        );
+        if (hasSignature) {
+          const email = data.signer_email || data.email || sub.submitted_by_email;
+          if (email) signedEmailsByInstance[instanceId].add(email.toLowerCase());
+        }
+      }
+    }
+
+    for (const instance of contractInstances) {
       const form = instance.form;
       if (!form) continue;
 
@@ -71,23 +110,34 @@ export default async function handler(req, res) {
       const daysSinceSent = Math.floor((now - sentDate) / (1000 * 60 * 60 * 24));
       const daysUntilExpiry = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
 
-      // Check for pending timeout notification
+      // Get signed emails for this instance (from form submissions)
+      const signedEmails = signedEmailsByInstance[instance.id] || new Set();
+
+      // Check for pending timeout notification (mirrors CRON logic exactly)
       if (now > expiryDate) {
+        // Check if any signer has signed (matches CRON's hasWinner check)
         const hasWinner = signers.some(s => s.status === 'received' || s.signed_at);
         
         if (!hasWinner && contractSettings.timeout_email_template_id) {
           let willSend = true;
           let reason = 'Contract has expired without signature';
           
+          // Check 24-hour cooldown (matches CRON logic)
           if (instance.timeout_notification_sent_at) {
             const lastNotification = new Date(instance.timeout_notification_sent_at);
             const hoursSinceNotification = (now - lastNotification) / (1000 * 60 * 60);
             if (hoursSinceNotification < 24) {
               willSend = false;
-              reason = `Timeout notification already sent ${Math.round(hoursSinceNotification)} hours ago (waiting 24h)`;
+              reason = `Timeout notification sent ${Math.round(hoursSinceNotification)}h ago (24h cooldown)`;
             } else {
-              reason = `Will send another timeout notification (${Math.round(hoursSinceNotification)}h since last)`;
+              reason = `Another timeout notification will be sent (${Math.round(hoursSinceNotification)}h since last)`;
             }
+          }
+
+          // Check if form_submission_id exists (required for notification)
+          if (!instance.form_submission_id) {
+            willSend = false;
+            reason = 'No source submission linked (cannot send notification)';
           }
 
           pendingJobs.push({
@@ -110,61 +160,85 @@ export default async function handler(req, res) {
       }
 
       // Check for pending reminders (only for out_for_signing contracts not yet expired)
+      // Matches CRON logic exactly
       if (instance.status === 'out_for_signing' && now <= expiryDate) {
         const reminders = contractSettings.reminders || [];
         
-        // Find unsigned signers
-        const unsignedSigners = signers.filter(s => !(s.status === 'received' || s.signed_at));
-        
-        if (unsignedSigners.length > 0 && reminders.length > 0) {
-          for (const reminder of reminders) {
-            const reminderDays = reminder.days || reminder.days_before_timeout || 7;
-            const timingType = reminder.timing_type || 'before_timeout';
-            
-            let willTrigger = false;
-            let triggerDate = null;
-            let triggerReason = '';
-            
-            if (timingType === 'before_timeout') {
-              // Reminder triggers X days before timeout
-              triggerDate = new Date(expiryDate);
-              triggerDate.setDate(triggerDate.getDate() - reminderDays);
-              willTrigger = daysUntilExpiry <= reminderDays && daysUntilExpiry > 0;
-              triggerReason = willTrigger 
-                ? `Triggers ${reminderDays} days before timeout (${daysUntilExpiry} days remaining)`
-                : `Scheduled for ${reminderDays} days before timeout`;
-            } else if (timingType === 'after_first_send') {
-              // Reminder triggers X days after first send
-              triggerDate = new Date(sentDate);
-              triggerDate.setDate(triggerDate.getDate() + reminderDays);
-              willTrigger = daysSinceSent >= reminderDays;
-              triggerReason = willTrigger
-                ? `Triggers ${reminderDays} days after send (${daysSinceSent} days elapsed)`
-                : `Scheduled for ${reminderDays} days after send`;
-            }
+        if (reminders.length === 0 || signers.length === 0) continue;
 
-            pendingJobs.push({
-              type: 'reminder',
-              contract_id: instance.id,
-              contract_name: form.name,
-              organization_name: instance.organization?.name || null,
-              signers: unsignedSigners.map(s => ({
-                name: s.first_name ? `${s.first_name} ${s.last_name || ''}`.trim() : s.name || s.email,
-                email: s.email,
-                signed: false
-              })),
-              reminder_config: {
-                timing_type: timingType,
-                days: reminderDays,
-                has_email_template: !!reminder.email_template_id
-              },
-              trigger_date: triggerDate?.toISOString(),
-              days_until_expiry: daysUntilExpiry,
-              days_since_sent: daysSinceSent,
-              will_send_on_next_run: willTrigger,
-              reason: triggerReason
-            });
+        // Find unsigned signers (using form_submission signatures like CRON does)
+        const unsignedSigners = signers.filter(s => 
+          !signedEmails.has((s.email || '').toLowerCase())
+        );
+        
+        if (unsignedSigners.length === 0) continue;
+
+        for (const reminder of reminders) {
+          const reminderDays = reminder.days || reminder.days_before_timeout || 7;
+          const timingType = reminder.timing_type || 'before_timeout';
+          
+          let willTrigger = false;
+          let triggerReason = '';
+          
+          // Match CRON timing windows exactly
+          if (timingType === 'before_timeout') {
+            // CRON: daysUntilExpiry <= reminderDays && daysUntilExpiry > (reminderDays - 1)
+            willTrigger = daysUntilExpiry <= reminderDays && daysUntilExpiry > (reminderDays - 1);
+            triggerReason = willTrigger 
+              ? `In window: ${reminderDays} days before timeout (${daysUntilExpiry} days remaining)`
+              : daysUntilExpiry > reminderDays 
+                ? `Scheduled: ${reminderDays} days before timeout (${daysUntilExpiry} days remaining)`
+                : `Window passed: was ${reminderDays} days before timeout`;
+          } else if (timingType === 'after_first_send') {
+            // CRON: daysSinceSent >= reminderDays && daysSinceSent < (reminderDays + 1)
+            willTrigger = daysSinceSent >= reminderDays && daysSinceSent < (reminderDays + 1);
+            triggerReason = willTrigger
+              ? `In window: ${reminderDays} days after send (${daysSinceSent} days elapsed)`
+              : daysSinceSent < reminderDays
+                ? `Scheduled: ${reminderDays} days after send (${daysSinceSent} days elapsed)`
+                : `Window passed: was ${reminderDays} days after send`;
           }
+
+          // Check if reminder was already sent today for any unsigned signer
+          let allRemindersAlreadySent = true;
+          const signersToRemind = [];
+          
+          for (const signer of unsignedSigners) {
+            if (!signer.email) continue;
+            const signerIdentifier = signer.id || signer.email;
+            const reminderKey = `${instance.id}_${signerIdentifier}_${reminder.id}_${todayStr}`;
+            
+            if (!todayReminderKeys.has(reminderKey)) {
+              allRemindersAlreadySent = false;
+              signersToRemind.push(signer);
+            }
+          }
+
+          if (willTrigger && allRemindersAlreadySent) {
+            willTrigger = false;
+            triggerReason = 'Already sent today to all unsigned signers';
+          }
+
+          pendingJobs.push({
+            type: 'reminder',
+            contract_id: instance.id,
+            contract_name: form.name,
+            organization_name: instance.organization?.name || null,
+            signers: (willTrigger ? signersToRemind : unsignedSigners).map(s => ({
+              name: s.first_name ? `${s.first_name} ${s.last_name || ''}`.trim() : s.name || s.email,
+              email: s.email,
+              signed: false
+            })),
+            reminder_config: {
+              timing_type: timingType,
+              days: reminderDays,
+              has_email_template: !!reminder.email_template_id
+            },
+            days_until_expiry: daysUntilExpiry,
+            days_since_sent: daysSinceSent,
+            will_send_on_next_run: willTrigger,
+            reason: triggerReason
+          });
         }
       }
     }
