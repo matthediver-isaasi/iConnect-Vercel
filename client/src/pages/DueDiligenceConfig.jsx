@@ -514,7 +514,7 @@ export default function DueDiligenceConfigPage() {
                 <Card 
                   key={f.id} 
                   className="hover-elevate cursor-pointer transition-colors"
-                  onClick={() => navigate(`/admin/DueDiligenceConfig?formId=${f.id}`)}
+                  onClick={() => navigate(`/DueDiligenceConfig?formId=${f.id}`)}
                   data-testid={`card-form-${f.id}`}
                 >
                   <CardContent className="py-4">
@@ -567,7 +567,7 @@ export default function DueDiligenceConfigPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>Form not found. Make sure the form exists and has "Due Diligence Required" enabled.</AlertDescription>
         </Alert>
-        <Button variant="outline" className="mt-4" onClick={() => navigate('/admin/DueDiligenceConfig')} data-testid="button-back-to-list">
+        <Button variant="outline" className="mt-4" onClick={() => navigate('/DueDiligenceConfig')} data-testid="button-back-to-list">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Forms List
         </Button>
@@ -579,7 +579,7 @@ export default function DueDiligenceConfigPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/DueDiligenceConfig')} data-testid="button-back">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/DueDiligenceConfig')} data-testid="button-back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
