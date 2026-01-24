@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { getTenantIdFromSession } from '../_lib/zoomClient.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,6 +18,11 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
+  const tenantId = await getTenantIdFromSession(req);
+  if (!tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
   try {
     const { start_time, duration_minutes, host_id, exclude_webinar_id } = req.body;
     
@@ -30,6 +36,7 @@ export default async function handler(req, res) {
     let query = supabase
       .from('zoom_webinar')
       .select('*')
+      .eq('tenant_id', tenantId)
       .neq('status', 'cancelled');
     
     if (exclude_webinar_id) {

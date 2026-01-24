@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       let query = supabase
         .from('zoom_webinar')
         .select('*')
+        .eq('tenant_id', tenantId)
         .order('start_time', { ascending: true });
       
       if (status) {
@@ -125,6 +126,7 @@ export default async function handler(req, res) {
       const { data: webinar, error: dbError } = await supabase
         .from('zoom_webinar')
         .insert({
+          tenant_id: tenantId,
           topic,
           agenda,
           start_time,

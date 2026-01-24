@@ -36,6 +36,7 @@ export default async function handler(req, res) {
       .from('zoom_webinar')
       .select('zoom_webinar_id, status, start_time')
       .eq('id', id)
+      .eq('tenant_id', tenantId)
       .single();
     
     if (fetchError) {

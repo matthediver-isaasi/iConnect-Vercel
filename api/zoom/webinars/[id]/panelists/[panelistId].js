@@ -28,9 +28,13 @@ export default async function handler(req, res) {
   try {
     const { data: panelist, error: fetchError } = await supabase
       .from('zoom_webinar_panelist')
-      .select('*, zoom_webinar!inner(zoom_webinar_id, status, start_time)')
+      .select('*, zoom_webinar!inner(zoom_webinar_id, status, start_time, tenant_id)')
       .eq('id', panelistId)
       .single();
+    
+    if (!fetchError && panelist?.zoom_webinar?.tenant_id !== tenantId) {
+      return res.status(404).json({ error: 'Panelist not found' });
+    }
     
     if (fetchError) {
       return res.status(404).json({ error: 'Panelist not found' });
