@@ -1,15 +1,17 @@
 import { supabase } from '../_lib/database.js';
-import { verifySession } from '../_lib/authMiddleware.js';
+import { getSessionTenantUser } from '../_lib/session.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const session = await verifySession(req, res);
-  if (!session) return;
+  const tenantUser = await getSessionTenantUser(req);
+  if (!tenantUser) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
-  const { tenant_id } = session;
+  const tenant_id = tenantUser.tenant_id;
 
   if (!supabase) {
     return res.status(500).json({ error: 'Database not configured' });
