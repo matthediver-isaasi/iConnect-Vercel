@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,7 +112,9 @@ function ReviewFieldEditor({
   onChange, 
   onStatusChange,
   note,
-  onNoteChange 
+  onNoteChange,
+  organisations = [],
+  linkedOrganisationId = null
 }) {
   const [showNote, setShowNote] = useState(!!note);
   const isApproved = reviewStatus === 'approved';
@@ -127,11 +130,22 @@ function ReviewFieldEditor({
   // Check if this is an instructions/description-only field
   const isInstructionsField = field.type === 'instructions';
   
-  const displayOriginal = Array.isArray(originalValue) 
-    ? originalValue.join(', ') 
-    : (typeof originalValue === 'object' && originalValue !== null)
-      ? JSON.stringify(originalValue, null, 2)
-      : (originalValue || '');
+  // Check if this is an organisation dropdown field that matches the linked organisation
+  const isOrganisationField = field.type === 'organisation_dropdown';
+  const isLinkedOrganisation = isOrganisationField && originalValue === linkedOrganisationId;
+  
+  // For organisation dropdown fields, look up the display name
+  const getDisplayValue = (value) => {
+    if (isOrganisationField && value && organisations.length > 0) {
+      const org = organisations.find(o => o.id === value);
+      return org?.name || value;
+    }
+    if (Array.isArray(value)) return value.join(', ');
+    if (typeof value === 'object' && value !== null) return JSON.stringify(value, null, 2);
+    return value || '';
+  };
+  
+  const displayOriginal = getDisplayValue(originalValue);
 
   // Instructions/description-only fields: display formatted content, no interaction
   if (isInstructionsField) {
@@ -199,26 +213,31 @@ function ReviewFieldEditor({
   }
 
   // Regular submission fields: two columns with approve/amend toggle
+  // Lock the field if it's the linked organisation (cannot be amended)
+  const isLocked = isLinkedOrganisation;
+  
   return (
     <div 
       className={cn(
-        "col-span-2 grid grid-cols-2 gap-4 p-4 border rounded-lg",
-        isApproved && "bg-green-50 border-green-200",
-        isAmended && "bg-amber-50 border-amber-200",
-        isPending && "bg-gray-50 border-gray-200"
+        "col-span-2 p-4 border rounded-lg space-y-3",
+        isLocked && "bg-slate-50 border-slate-300",
+        !isLocked && isApproved && "bg-green-50 border-green-200",
+        !isLocked && isAmended && "bg-amber-50 border-amber-200",
+        !isLocked && isPending && "bg-gray-50 border-gray-200"
       )}
       data-testid={`review-field-${stateKey}`}
     >
-      <div className="space-y-1">
-        <Label className="text-sm font-medium">{field.label || field.name}</Label>
-        <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
-          {displayOriginal || <span className="text-muted-foreground italic">No value</span>}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Label className="text-sm font-medium">{field.label || field.name}</Label>
+          {isLocked && (
+            <Badge variant="outline" className="text-xs bg-slate-100 text-slate-600 border-slate-300">
+              <Lock className="w-3 h-3 mr-1" />
+              Linked Organisation
+            </Badge>
+          )}
         </div>
-      </div>
-      
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label className="text-sm font-medium">Reviewed Value</Label>
+        {!isLocked && (
           <div className="flex items-center gap-2">
             <span className={cn("text-xs font-medium", isApproved ? "text-green-600" : "text-muted-foreground")}>
               Approved
@@ -245,9 +264,19 @@ function ReviewFieldEditor({
               Amended
             </span>
           </div>
+        )}
+      </div>
+      
+      <div className="grid grid-cols-2 gap-4">
+        <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
+          {displayOriginal || <span className="text-muted-foreground italic">No value</span>}
         </div>
         
-        {isAmended ? (
+        {isLocked ? (
+          <div className="p-2 bg-slate-100 rounded border border-slate-200 text-sm min-h-[40px] flex items-center">
+            <span className="text-slate-500 italic">Cannot be amended</span>
+          </div>
+        ) : isAmended ? (
           <FormRenderer
             field={field}
             value={reviewedValue}
@@ -260,30 +289,30 @@ function ReviewFieldEditor({
             <span className="text-green-600 italic">Approved as original</span>
           </div>
         )}
-        
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs"
-            onClick={() => setShowNote(!showNote)}
-            data-testid={`button-toggle-note-${stateKey}`}
-          >
-            <NotebookText className="w-3 h-3 mr-1" />
-            {showNote ? 'Hide Note' : 'Add Note'}
-          </Button>
-        </div>
-        
-        {showNote && (
-          <Textarea
-            value={note || ''}
-            onChange={(e) => onNoteChange(stateKey, e.target.value)}
-            placeholder="Add reviewer notes..."
-            className="text-xs min-h-[60px]"
-            data-testid={`textarea-note-${stateKey}`}
-          />
-        )}
       </div>
+      
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-xs"
+          onClick={() => setShowNote(!showNote)}
+          data-testid={`button-toggle-note-${stateKey}`}
+        >
+          <NotebookText className="w-3 h-3 mr-1" />
+          {showNote ? 'Hide Note' : 'Add Note'}
+        </Button>
+      </div>
+      
+      {showNote && (
+        <Textarea
+          value={note || ''}
+          onChange={(e) => onNoteChange(stateKey, e.target.value)}
+          placeholder="Add reviewer notes..."
+          className="text-xs min-h-[60px]"
+          data-testid={`textarea-note-${stateKey}`}
+        />
+      )}
     </div>
   );
 }
@@ -526,6 +555,14 @@ export default function ReviewSubmissionPage() {
     queryKey: ['/api/contracts/by-submission', ddSubmission?.form_submission_id],
     queryFn: () => apiRequest('GET', `/api/contracts/by-submission?formSubmissionId=${ddSubmission.form_submission_id}`),
     enabled: !!ddSubmission?.form_submission_id
+  });
+
+  // Query for organisations (for organisation_dropdown field display)
+  const { data: organisations = [] } = useQuery({
+    queryKey: ['organisations-for-dd-review'],
+    queryFn: () => publicClient.listOrganizations(),
+    staleTime: 5 * 60 * 1000,
+    enabled: accessChecked
   });
 
   const displayReference = useMemo(() => {
@@ -1352,6 +1389,8 @@ export default function ReviewSubmissionPage() {
                         onStatusChange={handleFieldStatusChange}
                         note={fieldNotes[fieldKey]}
                         onNoteChange={handleFieldNoteChange}
+                        organisations={organisations}
+                        linkedOrganisationId={organization?.id}
                       />
                     );
                   })}
