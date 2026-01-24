@@ -397,8 +397,7 @@ export default function DueDiligenceDashboardPage() {
     }
   });
 
-  const handleFinalDelete = (e) => {
-    e.preventDefault();
+  const handleFinalDelete = () => {
     if (submissionToDelete) {
       deleteMutation.mutate(submissionToDelete.id);
     }
@@ -668,7 +667,7 @@ export default function DueDiligenceDashboardPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete-step2">Go Back</AlertDialogCancel>
-            <AlertDialogAction 
+            <Button 
               onClick={handleFinalDelete}
               disabled={deleteMutation.isPending}
               variant="destructive"
@@ -682,7 +681,7 @@ export default function DueDiligenceDashboardPage() {
               ) : (
                 'Delete Permanently'
               )}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
