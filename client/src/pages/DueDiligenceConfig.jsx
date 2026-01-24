@@ -237,6 +237,22 @@ export default function DueDiligenceConfigPage() {
     });
   };
 
+  // Reset all state when formId changes to ensure fresh data for each form
+  useEffect(() => {
+    setHasInitialized(false);
+    setScoringApproach('dynamic');
+    setDefaultReviewState('amended');
+    setCardReferenceField('');
+    setShowDescriptionFields(false);
+    setScoringRules({ rules: [], risk_thresholds: {} });
+    setStaticQuestions([]);
+    setCustomRiskLevels(DEFAULT_RISK_LEVELS);
+    setWorkflowStages(DEFAULT_WORKFLOW_STAGES);
+    setStatusWebhooks([]);
+    setOpenStageSection({});
+    setPendingMeetingRequest(null);
+  }, [formId]);
+
   useEffect(() => {
     if (ddConfig && !hasInitialized) {
       setScoringApproach(ddConfig.scoring_approach || 'dynamic');
