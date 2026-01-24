@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     let query = supabase
       .from('scheduled_task_log')
       .select('*', { count: 'exact' })
-      .or(`tenant_id.eq.${tenant_id},tenant_id.is.null`)
+      .eq('tenant_id', tenant_id)
       .order('executed_at', { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
 
