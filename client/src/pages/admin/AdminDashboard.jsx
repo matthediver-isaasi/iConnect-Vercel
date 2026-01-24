@@ -26,7 +26,8 @@ import {
   ChevronDown,
   Check,
   Plus,
-  Mail
+  Mail,
+  Clock
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -219,6 +220,13 @@ export default function AdminDashboard() {
       icon: Mail,
       href: "/admin/email-logs",
       color: "text-cyan-400"
+    },
+    {
+      title: "Scheduled Tasks",
+      description: "View automated task history",
+      icon: Clock,
+      href: "/admin/scheduled-tasks",
+      color: "text-violet-400"
     }
   ];
 
