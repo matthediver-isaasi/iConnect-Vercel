@@ -256,20 +256,8 @@ function ReviewFieldEditor({
             hideLabel={true}
           />
         ) : (
-          <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
-            {(() => {
-              const val = reviewedValue ?? displayOriginal;
-              if (!val) return <span className="text-muted-foreground italic">No value</span>;
-              if (typeof val === 'string') return val;
-              if (Array.isArray(val)) return val.join(', ');
-              if (typeof val === 'object') {
-                if (val.firstName || val.lastName) {
-                  return [val.firstName, val.lastName].filter(Boolean).join(' ');
-                }
-                return JSON.stringify(val, null, 2);
-              }
-              return String(val);
-            })()}
+          <div className="p-2 bg-white rounded border text-sm min-h-[40px] flex items-center">
+            <span className="text-green-600 italic">Approved as original</span>
           </div>
         )}
         
@@ -629,12 +617,21 @@ export default function ReviewSubmissionPage() {
 
   const handleFieldStatusChange = useCallback((fieldKey, status) => {
     setFieldReviewStatus(prev => ({ ...prev, [fieldKey]: status }));
-    if (status === 'approved') {
-      // Look up the original value using field.name (not fieldKey)
-      const fieldName = fieldKeyToName[fieldKey] || fieldKey;
+    // Look up the original value using fieldKey first, then field.name as fallback
+    const fieldName = fieldKeyToName[fieldKey] || fieldKey;
+    const originalValue = ddSubmission?.original_form_values?.[fieldKey] ?? ddSubmission?.original_form_values?.[fieldName];
+    
+    if (status === 'amended') {
+      // When switching to amended, copy original value to reviewed for editing
       setReviewedFormValues(prev => ({
         ...prev,
-        [fieldKey]: ddSubmission?.original_form_values?.[fieldName]
+        [fieldKey]: originalValue
+      }));
+    } else if (status === 'approved') {
+      // When approved, clear the reviewed value (original is approved as-is)
+      setReviewedFormValues(prev => ({
+        ...prev,
+        [fieldKey]: undefined
       }));
     }
     setHasUnsavedChanges(true);
