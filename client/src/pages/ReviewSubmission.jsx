@@ -1348,7 +1348,7 @@ export default function ReviewSubmissionPage() {
                         key={fieldKey || `field-${index}`}
                         field={field}
                         fieldKey={fieldKey}
-                        originalValue={originalFormValues[field.name]}
+                        originalValue={originalFormValues[fieldKey] ?? originalFormValues[field.name]}
                         reviewedValue={reviewedFormValues[fieldKey]}
                         reviewStatus={fieldReviewStatus[fieldKey]}
                         onChange={handleFieldChange}
