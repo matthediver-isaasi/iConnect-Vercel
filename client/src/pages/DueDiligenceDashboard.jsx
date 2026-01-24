@@ -36,9 +36,10 @@ import { base44 } from "@/api/base44Client";
 const DEFAULT_COLUMN_WIDTHS = {
   reference: 200,
   status: 120,
-  score: 150,
+  formName: 180,
   riskLevel: 130,
   created: 120,
+  lastUpdated: 120,
   reviewedBy: 160,
   swap: 160,
   actions: 80
@@ -145,23 +146,10 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
           {stage.label}
         </Badge>
       </TableCell>
-      <TableCell style={{ width: columnWidths.score, minWidth: columnWidths.score }}>
-        {submission.due_diligence_score !== null && submission.due_diligence_score !== undefined ? (
-          <div className="flex items-center gap-2">
-            <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
-              <div 
-                className="h-full rounded-full"
-                style={{ 
-                  width: `${submission.due_diligence_score}%`,
-                  backgroundColor: riskConfig.color
-                }}
-              />
-            </div>
-            <span className="text-sm font-medium">{submission.due_diligence_score}%</span>
-          </div>
-        ) : (
-          <span className="text-muted-foreground text-sm">--</span>
-        )}
+      <TableCell style={{ width: columnWidths.formName, minWidth: columnWidths.formName }}>
+        <span className="text-sm truncate block" title={submission.form_name}>
+          {submission.form_name || '--'}
+        </span>
       </TableCell>
       <TableCell style={{ width: columnWidths.riskLevel, minWidth: columnWidths.riskLevel }}>
         {submission.risk_level ? (
@@ -177,6 +165,9 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
       </TableCell>
       <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.created, minWidth: columnWidths.created }}>
         {submission.created_at ? format(new Date(submission.created_at), 'MMM d, yyyy') : '--'}
+      </TableCell>
+      <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.lastUpdated, minWidth: columnWidths.lastUpdated }}>
+        {submission.updated_at ? format(new Date(submission.updated_at), 'MMM d, yyyy') : '--'}
       </TableCell>
       <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.reviewedBy, minWidth: columnWidths.reviewedBy }}>
         {reviewerDisplay}
@@ -661,9 +652,10 @@ export default function DueDiligenceDashboardPage() {
                   <TableRow>
                     <ResizableTableHead label="Reference" columnKey="reference" width={columnWidths.reference} onResize={handleColumnResize} />
                     <ResizableTableHead label="Status" columnKey="status" width={columnWidths.status} onResize={handleColumnResize} />
-                    <ResizableTableHead label="Score" columnKey="score" width={columnWidths.score} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Form" columnKey="formName" width={columnWidths.formName} onResize={handleColumnResize} />
                     <ResizableTableHead label="Risk Level" columnKey="riskLevel" width={columnWidths.riskLevel} onResize={handleColumnResize} />
                     <ResizableTableHead label="Created" columnKey="created" width={columnWidths.created} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Last Updated" columnKey="lastUpdated" width={columnWidths.lastUpdated} onResize={handleColumnResize} />
                     <ResizableTableHead label="Reviewed By" columnKey="reviewedBy" width={columnWidths.reviewedBy} onResize={handleColumnResize} />
                     <ResizableTableHead label="Swap Form" columnKey="swap" width={columnWidths.swap} onResize={handleColumnResize} />
                     <TableHead style={{ width: columnWidths.actions, minWidth: columnWidths.actions }}>Actions</TableHead>

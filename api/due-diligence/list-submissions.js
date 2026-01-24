@@ -162,6 +162,39 @@ export default async function handler(req, res) {
       return sub;
     });
 
+    // Collect all form IDs to look up form names
+    const formIds = [...new Set(
+      filteredSubmissions
+        .map(s => s.form_submission?.form_id)
+        .filter(Boolean)
+    )];
+
+    // Fetch form names
+    let formMap = {};
+    if (formIds.length > 0) {
+      const { data: forms } = await supabase
+        .from('form')
+        .select('id, name')
+        .in('id', formIds)
+        .eq('tenant_id', tenantCtx.tenantId);
+      
+      if (forms) {
+        formMap = Object.fromEntries(forms.map(f => [f.id, f.name]));
+      }
+    }
+
+    // Attach form names to submissions
+    filteredSubmissions = filteredSubmissions.map(sub => {
+      const formId = sub.form_submission?.form_id;
+      if (formId && formMap[formId]) {
+        return {
+          ...sub,
+          form_name: formMap[formId]
+        };
+      }
+      return sub;
+    });
+
     return res.status(200).json({
       success: true,
       submissions: filteredSubmissions,
