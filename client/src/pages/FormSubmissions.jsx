@@ -495,7 +495,11 @@ export default function FormSubmissionsPage() {
         ) : (
           <>
             <div className="space-y-4">
-              {paginatedSubmissions.map(submission => (
+              {paginatedSubmissions.map(submission => {
+                const form = forms.find(f => f.id === submission.form_id);
+                const isDueDiligenceForm = form?.due_diligence_required === true;
+                
+                return (
                 <Card key={submission.id} className="border-slate-200 hover:shadow-lg transition-shadow">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
@@ -548,8 +552,14 @@ export default function FormSubmissionsPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => setSubmissionToDelete(submission)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          disabled={isDueDiligenceForm}
+                          className={isDueDiligenceForm 
+                            ? "text-slate-400 cursor-not-allowed" 
+                            : "text-red-600 hover:text-red-700 hover:bg-red-50"}
                           data-testid={`button-delete-submission-${submission.id}`}
+                          title={isDueDiligenceForm 
+                            ? "Due diligence submissions must be deleted from the Due Diligence Dashboard" 
+                            : "Delete submission"}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -557,7 +567,7 @@ export default function FormSubmissionsPage() {
                     </div>
                   </CardHeader>
                 </Card>
-              ))}
+              );})}
             </div>
 
             <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">

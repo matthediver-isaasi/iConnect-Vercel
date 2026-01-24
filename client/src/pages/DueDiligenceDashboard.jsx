@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,18 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings, GripVertical } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings, GripVertical, Trash2 } from "lucide-react";
 import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
@@ -19,7 +30,8 @@ const DEFAULT_COLUMN_WIDTHS = {
   score: 150,
   riskLevel: 130,
   created: 120,
-  reviewedBy: 160
+  reviewedBy: 160,
+  actions: 80
 };
 
 const COLUMN_WIDTH_STORAGE_KEY = 'dd_dashboard_column_widths';
@@ -76,7 +88,7 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
-function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardReferenceField, columnWidths }) {
+function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, cardReferenceField, columnWidths }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
   
@@ -93,6 +105,11 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
   }
 
   const reviewerDisplay = submission.reviewed_by_name || submission.reviewed_by || '--';
+
+  const handleDeleteClick = (e) => {
+    e.stopPropagation();
+    onDelete(submission);
+  };
   
   return (
     <TableRow 
@@ -144,6 +161,17 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
       </TableCell>
       <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.reviewedBy, minWidth: columnWidths.reviewedBy }}>
         {reviewerDisplay}
+      </TableCell>
+      <TableCell style={{ width: columnWidths.actions, minWidth: columnWidths.actions }}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleDeleteClick}
+          data-testid={`button-delete-dd-${submission.id}`}
+          title="Delete submission"
+        >
+          <Trash2 className="w-4 h-4 text-red-600" />
+        </Button>
       </TableCell>
     </TableRow>
   );
@@ -205,12 +233,16 @@ function ResizableTableHead({ label, columnKey, width, onResize }) {
 
 export default function DueDiligenceDashboardPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { isAccessReady, memberInfo } = useMemberAccess();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [riskFilter, setRiskFilter] = useState('all');
   const [selectedFormId, setSelectedFormId] = useState('all');
+  
+  const [submissionToDelete, setSubmissionToDelete] = useState(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
   
   const [columnWidths, setColumnWidths] = useState(() => {
     try {
@@ -334,6 +366,41 @@ export default function DueDiligenceDashboardPage() {
 
   const handleRowClick = (submissionId) => {
     navigate(`/ReviewSubmission?id=${submissionId}`);
+  };
+
+  const handleDeleteClick = (submission) => {
+    setSubmissionToDelete(submission);
+    setDeleteConfirmStep(1);
+  };
+
+  const handleCancelDelete = () => {
+    setSubmissionToDelete(null);
+    setDeleteConfirmStep(1);
+  };
+
+  const handleFirstConfirm = () => {
+    setDeleteConfirmStep(2);
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ddSubmissionId) => {
+      const response = await apiRequest('DELETE', `/api/due-diligence/delete-submission/${ddSubmissionId}`);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dd-submissions'] });
+      toast.success('Due diligence submission deleted successfully');
+      handleCancelDelete();
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to delete submission');
+    }
+  });
+
+  const handleFinalDelete = () => {
+    if (submissionToDelete) {
+      deleteMutation.mutate(submissionToDelete.id);
+    }
   };
 
   if (!isAccessReady || formsLoading) {
@@ -470,6 +537,7 @@ export default function DueDiligenceDashboardPage() {
                     <ResizableTableHead label="Risk Level" columnKey="riskLevel" width={columnWidths.riskLevel} onResize={handleColumnResize} />
                     <ResizableTableHead label="Created" columnKey="created" width={columnWidths.created} onResize={handleColumnResize} />
                     <ResizableTableHead label="Reviewed By" columnKey="reviewedBy" width={columnWidths.reviewedBy} onResize={handleColumnResize} />
+                    <TableHead style={{ width: columnWidths.actions, minWidth: columnWidths.actions }}>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -483,6 +551,7 @@ export default function DueDiligenceDashboardPage() {
                         workflowStages={workflowStages}
                         riskLevels={riskLevels}
                         onClick={handleRowClick}
+                        onDelete={handleDeleteClick}
                         cardReferenceField={refField}
                         columnWidths={columnWidths}
                       />
@@ -536,6 +605,86 @@ export default function DueDiligenceDashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 1} onOpenChange={(open) => !open && handleCancelDelete()}>
+        <AlertDialogContent data-testid="delete-dd-confirm-step1">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-600" />
+              Delete Due Diligence Submission
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                Are you sure you want to delete this due diligence submission? 
+                This action cannot be undone.
+              </p>
+              <p className="font-medium text-foreground">
+                The following data will be permanently removed:
+              </p>
+              <ul className="list-disc list-inside text-sm space-y-1 pl-2">
+                <li>Due diligence review data and scoring</li>
+                <li>Related form submission and uploaded documents</li>
+                <li>Contract instances and scheduled reminder jobs</li>
+                <li>Reminder logs and notification history</li>
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-step1">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleFirstConfirm} 
+              variant="destructive"
+              data-testid="button-confirm-delete-step1"
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 2} onOpenChange={(open) => !open && handleCancelDelete()}>
+        <AlertDialogContent data-testid="delete-dd-confirm-step2">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Final Confirmation
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <p className="text-base font-medium text-foreground mb-2">
+                This is your final confirmation. 
+              </p>
+              <p>
+                Deleting this submission will remove all associated data including scheduled 
+                tasks and uploaded documents. This data cannot be recovered.
+              </p>
+              {submissionToDelete && (
+                <p className="mt-3 p-2 bg-muted rounded text-sm">
+                  <span className="font-medium">Submission Reference:</span>{' '}
+                  {submissionToDelete.application_uid || submissionToDelete.id}
+                </p>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-step2">Go Back</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleFinalDelete}
+              disabled={deleteMutation.isPending}
+              variant="destructive"
+              data-testid="button-confirm-delete-final"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Permanently'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
