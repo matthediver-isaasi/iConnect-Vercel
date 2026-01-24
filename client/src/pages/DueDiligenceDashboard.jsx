@@ -617,7 +617,7 @@ export default function DueDiligenceDashboardPage() {
         </Card>
       )}
 
-      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 1} onOpenChange={(open) => !open && handleCancelDelete()}>
+      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 1} onOpenChange={(open) => { if (!open && deleteConfirmStep === 1) handleCancelDelete(); }}>
         <AlertDialogContent data-testid="delete-dd-confirm-step1">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -653,7 +653,7 @@ export default function DueDiligenceDashboardPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 2} onOpenChange={(open) => !open && handleCancelDelete()}>
+      <AlertDialog open={!!submissionToDelete && deleteConfirmStep === 2} onOpenChange={(open) => { if (!open && deleteConfirmStep === 2) handleCancelDelete(); }}>
         <AlertDialogContent data-testid="delete-dd-confirm-step2">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-red-600">
