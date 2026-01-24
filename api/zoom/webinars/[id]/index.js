@@ -37,10 +37,12 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: webinarError.message });
       }
       
+      // Panelists are safe to fetch by webinar_id since we've already verified
+      // the webinar belongs to this tenant in the query above
       const { data: panelists } = await supabase
         .from('zoom_webinar_panelist')
         .select('*')
-        .eq('webinar_id', id)
+        .eq('webinar_id', webinar.id)
         .order('created_at', { ascending: true });
       
       return res.json({ ...webinar, panelists: panelists || [] });
