@@ -1362,7 +1362,18 @@ export default function ReviewSubmissionPage() {
   const currentStage = workflowStages.find(s => s.id === workflowStatus);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 space-y-6 relative">
+      {updateStatusMutation.isPending && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center" data-testid="status-processing-overlay">
+          <div className="bg-white rounded-xl p-8 shadow-2xl flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <div className="text-center">
+              <p className="font-semibold text-lg">Processing Status Change</p>
+              <p className="text-sm text-muted-foreground">Please wait while we update the status and execute any configured actions...</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4 bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-lg">
         <div className="flex items-center gap-4">
           <Button variant="outline" onClick={() => navigate('/DueDiligenceDashboard')} data-testid="button-back">
