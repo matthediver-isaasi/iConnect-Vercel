@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const { data, error } = await supabase
         .from('stage_member_action')
-        .select('*, role:role_id(id, name)')
+        .select('*, role:role_id(id, name), welcome_email_template:welcome_email_template_id(id, name)')
         .eq('id', id)
         .eq('tenant_id', tenantCtx.tenantId)
         .single();
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
         'email_field', 
         'field_mappings',
         'role_id',
-        'send_welcome_email',
+        'welcome_email_template_id',
         'sort_order', 
         'is_active'
       ];
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
         .update(updates)
         .eq('id', id)
         .eq('tenant_id', tenantCtx.tenantId)
-        .select('*, role:role_id(id, name)')
+        .select('*, role:role_id(id, name), welcome_email_template:welcome_email_template_id(id, name)')
         .single();
       
       if (error) {

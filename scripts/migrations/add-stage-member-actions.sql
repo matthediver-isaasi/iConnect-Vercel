@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS stage_member_action (
   -- Role to assign to new members (optional - uses default role if not specified)
   role_id UUID REFERENCES role(id) ON DELETE SET NULL,
   
-  -- Whether to send welcome email to new member
-  send_welcome_email BOOLEAN DEFAULT false,
+  -- Email template to send when member is created (optional)
+  -- References the email_template table
+  welcome_email_template_id UUID REFERENCES email_template(id) ON DELETE SET NULL,
   
   -- Display order for multiple member actions per stage
   sort_order INTEGER DEFAULT 0,

@@ -71,7 +71,7 @@ export default function DueDiligenceConfigPage() {
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
   const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, promptCustomMessage, editId? }
-  const [pendingMemberAction, setPendingMemberAction] = useState(null); // { stageId, firstNameField, lastNameField, emailField, roleId, sendWelcomeEmail, fieldMappings, editId? }
+  const [pendingMemberAction, setPendingMemberAction] = useState(null); // { stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, editId? }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -306,7 +306,7 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const addStageMemberAction = async (stageId, firstNameField, lastNameField, emailField, roleId, sendWelcomeEmail, fieldMappings) => {
+  const addStageMemberAction = async (stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings) => {
     try {
       const response = await fetch('/api/stage-member-actions', {
         method: 'POST',
@@ -318,7 +318,7 @@ export default function DueDiligenceConfigPage() {
           last_name_field: lastNameField,
           email_field: emailField,
           role_id: roleId || null,
-          send_welcome_email: sendWelcomeEmail || false,
+          welcome_email_template_id: welcomeEmailTemplateId || null,
           field_mappings: fieldMappings || { core: {}, custom: {} }
         })
       });
@@ -344,7 +344,7 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const updateStageMemberAction = async (id, firstNameField, lastNameField, emailField, roleId, sendWelcomeEmail, fieldMappings) => {
+  const updateStageMemberAction = async (id, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings) => {
     try {
       const response = await fetch(`/api/stage-member-actions/${id}`, {
         method: 'PATCH',
@@ -355,7 +355,7 @@ export default function DueDiligenceConfigPage() {
           last_name_field: lastNameField,
           email_field: emailField,
           role_id: roleId || null,
-          send_welcome_email: sendWelcomeEmail || false,
+          welcome_email_template_id: welcomeEmailTemplateId || null,
           field_mappings: fieldMappings || { core: {}, custom: {} }
         })
       });
@@ -1845,6 +1845,9 @@ export default function DueDiligenceConfigPage() {
                                                       {ma.role?.name && (
                                                         <Badge variant="outline" className="text-xs">Role: {ma.role.name}</Badge>
                                                       )}
+                                                      {ma.welcome_email_template?.name && (
+                                                        <Badge variant="outline" className="text-xs">Welcome: {ma.welcome_email_template.name}</Badge>
+                                                      )}
                                                     </div>
                                                     <div className="flex items-center gap-1">
                                                       <Button
@@ -1856,7 +1859,7 @@ export default function DueDiligenceConfigPage() {
                                                           lastNameField: ma.last_name_field,
                                                           emailField: ma.email_field,
                                                           roleId: ma.role_id || '',
-                                                          sendWelcomeEmail: ma.send_welcome_email || false,
+                                                          welcomeEmailTemplateId: ma.welcome_email_template_id || '',
                                                           fieldMappings: ma.field_mappings || { core: {}, custom: {} },
                                                           editId: ma.id
                                                         })}
@@ -1954,13 +1957,24 @@ export default function DueDiligenceConfigPage() {
                                                           </SelectContent>
                                                         </Select>
                                                       </div>
-                                                      <div className="flex items-center gap-3 pt-5">
-                                                        <Switch
-                                                          checked={pendingMemberAction.sendWelcomeEmail || false}
-                                                          onCheckedChange={(checked) => setPendingMemberAction(prev => ({ ...prev, sendWelcomeEmail: checked }))}
-                                                          data-testid={`switch-send-welcome-email-${index}`}
-                                                        />
-                                                        <Label className="text-xs">Send Welcome Email</Label>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Welcome Email Template (optional)</Label>
+                                                        <Select
+                                                          value={pendingMemberAction.welcomeEmailTemplateId || ''}
+                                                          onValueChange={(v) => setPendingMemberAction(prev => ({ ...prev, welcomeEmailTemplateId: v === 'none' ? '' : v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-welcome-email-template-${index}`}>
+                                                            <SelectValue placeholder="No email..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            <SelectItem value="none">No email</SelectItem>
+                                                            {emailTemplates.filter(t => t.id).map(template => (
+                                                              <SelectItem key={template.id} value={template.id}>
+                                                                {template.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
                                                       </div>
                                                     </div>
                                                     
@@ -2176,7 +2190,7 @@ export default function DueDiligenceConfigPage() {
                                                               pendingMemberAction.lastNameField,
                                                               pendingMemberAction.emailField,
                                                               pendingMemberAction.roleId || null,
-                                                              pendingMemberAction.sendWelcomeEmail,
+                                                              pendingMemberAction.welcomeEmailTemplateId || null,
                                                               pendingMemberAction.fieldMappings
                                                             );
                                                           } else {
@@ -2186,7 +2200,7 @@ export default function DueDiligenceConfigPage() {
                                                               pendingMemberAction.lastNameField,
                                                               pendingMemberAction.emailField,
                                                               pendingMemberAction.roleId || null,
-                                                              pendingMemberAction.sendWelcomeEmail,
+                                                              pendingMemberAction.welcomeEmailTemplateId || null,
                                                               pendingMemberAction.fieldMappings
                                                             );
                                                           }
@@ -2208,7 +2222,7 @@ export default function DueDiligenceConfigPage() {
                                                       lastNameField: '', 
                                                       emailField: '', 
                                                       roleId: '', 
-                                                      sendWelcomeEmail: false, 
+                                                      welcomeEmailTemplateId: '', 
                                                       fieldMappings: { core: {}, custom: {} } 
                                                     })}
                                                     className="mt-2"

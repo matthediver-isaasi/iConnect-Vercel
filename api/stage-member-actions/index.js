@@ -24,7 +24,7 @@ export default async function handler(req, res) {
       
       let query = supabase
         .from('stage_member_action')
-        .select('*, role:role_id(id, name)')
+        .select('*, role:role_id(id, name), welcome_email_template:welcome_email_template_id(id, name)')
         .eq('tenant_id', tenantCtx.tenantId)
         .order('sort_order', { ascending: true });
       
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
         email_field,
         field_mappings,
         role_id,
-        send_welcome_email,
+        welcome_email_template_id,
         sort_order 
       } = req.body;
       
@@ -69,7 +69,7 @@ export default async function handler(req, res) {
         email_field,
         field_mappings: field_mappings || { core: {}, custom: {} },
         role_id: role_id || null,
-        send_welcome_email: send_welcome_email || false,
+        welcome_email_template_id: welcome_email_template_id || null,
         sort_order: sort_order || 0,
         is_active: true
       };
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
       const { data, error } = await supabase
         .from('stage_member_action')
         .insert(insertData)
-        .select('*, role:role_id(id, name)')
+        .select('*, role:role_id(id, name), welcome_email_template:welcome_email_template_id(id, name)')
         .single();
       
       if (error) {

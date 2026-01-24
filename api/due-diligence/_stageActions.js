@@ -900,7 +900,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     // Fetch member creation configs for this stage
     const { data: memberActions, error: maError } = await supabase
       .from('stage_member_action')
-      .select('*, role:role_id(id, name)')
+      .select('*, role:role_id(id, name), welcome_email_template:welcome_email_template_id(id, name, subject, from_email, reply_to)')
       .eq('due_diligence_stage_id', stageId)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
@@ -1189,10 +1189,68 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         }
       }
 
-      // Send welcome email if configured
-      if (ma.send_welcome_email) {
-        // TODO: Implement welcome email sending
-        console.log('[DD Member Action] Welcome email sending not yet implemented');
+      // Send welcome email if template is configured
+      if (ma.welcome_email_template_id) {
+        try {
+          // Fetch the email template
+          const { data: emailTemplate, error: templateError } = await supabase
+            .from('email_template')
+            .select('*')
+            .eq('id', ma.welcome_email_template_id)
+            .eq('tenant_id', tenantId)
+            .single();
+          
+          if (templateError || !emailTemplate) {
+            console.error('[DD Member Action] Could not find welcome email template:', templateError);
+          } else {
+            // Get tenant info for email sending
+            const { data: tenant } = await supabase
+              .from('tenant')
+              .select('name, slug')
+              .eq('id', tenantId)
+              .single();
+            
+            // Build placeholders for the email template
+            const placeholders = {
+              '{{first_name}}': newMember.first_name || '',
+              '{{last_name}}': newMember.last_name || '',
+              '{{email}}': newMember.email || '',
+              '{{full_name}}': `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim(),
+              '{{member_first_name}}': newMember.first_name || '',
+              '{{member_last_name}}': newMember.last_name || '',
+              '{{member_email}}': newMember.email || '',
+              '{{tenant_name}}': tenant?.name || '',
+              '{{organization_name}}': '', // Could be fetched if needed
+            };
+            
+            // Replace placeholders in subject and body
+            let emailSubject = emailTemplate.subject || '';
+            let emailBody = emailTemplate.body || '';
+            
+            for (const [placeholder, value] of Object.entries(placeholders)) {
+              emailSubject = emailSubject.replaceAll(placeholder, value);
+              emailBody = emailBody.replaceAll(placeholder, value);
+            }
+            
+            // Send the email (include from and replyTo from template if available)
+            const emailResult = await sendEmail({
+              to: newMember.email,
+              subject: emailSubject,
+              html: emailBody,
+              tenantId: tenantId,
+              from: emailTemplate.from_email || undefined,
+              replyTo: emailTemplate.reply_to || undefined
+            });
+            
+            if (emailResult.success) {
+              console.log(`[DD Member Action] Welcome email sent to ${newMember.email}`);
+            } else {
+              console.error('[DD Member Action] Failed to send welcome email:', emailResult.error);
+            }
+          }
+        } catch (emailError) {
+          console.error('[DD Member Action] Error sending welcome email:', emailError);
+        }
       }
 
       results.push({
