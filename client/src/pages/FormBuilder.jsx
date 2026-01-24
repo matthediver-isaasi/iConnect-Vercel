@@ -4481,10 +4481,23 @@ export default function FormBuilderPage() {
                     {formData.contract_settings?.timeout_email_template_id && (
                       <>
                         <div className="space-y-1">
-                          <Label className="text-xs text-slate-600">Alternative Signer Form Header Message</Label>
-                          <p className="text-xs text-slate-400 mb-1">
-                            Custom message shown at the top of the alternative signer form
-                          </p>
+                          <Label className="text-xs text-slate-600">Form Title</Label>
+                          <Input
+                            value={formData.contract_settings?.alternative_signer_title || ""}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              contract_settings: {
+                                ...formData.contract_settings,
+                                alternative_signer_title: e.target.value || null
+                              }
+                            })}
+                            placeholder="Provide Alternative Signer"
+                            data-testid="input-alternative-signer-title"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Header Message</Label>
                           <Input
                             value={formData.contract_settings?.alternative_signer_message || ""}
                             onChange={(e) => setFormData({
@@ -4499,6 +4512,22 @@ export default function FormBuilderPage() {
                           />
                         </div>
 
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Button Label</Label>
+                          <Input
+                            value={formData.contract_settings?.alternative_signer_button_label || ""}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              contract_settings: {
+                                ...formData.contract_settings,
+                                alternative_signer_button_label: e.target.value || null
+                              }
+                            })}
+                            placeholder="Add Signer & Send Contract"
+                            data-testid="input-alternative-signer-button-label"
+                          />
+                        </div>
+
                         <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 mt-3">
                           <div className="flex items-center gap-2 mb-3">
                             <UserPlus className="w-4 h-4 text-blue-600" />
@@ -4507,10 +4536,10 @@ export default function FormBuilderPage() {
                           <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 p-4 space-y-3">
                             <div className="text-center pb-3 border-b border-slate-100 dark:border-slate-700">
                               <UserPlus className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-                              <p className="font-medium text-sm">Provide Alternative Signer</p>
+                              <p className="font-medium text-sm">{formData.contract_settings?.alternative_signer_title || "Provide Alternative Signer"}</p>
                               {formData.contract_settings?.alternative_signer_message && (
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
-                                  "{formData.contract_settings.alternative_signer_message}"
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                  {formData.contract_settings.alternative_signer_message}
                                 </p>
                               )}
                             </div>
@@ -4529,7 +4558,7 @@ export default function FormBuilderPage() {
                               <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
                             </div>
                             <div className="h-9 bg-blue-600 rounded flex items-center justify-center">
-                              <span className="text-xs text-white font-medium">Add Signer & Send Contract</span>
+                              <span className="text-xs text-white font-medium">{formData.contract_settings?.alternative_signer_button_label || "Add Signer & Send Contract"}</span>
                             </div>
                           </div>
                           <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 text-center">

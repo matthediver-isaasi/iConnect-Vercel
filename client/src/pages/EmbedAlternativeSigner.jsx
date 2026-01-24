@@ -165,9 +165,9 @@ export default function EmbedAlternativeSignerPage() {
           <div className="mx-auto mb-2">
             <UserPlus className="w-10 h-10 text-blue-600" />
           </div>
-          <CardTitle>Provide Alternative Signer</CardTitle>
+          <CardTitle>{contractInfo?.alternative_signer_title || "Provide Alternative Signer"}</CardTitle>
           {contractInfo?.alternative_signer_message && (
-            <p className="text-sm text-slate-700 dark:text-slate-300 mt-2 font-medium">
+            <p className="text-sm text-slate-700 dark:text-slate-300 mt-2">
               {contractInfo.alternative_signer_message}
             </p>
           )}
@@ -234,7 +234,7 @@ export default function EmbedAlternativeSignerPage() {
               ) : (
                 <>
                   <UserPlus className="w-4 h-4 mr-2" />
-                  Add Signer & Send Contract
+                  {contractInfo?.alternative_signer_button_label || "Add Signer & Send Contract"}
                 </>
               )}
             </Button>

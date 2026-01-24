@@ -96,14 +96,16 @@ export default async function handler(req, res) {
       .eq('id', contractInstance.form_id)
       .single();
 
-    const alternativeSignerMessage = contractForm?.contract_settings?.alternative_signer_message || null;
+    const contractSettings = contractForm?.contract_settings || {};
 
     return res.status(200).json({
       valid: true,
       contract_id: contractInstance.id,
       contract_name: contractForm?.name || 'Contract',
       status: contractInstance.status,
-      alternative_signer_message: alternativeSignerMessage
+      alternative_signer_title: contractSettings.alternative_signer_title || null,
+      alternative_signer_message: contractSettings.alternative_signer_message || null,
+      alternative_signer_button_label: contractSettings.alternative_signer_button_label || null
     });
 
   } catch (error) {
