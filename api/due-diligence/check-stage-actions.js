@@ -69,6 +69,10 @@ export default async function handler(req, res) {
       return res.status(200).json(result);
     }
     
+    // Declare these outside the blocks so they're always available for debug output
+    const allUniqueAgents = new Set();
+    const debugSteps = [];
+
     if (!meetingRequests || meetingRequests.length === 0) {
       console.log('[DD Check Stage Actions] No active meeting requests found for this stage');
       
@@ -81,12 +85,8 @@ export default async function handler(req, res) {
       
       // Don't return early - continue to check for email actions below
     } else {
-
-    result.has_meeting_actions = true;
+      result.has_meeting_actions = true;
     console.log('[DD Check Stage Actions] Found', meetingRequests.length, 'meeting request configs');
-    
-    // Detailed debug for each step
-    const debugSteps = [];
 
     for (const mr of meetingRequests) {
       const template = mr.meeting_template;
@@ -187,7 +187,6 @@ export default async function handler(req, res) {
     }
 
     // Calculate total unique agents across all meeting actions
-    const allUniqueAgents = new Set();
     result.meeting_actions.forEach(action => {
       action.agents.forEach(agent => allUniqueAgents.add(agent.identity_id));
     });
