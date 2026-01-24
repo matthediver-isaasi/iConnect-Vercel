@@ -1589,9 +1589,9 @@ export default function DueDiligenceConfigPage() {
                                                             <SelectValue placeholder="Select email template..." />
                                                           </SelectTrigger>
                                                           <SelectContent>
-                                                            {emailTemplates.map(template => (
+                                                            {emailTemplates.filter(t => t.id).map(template => (
                                                               <SelectItem key={template.id} value={template.id}>
-                                                                {template.name}
+                                                                {template.name || 'Unnamed Template'}
                                                               </SelectItem>
                                                             ))}
                                                           </SelectContent>
@@ -1607,7 +1607,7 @@ export default function DueDiligenceConfigPage() {
                                                             <SelectValue placeholder="Select email field..." />
                                                           </SelectTrigger>
                                                           <SelectContent>
-                                                            {getEmailFields().map(field => (
+                                                            {getEmailFields().filter(f => f.id || f.name).map(field => (
                                                               <SelectItem key={field.id || field.name} value={field.id || field.name}>
                                                                 {field.label || field.name}
                                                               </SelectItem>
@@ -1625,8 +1625,8 @@ export default function DueDiligenceConfigPage() {
                                                             <SelectValue placeholder="Select name field (optional)..." />
                                                           </SelectTrigger>
                                                           <SelectContent>
-                                                            <SelectItem value="">None</SelectItem>
-                                                            {getTextFields().map(field => (
+                                                            <SelectItem value="none">None</SelectItem>
+                                                            {getTextFields().filter(f => f.id || f.name).map(field => (
                                                               <SelectItem key={field.id || field.name} value={field.id || field.name}>
                                                                 {field.label || field.name}
                                                               </SelectItem>
@@ -1656,12 +1656,13 @@ export default function DueDiligenceConfigPage() {
                                                           size="sm"
                                                           disabled={!pendingEmailAction.templateId || !pendingEmailAction.emailField}
                                                           onClick={async () => {
+                                                            const nameField = pendingEmailAction.nameField === 'none' ? null : (pendingEmailAction.nameField || null);
                                                             if (pendingEmailAction.editId) {
                                                               await updateStageEmailAction(
                                                                 pendingEmailAction.editId,
                                                                 pendingEmailAction.templateId,
                                                                 pendingEmailAction.emailField,
-                                                                pendingEmailAction.nameField || null,
+                                                                nameField,
                                                                 pendingEmailAction.ccEmails || null
                                                               );
                                                             } else {
@@ -1669,7 +1670,7 @@ export default function DueDiligenceConfigPage() {
                                                                 stage.id,
                                                                 pendingEmailAction.templateId,
                                                                 pendingEmailAction.emailField,
-                                                                pendingEmailAction.nameField || null,
+                                                                nameField,
                                                                 pendingEmailAction.ccEmails || null
                                                               );
                                                             }
