@@ -253,6 +253,47 @@ export default async function handler(req, res) {
     }
 
     console.log(`[cron/send-contract-reminders] Completed. Sent ${remindersSent} reminders, skipped ${contractsSkipped} completed contracts`);
+
+    const endTime = Date.now();
+    const durationMs = endTime - now.getTime();
+
+    const tenantsSeen = [...new Set(contractInstances.filter(i => i.form?.tenant_id).map(i => i.form.tenant_id))];
+    
+    for (const tenantId of tenantsSeen) {
+      await supabase.from('scheduled_task_log').insert({
+        tenant_id: tenantId,
+        task_name: 'contract_reminders',
+        task_display_name: 'Contract Reminders',
+        status: remindersSent > 0 ? 'success' : 'no_action',
+        summary: remindersSent > 0 
+          ? `Sent ${remindersSent} reminder${remindersSent !== 1 ? 's' : ''}` 
+          : 'No reminders needed at this time',
+        details: {
+          contracts_checked: contractInstances.length,
+          reminders_sent: remindersSent,
+          contracts_skipped: contractsSkipped
+        },
+        items_processed: contractInstances.length,
+        items_succeeded: remindersSent,
+        items_failed: 0,
+        duration_ms: durationMs
+      });
+    }
+
+    if (tenantsSeen.length === 0) {
+      await supabase.from('scheduled_task_log').insert({
+        tenant_id: null,
+        task_name: 'contract_reminders',
+        task_display_name: 'Contract Reminders',
+        status: 'no_action',
+        summary: 'No active contracts to check',
+        details: { contracts_checked: 0 },
+        items_processed: 0,
+        items_succeeded: 0,
+        items_failed: 0,
+        duration_ms: durationMs
+      });
+    }
     
     return res.status(200).json({ 
       message: 'Contract reminders processed',
@@ -262,6 +303,23 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('[cron/send-contract-reminders] Error:', error);
+    
+    try {
+      await supabase.from('scheduled_task_log').insert({
+        tenant_id: null,
+        task_name: 'contract_reminders',
+        task_display_name: 'Contract Reminders',
+        status: 'failed',
+        summary: 'Task failed with error',
+        error_message: error.message || 'Unknown error',
+        items_processed: 0,
+        items_succeeded: 0,
+        items_failed: 0
+      });
+    } catch (logError) {
+      console.error('[cron/send-contract-reminders] Failed to log error:', logError);
+    }
+    
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

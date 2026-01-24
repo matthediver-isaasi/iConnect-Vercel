@@ -230,6 +230,51 @@ export default async function handler(req, res) {
 
     console.log(`[cron/send-contract-timeout-notifications] Complete: ${notificationsSent} notifications sent, ${contractsExpired} expired contracts found, ${contractsSkipped} skipped`);
 
+    const endTime = Date.now();
+    const durationMs = endTime - now.getTime();
+
+    const tenantsSeen = [...new Set(contractInstances.filter(i => i.form?.tenant_id).map(i => i.form.tenant_id))];
+    
+    for (const tenantId of tenantsSeen) {
+      const tenantInstances = contractInstances.filter(i => i.form?.tenant_id === tenantId);
+      const tenantNotifications = tenantInstances.filter(i => i._notificationSent).length;
+      
+      await supabase.from('scheduled_task_log').insert({
+        tenant_id: tenantId,
+        task_name: 'contract_timeout_notifications',
+        task_display_name: 'Contract Timeout Notifications',
+        status: contractsSkipped > 0 ? 'partial' : (notificationsSent > 0 ? 'success' : 'no_action'),
+        summary: notificationsSent > 0 
+          ? `Sent ${notificationsSent} timeout notification${notificationsSent !== 1 ? 's' : ''}` 
+          : 'No contracts required timeout notifications',
+        details: {
+          contracts_checked: contractInstances.length,
+          notifications_sent: notificationsSent,
+          contracts_expired: contractsExpired,
+          contracts_skipped: contractsSkipped
+        },
+        items_processed: contractInstances.length,
+        items_succeeded: notificationsSent,
+        items_failed: contractsSkipped,
+        duration_ms: durationMs
+      });
+    }
+
+    if (tenantsSeen.length === 0) {
+      await supabase.from('scheduled_task_log').insert({
+        tenant_id: null,
+        task_name: 'contract_timeout_notifications',
+        task_display_name: 'Contract Timeout Notifications',
+        status: 'no_action',
+        summary: 'No contracts to check',
+        details: { contracts_checked: 0 },
+        items_processed: 0,
+        items_succeeded: 0,
+        items_failed: 0,
+        duration_ms: durationMs
+      });
+    }
+
     return res.status(200).json({
       message: 'Timeout notification check complete',
       notifications_sent: notificationsSent,
@@ -239,6 +284,23 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('[cron/send-contract-timeout-notifications] Error:', error);
+    
+    try {
+      await supabase.from('scheduled_task_log').insert({
+        tenant_id: null,
+        task_name: 'contract_timeout_notifications',
+        task_display_name: 'Contract Timeout Notifications',
+        status: 'failed',
+        summary: 'Task failed with error',
+        error_message: error.message || 'Unknown error',
+        items_processed: 0,
+        items_succeeded: 0,
+        items_failed: 0
+      });
+    } catch (logError) {
+      console.error('[cron/send-contract-timeout-notifications] Failed to log error:', logError);
+    }
+    
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
