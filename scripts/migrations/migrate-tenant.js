@@ -116,6 +116,11 @@ const FIELD_TYPE_MAPPINGS = {
   'url': 'text'
 };
 
+// Tables with composite unique constraints that should be used for upsert instead of id
+const COMPOSITE_UPSERT_KEYS = {
+  'system_settings': ['tenant_id', 'setting_key']
+};
+
 function applyTableTransformations(tableName, row, destColumnNames) {
   const transformedRow = { ...row };
   
@@ -215,7 +220,12 @@ async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRu
     });
     const placeholders = columns.map((_, i) => `$${i + 1}`);
 
-    const updateCols = columns.filter(c => c !== primaryKey);
+    // Determine conflict key(s) - use composite keys for certain tables
+    const compositeKeys = COMPOSITE_UPSERT_KEYS[tableName];
+    const conflictKeys = compositeKeys || [primaryKey];
+    const conflictClause = conflictKeys.map(k => `"${k}"`).join(', ');
+    
+    const updateCols = columns.filter(c => !conflictKeys.includes(c));
     const updateSet = updateCols.map((col, i) => {
       const idx = columns.indexOf(col);
       return `"${col}" = $${idx + 1}`;
@@ -224,7 +234,7 @@ async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRu
     const sql = `
       INSERT INTO "${tableName}" (${columns.map(c => `"${c}"`).join(', ')})
       VALUES (${placeholders.join(', ')})
-      ON CONFLICT ("${primaryKey}") 
+      ON CONFLICT (${conflictClause}) 
       DO UPDATE SET ${updateSet}
       RETURNING (xmax = 0) AS inserted
     `;
