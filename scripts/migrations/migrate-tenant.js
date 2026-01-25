@@ -19,6 +19,8 @@ if (!SOURCE_DATABASE_URL || !DEST_DATABASE_URL) {
   process.exit(1);
 }
 
+const SSL_CONFIG = { rejectUnauthorized: false };
+
 function parseArgs() {
   const args = {
     tenantId: null,
@@ -250,8 +252,8 @@ async function main() {
   }
   console.log();
 
-  const sourceClient = new Client({ connectionString: SOURCE_DATABASE_URL });
-  const destClient = new Client({ connectionString: DEST_DATABASE_URL });
+  const sourceClient = new Client({ connectionString: SOURCE_DATABASE_URL, ssl: SSL_CONFIG });
+  const destClient = new Client({ connectionString: DEST_DATABASE_URL, ssl: SSL_CONFIG });
 
   try {
     console.log('Connecting to databases...');

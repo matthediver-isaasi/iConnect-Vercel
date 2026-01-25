@@ -19,6 +19,8 @@ if (!SOURCE_DATABASE_URL || !DEST_DATABASE_URL) {
   process.exit(1);
 }
 
+const SSL_CONFIG = { rejectUnauthorized: false };
+
 async function getTableInfo(client, dbName) {
   const tablesResult = await client.query(`
     SELECT table_name 
@@ -59,8 +61,8 @@ async function main() {
   console.log('='.repeat(80));
   console.log();
 
-  const sourceClient = new Client({ connectionString: SOURCE_DATABASE_URL });
-  const destClient = new Client({ connectionString: DEST_DATABASE_URL });
+  const sourceClient = new Client({ connectionString: SOURCE_DATABASE_URL, ssl: SSL_CONFIG });
+  const destClient = new Client({ connectionString: DEST_DATABASE_URL, ssl: SSL_CONFIG });
 
   try {
     console.log('Connecting to source database (single-tenant)...');
