@@ -13,13 +13,8 @@ import pg from 'pg';
 
 const { Client } = pg;
 
-const SOURCE_DATABASE_URL = process.env.SOURCE_DATABASE_URL;
-const DEST_DATABASE_URL = process.env.DEST_DATABASE_URL;
-
-if (!SOURCE_DATABASE_URL || !DEST_DATABASE_URL) {
-  console.error('Error: SOURCE_DATABASE_URL and DEST_DATABASE_URL must be set');
-  process.exit(1);
-}
+let SOURCE_DATABASE_URL = process.env.SOURCE_DATABASE_URL;
+let DEST_DATABASE_URL = process.env.DEST_DATABASE_URL;
 
 const SSL_CONFIG = true;
 
@@ -28,7 +23,9 @@ function parseArgs() {
     tenantId: null,
     dryRun: false,
     tables: null,
-    help: false
+    help: false,
+    sourceUrl: null,
+    destUrl: null
   };
 
   for (const arg of process.argv.slice(2)) {
@@ -40,8 +37,15 @@ function parseArgs() {
       args.tables = arg.split('=')[1].split(',').map(t => t.trim());
     } else if (arg === '--help' || arg === '-h') {
       args.help = true;
+    } else if (arg.startsWith('--source=')) {
+      args.sourceUrl = arg.split('=').slice(1).join('=');
+    } else if (arg.startsWith('--dest=')) {
+      args.destUrl = arg.split('=').slice(1).join('=');
     }
   }
+
+  if (args.sourceUrl) SOURCE_DATABASE_URL = args.sourceUrl;
+  if (args.destUrl) DEST_DATABASE_URL = args.destUrl;
 
   return args;
 }
@@ -56,12 +60,15 @@ Options:
   --tenant-id=ID    Required. The tenant ID to assign to migrated records
   --dry-run         Show what would be migrated without making changes
   --tables=t1,t2    Only migrate specific tables (comma-separated)
+  --source=URL      Override SOURCE_DATABASE_URL environment variable
+  --dest=URL        Override DEST_DATABASE_URL environment variable
   --help, -h        Show this help message
 
 Examples:
   node scripts/migrations/migrate-tenant.js --tenant-id=abc123
   node scripts/migrations/migrate-tenant.js --tenant-id=abc123 --dry-run
   node scripts/migrations/migrate-tenant.js --tenant-id=abc123 --tables=member,organization
+  node scripts/migrations/migrate-tenant.js --tenant-id=abc123 --source=postgresql://... --dest=postgresql://...
 `);
 }
 
@@ -240,6 +247,12 @@ async function main() {
   if (!args.tenantId) {
     console.error('Error: --tenant-id is required');
     showHelp();
+    process.exit(1);
+  }
+
+  if (!SOURCE_DATABASE_URL || !DEST_DATABASE_URL) {
+    console.error('Error: SOURCE_DATABASE_URL and DEST_DATABASE_URL must be set');
+    console.error('Use --source=URL and --dest=URL or set environment variables');
     process.exit(1);
   }
 
