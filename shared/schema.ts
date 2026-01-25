@@ -316,6 +316,7 @@ export const formDueDiligenceConfig = pgTable("form_due_diligence_config", {
   // Workflow configuration
   workflow_stages: jsonb("workflow_stages").default([]), // [{ id, label, color, is_initial, order, selection_conditions }]
   status_change_webhooks: jsonb("status_change_webhooks").default([]), // Webhook configurations
+  enforce_stage_sequence: boolean("enforce_stage_sequence").default(false), // Lock earlier stages in dropdown
   
   // CRM integration config
   crm_attachment_config: jsonb("crm_attachment_config").default({}), // { enabled, module_name, crm_lookup_field, etc. }
