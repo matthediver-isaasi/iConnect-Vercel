@@ -206,7 +206,13 @@ async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRu
     }
 
     const columns = Object.keys(destRow);
-    const values = Object.values(destRow);
+    // Serialize objects/arrays to JSON strings for JSONB columns
+    const values = Object.values(destRow).map(v => {
+      if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
+        return JSON.stringify(v);
+      }
+      return v;
+    });
     const placeholders = columns.map((_, i) => `$${i + 1}`);
 
     const updateCols = columns.filter(c => c !== primaryKey);
