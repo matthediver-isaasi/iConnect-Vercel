@@ -93,6 +93,52 @@ async function getPrimaryKey(client, tableName) {
   return result.rows.length > 0 ? result.rows[0].column_name : 'id';
 }
 
+function parseSupabaseStorageUrl(url) {
+  if (!url) return { bucket: null, storagePath: null };
+  
+  try {
+    const match = url.match(/\/storage\/v1\/object\/public\/([^\/]+)\/(.+)$/);
+    if (match) {
+      return {
+        bucket: match[1],
+        storagePath: match[2]
+      };
+    }
+  } catch (e) {
+    // URL parsing failed
+  }
+  return { bucket: null, storagePath: null };
+}
+
+function applyTableTransformations(tableName, row, destColumnNames) {
+  const transformedRow = { ...row };
+  
+  if (tableName === 'file_repository') {
+    const needsBucket = destColumnNames.includes('bucket') && !row.bucket;
+    const needsStoragePath = destColumnNames.includes('storage_path') && !row.storage_path;
+    
+    if (needsBucket || needsStoragePath) {
+      const { bucket, storagePath } = parseSupabaseStorageUrl(row.file_url);
+      
+      if (needsBucket) {
+        transformedRow.bucket = bucket;
+        if (!bucket && row.file_url) {
+          console.warn(`  Warning: Could not parse bucket from URL for file ${row.id}`);
+        }
+      }
+      
+      if (needsStoragePath) {
+        transformedRow.storage_path = storagePath;
+        if (!storagePath && row.file_url) {
+          console.warn(`  Warning: Could not parse storage_path from URL for file ${row.id}`);
+        }
+      }
+    }
+  }
+  
+  return transformedRow;
+}
+
 async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRun) {
   console.log(`\nMigrating table: ${tableName}`);
   console.log('-'.repeat(50));
@@ -126,13 +172,24 @@ async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRu
   let updated = 0;
 
   for (const row of sourceData.rows) {
+    const transformedRow = applyTableTransformations(tableName, row, destColumnNames);
+    
     const destRow = {};
     for (const col of selectColumns) {
-      destRow[col] = row[col];
+      destRow[col] = transformedRow[col];
     }
     
     if (hasTenantId && !sourceHasTenantId) {
       destRow['tenant_id'] = tenantId;
+    }
+    
+    if (tableName === 'file_repository') {
+      if (destColumnNames.includes('bucket') && transformedRow.bucket) {
+        destRow['bucket'] = transformedRow.bucket;
+      }
+      if (destColumnNames.includes('storage_path') && transformedRow.storage_path) {
+        destRow['storage_path'] = transformedRow.storage_path;
+      }
     }
 
     const columns = Object.keys(destRow);
