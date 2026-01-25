@@ -348,13 +348,35 @@ async function main() {
     }
 
     const results = [];
+    const failedTables = [];
+    
     for (const table of orderedTables) {
-      const result = await migrateTable(sourceClient, destClient, table, args.tenantId, args.dryRun);
-      results.push(result);
+      try {
+        if (!args.dryRun) {
+          await destClient.query(`SAVEPOINT sp_${table.replace(/[^a-z0-9]/gi, '_')}`);
+        }
+        const result = await migrateTable(sourceClient, destClient, table, args.tenantId, args.dryRun);
+        results.push(result);
+        if (!args.dryRun) {
+          await destClient.query(`RELEASE SAVEPOINT sp_${table.replace(/[^a-z0-9]/gi, '_')}`);
+        }
+      } catch (tableError) {
+        console.error(`\nError migrating table ${table}: ${tableError.message}`);
+        failedTables.push({ table, error: tableError.message });
+        if (!args.dryRun) {
+          await destClient.query(`ROLLBACK TO SAVEPOINT sp_${table.replace(/[^a-z0-9]/gi, '_')}`);
+        }
+        results.push({ table, migrated: 0, inserted: 0, updated: 0, error: tableError.message });
+      }
     }
 
     if (!args.dryRun) {
-      await destClient.query('COMMIT');
+      if (failedTables.length > 0) {
+        console.log('\nSome tables failed. Rolling back entire migration...');
+        await destClient.query('ROLLBACK');
+      } else {
+        await destClient.query('COMMIT');
+      }
     }
 
     console.log('\n' + '='.repeat(80));
@@ -381,9 +403,21 @@ async function main() {
     console.log('-'.repeat(80));
     console.log(`Total: ${totalInserted} inserted, ${totalUpdated} updated`);
 
+    if (failedTables.length > 0) {
+      console.log('\n' + '='.repeat(80));
+      console.log('FAILED TABLES');
+      console.log('='.repeat(80));
+      for (const f of failedTables) {
+        console.log(`  ${f.table}: ${f.error}`);
+      }
+      if (!args.dryRun) {
+        console.log('\nAll changes have been rolled back due to errors.');
+      }
+    }
+
     if (args.dryRun) {
       console.log('\n[DRY RUN] No changes were made. Remove --dry-run to execute migration.');
-    } else {
+    } else if (failedTables.length === 0) {
       console.log('\nMigration complete!');
     }
 
