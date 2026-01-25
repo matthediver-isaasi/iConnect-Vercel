@@ -74,7 +74,7 @@ Examples:
 
 async function getTableColumns(client, tableName) {
   const result = await client.query(`
-    SELECT column_name, data_type
+    SELECT column_name, data_type, udt_name
     FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = $1
     ORDER BY ordinal_position
@@ -165,6 +165,14 @@ async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRu
   const destColumns = await getTableColumns(destClient, tableName);
   const destColumnNames = destColumns.map(c => c.column_name);
   const sourceColumnNames = sourceColumns.map(c => c.column_name);
+  
+  // Build a map of JSONB columns (not native arrays) for proper serialization
+  const jsonbColumns = new Set();
+  for (const col of destColumns) {
+    if (col.udt_name === 'jsonb' || col.udt_name === 'json') {
+      jsonbColumns.add(col.column_name);
+    }
+  }
 
   const hasTenantId = destColumnNames.includes('tenant_id');
   const sourceHasTenantId = sourceColumnNames.includes('tenant_id');
@@ -211,10 +219,14 @@ async function migrateTable(sourceClient, destClient, tableName, tenantId, dryRu
     }
 
     const columns = Object.keys(destRow);
-    // Serialize objects/arrays to JSON strings for JSONB columns
-    const values = Object.values(destRow).map(v => {
+    // Serialize objects/arrays to JSON strings ONLY for JSONB columns (not native arrays)
+    const values = columns.map(col => {
+      const v = destRow[col];
       if (v !== null && typeof v === 'object' && !(v instanceof Date)) {
-        return JSON.stringify(v);
+        // Only stringify if it's a JSONB column, not a native PostgreSQL array
+        if (jsonbColumns.has(col)) {
+          return JSON.stringify(v);
+        }
       }
       return v;
     });
