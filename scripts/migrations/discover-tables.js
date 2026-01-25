@@ -13,11 +13,23 @@ import pg from 'pg';
 
 const { Client } = pg;
 
-const SOURCE_DATABASE_URL = process.env.SOURCE_DATABASE_URL;
-const DEST_DATABASE_URL = process.env.DEST_DATABASE_URL;
+const args = process.argv.slice(2);
+let SOURCE_DATABASE_URL = process.env.SOURCE_DATABASE_URL;
+let DEST_DATABASE_URL = process.env.DEST_DATABASE_URL;
+
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--source' && args[i + 1]) {
+    SOURCE_DATABASE_URL = args[i + 1];
+    i++;
+  } else if (args[i] === '--dest' && args[i + 1]) {
+    DEST_DATABASE_URL = args[i + 1];
+    i++;
+  }
+}
 
 if (!SOURCE_DATABASE_URL || !DEST_DATABASE_URL) {
   console.error('Error: SOURCE_DATABASE_URL and DEST_DATABASE_URL must be set');
+  console.error('Usage: node discover-tables.js [--source URL] [--dest URL]');
   process.exit(1);
 }
 
