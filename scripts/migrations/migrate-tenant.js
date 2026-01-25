@@ -7,6 +7,8 @@
  * Usage: node scripts/migrations/migrate-tenant.js --tenant-id=YOUR_TENANT_ID [--dry-run] [--tables=table1,table2]
  */
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import pg from 'pg';
 
 const { Client } = pg;
@@ -19,7 +21,7 @@ if (!SOURCE_DATABASE_URL || !DEST_DATABASE_URL) {
   process.exit(1);
 }
 
-const SSL_CONFIG = { rejectUnauthorized: false };
+const SSL_CONFIG = true;
 
 function parseArgs() {
   const args = {
