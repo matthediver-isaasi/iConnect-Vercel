@@ -92,6 +92,149 @@ This system, built on the FormBuilder infrastructure, allows structured forms wi
 
 The platform includes a booking system where team members can be designated as "booking agents" with personal booking pages. It features tenant-scoped meeting templates, agent-template assignments, and database tables for managing templates, agent availability, and bookings. Meeting invitations can be sent as stage actions within due diligence workflows.
 
+# Database Environment
+
+## Development Database (DEST_DATABASE_URL)
+
+The agent can connect directly to the Supabase PostgreSQL database using the pooler connection. This is the new multi-tenant development database.
+
+- **Secret Name:** `DEST_DATABASE_URL`
+- **Host:** `aws-1-eu-central-1.pooler.supabase.com`
+- **Project:** `lvmzliemqnieeoruhkik`
+- **Database:** PostgreSQL via Supabase pooler connection
+- **Purpose:** Multi-tenant development/staging environment
+
+The agent can run SQL queries, inspect schema, and debug data issues directly against this database using Node.js pg client with SSL enabled.
+
+## Source Database (SOURCE_DATABASE_URL)
+
+The legacy single-tenant Supabase database being migrated from.
+
+- **Secret Name:** `SOURCE_DATABASE_URL`
+- **Host:** `aws-1-eu-central-1.pooler.supabase.com`
+- **Project:** `zkvgzcruhniduuswbfyh`
+- **Database:** PostgreSQL via Supabase pooler connection
+- **Purpose:** Legacy single-tenant production data (read-only for migration)
+
+## Connecting to Databases
+
+Both databases are accessible via Supabase pooler connections. Use Node.js with the `pg` package:
+
+```javascript
+const pg = require('pg');
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Required for Supabase pooler
+
+const client = new pg.Client({
+  connectionString: process.env.DEST_DATABASE_URL, // or SOURCE_DATABASE_URL
+  ssl: true
+});
+await client.connect();
+```
+
+# Data Migration System
+
+## Overview
+
+A reusable migration solution transfers data from the legacy single-tenant Supabase database to the new multi-tenant application. The migration handles ~10,800 records across 80+ shared tables, adding `tenant_id` to all migrated data.
+
+**Target Tenant ID:** `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+
+## Migration Scripts
+
+Located in `scripts/migrations/`:
+
+- **migrate-tenant.js** - Main migration script with upsert logic
+- **discover-tables.js** - Discovers shared tables between source and destination
+
+## Running the Full Migration
+
+```bash
+node scripts/migrations/migrate-tenant.js \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --source="postgresql://postgres.zkvgzcruhniduuswbfyh:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres" \
+  --dest="postgresql://postgres.lvmzliemqnieeoruhkik:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+```
+
+## Migration Options
+
+| Option | Description |
+|--------|-------------|
+| `--tenant-id=ID` | Required. Tenant ID to assign to migrated records |
+| `--dry-run` | Preview migration without making changes |
+| `--tables=t1,t2` | Migrate only specific tables (comma-separated) |
+| `--source=URL` | Override SOURCE_DATABASE_URL |
+| `--dest=URL` | Override DEST_DATABASE_URL |
+
+## Examples
+
+**Dry run to preview:**
+```bash
+node scripts/migrations/migrate-tenant.js \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --dry-run \
+  --source="postgresql://..." \
+  --dest="postgresql://..."
+```
+
+**Migrate specific tables:**
+```bash
+node scripts/migrations/migrate-tenant.js \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --tables=organization,member,organization_preference_value \
+  --source="postgresql://..." \
+  --dest="postgresql://..."
+```
+
+## Migration Features
+
+- **Automatic dependency ordering:** Tables are migrated in FK dependency order
+- **Upsert logic:** Uses `ON CONFLICT ... DO UPDATE` for safe re-runs
+- **JSONB handling:** Correctly serializes JSONB columns while preserving native PostgreSQL arrays
+- **Field type mapping:** Transforms legacy field types (list→dropdown, picklist→dropdown, url→text)
+- **Composite key support:** Handles tables with unique constraints on multiple columns
+
+## Special Table Handling
+
+| Table | Conflict Key | Notes |
+|-------|--------------|-------|
+| `system_settings` | `setting_key` | Has global unique constraint on setting_key |
+| Other tables | `id` | Standard primary key upsert |
+
+## Cutover Checklist
+
+Before final production cutover:
+
+1. **Verify source data is stable** - Ensure no active writes to legacy system
+2. **Run full migration:**
+   ```bash
+   node scripts/migrations/migrate-tenant.js \
+     --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+     --source="..." --dest="..."
+   ```
+3. **Verify row counts match:**
+   ```bash
+   node scripts/migrations/discover-tables.js
+   ```
+4. **Spot check critical data** - Verify organizations, members, preference values
+5. **Update DNS/routing** - Point traffic to new multi-tenant system
+6. **Disable legacy system writes** - Mark as read-only
+
+## Troubleshooting
+
+### Foreign Key Violations
+If child tables fail with FK errors, migrate parent tables first:
+```bash
+node scripts/migrations/migrate-tenant.js \
+  --tenant-id=... --tables=organization,member \
+  --source="..." --dest="..."
+```
+
+### Duplicate Key Errors on system_settings
+The script uses `setting_key` as conflict key since it has a global unique constraint.
+
+### JSONB Array Issues
+The script distinguishes between JSONB columns (which need JSON.stringify) and native PostgreSQL arrays (which don't) using column metadata.
+
 # External Dependencies
 
 - **Supabase:** Primary database (PostgreSQL) and file storage.
