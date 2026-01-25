@@ -629,3 +629,28 @@ export const insertScheduledTaskLogSchema = createInsertSchema(scheduledTaskLog)
 
 export type InsertScheduledTaskLog = z.infer<typeof insertScheduledTaskLogSchema>;
 export type ScheduledTaskLog = typeof scheduledTaskLog.$inferSelect;
+
+// Stage Field Mapping Action - maps DD form fields to organization fields on stage trigger
+export const stageFieldMappingAction = pgTable("stage_field_mapping_action", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(), // References tenant.id
+  due_diligence_stage_id: varchar("due_diligence_stage_id").notNull(), // Stage ID from workflow_stages
+  
+  // Field mappings: [{ source_field_id, target_type, target_field }]
+  field_mappings: jsonb("field_mappings").notNull().default([]),
+  
+  sort_order: integer("sort_order").default(0),
+  is_active: boolean("is_active").default(true),
+  
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertStageFieldMappingActionSchema = createInsertSchema(stageFieldMappingAction).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertStageFieldMappingAction = z.infer<typeof insertStageFieldMappingActionSchema>;
+export type StageFieldMappingAction = typeof stageFieldMappingAction.$inferSelect;

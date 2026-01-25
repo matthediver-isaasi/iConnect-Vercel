@@ -73,6 +73,7 @@ export default function DueDiligenceConfigPage() {
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
   const [pendingEmailAction, setPendingEmailAction] = useState(null); // { stageId, templateId, emailField, nameField, ccEmails, promptCustomMessage, editId? }
   const [pendingMemberAction, setPendingMemberAction] = useState(null); // { stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, editId? }
+  const [pendingFieldMappingAction, setPendingFieldMappingAction] = useState(null); // { stageId, mappings: [], editId? }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -180,6 +181,7 @@ export default function DueDiligenceConfigPage() {
     enabled: accessChecked
   });
   const memberCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'member' && f.is_active !== false);
+  const organizationCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'organization' && f.is_active !== false);
 
   const { data: stageEmailActionsData, refetch: refetchStageEmailActions } = useQuery({
     queryKey: ['stage-email-actions'],
@@ -365,6 +367,69 @@ export default function DueDiligenceConfigPage() {
       toast.success('Create Member action updated');
     } catch (err) {
       toast.error(err.message || 'Failed to update member action');
+    }
+  };
+
+  const { data: stageFieldMappingActionsData, refetch: refetchStageFieldMappingActions } = useQuery({
+    queryKey: ['stage-field-mapping-actions'],
+    queryFn: async () => {
+      const response = await fetch('/api/stage-field-mapping-actions', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.field_mapping_actions || [];
+    },
+    enabled: !!formId && accessChecked
+  });
+  const stageFieldMappingActions = stageFieldMappingActionsData || [];
+
+  const addStageFieldMappingAction = async (stageId, mappings) => {
+    try {
+      const response = await fetch('/api/stage-field-mapping-actions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          due_diligence_stage_id: stageId,
+          field_mappings: mappings
+        })
+      });
+      if (!response.ok) throw new Error('Failed to add field mapping action');
+      await refetchStageFieldMappingActions();
+      toast.success('Field mapping action added');
+    } catch (err) {
+      toast.error(err.message || 'Failed to add field mapping action');
+    }
+  };
+
+  const removeStageFieldMappingAction = async (id) => {
+    try {
+      const response = await fetch(`/api/stage-field-mapping-actions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to remove field mapping action');
+      await refetchStageFieldMappingActions();
+      toast.success('Field mapping action removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove field mapping action');
+    }
+  };
+
+  const updateStageFieldMappingAction = async (id, mappings) => {
+    try {
+      const response = await fetch(`/api/stage-field-mapping-actions/${id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field_mappings: mappings
+        })
+      });
+      if (!response.ok) throw new Error('Failed to update field mapping action');
+      await refetchStageFieldMappingActions();
+      toast.success('Field mapping action updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update field mapping action');
     }
   };
 
@@ -2262,6 +2327,244 @@ export default function DueDiligenceConfigPage() {
                                                   >
                                                     <Plus className="w-4 h-4 mr-1" />
                                                     Add Create Member
+                                                  </Button>
+                                                )}
+                                              </>
+                                            );
+                                          })()}
+                                        </div>
+                                      </div>
+
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <FileText className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">Update Organisation Fields</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Map form field values to organisation core or custom fields when this stage is selected.
+                                        </p>
+                                        <div className="space-y-2">
+                                          {(() => {
+                                            const stageActions = stageFieldMappingActions.filter(fma => fma.due_diligence_stage_id === stage.id);
+                                            return (
+                                              <>
+                                                {stageActions.map((fma) => {
+                                                  const mappingCount = (fma.field_mappings || []).length;
+                                                  return (
+                                                    <div key={fma.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
+                                                      <div className="flex items-center gap-2 flex-wrap">
+                                                        <FileText className="w-4 h-4 text-muted-foreground" />
+                                                        <span className="text-sm">Field Mappings</span>
+                                                        <Badge variant="outline" className="text-xs">{mappingCount} field{mappingCount !== 1 ? 's' : ''}</Badge>
+                                                      </div>
+                                                      <div className="flex items-center gap-1">
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => setPendingFieldMappingAction({
+                                                            stageId: stage.id,
+                                                            mappings: fma.field_mappings || [],
+                                                            editId: fma.id
+                                                          })}
+                                                          data-testid={`button-edit-field-mapping-${fma.id}`}
+                                                        >
+                                                          <Pencil className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => removeStageFieldMappingAction(fma.id)}
+                                                          data-testid={`button-remove-field-mapping-${fma.id}`}
+                                                        >
+                                                          <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
+                                                
+                                                {pendingFieldMappingAction?.stageId === stage.id ? (
+                                                  <div className="space-y-3 p-3 border rounded bg-muted/30">
+                                                    <Label className="text-xs font-medium">Field Mappings</Label>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      Map form fields to organisation fields. You can add multiple mappings.
+                                                    </p>
+                                                    
+                                                    {(pendingFieldMappingAction.mappings || []).map((mapping, mapIdx) => (
+                                                      <div key={mapIdx} className="flex items-center gap-2 p-2 border rounded bg-background">
+                                                        <div className="flex-1 grid grid-cols-3 gap-2">
+                                                          <Select
+                                                            value={mapping.source_field_id || ''}
+                                                            onValueChange={(v) => {
+                                                              setPendingFieldMappingAction(prev => {
+                                                                const newMappings = [...(prev.mappings || [])];
+                                                                newMappings[mapIdx] = { ...newMappings[mapIdx], source_field_id: v };
+                                                                return { ...prev, mappings: newMappings };
+                                                              });
+                                                            }}
+                                                          >
+                                                            <SelectTrigger data-testid={`select-source-field-${mapIdx}`}>
+                                                              <SelectValue placeholder="Form field..." />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                              {(form?.fields || []).filter(f => f.id || f.name).map(field => (
+                                                                <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                  {field.label || field.name}
+                                                                </SelectItem>
+                                                              ))}
+                                                            </SelectContent>
+                                                          </Select>
+                                                          
+                                                          <Select
+                                                            value={mapping.target_type || ''}
+                                                            onValueChange={(v) => {
+                                                              setPendingFieldMappingAction(prev => {
+                                                                const newMappings = [...(prev.mappings || [])];
+                                                                newMappings[mapIdx] = { ...newMappings[mapIdx], target_type: v, target_field: '' };
+                                                                return { ...prev, mappings: newMappings };
+                                                              });
+                                                            }}
+                                                          >
+                                                            <SelectTrigger data-testid={`select-target-type-${mapIdx}`}>
+                                                              <SelectValue placeholder="Field type..." />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                              <SelectItem value="core">Core Field</SelectItem>
+                                                              <SelectItem value="custom">Custom Field</SelectItem>
+                                                            </SelectContent>
+                                                          </Select>
+                                                          
+                                                          {mapping.target_type === 'core' && (
+                                                            <Select
+                                                              value={mapping.target_field || ''}
+                                                              onValueChange={(v) => {
+                                                                setPendingFieldMappingAction(prev => {
+                                                                  const newMappings = [...(prev.mappings || [])];
+                                                                  newMappings[mapIdx] = { ...newMappings[mapIdx], target_field: v };
+                                                                  return { ...prev, mappings: newMappings };
+                                                                });
+                                                              }}
+                                                            >
+                                                              <SelectTrigger data-testid={`select-core-target-${mapIdx}`}>
+                                                                <SelectValue placeholder="Core field..." />
+                                                              </SelectTrigger>
+                                                              <SelectContent>
+                                                                <SelectItem value="name">Organisation Name</SelectItem>
+                                                                <SelectItem value="email">Email</SelectItem>
+                                                                <SelectItem value="phone">Phone</SelectItem>
+                                                                <SelectItem value="website">Website</SelectItem>
+                                                                <SelectItem value="address">Address</SelectItem>
+                                                                <SelectItem value="description">Description</SelectItem>
+                                                              </SelectContent>
+                                                            </Select>
+                                                          )}
+                                                          
+                                                          {mapping.target_type === 'custom' && (
+                                                            <Select
+                                                              value={mapping.target_field || ''}
+                                                              onValueChange={(v) => {
+                                                                setPendingFieldMappingAction(prev => {
+                                                                  const newMappings = [...(prev.mappings || [])];
+                                                                  newMappings[mapIdx] = { ...newMappings[mapIdx], target_field: v };
+                                                                  return { ...prev, mappings: newMappings };
+                                                                });
+                                                              }}
+                                                            >
+                                                              <SelectTrigger data-testid={`select-custom-target-${mapIdx}`}>
+                                                                <SelectValue placeholder="Custom field..." />
+                                                              </SelectTrigger>
+                                                              <SelectContent>
+                                                                {organizationCustomFields.length === 0 ? (
+                                                                  <SelectItem value="__none__" disabled>No custom fields available</SelectItem>
+                                                                ) : (
+                                                                  organizationCustomFields.map(cf => (
+                                                                    <SelectItem key={cf.id} value={cf.id}>
+                                                                      {cf.label}
+                                                                    </SelectItem>
+                                                                  ))
+                                                                )}
+                                                              </SelectContent>
+                                                            </Select>
+                                                          )}
+                                                        </div>
+                                                        
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => {
+                                                            setPendingFieldMappingAction(prev => {
+                                                              const newMappings = [...(prev.mappings || [])];
+                                                              newMappings.splice(mapIdx, 1);
+                                                              return { ...prev, mappings: newMappings };
+                                                            });
+                                                          }}
+                                                          data-testid={`button-remove-mapping-${mapIdx}`}
+                                                        >
+                                                          <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                      </div>
+                                                    ))}
+                                                    
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      onClick={() => {
+                                                        setPendingFieldMappingAction(prev => ({
+                                                          ...prev,
+                                                          mappings: [...(prev.mappings || []), { source_field_id: '', target_type: '', target_field: '' }]
+                                                        }));
+                                                      }}
+                                                      data-testid={`button-add-mapping-row-${index}`}
+                                                    >
+                                                      <Plus className="w-4 h-4 mr-1" />
+                                                      Add Mapping
+                                                    </Button>
+                                                    
+                                                    <div className="flex gap-2 justify-end">
+                                                      <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => setPendingFieldMappingAction(null)}
+                                                        data-testid={`button-cancel-field-mapping-${index}`}
+                                                      >
+                                                        Cancel
+                                                      </Button>
+                                                      <Button
+                                                        size="sm"
+                                                        disabled={(pendingFieldMappingAction.mappings || []).length === 0 || 
+                                                          (pendingFieldMappingAction.mappings || []).some(m => !m.source_field_id || !m.target_type || !m.target_field)}
+                                                        onClick={async () => {
+                                                          const validMappings = (pendingFieldMappingAction.mappings || []).filter(
+                                                            m => m.source_field_id && m.target_type && m.target_field
+                                                          );
+                                                          if (validMappings.length === 0) return;
+                                                          
+                                                          if (pendingFieldMappingAction.editId) {
+                                                            await updateStageFieldMappingAction(pendingFieldMappingAction.editId, validMappings);
+                                                          } else {
+                                                            await addStageFieldMappingAction(stage.id, validMappings);
+                                                          }
+                                                          setPendingFieldMappingAction(null);
+                                                        }}
+                                                        data-testid={`button-confirm-field-mapping-${index}`}
+                                                      >
+                                                        {pendingFieldMappingAction.editId ? 'Update' : 'Add'}
+                                                      </Button>
+                                                    </div>
+                                                  </div>
+                                                ) : (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => setPendingFieldMappingAction({ 
+                                                      stageId: stage.id, 
+                                                      mappings: [] 
+                                                    })}
+                                                    className="mt-2"
+                                                    data-testid={`button-add-field-mapping-${index}`}
+                                                  >
+                                                    <Plus className="w-4 h-4 mr-1" />
+                                                    Add Field Mappings
                                                   </Button>
                                                 )}
                                               </>

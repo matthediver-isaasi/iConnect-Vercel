@@ -1327,6 +1327,171 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
   return results;
 }
 
+async function executeFieldMappingActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+  const results = [];
+  
+  try {
+    // Fetch field mapping actions for this stage
+    const { data: fieldMappingActions, error: fmaError } = await supabase
+      .from('stage_field_mapping_action')
+      .select('*')
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    
+    if (fmaError || !fieldMappingActions || fieldMappingActions.length === 0) {
+      return results;
+    }
+    
+    // Get form submission data
+    const { data: formSubmission, error: fsError } = await supabase
+      .from('form_submission')
+      .select('submission_data, organization_id')
+      .eq('id', ddSubmission.form_submission_id)
+      .eq('tenant_id', tenantId)
+      .single();
+    
+    if (fsError || !formSubmission) {
+      console.error('[DD Field Mapping] Form submission not found:', fsError);
+      return results;
+    }
+    
+    const organizationId = formSubmission.organization_id;
+    if (!organizationId) {
+      console.log('[DD Field Mapping] No organization_id on form submission, skipping field mappings');
+      return results;
+    }
+    
+    const submissionData = formSubmission.submission_data || {};
+    
+    // Get preference fields for custom field lookups
+    const { data: preferenceFields } = await supabase
+      .from('preference_field')
+      .select('*')
+      .eq('entity_scope', 'organization')
+      .eq('is_active', true);
+    
+    const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
+    
+    for (const fma of fieldMappingActions) {
+      const mappings = fma.field_mappings || [];
+      const mappingResults = [];
+      
+      for (const mapping of mappings) {
+        const { source_field_id, target_type, target_field } = mapping;
+        
+        // Get the value from form submission
+        const sourceValue = submissionData[source_field_id];
+        if (sourceValue === undefined || sourceValue === null || sourceValue === '') {
+          continue;
+        }
+        
+        // Convert value to string for storage
+        let storedValue = sourceValue;
+        if (typeof sourceValue === 'object') {
+          storedValue = JSON.stringify(sourceValue);
+        } else {
+          storedValue = String(sourceValue);
+        }
+        
+        if (target_type === 'core') {
+          // Validate core field is in allowlist
+          const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'address', 'description'];
+          if (!VALID_CORE_FIELDS.includes(target_field)) {
+            console.warn(`[DD Field Mapping] Invalid core field ${target_field}, skipping`);
+            mappingResults.push({ field: target_field, status: 'error', error: 'Invalid core field' });
+            continue;
+          }
+          
+          // Update core organization field
+          const updateData = {};
+          updateData[target_field] = storedValue;
+          
+          const { error: updateError } = await supabase
+            .from('organization')
+            .update(updateData)
+            .eq('id', organizationId)
+            .eq('tenant_id', tenantId);
+          
+          if (updateError) {
+            console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
+            mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+          } else {
+            mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+          }
+        } else if (target_type === 'custom') {
+          // Update custom organization preference field
+          const customField = prefFieldMap.get(target_field);
+          if (!customField) {
+            console.warn(`[DD Field Mapping] Custom field ${target_field} not found`);
+            mappingResults.push({ field: target_field, status: 'error', error: 'Custom field not found' });
+            continue;
+          }
+          
+          // Check if value already exists
+          const { data: existing } = await supabase
+            .from('organization_preference_value')
+            .select('id')
+            .eq('organization_id', organizationId)
+            .eq('field_id', target_field)
+            .maybeSingle();
+          
+          if (existing) {
+            const { error: updateError } = await supabase
+              .from('organization_preference_value')
+              .update({ value: storedValue, updated_at: new Date().toISOString() })
+              .eq('id', existing.id);
+            
+            if (updateError) {
+              console.error(`[DD Field Mapping] Error updating custom field ${customField.label}:`, updateError);
+              mappingResults.push({ field: customField.label, status: 'error', error: updateError.message });
+            } else {
+              mappingResults.push({ field: customField.label, status: 'updated', type: 'custom' });
+            }
+          } else {
+            const { error: insertError } = await supabase
+              .from('organization_preference_value')
+              .insert({
+                organization_id: organizationId,
+                field_id: target_field,
+                value: storedValue
+              });
+            
+            if (insertError) {
+              console.error(`[DD Field Mapping] Error creating custom field ${customField.label}:`, insertError);
+              mappingResults.push({ field: customField.label, status: 'error', error: insertError.message });
+            } else {
+              mappingResults.push({ field: customField.label, status: 'created', type: 'custom' });
+            }
+          }
+        }
+      }
+      
+      results.push({
+        action: 'field_mapping',
+        field_mapping_action_id: fma.id,
+        mappings: mappingResults,
+        status: mappingResults.some(r => r.status === 'error') ? 'partial' : 'success'
+      });
+      
+      await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_executed', triggeredBy, {
+        mappings_count: mappingResults.filter(r => r.status !== 'error').length,
+        organization_id: organizationId
+      });
+    }
+  } catch (error) {
+    console.error('[DD Field Mapping] Error executing field mapping actions:', error);
+    results.push({
+      action: 'field_mapping',
+      status: 'error',
+      error: error.message
+    });
+  }
+  
+  return results;
+}
+
 export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
   
@@ -1403,6 +1568,16 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     options
   );
   results.push(...memberResults);
+
+  // Execute field mapping actions (stored in stage_field_mapping_action table)
+  const fieldMappingResults = await executeFieldMappingActions(
+    stageId,
+    ddSubmission,
+    tenantId,
+    triggeredBy,
+    options
+  );
+  results.push(...fieldMappingResults);
 
   return { stage_actions_results: results };
 }
