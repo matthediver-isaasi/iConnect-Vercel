@@ -110,8 +110,21 @@ function parseSupabaseStorageUrl(url) {
   return { bucket: null, storagePath: null };
 }
 
+const FIELD_TYPE_MAPPINGS = {
+  'list': 'dropdown',
+  'picklist': 'dropdown',
+  'url': 'text'
+};
+
 function applyTableTransformations(tableName, row, destColumnNames) {
   const transformedRow = { ...row };
+  
+  if (tableName === 'preference_field' && row.field_type) {
+    if (FIELD_TYPE_MAPPINGS[row.field_type]) {
+      console.log(`  Mapping field_type '${row.field_type}' -> '${FIELD_TYPE_MAPPINGS[row.field_type]}' for ${row.id}`);
+      transformedRow.field_type = FIELD_TYPE_MAPPINGS[row.field_type];
+    }
+  }
   
   if (tableName === 'file_repository') {
     const needsBucket = destColumnNames.includes('bucket') && !row.bucket;
