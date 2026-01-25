@@ -219,6 +219,30 @@ Before final production cutover:
 5. **Update DNS/routing** - Point traffic to new multi-tenant system
 6. **Disable legacy system writes** - Mark as read-only
 
+## Credential Migration
+
+The multi-tenant system uses a different authentication architecture than the single-tenant system. After migrating member data, you must also migrate credentials to enable member login.
+
+**migrate-credentials.js** - Migrates password hashes from `member_credentials` to the new auth tables:
+- Creates `tenant_identity` records for each unique email
+- Creates `tenant_membership_credentials` linking identity to tenant
+- Updates `member.identity_id` to link members to their identity
+
+```bash
+node scripts/migrations/migrate-credentials.js \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --dest="postgresql://postgres.lvmzliemqnieeoruhkik:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+```
+
+Options:
+- `--tenant-id=ID` - Required. Tenant ID to migrate credentials for
+- `--dry-run` - Preview without making changes
+- `--dest=URL` - Override DEST_DATABASE_URL
+
+The script is idempotent and can be run multiple times safely.
+
+**Note:** The `tenant_identity` table uses email as a global unique identifier (by design - one person can belong to multiple tenants). The `tenant_membership_credentials` table provides per-tenant password isolation. For users who belong to multiple tenants, they share one identity but have separate credentials per tenant.
+
 ## Troubleshooting
 
 ### Foreign Key Violations
