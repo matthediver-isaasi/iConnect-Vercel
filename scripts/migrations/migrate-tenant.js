@@ -117,8 +117,9 @@ const FIELD_TYPE_MAPPINGS = {
 };
 
 // Tables with composite unique constraints that should be used for upsert instead of id
+// Note: system_settings has a unique constraint on setting_key alone (not tenant-scoped)
 const COMPOSITE_UPSERT_KEYS = {
-  'system_settings': ['tenant_id', 'setting_key']
+  'system_settings': ['setting_key']
 };
 
 function applyTableTransformations(tableName, row, destColumnNames) {
