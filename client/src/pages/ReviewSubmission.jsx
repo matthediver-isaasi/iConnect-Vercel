@@ -634,6 +634,9 @@ function ScheduleEventIcon({ type }) {
 }
 
 function ScheduleTab({ formSubmissionId }) {
+  const [testResult, setTestResult] = useState(null);
+  const [testingEventIndex, setTestingEventIndex] = useState(null);
+  
   const { data: scheduleData, isLoading, error } = useQuery({
     queryKey: ['submission-schedule', formSubmissionId],
     queryFn: async () => {
@@ -645,6 +648,59 @@ function ScheduleTab({ formSubmissionId }) {
     },
     enabled: !!formSubmissionId
   });
+
+  const testFireMutation = useMutation({
+    mutationFn: async ({ eventType, payload }) => {
+      const endpoint = eventType === 'contract_timeout' 
+        ? '/api/due-diligence/test-fire-timeout'
+        : '/api/due-diligence/test-fire-reminder';
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      const data = await response.json();
+      return data;
+    },
+    onSuccess: (data) => {
+      setTestResult(data);
+      setTestingEventIndex(null);
+    },
+    onError: (error) => {
+      toast.error('Test failed: ' + error.message);
+      setTestingEventIndex(null);
+    }
+  });
+
+  const handleTestFire = (event, index) => {
+    setTestingEventIndex(index);
+    
+    if (event.type === 'contract_timeout') {
+      testFireMutation.mutate({
+        eventType: 'contract_timeout',
+        payload: {
+          contractInstanceId: event.contract?.id,
+          dryRun: true
+        }
+      });
+    } else if (event.type === 'contract_reminder') {
+      testFireMutation.mutate({
+        eventType: 'contract_reminder',
+        payload: {
+          contractInstanceId: event.contract?.id,
+          reminderId: event.reminder_config?.id || event.reminder_id,
+          signerEmail: event.recipient?.email,
+          dryRun: true
+        }
+      });
+    } else {
+      toast.info('Test fire not available for this event type');
+      setTestingEventIndex(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -682,66 +738,215 @@ function ScheduleTab({ formSubmissionId }) {
     }
   };
 
+  const canTestFire = (event) => {
+    return event.type === 'contract_reminder' || event.type === 'contract_timeout';
+  };
+
   return (
-    <div className="space-y-3">
-      {events.map((event, index) => (
-        <div 
-          key={index}
-          className={cn(
-            "p-3 rounded-lg border space-y-2",
-            event.status === 'cancelled' || event.status === 'missed' ? 'opacity-60' : ''
-          )}
-          data-testid={`schedule-event-${index}`}
-        >
-          <div className="flex items-start justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                <ScheduleEventIcon type={event.type} />
+    <>
+      <div className="space-y-3">
+        {events.map((event, index) => (
+          <div 
+            key={index}
+            className={cn(
+              "p-3 rounded-lg border space-y-2",
+              event.status === 'cancelled' || event.status === 'missed' ? 'opacity-60' : ''
+            )}
+            data-testid={`schedule-event-${index}`}
+          >
+            <div className="flex items-start justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                  <ScheduleEventIcon type={event.type} />
+                </div>
+                <div>
+                  <span className="font-medium text-sm">{event.name}</span>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    {getEventTypeLabel(event.type)}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="font-medium text-sm">{event.name}</span>
-                <span className="text-xs text-muted-foreground ml-2">
-                  {getEventTypeLabel(event.type)}
+              <div className="flex items-center gap-2">
+                <ScheduleStatusBadge status={event.status} />
+                {canTestFire(event) && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleTestFire(event, index)}
+                          disabled={testingEventIndex !== null}
+                          data-testid={`button-test-fire-${index}`}
+                        >
+                          {testingEventIndex === index ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <>
+                              <Timer className="w-3 h-3 mr-1" />
+                              Test
+                            </>
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Test what CRON would do (dry run)</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+            </div>
+            
+            <div className="pl-8 space-y-1 text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <CalendarClock className="w-3.5 h-3.5" />
+                <span>
+                  {event.status === 'sent' && event.actual_sent_date ? (
+                    <>Sent: {format(new Date(event.actual_sent_date), 'MMM d, yyyy h:mm a')}</>
+                  ) : event.scheduled_date ? (
+                    <>Scheduled: {format(new Date(event.scheduled_date), 'MMM d, yyyy h:mm a')}</>
+                  ) : (
+                    'Date unknown'
+                  )}
                 </span>
               </div>
+              
+              {event.recipient && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{event.recipient.name || event.recipient.email}</span>
+                </div>
+              )}
+              
+              {event.status_reason && (
+                <p className="text-xs text-muted-foreground italic">{event.status_reason}</p>
+              )}
+              
+              {event.meeting && event.meeting.starts_at && (
+                <div className="mt-2 p-2 bg-green-50 dark:bg-green-950/30 rounded text-green-700 dark:text-green-400 text-xs">
+                  Meeting booked: {format(new Date(event.meeting.starts_at), 'MMM d, yyyy h:mm a')}
+                </div>
+              )}
             </div>
-            <ScheduleStatusBadge status={event.status} />
+          </div>
+        ))}
+      </div>
+
+      <Dialog open={!!testResult} onOpenChange={() => setTestResult(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Timer className="w-5 h-5" />
+              Test Fire Result
+              {testResult?.dryRun && (
+                <Badge variant="outline" className="ml-2">Dry Run</Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {testResult?.success 
+                ? 'The CRON job would successfully process this event.'
+                : testResult?.error || 'The CRON job would skip this event.'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto space-y-4">
+            {testResult?.action && (
+              <div className={cn(
+                "p-3 rounded-lg text-sm font-medium",
+                testResult.action === 'would_send' || testResult.action === 'sent' 
+                  ? "bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300"
+                  : testResult.action === 'skipped' || testResult.action === 'would_skip'
+                  ? "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300"
+                  : "bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300"
+              )}>
+                Action: {testResult.action === 'would_send' ? 'Would Send Email' :
+                         testResult.action === 'sent' ? 'Email Sent' :
+                         testResult.action === 'skipped' ? 'Skipped' :
+                         testResult.action === 'would_skip' ? 'Would Skip' :
+                         testResult.action === 'failed' ? 'Failed' : testResult.action}
+              </div>
+            )}
+
+            {testResult?.checks?.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Checks Performed:</h4>
+                <div className="space-y-1">
+                  {testResult.checks.map((check, i) => (
+                    <div 
+                      key={i} 
+                      className={cn(
+                        "flex items-start gap-2 p-2 rounded text-xs",
+                        check.passed 
+                          ? "bg-green-50 dark:bg-green-950/30" 
+                          : "bg-red-50 dark:bg-red-950/30"
+                      )}
+                    >
+                      {check.passed ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <span className="font-medium">{check.check}</span>
+                        {check.reason && (
+                          <p className="text-muted-foreground mt-0.5">{check.reason}</p>
+                        )}
+                        {check.details && (
+                          <pre className="text-[10px] mt-1 p-1 bg-muted rounded overflow-x-auto">
+                            {JSON.stringify(check.details, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {testResult?.emailDetails && (
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Email Details:</h4>
+                <div className="p-3 bg-muted rounded-lg space-y-2 text-xs">
+                  <div className="flex gap-2">
+                    <span className="font-medium w-16">To:</span>
+                    <span>{testResult.emailDetails.to}</span>
+                  </div>
+                  {testResult.emailDetails.from && (
+                    <div className="flex gap-2">
+                      <span className="font-medium w-16">From:</span>
+                      <span>{testResult.emailDetails.from}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <span className="font-medium w-16">Subject:</span>
+                    <span>{testResult.emailDetails.subject}</span>
+                  </div>
+                  {testResult.emailDetails.templateUsed && (
+                    <div className="flex gap-2">
+                      <span className="font-medium w-16">Template:</span>
+                      <span>{testResult.emailDetails.templateUsed.name || testResult.emailDetails.templateUsed.id}</span>
+                    </div>
+                  )}
+                  <div className="pt-2 border-t">
+                    <span className="font-medium">Preview:</span>
+                    <pre className="mt-1 p-2 bg-background rounded border text-xs max-h-32 overflow-y-auto whitespace-pre-wrap">
+                      {testResult.emailDetails.bodyPreview?.replace(/<[^>]*>/g, '').trim()}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
-          <div className="pl-8 space-y-1 text-sm">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <CalendarClock className="w-3.5 h-3.5" />
-              <span>
-                {event.status === 'sent' && event.actual_sent_date ? (
-                  <>Sent: {format(new Date(event.actual_sent_date), 'MMM d, yyyy h:mm a')}</>
-                ) : event.scheduled_date ? (
-                  <>Scheduled: {format(new Date(event.scheduled_date), 'MMM d, yyyy h:mm a')}</>
-                ) : (
-                  'Date unknown'
-                )}
-              </span>
-            </div>
-            
-            {event.recipient && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Mail className="w-3.5 h-3.5" />
-                <span>{event.recipient.name || event.recipient.email}</span>
-              </div>
-            )}
-            
-            {event.status_reason && (
-              <p className="text-xs text-muted-foreground italic">{event.status_reason}</p>
-            )}
-            
-            {event.meeting && event.meeting.starts_at && (
-              <div className="mt-2 p-2 bg-green-50 dark:bg-green-950/30 rounded text-green-700 dark:text-green-400 text-xs">
-                Meeting booked: {format(new Date(event.meeting.starts_at), 'MMM d, yyyy h:mm a')}
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTestResult(null)} data-testid="button-close-test-result">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

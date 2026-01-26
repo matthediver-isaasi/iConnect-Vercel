@@ -259,6 +259,7 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
           name: form.name
         },
         reminder_config: {
+          id: reminder.id,
           timing_type: timingType,
           days: reminderDays
         }
@@ -293,6 +294,7 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
           name: form.name
         },
         reminder_config: {
+          id: reminder.id,
           timing_type: timingType,
           days: reminderDays
         }

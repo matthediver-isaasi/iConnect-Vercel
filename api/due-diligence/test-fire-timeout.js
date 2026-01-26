@@ -1,0 +1,321 @@
+import { sendEmail } from '../_lib/emailService.js';
+import { supabase } from '../_lib/database.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import crypto from 'crypto';
+
+function generateToken(contractId, round, secret) {
+  const data = `${contractId}:${round}`;
+  return crypto.createHmac('sha256', secret).update(data).digest('hex');
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const tenantContext = await getTenantContext(req);
+  if (!tenantContext || !tenantContext.isAuthenticated) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const tenantId = tenantContext.tenantId;
+  const { 
+    contractInstanceId, 
+    dryRun = true 
+  } = req.body;
+
+  if (!contractInstanceId) {
+    return res.status(400).json({ 
+      error: 'Missing required field: contractInstanceId' 
+    });
+  }
+
+  try {
+    const now = new Date();
+    const result = {
+      success: false,
+      dryRun,
+      timestamp: now.toISOString(),
+      contractInstanceId,
+      checks: [],
+      action: null,
+      emailDetails: null,
+      error: null
+    };
+
+    const { data: instance, error: instanceError } = await supabase
+      .from('contract_instance')
+      .select(`
+        *,
+        form:form_id (
+          id,
+          name,
+          slug,
+          tenant_id,
+          contract_settings
+        )
+      `)
+      .eq('id', contractInstanceId)
+      .single();
+
+    if (instanceError || !instance) {
+      result.checks.push({ check: 'Contract instance exists', passed: false, reason: 'Not found' });
+      return res.status(404).json(result);
+    }
+    result.checks.push({ check: 'Contract instance exists', passed: true });
+
+    if (instance.form?.tenant_id !== tenantId) {
+      result.checks.push({ check: 'Tenant authorization', passed: false, reason: 'Instance belongs to different tenant' });
+      return res.status(403).json(result);
+    }
+    result.checks.push({ check: 'Tenant authorization', passed: true });
+
+    const form = instance.form;
+    if (!form) {
+      result.checks.push({ check: 'Form linked', passed: false, reason: 'No form linked to instance' });
+      return res.status(400).json(result);
+    }
+    result.checks.push({ check: 'Form linked', passed: true, details: { formName: form.name } });
+
+    const contractSettings = form.contract_settings || {};
+
+    if (!contractSettings.timeout_email_template_id) {
+      result.checks.push({ 
+        check: 'Timeout email template configured', 
+        passed: false, 
+        reason: 'No timeout_email_template_id in contract settings' 
+      });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: No timeout email template configured';
+      return res.status(200).json(result);
+    }
+    result.checks.push({ check: 'Timeout email template configured', passed: true });
+
+    const signers = instance.signers || [];
+    const timeoutDays = instance.timeout_days || contractSettings.timeout_days || 30;
+    const sentAt = instance.sent_at;
+
+    if (!sentAt) {
+      result.checks.push({ check: 'Contract has been sent', passed: false, reason: 'sent_at is null' });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: Contract has not been sent yet';
+      return res.status(200).json(result);
+    }
+    result.checks.push({ check: 'Contract has been sent', passed: true, details: { sentAt } });
+
+    const sentDate = new Date(sentAt);
+    const expiryDate = new Date(sentDate);
+    expiryDate.setDate(expiryDate.getDate() + timeoutDays);
+
+    const isExpired = now > expiryDate;
+    result.checks.push({ 
+      check: 'Contract has expired', 
+      passed: isExpired, 
+      details: { expiryDate: expiryDate.toISOString(), timeoutDays },
+      reason: isExpired ? 'Contract has expired' : `Not yet expired (${Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))} days remaining)`
+    });
+
+    if (!isExpired) {
+      result.action = 'would_skip';
+      result.error = 'CRON would skip: Contract has not expired yet';
+      return res.status(200).json(result);
+    }
+
+    const hasWinner = signers.some(s => s.status === 'received' || s.signed_at);
+    result.checks.push({ 
+      check: 'No signer has signed yet', 
+      passed: !hasWinner, 
+      reason: hasWinner ? 'At least one signer has signed' : 'No signers have signed'
+    });
+
+    if (hasWinner) {
+      result.action = 'skipped';
+      result.error = 'CRON would skip: Contract has a winner (someone signed)';
+      return res.status(200).json(result);
+    }
+
+    if (instance.timeout_notification_sent_at) {
+      const lastNotification = new Date(instance.timeout_notification_sent_at);
+      const hoursSinceNotification = (now - lastNotification) / (1000 * 60 * 60);
+      const cooldownPassed = hoursSinceNotification >= 24;
+      
+      result.checks.push({ 
+        check: 'Cooldown period passed', 
+        passed: cooldownPassed, 
+        details: { 
+          lastNotificationAt: instance.timeout_notification_sent_at,
+          hoursSince: Math.round(hoursSinceNotification * 10) / 10 
+        },
+        reason: cooldownPassed ? 'Cooldown passed' : `Must wait ${Math.round(24 - hoursSinceNotification)} more hours`
+      });
+
+      if (!cooldownPassed) {
+        result.action = 'would_skip';
+        result.error = 'CRON would skip: Cooldown period not passed (24h between notifications)';
+        return res.status(200).json(result);
+      }
+    } else {
+      result.checks.push({ check: 'Cooldown period passed', passed: true, reason: 'No previous notification sent' });
+    }
+
+    if (!instance.form_submission_id) {
+      result.checks.push({ check: 'Source submission exists', passed: false, reason: 'No form_submission_id linked' });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: No source submission linked to contract';
+      return res.status(200).json(result);
+    }
+
+    const { data: sourceSubmission, error: submissionError } = await supabase
+      .from('form_submission')
+      .select('*, form:form_id(id, name, fields)')
+      .eq('id', instance.form_submission_id)
+      .single();
+
+    if (submissionError || !sourceSubmission) {
+      result.checks.push({ check: 'Source submission exists', passed: false, reason: 'Submission not found' });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: Source submission not found';
+      return res.status(200).json(result);
+    }
+    result.checks.push({ check: 'Source submission exists', passed: true });
+
+    const submissionData = sourceSubmission.submission_data || {};
+    const applicantEmailField = contractSettings.applicant_email_field;
+    const applicantNameField = contractSettings.applicant_name_field;
+
+    if (!applicantEmailField) {
+      result.checks.push({ check: 'Applicant email field configured', passed: false, reason: 'No applicant_email_field in contract settings' });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: No applicant email field configured';
+      return res.status(200).json(result);
+    }
+
+    const applicantEmail = submissionData[applicantEmailField];
+    const applicantName = applicantNameField ? submissionData[applicantNameField] : 'Applicant';
+
+    if (!applicantEmail) {
+      result.checks.push({ check: 'Applicant email found', passed: false, reason: `Field "${applicantEmailField}" is empty` });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: Applicant email not found in submission';
+      return res.status(200).json(result);
+    }
+    result.checks.push({ check: 'Applicant email found', passed: true, details: { applicantEmail, applicantName } });
+
+    const { data: emailTemplate, error: templateError } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', contractSettings.timeout_email_template_id)
+      .single();
+
+    if (templateError || !emailTemplate) {
+      result.checks.push({ check: 'Email template exists', passed: false, reason: 'Template not found' });
+      result.action = 'skipped';
+      result.error = 'CRON would skip: Email template not found';
+      return res.status(200).json(result);
+    }
+    result.checks.push({ check: 'Email template exists', passed: true, details: { templateName: emailTemplate.name } });
+
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('id, slug, name, contact_email, sender_email, sender_name')
+      .eq('id', tenantId)
+      .single();
+
+    const tenantSlug = tenant?.slug || 'app';
+    const tokenSecret = process.env.ALTERNATIVE_SIGNER_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-secret';
+    const currentRound = instance.timeout_notification_round || 0;
+    const token = generateToken(instance.id, currentRound.toString(), tokenSecret);
+    const alternativeSignerLink = `https://${tenantSlug}.iconn.app/embed/alternative-signer?contract=${instance.id}&token=${token}&tenant=${tenantSlug}&round=${currentRound}`;
+
+    const placeholders = {
+      applicant_name: applicantName,
+      first_name: applicantName,
+      contract_name: form.name,
+      organization_name: '',
+      alternative_signer_link: alternativeSignerLink,
+      alternative_signer_url: alternativeSignerLink,
+      tenant_name: tenant?.name || '',
+      timeout_days: timeoutDays.toString()
+    };
+
+    if (instance.organization_id) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('name')
+        .eq('id', instance.organization_id)
+        .single();
+      placeholders.organization_name = org?.name || '';
+    }
+
+    let emailBody = emailTemplate.body || '';
+    let emailSubject = emailTemplate.subject || 'Contract Signing Timeout';
+
+    for (const [key, value] of Object.entries(placeholders)) {
+      const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'gi');
+      emailBody = emailBody.replace(regex, value || '');
+      emailSubject = emailSubject.replace(regex, value || '');
+    }
+
+    const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
+    const senderName = tenant?.sender_name || tenant?.name || 'Contracts';
+
+    result.emailDetails = {
+      to: applicantEmail,
+      from: `${senderName} <${senderEmail}>`,
+      subject: emailSubject,
+      bodyPreview: emailBody.substring(0, 500) + (emailBody.length > 500 ? '...' : ''),
+      templateUsed: { id: emailTemplate.id, name: emailTemplate.name },
+      alternativeSignerLink
+    };
+
+    if (dryRun) {
+      result.success = true;
+      result.action = 'would_send';
+      result.checks.push({ check: 'Dry run mode', passed: true, reason: 'Email would be sent (dry run)' });
+      return res.status(200).json(result);
+    }
+
+    try {
+      await sendEmail({
+        to: applicantEmail,
+        from: `${senderName} <${senderEmail}>`,
+        subject: emailSubject,
+        html: emailBody,
+        tenantId
+      });
+
+      const { error: updateError } = await supabase
+        .from('contract_instance')
+        .update({
+          timeout_notification_sent_at: now.toISOString(),
+          status: 'expired',
+          updated_at: now.toISOString()
+        })
+        .eq('id', instance.id);
+
+      if (updateError) {
+        console.warn(`[test-fire-timeout] Failed to update instance ${instance.id}:`, updateError);
+      }
+
+      result.success = true;
+      result.action = 'sent';
+      result.checks.push({ check: 'Email sent', passed: true });
+
+      return res.status(200).json(result);
+    } catch (emailError) {
+      result.success = false;
+      result.action = 'failed';
+      result.error = emailError.message || 'Failed to send email';
+      result.checks.push({ check: 'Email sent', passed: false, reason: result.error });
+      return res.status(500).json(result);
+    }
+
+  } catch (error) {
+    console.error('[test-fire-timeout] Error:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: error.message || 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
+}
