@@ -71,8 +71,74 @@ Built on the FormBuilder infrastructure, this system enables structured forms wi
 ## Agent Booking System with Meeting Templates
 A booking system allows team members as "booking agents" with personal booking pages, including tenant-scoped meeting templates, agent-template assignments, and integration with due diligence workflows.
 
-## Data Migration System
-A reusable migration solution transfers data from a legacy single-tenant Supabase database to the new multi-tenant application, handling ~10,800 records across 80+ shared tables by adding `tenant_id` to all migrated data. It includes scripts for data migration (`migrate-tenant.js`) and credential migration (`migrate-credentials.js`), supporting options like dry runs, specific table migration, and source/destination overrides. The process involves migrating data in FK dependency order, using upsert logic, and handling JSONB columns and field type transformations.
+# Data Migration System
+
+## Overview
+
+A reusable migration solution transfers data from the legacy single-tenant Supabase database to the new multi-tenant application. The migration handles ~10,800 records across 80+ shared tables, adding `tenant_id` to all migrated data.
+
+**Target Tenant ID:** `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+
+## Migration Scripts
+
+Located in `scripts/migrations/`:
+
+| Script | Purpose |
+|--------|---------|
+| **migrate-tenant.js** | Main data migration - copies all table data with tenant_id |
+| **migrate-credentials.js** | Credential migration - copies password hashes to new auth system |
+| **fix-duplicate-members.mjs** | Cleanup - removes duplicate member records after migration |
+| **discover-tables.js** | Utility to discover shared tables between databases |
+
+## Complete Migration Process
+
+The migration requires **two steps** run in sequence:
+
+### Step 1: Migrate Data (migrate-tenant.js)
+
+```bash
+node scripts/migrations/migrate-tenant.js \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --source="postgresql://postgres.zkvgzcruhniduuswbfyh:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres" \
+  --dest="postgresql://postgres.lvmzliemqnieeoruhkik:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+```
+
+### Step 2: Migrate Credentials (migrate-credentials.js)
+
+```bash
+node scripts/migrations/migrate-credentials.js \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --dest="postgresql://postgres.lvmzliemqnieeoruhkik:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+```
+
+### Step 3: Fix Duplicates (if destination had existing data)
+
+If the destination database had existing members before migration, you may have duplicate records. Run:
+
+```bash
+node scripts/migrations/fix-duplicate-members.mjs \
+  --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d \
+  --dest="postgresql://postgres.lvmzliemqnieeoruhkik:PASSWORD@aws-1-eu-central-1.pooler.supabase.com:5432/postgres" \
+  --dry-run
+```
+
+Remove `--dry-run` to apply the fix.
+
+## Troubleshooting
+
+### "Results contain 2 rows" / Browser crash on tenant subdomain
+
+This error occurs when there are duplicate member records sharing the same `identity_id`. Symptoms:
+- `PGRST116: Results contain 2 rows, application/vnd.pgrst.object+json requires 1 row`
+- Browser tab crashes when loading tenant portal
+
+**Fix:** Run the `fix-duplicate-members.mjs` script to remove duplicate member records.
+
+### Foreign Key Violations
+If child tables fail with FK errors, migrate parent tables first using `--tables=organization,member`.
+
+### Duplicate Key Errors on system_settings
+The script uses `setting_key` as conflict key since it has a global unique constraint.
 
 # External Dependencies
 
