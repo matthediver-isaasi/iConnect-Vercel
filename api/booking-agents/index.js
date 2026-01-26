@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Primary organization not found' });
       }
 
-      // Get memberships with identity info (for booking_slug, is_booking_agent)
+      // Get memberships with identity info (for is_booking_agent)
       const { data: memberships, error } = await supabase
         .from('tenant_membership')
         .select(`
@@ -43,7 +43,6 @@ export default async function handler(req, res) {
           tenant_identity:identity_id (
             id,
             email,
-            booking_slug,
             is_booking_agent
           )
         `)
@@ -60,12 +59,12 @@ export default async function handler(req, res) {
         .map(m => m.member_id)
         .filter(Boolean);
 
-      // Fetch members for organization_id and names
+      // Fetch members for organization_id, names, and handle
       let memberDataMap = new Map();
       if (memberIds.length > 0) {
         const { data: members, error: memberError } = await supabase
           .from('member')
-          .select('id, organization_id, first_name, last_name, email')
+          .select('id, organization_id, first_name, last_name, email, handle')
           .in('id', memberIds);
 
         if (!memberError && members) {
@@ -85,7 +84,7 @@ export default async function handler(req, res) {
             email: memberData.email || m.tenant_identity.email,
             first_name: memberData.first_name,
             last_name: memberData.last_name,
-            booking_slug: m.tenant_identity.booking_slug,
+            booking_slug: memberData.handle,
             is_booking_agent: m.tenant_identity.is_booking_agent
           });
         }
