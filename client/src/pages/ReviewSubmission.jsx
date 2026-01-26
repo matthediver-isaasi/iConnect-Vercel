@@ -1902,7 +1902,7 @@ export default function ReviewSubmissionPage() {
             </DialogDescription>
             {agentSelectionModal.meetingActions?.length > 0 && (
               <div className="mt-2 text-sm font-medium">
-                Meeting: {agentSelectionModal.meetingActions.map(a => a.meeting_template?.name).filter(Boolean).join(', ')}
+                Meeting: {agentSelectionModal.meetingActions.map(a => a.template_name).filter(Boolean).join(', ')}
               </div>
             )}
           </DialogHeader>
