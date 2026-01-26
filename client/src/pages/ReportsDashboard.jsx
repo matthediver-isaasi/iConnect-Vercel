@@ -578,7 +578,23 @@ export default function ReportsDashboard() {
         const saved = localStorage.getItem(storageKey);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed.reportCards) setReportCards(parsed.reportCards);
+          if (parsed.reportCards) {
+            // Merge saved cards with defaults to include any new cards
+            const savedCardIds = new Set(parsed.reportCards.map(c => c.id));
+            const mergedCards = [...parsed.reportCards];
+            
+            // Add any new default cards that aren't in saved settings
+            DEFAULT_REPORT_CARDS.forEach(defaultCard => {
+              if (!savedCardIds.has(defaultCard.id)) {
+                mergedCards.push({
+                  ...defaultCard,
+                  order: mergedCards.length
+                });
+              }
+            });
+            
+            setReportCards(mergedCards);
+          }
           if (parsed.membersPeriod) setMembersPeriod(parsed.membersPeriod);
           if (parsed.activityPeriod) setActivityPeriod(parsed.activityPeriod);
           if (parsed.articleViewsPeriod) setArticleViewsPeriod(parsed.articleViewsPeriod);
