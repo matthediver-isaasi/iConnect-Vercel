@@ -95,8 +95,8 @@ async function main() {
   console.log('');
 
   try {
-    // Find all duplicate members (same identity_id, multiple records)
-    const duplicatesQuery = await client.query(`
+    // First check for duplicates by identity_id
+    const dupsByIdentity = await client.query(`
       SELECT 
         identity_id, 
         COUNT(*) as cnt,
@@ -110,7 +110,54 @@ async function main() {
       HAVING COUNT(*) > 1
     `, [args.tenantId]);
 
-    console.log(`Found ${duplicatesQuery.rowCount} groups of duplicate members`);
+    console.log(`Found ${dupsByIdentity.rowCount} groups of duplicate members by identity_id`);
+
+    // Also check for duplicates by email (case-insensitive)
+    const dupsByEmail = await client.query(`
+      SELECT 
+        LOWER(email) as email_lower,
+        COUNT(*) as cnt,
+        array_agg(id ORDER BY created_on DESC) as member_ids,
+        array_agg(email ORDER BY created_on DESC) as emails,
+        array_agg(identity_id ORDER BY created_on DESC) as identity_ids,
+        array_agg(created_on ORDER BY created_on DESC) as created_dates
+      FROM member 
+      WHERE tenant_id = $1
+        AND email IS NOT NULL
+      GROUP BY LOWER(email)
+      HAVING COUNT(*) > 1
+    `, [args.tenantId]);
+
+    console.log(`Found ${dupsByEmail.rowCount} groups of duplicate members by email`);
+
+    // Combine both types of duplicates
+    const duplicatesQuery = { rows: [], rowCount: 0 };
+    
+    // Add identity duplicates
+    for (const row of dupsByIdentity.rows) {
+      duplicatesQuery.rows.push({
+        ...row,
+        duplicate_type: 'identity_id'
+      });
+    }
+    
+    // Add email duplicates (that aren't already covered by identity duplicates)
+    for (const row of dupsByEmail.rows) {
+      // Check if these members are already in identity duplicates
+      const alreadyCovered = dupsByIdentity.rows.some(
+        idRow => idRow.member_ids.some(id => row.member_ids.includes(id))
+      );
+      if (!alreadyCovered) {
+        duplicatesQuery.rows.push({
+          identity_id: row.email_lower, // Use email as the grouping key for display
+          ...row,
+          duplicate_type: 'email'
+        });
+      }
+    }
+    duplicatesQuery.rowCount = duplicatesQuery.rows.length;
+
+    console.log(`Total duplicate groups to process: ${duplicatesQuery.rowCount}`);
 
     if (duplicatesQuery.rowCount === 0) {
       console.log('No duplicates to fix!');
@@ -129,7 +176,8 @@ async function main() {
       const keepId = memberIds[0];
       const removeIds = memberIds.slice(1);
       
-      console.log(`\nIdentity: ${dup.identity_id}`);
+      const duplicateType = dup.duplicate_type || 'identity_id';
+      console.log(`\n[${duplicateType.toUpperCase()}] ${dup.identity_id}`);
       console.log(`  Keeping: ${keepId} (${emails[0]})`);
       console.log(`  Removing: ${removeIds.length} duplicate(s)`);
 
