@@ -2,14 +2,14 @@
  * Base44 to Supabase Migration Script
  * 
  * Migrates Due Diligence submissions from Base44 CSV export to Supabase.
+ * Uses the destination multi-tenant Supabase database as documented in replit.md.
  * 
  * Usage:
  *   DRY_RUN=true node scripts/migrate-base44-submissions.js   # Preview only
  *   node scripts/migrate-base44-submissions.js                 # Execute migration
  * 
- * Required environment variables:
- *   SUPABASE_URL - Your Supabase project URL
- *   SUPABASE_SERVICE_KEY - Supabase service role key (not anon key)
+ * Required secrets (stored in Replit Secrets):
+ *   DEST_SUPABASE_KEY - Supabase service role key for destination database
  * 
  * Optional: Manual form ID mapping (use if auto-matching fails)
  *   FORM_ESO_ID - Supabase UUID for ESO form
@@ -43,11 +43,12 @@ const BASE44_FORM_MAPPING = {
 async function loadSupabaseClient() {
   const { createClient } = require('@supabase/supabase-js');
   
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+  // Destination multi-tenant Supabase database (as per replit.md)
+  const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+  const supabaseKey = process.env.DEST_SUPABASE_KEY;
   
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables');
+  if (!supabaseKey) {
+    throw new Error('Missing DEST_SUPABASE_KEY secret. Add it to Replit Secrets.');
   }
   
   return createClient(supabaseUrl, supabaseKey);
