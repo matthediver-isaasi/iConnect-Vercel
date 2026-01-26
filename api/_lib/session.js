@@ -587,7 +587,7 @@ export async function getSessionTenantUser(req) {
     
     // Now continue with normal tenant_user handling using the restored tenantUserId
     session.data = restoredSessionData;
-  } else if (session?.data?.identityId && session.data.userType === 'member') {
+  } else if (session?.data?.identityId && (session.data.userType === 'member' || session.data.userType === undefined)) {
     console.log('[Session] Found member session with identityId, attempting promotion');
     // Member session - check if this identity is also a tenant owner
     // and can be promoted to tenant_user access
@@ -597,6 +597,11 @@ export async function getSessionTenantUser(req) {
       return promotedUser;
     }
     console.log('[Session] Member session promotion failed');
+    return null;
+  } else if (session?.data?.memberId && session.data.userType === undefined) {
+    // Legacy member session without proper userType - not a tenant_user session
+    // Let getTenantContext fall through to getSessionMember instead
+    console.log('[Session] Legacy member session detected (userType undefined, memberId present), deferring to member session handling');
     return null;
   } else {
     console.log('[Session] No valid session for tenant_user access, userType:', session?.data?.userType);
