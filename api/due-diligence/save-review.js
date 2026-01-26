@@ -122,6 +122,9 @@ export default async function handler(req, res) {
           if (targetStage) {
             // Atomic concurrency guard: set first_edit_triggered flag only if not already set
             // This prevents duplicate transitions from concurrent first edits
+            let guardSucceeded = false;
+            
+            // Try to use first_edit_triggered column if it exists
             const { data: guardResult, error: guardError } = await supabase
               .from('form_submission_due_diligence')
               .update({ 
@@ -135,8 +138,16 @@ export default async function handler(req, res) {
 
             console.log(`[DD Review] Guard result: error=${guardError?.message || 'none'}, rowsUpdated=${guardResult?.length || 0}`);
 
-            // Only proceed if we successfully set the flag (guard succeeded)
-            if (!guardError && guardResult && guardResult.length > 0) {
+            // If column doesn't exist, fall back to reviewed_by check (isFirstEdit already verified this)
+            if (guardError?.message?.includes('does not exist')) {
+              console.log('[DD Review] first_edit_triggered column missing, using reviewed_by fallback');
+              guardSucceeded = true; // Already verified via isFirstEdit check
+            } else if (!guardError && guardResult && guardResult.length > 0) {
+              guardSucceeded = true;
+            }
+
+            // Only proceed if guard succeeded
+            if (guardSucceeded) {
               const previousStatus = ddSubmission.workflow_status;
 
               // Check selection conditions (same as update-status.js for consistency)
