@@ -120,34 +120,25 @@ export default async function handler(req, res) {
           console.log(`[DD Review] Target stage: id=${targetStageId}, found=${!!targetStage}, label=${targetStage?.label}, stageCount=${workflowStages.length}`);
 
           if (targetStage) {
-            // Atomic concurrency guard: set first_edit_triggered flag only if not already set
-            // This prevents duplicate transitions from concurrent first edits
-            let guardSucceeded = false;
-            
-            // Try to use first_edit_triggered column if it exists
-            const { data: guardResult, error: guardError } = await supabase
-              .from('form_submission_due_diligence')
-              .update({ 
-                first_edit_triggered: true,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', submissionId)
-              .eq('tenant_id', tenantCtx.tenantId)
-              .or('first_edit_triggered.is.null,first_edit_triggered.eq.false')
-              .select('id');
+            // Check if first_edit was already triggered (from the initial fetch)
+            const alreadyTriggered = ddSubmission.first_edit_triggered === true;
+            console.log(`[DD Review] Already triggered check: first_edit_triggered=${ddSubmission.first_edit_triggered}, alreadyTriggered=${alreadyTriggered}`);
 
-            console.log(`[DD Review] Guard result: error=${guardError?.message || 'none'}, rowsUpdated=${guardResult?.length || 0}`);
+            // Only proceed if not already triggered
+            if (!alreadyTriggered) {
+              // Set the flag to prevent duplicate transitions
+              const { error: flagError } = await supabase
+                .from('form_submission_due_diligence')
+                .update({ 
+                  first_edit_triggered: true,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', submissionId)
+                .eq('tenant_id', tenantCtx.tenantId);
 
-            // If column doesn't exist, fall back to reviewed_by check (isFirstEdit already verified this)
-            if (guardError?.message?.includes('does not exist')) {
-              console.log('[DD Review] first_edit_triggered column missing, using reviewed_by fallback');
-              guardSucceeded = true; // Already verified via isFirstEdit check
-            } else if (!guardError && guardResult && guardResult.length > 0) {
-              guardSucceeded = true;
-            }
-
-            // Only proceed if guard succeeded
-            if (guardSucceeded) {
+              if (flagError) {
+                console.log(`[DD Review] Failed to set first_edit_triggered flag: ${flagError.message}`);
+              }
               const previousStatus = ddSubmission.workflow_status;
 
               // Check selection conditions (same as update-status.js for consistency)
@@ -226,8 +217,8 @@ export default async function handler(req, res) {
                 };
               }
             } else {
-              // Guard failed - another request already triggered the transition
-              console.log('[DD Review] First edit auto-transition skipped - already triggered');
+              // Already triggered on a previous save
+              console.log('[DD Review] First edit auto-transition skipped - first_edit_triggered flag already set');
             }
           }
         }
