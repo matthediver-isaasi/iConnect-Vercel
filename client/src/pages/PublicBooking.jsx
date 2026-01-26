@@ -79,7 +79,7 @@ export default function PublicBooking() {
 
   const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
     queryKey: ['public-booking', slug],
-    queryFn: () => publicClient.getBookingInfo(slug),
+    queryFn: async () => await publicClient.getBookingInfo(slug) || null,
     enabled: !!slug
   });
 

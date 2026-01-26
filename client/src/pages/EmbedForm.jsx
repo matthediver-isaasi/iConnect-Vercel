@@ -35,7 +35,7 @@ export default function EmbedFormPage() {
 
   const { data: form, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam],
-    queryFn: () => publicClient.getForm(slug),
+    queryFn: async () => await publicClient.getForm(slug) || null,
     enabled: !!slug
   });
 

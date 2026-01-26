@@ -398,7 +398,7 @@ export default function FormViewPage() {
   // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
   const { data: selectedOrg } = useQuery({
     queryKey: ['selected-org-for-validation', selectedOrgId],
-    queryFn: () => publicClient.getOrganizationDomains(selectedOrgId),
+    queryFn: async () => await publicClient.getOrganizationDomains(selectedOrgId) || null,
     enabled: !!selectedOrgId,
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });

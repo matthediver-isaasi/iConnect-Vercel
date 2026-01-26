@@ -32,7 +32,7 @@ export default function PublicResourcesPage() {
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['public-resources'],
-    queryFn: () => publicClient.listResources(),
+    queryFn: async () => await publicClient.listResources() || [],
     staleTime: 0,
     refetchOnMount: true,
   });

@@ -928,7 +928,7 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
   // Fetch selected resources using public endpoint
   const { data: allResources = [] } = useQuery({
     queryKey: ['public-resources-showcase'],
-    queryFn: () => publicClient.listResources(),
+    queryFn: async () => await publicClient.listResources() || [],
     enabled: Array.isArray(content.resourceIds) && content.resourceIds.some(id => id)
   });
 

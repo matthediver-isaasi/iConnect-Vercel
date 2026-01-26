@@ -20,7 +20,7 @@ export default function PublicArticlesPage() {
 
   const { data: articlesData = { articles: [], authors: {}, guestWriters: {} }, isLoading: articlesLoading } = useQuery({
     queryKey: ['public-articles'],
-    queryFn: () => publicClient.listArticles(),
+    queryFn: async () => await publicClient.listArticles() || { articles: [], authors: {}, guestWriters: {} },
     staleTime: 0,
   });
 

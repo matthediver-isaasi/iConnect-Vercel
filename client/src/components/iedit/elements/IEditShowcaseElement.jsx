@@ -1115,25 +1115,25 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
   // Fetch all items for selected cards using public endpoints
   const { data: allNews = [] } = useQuery({
     queryKey: ['public-showcase-news'],
-    queryFn: () => publicClient.listNews(),
+    queryFn: async () => await publicClient.listNews() || [],
     enabled: content.cards?.some(c => c.contentType === 'news' && c.itemId)
   });
 
   const { data: allResources = [] } = useQuery({
     queryKey: ['public-showcase-resources'],
-    queryFn: () => publicClient.listResources(),
+    queryFn: async () => await publicClient.listResources() || [],
     enabled: content.cards?.some(c => c.contentType === 'resources' && c.itemId)
   });
 
   const { data: allArticles = [] } = useQuery({
     queryKey: ['public-showcase-articles'],
-    queryFn: () => publicClient.listArticles(),
+    queryFn: async () => await publicClient.listArticles() || [],
     enabled: content.cards?.some(c => c.contentType === 'articles' && c.itemId)
   });
 
   const { data: allJobs = [] } = useQuery({
     queryKey: ['public-showcase-jobs'],
-    queryFn: () => publicClient.listJobPostings(),
+    queryFn: async () => await publicClient.listJobPostings() || [],
     enabled: content.cards?.some(c => c.contentType === 'jobs' && c.itemId)
   });
 

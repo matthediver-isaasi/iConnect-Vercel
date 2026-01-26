@@ -17,7 +17,7 @@ export default function PublicNewsPage() {
 
   const { data: news = [], isLoading: newsLoading } = useQuery({
     queryKey: ['public-news'],
-    queryFn: () => publicClient.listNews(),
+    queryFn: async () => await publicClient.listNews() || [],
     staleTime: 0,
   });
 

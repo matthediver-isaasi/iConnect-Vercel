@@ -737,7 +737,7 @@ export default function ReviewSubmissionPage() {
   // Query for organisations (for organisation_dropdown field display)
   const { data: organisations = [] } = useQuery({
     queryKey: ['organisations-for-dd-review'],
-    queryFn: () => publicClient.listOrganizations(),
+    queryFn: async () => await publicClient.listOrganizations() || [],
     staleTime: 5 * 60 * 1000,
     enabled: accessChecked
   });

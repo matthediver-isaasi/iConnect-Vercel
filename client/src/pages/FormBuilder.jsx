@@ -3332,7 +3332,7 @@ export default function FormBuilderPage() {
   // Fetch resource categories for category_multiselect field configuration (search categories)
   const { data: categories = [] } = useQuery({
     queryKey: ['resource-categories-for-forms'],
-    queryFn: () => publicClient.listResourceCategories()
+    queryFn: async () => await publicClient.listResourceCategories() || []
   });
 
   // Fetch custom fields (PreferenceField) for CRM mapping

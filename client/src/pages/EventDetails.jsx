@@ -221,7 +221,7 @@ export default function EventDetailsPage() {
   // Query for speakers assigned to this event
   const { data: eventSpeakers = [] } = useQuery({
     queryKey: ['event-speakers', event?.speaker_ids],
-    queryFn: () => publicClient.listSpeakers(event.speaker_ids),
+    queryFn: async () => await publicClient.listSpeakers(event.speaker_ids) || [],
     enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
   });
 

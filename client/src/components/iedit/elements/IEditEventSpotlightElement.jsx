@@ -86,7 +86,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
 
   const { data: event } = useQuery({
     queryKey: ['/api/public/event', event_id],
-    queryFn: () => publicClient.getEvent(event_id),
+    queryFn: async () => await publicClient.getEvent(event_id) || null,
     enabled: !!event_id
   });
 
@@ -99,14 +99,14 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
 
   const { data: roles = [] } = useQuery({
     queryKey: ['/api/public/roles', { forEvent: event_id }],
-    queryFn: () => publicClient.listRoles(),
+    queryFn: async () => await publicClient.listRoles() || [],
     enabled: needsRoles,
     staleTime: 5 * 60 * 1000
   });
 
   const { data: speakers = [] } = useQuery({
     queryKey: ['/api/public/speakers', { forEvent: event_id, speakerIds: eventSpeakerIds }],
-    queryFn: () => publicClient.listSpeakers(eventSpeakerIds),
+    queryFn: async () => await publicClient.listSpeakers(eventSpeakerIds) || [],
     enabled: needsSpeakers,
     staleTime: 5 * 60 * 1000
   });

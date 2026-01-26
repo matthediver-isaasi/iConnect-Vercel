@@ -129,7 +129,7 @@ export default function TeamPage({ hasBanner }) {
   // Fetch organization's verified domains from preference_field/organization_preference_value
   const { data: orgDomainsData } = useQuery({
     queryKey: ['org-verified-domains', memberInfo?.organization_id],
-    queryFn: () => publicClient.getOrganizationDomains(memberInfo?.organization_id),
+    queryFn: async () => await publicClient.getOrganizationDomains(memberInfo?.organization_id) || null,
     enabled: !!memberInfo?.organization_id
   });
 

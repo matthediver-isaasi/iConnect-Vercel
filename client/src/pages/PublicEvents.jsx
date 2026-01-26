@@ -72,7 +72,7 @@ const hasPublicTickets = (event) => {
 export default function PublicEventsPage() {
   const { data: allEvents = [], isLoading } = useQuery({
     queryKey: ['public-events'],
-    queryFn: () => publicClient.listEvents(),
+    queryFn: async () => await publicClient.listEvents() || [],
     staleTime: 0
   });
 
