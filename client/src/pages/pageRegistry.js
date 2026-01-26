@@ -107,4 +107,5 @@ export const PAGE_NAMES = [
   "RedirectManagement",
   "ProjectBoards",
   "ProjectBoard",
+  "ReportsDashboard",
 ];

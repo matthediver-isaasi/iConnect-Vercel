@@ -261,6 +261,8 @@ import ProjectBoards from "./ProjectBoards";
 
 import ProjectBoard from "./ProjectBoard";
 
+import ReportsDashboard from "./ReportsDashboard";
+
 import SearchResults from "./SearchResults";
 
 import TenantSignup from "./TenantSignup";
@@ -862,6 +864,8 @@ function PagesContent() {
                 
                 <Route path="/ProjectBoards" element={<ProjectBoards />} />
                 <Route path="/ProjectBoard/:id" element={<ProjectBoard />} />
+                
+                <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />
