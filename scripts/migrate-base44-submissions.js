@@ -17,9 +17,15 @@
  *   FORM_PARTNER_ID - Supabase UUID for Partner form
  */
 
-const fs = require('fs');
-const path = require('path');
-const { parse } = require('csv-parse/sync');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { parse } from 'csv-parse/sync';
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Configuration
 const TENANT_ID = '21296ad6-1350-483a-a90c-1b06ece70501';
@@ -40,9 +46,7 @@ const BASE44_FORM_MAPPING = {
   '695d0e0ca53944fa6588de4b': { name: 'isaasiLongFormPartner', searchTerm: 'Partner', count: 2 }
 };
 
-async function loadSupabaseClient() {
-  const { createClient } = require('@supabase/supabase-js');
-  
+function loadSupabaseClient() {
   // Destination multi-tenant Supabase database (as per replit.md)
   const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
   const supabaseKey = process.env.DEST_SUPABASE_KEY;
@@ -192,7 +196,7 @@ async function migrateSubmissions(supabase, formMapping, submissions) {
     const combinedHistoryLog = [...historyLog, migrationLogEntry];
     
     // Use original application_uid from CSV, or generate new one if missing
-    const applicationUid = submission.application_uid || require('crypto').randomUUID();
+    const applicationUid = submission.application_uid || crypto.randomUUID();
     
     // Prepare form_submission_due_diligence record
     const ddData = {
