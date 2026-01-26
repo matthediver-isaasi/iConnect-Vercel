@@ -537,36 +537,63 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       } else {
         console.log('[DD Meeting Request] No agent selected, using first:', agentId);
       }
-      // Note: booking_slug is on tenant_identity, not tenant_membership
+      // Get member_id from tenant_membership, then look up member data
       const { data: agentMembership } = await supabase
         .from('tenant_membership')
-        .select('identity:identity_id(first_name, last_name, booking_slug)')
+        .select('identity_id, member_id')
         .eq('identity_id', agentId)
         .eq('tenant_id', tenantId)
         .single();
 
-      const agentIdentity = agentMembership?.identity;
-      console.log('[DD Meeting Request] Agent identity lookup result:', { 
-        agentId, 
-        found: !!agentIdentity, 
-        booking_slug: agentIdentity?.booking_slug,
-        name: agentIdentity ? `${agentIdentity.first_name} ${agentIdentity.last_name}` : null
-      });
-      if (!agentIdentity?.booking_slug) {
-        console.log('[DD Meeting Request] SKIPPING - Agent has no booking_slug');
+      if (!agentMembership?.member_id) {
+        console.log('[DD Meeting Request] SKIPPING - Agent has no member_id');
         results.push({
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
-          reason: 'Booking agent has no booking slug configured'
+          reason: 'Booking agent is not linked to a member'
         });
         continue;
       }
 
-      // Build base booking URL
-      const baseBookingUrl = `${baseUrl}/book/${encodeURIComponent(agentIdentity.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
-      const agentName = [agentIdentity.first_name, agentIdentity.last_name].filter(Boolean).join(' ') || 'Team Member';
+      // Look up member data (name, handle)
+      const { data: agentMember } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email, handle')
+        .eq('id', agentMembership.member_id)
+        .single();
+
+      console.log('[DD Meeting Request] Agent member lookup result:', { 
+        agentId, 
+        member_id: agentMembership.member_id,
+        found: !!agentMember, 
+        handle: agentMember?.handle,
+        name: agentMember ? `${agentMember.first_name} ${agentMember.last_name}` : null
+      });
+      
+      if (!agentMember?.handle) {
+        console.log('[DD Meeting Request] SKIPPING - Agent member has no handle');
+        results.push({
+          action: 'send_meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: 'Booking agent has no handle configured'
+        });
+        continue;
+      }
+
+      // Build base booking URL using member handle
+      const baseBookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMember.handle)}?meeting=${encodeURIComponent(template.slug)}`;
+      const agentName = [agentMember.first_name, agentMember.last_name].filter(Boolean).join(' ') || 'Team Member';
+      
+      // Keep agentIdentity-like object for backward compatibility with history logging
+      const agentIdentity = {
+        first_name: agentMember.first_name,
+        last_name: agentMember.last_name,
+        email: agentMember.email
+      };
       const normalizedEmail = recipientEmail.toLowerCase();
 
       // Create tracking record FIRST to get the ID for the booking URL

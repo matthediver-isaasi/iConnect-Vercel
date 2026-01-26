@@ -135,40 +135,51 @@ export default async function handler(req, res) {
       const agentDetails = [];
       for (const assignment of agentAssignments) {
         console.log('[DD Check Stage Actions] Looking up agent membership for identity:', assignment.identity_id);
-        // Note: booking_slug is on tenant_identity, not tenant_membership
+        
+        // Get member_id from tenant_membership
         const { data: agentMembership, error: membershipError } = await supabase
           .from('tenant_membership')
-          .select('identity:identity_id(id, first_name, last_name, email, booking_slug)')
+          .select('identity_id, member_id')
           .eq('identity_id', assignment.identity_id)
           .eq('tenant_id', tenantCtx.tenantId)
           .single();
 
-        const identity = agentMembership?.identity;
         stepDebug.agent_memberships.push({
           identity_id: assignment.identity_id,
           found: !!agentMembership,
-          booking_slug: identity?.booking_slug || null,
-          has_identity: !!identity,
+          member_id: agentMembership?.member_id || null,
           error: membershipError?.message
         });
 
-        console.log('[DD Check Stage Actions] Agent membership result:', {
-          error: membershipError,
-          data: agentMembership,
-          hasBookingSlug: !!identity?.booking_slug,
-          hasIdentity: !!identity
+        if (!agentMembership?.member_id) {
+          console.log('[DD Check Stage Actions] Agent skipped - no member_id in membership');
+          continue;
+        }
+
+        // Look up member data (name, email, handle)
+        const { data: memberData, error: memberError } = await supabase
+          .from('member')
+          .select('id, first_name, last_name, email, handle')
+          .eq('id', agentMembership.member_id)
+          .single();
+
+        console.log('[DD Check Stage Actions] Member lookup result:', {
+          error: memberError,
+          data: memberData,
+          hasHandle: !!memberData?.handle
         });
 
-        if (identity?.booking_slug && identity) {
+        if (memberData?.handle) {
           agentDetails.push({
-            identity_id: identity.id,
-            name: [identity.first_name, identity.last_name].filter(Boolean).join(' '),
-            email: identity.email,
-            booking_slug: identity.booking_slug
+            identity_id: assignment.identity_id,
+            member_id: memberData.id,
+            name: [memberData.first_name, memberData.last_name].filter(Boolean).join(' '),
+            email: memberData.email,
+            handle: memberData.handle
           });
           stepDebug.agents_added++;
         } else {
-          console.log('[DD Check Stage Actions] Agent skipped - missing booking_slug or identity');
+          console.log('[DD Check Stage Actions] Agent skipped - missing handle on member');
         }
       }
       
