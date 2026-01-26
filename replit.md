@@ -101,6 +101,56 @@ Public-facing pages use a centralized `publicClient` for tenant-aware API reques
 ## Session Validation Security Pattern
 Hybrid pages use a `sessionValidated` flag to prevent unauthenticated users from accessing member-only data due to stale localStorage.
 
+## API Authentication Pattern (IMPORTANT)
+
+The platform supports two types of authenticated sessions:
+1. **Member sessions** - Portal users logged in via the member portal (`{tenant}.iconn.app`)
+2. **Tenant user sessions** - Admin dashboard users logged in via `iconn.app`
+
+### Authentication Functions
+
+| Function | Use Case | Returns |
+|----------|----------|---------|
+| `getTenantContext(req)` | **Preferred** - Handles BOTH member and admin sessions | `{ tenantId, memberId, isAuthenticated, ... }` |
+| `getSessionTenantUser(req)` | Admin-only endpoints | Tenant user object or null |
+| `getSessionMember(req)` | Member-only endpoints | Member object or null |
+
+### Best Practice: Use `getTenantContext` for Most Endpoints
+
+**DO THIS** - Works for both member and admin users:
+```javascript
+import { getTenantContext } from '../_lib/tenantContext.js';
+
+const tenantContext = await getTenantContext(req);
+if (!tenantContext || !tenantContext.isAuthenticated) {
+  return res.status(401).json({ error: 'Unauthorized' });
+}
+const tenantId = tenantContext.tenantId;
+```
+
+**AVOID THIS** - Only works for admin users:
+```javascript
+import { getSessionTenantUser } from '../_lib/session.js';
+
+const tenantUser = await getSessionTenantUser(req);
+if (!tenantUser) {
+  return res.status(401).json({ error: 'Unauthorized' });
+}
+```
+
+### When to Use Each Function
+
+- **`getTenantContext`**: Use for any endpoint that should be accessible to authenticated users (both member portal and admin dashboard)
+- **`getSessionTenantUser`**: Use ONLY for admin-specific endpoints that should never be accessed by regular members
+- **`getSessionMember`**: Use for member-specific operations within endpoints
+
+### Legacy Session Handling
+
+Some sessions may have `userType: undefined` (legacy sessions). The `getTenantContext` function handles these correctly by:
+1. First checking for tenant_user sessions
+2. Falling back to member sessions via `getSessionMember`
+3. Looking up tenant from the member's organization
+
 ## Tenant Email Domain Provisioning System
 Supports automated Mailgun domain provisioning for each tenant, enabling tenant-specific email sending domains with Vercel DNS record creation.
 
