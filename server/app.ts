@@ -42,14 +42,8 @@ app.use('/embed', (req, res, next) => {
   next();
 });
 
-// Allow iframe embedding for file/upload routes (document preview feature)
-app.use('/api/files', (req, res, next) => {
-  res.removeHeader('X-Frame-Options');
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
-  next();
-});
-
-app.use('/api/uploads', (req, res, next) => {
+// Allow iframe embedding for secure storage URLs (document preview feature)
+app.use('/api/storage/secure-url', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
   next();
