@@ -673,7 +673,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         await addHistoryLogEntry(ddSubmission.id, tenantId, 'meeting_request_sent', triggeredBy, {
           template_name: template.name,
           recipient: recipientEmail,
-          agent_name: agent?.first_name ? `${agent.first_name} ${agent.last_name || ''}`.trim() : agent?.email
+          agent_name: agentIdentity?.first_name ? `${agentIdentity.first_name} ${agentIdentity.last_name || ''}`.trim() : agentIdentity?.email
         });
       } catch (emailError) {
         console.error(`[DD Stage Actions] Failed to send meeting invitation to ${recipientEmail}:`, emailError);
