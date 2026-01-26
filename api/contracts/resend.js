@@ -88,9 +88,7 @@ export default async function handler(req, res) {
           if (!sub.data) return false;
           const subEmail = (sub.data.signer_email || sub.data.email || '').toLowerCase();
           if (subEmail === signerEmail.toLowerCase()) return false;
-          return Object.values(sub.data).some(v => 
-            typeof v === 'object' && v?.type === 'signature'
-          );
+          return !!subEmail;
         });
       }
     }

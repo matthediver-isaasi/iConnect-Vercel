@@ -66,9 +66,8 @@ export default async function handler(req, res) {
 
       isFieldAlreadySigned = (submissions || []).some(sub => {
         if (!sub.data) return false;
-        return Object.values(sub.data).some(v => 
-          typeof v === 'object' && v?.type === 'signature'
-        );
+        const email = sub.data.signer_email || sub.data.email;
+        return !!email;
       });
 
       if (!isFieldAlreadySigned) {

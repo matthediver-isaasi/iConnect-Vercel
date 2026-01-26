@@ -53,10 +53,7 @@ export default async function handler(req, res) {
       const signerSubmission = (submissions || []).find(sub => {
         if (!sub.submission_data) return false;
         const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
-        const hasSignature = Object.values(sub.submission_data).some(v => 
-          typeof v === 'object' && v?.type === 'signature'
-        );
-        return subEmail === (signer.email || '').toLowerCase() && hasSignature;
+        return subEmail === (signer.email || '').toLowerCase();
       });
 
       if (signerSubmission) {

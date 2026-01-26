@@ -104,18 +104,13 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // Determine which signers have already signed
+        // Determine which signers have already completed the form
         const signedEmails = new Set();
         (submissions || []).forEach(sub => {
           const data = sub.submission_data || sub.data;
           if (data) {
-            const hasSignature = Object.values(data).some(v => 
-              typeof v === 'object' && v?.type === 'signature'
-            );
-            if (hasSignature) {
-              const email = data.signer_email || data.email || sub.submitted_by_email;
-              if (email) signedEmails.add(email.toLowerCase());
-            }
+            const email = data.signer_email || data.email || sub.submitted_by_email;
+            if (email) signedEmails.add(email.toLowerCase());
           }
         });
 
