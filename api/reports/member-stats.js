@@ -17,21 +17,28 @@ export default async function handler(req, res) {
     }
 
     const { tenantId } = tenantContext;
+    const now = new Date();
 
-    const { data: members, error } = await supabase
+    const { count: totalMembers, error: totalError } = await supabase
       .from('member')
-      .select('id, created_on, status')
-      .eq('tenant_id', tenantId)
-      .order('created_on', { ascending: true });
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId);
 
-    if (error) {
-      console.error('Error fetching members:', error);
+    if (totalError) {
+      console.error('Error fetching total members:', totalError);
       return res.status(500).json({ error: 'Failed to fetch member data' });
     }
 
-    const now = new Date();
-    const totalMembers = members?.length || 0;
-    const activeMembers = members?.filter(m => m.status === 'active').length || 0;
+    const { count: activeMembers, error: activeError } = await supabase
+      .from('member')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active');
+
+    if (activeError) {
+      console.error('Error fetching active members:', activeError);
+      return res.status(500).json({ error: 'Failed to fetch member data' });
+    }
 
     const getDateRange = (period) => {
       const end = new Date(now);
@@ -67,19 +74,28 @@ export default async function handler(req, res) {
       return { start, end, prevStart, prevEnd };
     };
 
-    const countMembersInRange = (startDate, endDate) => {
-      if (!startDate) return totalMembers;
-      return members?.filter(m => {
-        const createdOn = new Date(m.created_on);
-        return createdOn >= startDate && createdOn <= endDate;
-      }).length || 0;
+    const countMembersInRange = async (startDate, endDate) => {
+      if (!startDate) return totalMembers || 0;
+      
+      const { count, error } = await supabase
+        .from('member')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .gte('created_on', startDate.toISOString())
+        .lte('created_on', endDate.toISOString());
+      
+      if (error) {
+        console.error('Error counting members in range:', error);
+        return 0;
+      }
+      return count || 0;
     };
 
-    const calculatePeriodStats = (period) => {
+    const calculatePeriodStats = async (period) => {
       if (period === 'all') {
         return {
           period,
-          current: totalMembers,
+          current: totalMembers || 0,
           previous: null,
           change: null,
           changeDirection: null,
@@ -88,8 +104,8 @@ export default async function handler(req, res) {
       }
       
       const { start, end, prevStart, prevEnd } = getDateRange(period);
-      const current = countMembersInRange(start, end);
-      const previous = countMembersInRange(prevStart, prevEnd);
+      const current = await countMembersInRange(start, end);
+      const previous = await countMembersInRange(prevStart, prevEnd);
       const change = previous > 0 ? ((current - previous) / previous * 100) : (current > 0 ? 100 : 0);
       
       return {
@@ -104,15 +120,27 @@ export default async function handler(req, res) {
 
     const periods = ['week', 'month', 'quarter', 'year', 'all'];
     const periodStats = {};
-    periods.forEach(period => {
-      periodStats[period] = calculatePeriodStats(period);
-    });
+    for (const period of periods) {
+      periodStats[period] = await calculatePeriodStats(period);
+    }
 
-    const getAcquisitionData = () => {
-      if (!members || members.length === 0) return [];
+    const getAcquisitionData = async () => {
+      const twelveMonthsAgo = new Date(now);
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+      const { data: recentMembers, error } = await supabase
+        .from('member')
+        .select('created_on')
+        .eq('tenant_id', tenantId)
+        .gte('created_on', twelveMonthsAgo.toISOString())
+        .order('created_on', { ascending: true });
+
+      if (error || !recentMembers || recentMembers.length === 0) {
+        return [];
+      }
 
       const monthlyData = {};
-      members.forEach(member => {
+      recentMembers.forEach(member => {
         if (!member.created_on) return;
         const date = new Date(member.created_on);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -133,10 +161,10 @@ export default async function handler(req, res) {
     };
 
     const stats = {
-      totalMembers,
-      activeMembers,
+      totalMembers: totalMembers || 0,
+      activeMembers: activeMembers || 0,
       periodStats,
-      acquisitionData: getAcquisitionData(),
+      acquisitionData: await getAcquisitionData(),
       lastUpdated: now.toISOString()
     };
 
