@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Primary organization not found' });
       }
 
-      // Get memberships with identity info
+      // Get memberships with identity info (for booking_slug, is_booking_agent)
       const { data: memberships, error } = await supabase
         .from('tenant_membership')
         .select(`
@@ -43,8 +43,6 @@ export default async function handler(req, res) {
           tenant_identity:identity_id (
             id,
             email,
-            first_name,
-            last_name,
             booking_slug,
             is_booking_agent
           )
@@ -57,36 +55,43 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch team members' });
       }
 
-      // Get member_ids to look up their organizations
+      // Get member_ids to look up their organizations and names
       const memberIds = (memberships || [])
         .map(m => m.member_id)
         .filter(Boolean);
 
-      // Fetch members to check organization_id
-      let memberOrgMap = new Map();
+      // Fetch members for organization_id and names
+      let memberDataMap = new Map();
       if (memberIds.length > 0) {
         const { data: members, error: memberError } = await supabase
           .from('member')
-          .select('id, organization_id')
+          .select('id, organization_id, first_name, last_name, email')
           .in('id', memberIds);
 
         if (!memberError && members) {
           for (const m of members) {
-            memberOrgMap.set(m.id, m.organization_id);
+            memberDataMap.set(m.id, m);
           }
         }
       }
 
-      // Filter to only members belonging to the primary organization
-      const identityMap = new Map();
+      // Build result using member names, filtered to primary org only
+      const resultMap = new Map();
       for (const m of memberships || []) {
-        const memberOrgId = m.member_id ? memberOrgMap.get(m.member_id) : null;
-        if (m.tenant_identity && memberOrgId === primaryOrg.id) {
-          identityMap.set(m.tenant_identity.id, m.tenant_identity);
+        const memberData = m.member_id ? memberDataMap.get(m.member_id) : null;
+        if (m.tenant_identity && memberData && memberData.organization_id === primaryOrg.id) {
+          resultMap.set(m.tenant_identity.id, {
+            id: m.tenant_identity.id,
+            email: memberData.email || m.tenant_identity.email,
+            first_name: memberData.first_name,
+            last_name: memberData.last_name,
+            booking_slug: m.tenant_identity.booking_slug,
+            is_booking_agent: m.tenant_identity.is_booking_agent
+          });
         }
       }
       
-      const allMembers = Array.from(identityMap.values()).sort((a, b) => 
+      const allMembers = Array.from(resultMap.values()).sort((a, b) => 
         (a.first_name || '').localeCompare(b.first_name || '')
       );
       const agents = allMembers.filter(m => m.is_booking_agent === true);
