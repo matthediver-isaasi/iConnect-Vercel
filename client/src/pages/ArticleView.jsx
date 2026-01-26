@@ -506,7 +506,8 @@ export default function ArticleViewPage() {
           article_id: article.id,
           user_identifier: userIdentifier,
           is_member: !!memberInfo,
-          viewed_at: new Date().toISOString()
+          viewed_at: new Date().toISOString(),
+          tenant_id: article.tenant_id
         });
         setViewRecorded(true);
       }

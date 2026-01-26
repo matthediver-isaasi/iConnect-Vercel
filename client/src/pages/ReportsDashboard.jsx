@@ -428,12 +428,12 @@ function ArticleViewsReportCard({ period, onPeriodChange }) {
           <p className="text-2xl font-bold" data-testid="text-total-views">{stats?.totalViews?.toLocaleString() || 0}</p>
         </div>
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground" data-testid="label-unique-articles">Total Articles</p>
+          <p className="text-sm text-muted-foreground" data-testid="label-unique-articles">Unique Articles</p>
           <p className="text-2xl font-bold" data-testid="text-unique-articles">{stats?.uniqueArticles?.toLocaleString() || 0}</p>
         </div>
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground" data-testid="label-views-week">This Week</p>
-          <p className="text-2xl font-bold" data-testid="text-views-week">{stats?.viewsThisWeek?.toLocaleString() || 0}</p>
+          <p className="text-sm text-muted-foreground" data-testid="label-unique-viewers">Unique Viewers</p>
+          <p className="text-2xl font-bold" data-testid="text-unique-viewers">{stats?.uniqueViewers?.toLocaleString() || 0}</p>
         </div>
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground" data-testid="label-views-today">Today</p>

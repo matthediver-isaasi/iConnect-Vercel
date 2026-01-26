@@ -19,54 +19,31 @@ export default async function handler(req, res) {
     const { tenantId } = tenantContext;
     const now = new Date();
 
-    // Get total article views count
-    const { count: totalViews, error: totalError } = await supabase
-      .from('article_view')
-      .select('*', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId);
+    // Get stats using RPC function
+    const { data: statsData, error: statsError } = await supabase
+      .rpc('get_article_view_stats', { p_tenant_id: tenantId });
 
-    if (totalError) {
-      console.error('Error fetching total views:', totalError);
-      return res.status(500).json({ error: 'Failed to fetch article view data' });
+    if (statsError) {
+      console.error('Error fetching article view stats:', statsError);
+      return res.status(500).json({ error: 'Failed to fetch article view statistics' });
     }
 
-    // Get count of blog posts that have at least one view (unique articles viewed)
-    // This uses the blog_post table with a subquery approach
-    const { count: uniqueArticleCount } = await supabase
+    // Get count of blog posts for this tenant
+    const { count: totalArticles } = await supabase
       .from('blog_post')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId);
 
-    // Define time ranges
-    const oneDayAgo = new Date(now);
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-    
-    const oneWeekAgo = new Date(now);
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    
-    const oneMonthAgo = new Date(now);
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    // Get top articles using RPC function
+    const { data: topArticles, error: topError } = await supabase
+      .rpc('get_top_articles_by_views', { 
+        p_tenant_id: tenantId,
+        p_limit: 5 
+      });
 
-    // Count views in time ranges
-    const countViewsInRange = async (sinceDate) => {
-      const { count, error } = await supabase
-        .from('article_view')
-        .select('*', { count: 'exact', head: true })
-        .eq('tenant_id', tenantId)
-        .gte('viewed_at', sinceDate.toISOString());
-      
-      if (error) {
-        console.error('Error counting views in range:', error);
-        return 0;
-      }
-      return count || 0;
-    };
-
-    const [viewsToday, viewsThisWeek, viewsThisMonth] = await Promise.all([
-      countViewsInRange(oneDayAgo),
-      countViewsInRange(oneWeekAgo),
-      countViewsInRange(oneMonthAgo)
-    ]);
+    if (topError) {
+      console.error('Error fetching top articles:', topError);
+    }
 
     // Calculate period stats with comparisons
     const getDateRange = (period) => {
@@ -104,7 +81,7 @@ export default async function handler(req, res) {
     };
 
     const countViewsInDateRange = async (startDate, endDate) => {
-      if (!startDate) return totalViews || 0;
+      if (!startDate) return statsData?.totalviews || 0;
       
       const { count, error } = await supabase
         .from('article_view')
@@ -121,10 +98,12 @@ export default async function handler(req, res) {
     };
 
     const calculatePeriodStats = async (period) => {
+      const totalViews = statsData?.totalviews || 0;
+      
       if (period === 'all') {
         return {
           period,
-          current: totalViews || 0,
+          current: totalViews,
           previous: null,
           change: null,
           changeDirection: null,
@@ -153,81 +132,51 @@ export default async function handler(req, res) {
     const periodStats = {};
     periods.forEach((p, i) => { periodStats[p] = periodStatsResults[i]; });
 
-    // Get views by period for chart - generate date buckets and count each
+    // Get views by period for chart using RPC function
     const getViewsDataForPeriod = async (period) => {
       let startDate = new Date(now);
       let groupBy = 'day';
-      let bucketCount = 7;
       
       switch (period) {
         case 'week':
           startDate.setDate(startDate.getDate() - 7);
           groupBy = 'day';
-          bucketCount = 7;
           break;
         case 'month':
           startDate.setMonth(startDate.getMonth() - 1);
           groupBy = 'day';
-          bucketCount = 30;
           break;
         case 'quarter':
           startDate.setMonth(startDate.getMonth() - 3);
           groupBy = 'week';
-          bucketCount = 13;
           break;
         case 'year':
           startDate.setFullYear(startDate.getFullYear() - 1);
           groupBy = 'month';
-          bucketCount = 12;
           break;
         case 'all':
         default:
           startDate.setFullYear(startDate.getFullYear() - 2);
           groupBy = 'month';
-          bucketCount = 24;
           break;
       }
 
-      const chartData = [];
-      const buckets = [];
-      
-      // Generate time buckets
-      if (groupBy === 'day') {
-        for (let i = 0; i < bucketCount; i++) {
-          const d = new Date(startDate);
-          d.setDate(d.getDate() + i);
-          buckets.push({ start: new Date(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
-        }
-      } else if (groupBy === 'week') {
-        for (let i = 0; i < bucketCount; i++) {
-          const d = new Date(startDate);
-          d.setDate(d.getDate() + (i * 7));
-          buckets.push({ start: new Date(d), label: `Week of ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` });
-        }
-      } else {
-        for (let i = 0; i < bucketCount; i++) {
-          const d = new Date(startDate);
-          d.setMonth(d.getMonth() + i);
-          buckets.push({ start: new Date(d), label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) });
-        }
+      const { data: chartData, error: chartError } = await supabase
+        .rpc('get_article_views_by_period', {
+          p_tenant_id: tenantId,
+          p_start_date: startDate.toISOString(),
+          p_group_by: groupBy
+        });
+
+      if (chartError) {
+        console.error('Error fetching chart data:', chartError);
+        return [];
       }
 
-      // Count views for each bucket in parallel
-      const countPromises = buckets.map(async (bucket, i) => {
-        const bucketEnd = i < buckets.length - 1 ? buckets[i + 1].start : now;
-        
-        const { count } = await supabase
-          .from('article_view')
-          .select('*', { count: 'exact', head: true })
-          .eq('tenant_id', tenantId)
-          .gte('viewed_at', bucket.start.toISOString())
-          .lt('viewed_at', bucketEnd.toISOString());
-
-        return { label: bucket.label, count: count || 0 };
-      });
-
-      const results = await Promise.all(countPromises);
-      return results.filter(r => r.count > 0 || results.every(r2 => r2.count === 0));
+      return (chartData || []).map(row => ({
+        label: row.period_label,
+        count: parseInt(row.view_count) || 0
+      }));
     };
 
     // Get chart data for all periods in parallel
@@ -236,53 +185,17 @@ export default async function handler(req, res) {
     const viewsByPeriod = {};
     periods.forEach((p, i) => { viewsByPeriod[p] = viewsByPeriodResults[i]; });
 
-    // Get top 5 articles by views - fetch recent views and aggregate client-side
-    // Limited to 500 recent views to avoid pagination issues
-    const { data: recentViews } = await supabase
-      .from('article_view')
-      .select('article_id')
-      .eq('tenant_id', tenantId)
-      .order('viewed_at', { ascending: false })
-      .limit(500);
-
-    let topArticles = [];
-    if (recentViews && recentViews.length > 0) {
-      const articleCounts = {};
-      recentViews.forEach(view => {
-        articleCounts[view.article_id] = (articleCounts[view.article_id] || 0) + 1;
-      });
-      
-      const sortedArticles = Object.entries(articleCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
-
-      const articleIds = sortedArticles.map(([id]) => id);
-      if (articleIds.length > 0) {
-        const { data: articles } = await supabase
-          .from('blog_post')
-          .select('id, title')
-          .in('id', articleIds);
-
-        topArticles = sortedArticles.map(([id, count]) => {
-          const article = articles?.find(a => a.id === id);
-          return {
-            id,
-            title: article?.title || 'Unknown Article',
-            views: count
-          };
-        });
-      }
-    }
-
     const stats = {
-      totalViews: totalViews || 0,
-      uniqueArticles: uniqueArticleCount || 0,
-      viewsToday,
-      viewsThisWeek,
-      viewsThisMonth,
+      totalViews: statsData?.totalviews || 0,
+      uniqueArticles: statsData?.uniquearticles || 0,
+      uniqueViewers: statsData?.uniqueviewers || 0,
+      totalArticles: totalArticles || 0,
+      viewsToday: statsData?.viewstoday || 0,
+      viewsThisWeek: statsData?.viewsthisweek || 0,
+      viewsThisMonth: statsData?.viewsthismonth || 0,
       periodStats,
       viewsByPeriod,
-      topArticles,
+      topArticles: topArticles || [],
       lastUpdated: now.toISOString()
     };
 
