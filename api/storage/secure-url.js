@@ -116,6 +116,9 @@ export default async function handler(req, res) {
       path: storagePath.substring(0, 50) + '...'
     });
 
+    // Get request parameters
+    const { redirect } = req.query;
+
     // Generate signed URL
     const options = {
       download: download === 'true' ? true : undefined
@@ -137,6 +140,11 @@ export default async function handler(req, res) {
       }
       
       return res.status(500).json({ error: 'Failed to generate access URL: ' + error.message });
+    }
+
+    // If redirect=true, redirect to the signed URL (useful for iframe embedding)
+    if (redirect === 'true') {
+      return res.redirect(302, data.signedUrl);
     }
 
     return res.json({

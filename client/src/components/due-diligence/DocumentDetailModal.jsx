@@ -50,7 +50,22 @@ function canPreview(mimeType) {
   return mimeType.startsWith('image/') || mimeType === 'application/pdf';
 }
 
+function getEmbeddableUrl(fileUrl) {
+  if (!fileUrl) return fileUrl;
+  
+  // If it's a secure-url endpoint, ensure redirect=true is present for iframe embedding
+  if (fileUrl.includes('/api/storage/secure-url')) {
+    if (!fileUrl.includes('redirect=true')) {
+      const separator = fileUrl.includes('?') ? '&' : '?';
+      return `${fileUrl}${separator}redirect=true`;
+    }
+  }
+  return fileUrl;
+}
+
 function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
+  const embeddableUrl = getEmbeddableUrl(fileUrl);
+  
   if (!fileUrl) {
     return (
       <div className="flex items-center justify-center h-64 bg-muted rounded-lg">
@@ -63,7 +78,7 @@ function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
     return (
       <div className="flex items-center justify-center bg-muted rounded-lg p-4" style={{ height: fixedHeight || 'calc(100% - 100px)', minHeight: '400px' }}>
         <img 
-          src={fileUrl} 
+          src={embeddableUrl} 
           alt={fileName} 
           className="max-h-full max-w-full object-contain rounded"
         />
@@ -75,7 +90,7 @@ function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
     return (
       <div className="w-full rounded-lg overflow-hidden relative" style={{ height: fixedHeight || 'calc(100% - 100px)', minHeight: '400px' }}>
         <iframe 
-          src={fileUrl} 
+          src={embeddableUrl} 
           className="absolute inset-0 w-full h-full border-0"
           title={fileName}
         />

@@ -191,8 +191,8 @@ export default async function handler(req, res) {
         .getPublicUrl(storagePath);
       finalUrl = publicUrlData.publicUrl;
     } else {
-      // Private files use secure URL endpoint
-      finalUrl = `/api/storage/secure-url?bucket=${bucket}&path=${encodeURIComponent(storagePath)}`;
+      // Private files use secure URL endpoint with redirect for iframe embedding
+      finalUrl = `/api/storage/secure-url?bucket=${bucket}&path=${encodeURIComponent(storagePath)}&redirect=true`;
     }
 
     return res.json({
