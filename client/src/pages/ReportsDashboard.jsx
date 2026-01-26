@@ -20,7 +20,8 @@ import {
   Loader2,
   Eye,
   EyeOff,
-  LayoutDashboard
+  LayoutDashboard,
+  Activity
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -39,7 +40,8 @@ import { createPageUrl } from "@/utils";
 const STORAGE_KEY_PREFIX = 'reports_dashboard_';
 
 const DEFAULT_REPORT_CARDS = [
-  { id: 'members', title: 'Members', visible: true, order: 0 }
+  { id: 'members', title: 'Members', visible: true, order: 0 },
+  { id: 'activity', title: 'Activity', visible: true, order: 1 }
 ];
 
 const PERIOD_OPTIONS = [
@@ -193,12 +195,178 @@ function MembersReportCard({ period, onPeriodChange }) {
   );
 }
 
+function ActivityReportCard({ period, onPeriodChange }) {
+  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/activity-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/activity-stats'),
+    staleTime: 60000,
+    refetchOnWindowFocus: false
+  });
+
+  const periodData = stats?.periodStats?.[period];
+  const changePercent = periodData?.change;
+  const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
+  const isPositive = periodData?.changeDirection === 'up';
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-activity-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-activity-error">
+        <p className="text-muted-foreground" data-testid="text-activity-error-message">Failed to load activity statistics</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-activity-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Select value={period} onValueChange={onPeriodChange}>
+          <SelectTrigger className="w-40" data-testid="select-activity-period">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map(opt => (
+              <SelectItem key={opt.value} value={opt.value} data-testid={`select-activity-period-${opt.value}`}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-refresh-activity"
+        >
+          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="container-activity-stats-grid">
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-active-today">Active Today</p>
+          <p className="text-2xl font-bold text-green-600" data-testid="text-active-today">{stats?.activeToday?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-active-week">This Week</p>
+          <p className="text-2xl font-bold" data-testid="text-active-week">{stats?.activeThisWeek?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-active-month">This Month</p>
+          <p className="text-2xl font-bold" data-testid="text-active-month">{stats?.activeThisMonth?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-inactive">Inactive (90+ days)</p>
+          <p className="text-2xl font-bold text-muted-foreground" data-testid="text-inactive">{stats?.inactiveCount?.toLocaleString() || 0}</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-engagement-rate">
+        <div className="p-2 rounded-full bg-primary/10">
+          <Activity className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <p className="text-sm font-medium" data-testid="text-engagement-rate">
+            <span className="text-primary text-lg font-bold">{stats?.engagementRate || 0}%</span>
+            {' '}Monthly Engagement Rate
+          </p>
+          <p className="text-xs text-muted-foreground" data-testid="text-engagement-details">
+            {stats?.activeThisMonth?.toLocaleString() || 0} of {stats?.totalMembers?.toLocaleString() || 0} members active this month
+          </p>
+        </div>
+      </div>
+
+      {hasValidComparison && periodData && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-activity-comparison">
+          <div className={`p-2 rounded-full ${isPositive ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+            {isPositive ? (
+              <TrendingUp className="w-5 h-5 text-green-600" />
+            ) : (
+              <TrendingDown className="w-5 h-5 text-red-600" />
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium" data-testid="text-activity-comparison">
+              <span className={isPositive ? 'text-green-600' : 'text-red-600'}>
+                {isPositive ? '+' : ''}{changePercent}%
+              </span>
+              {' '}vs previous {period}
+            </p>
+            <p className="text-xs text-muted-foreground" data-testid="text-activity-details">
+              {periodData.current} active members (was {periodData.previous})
+            </p>
+          </div>
+        </div>
+      )}
+
+      {stats?.activityByPeriod?.[period]?.length > 0 && (
+        <div className="space-y-3" data-testid="container-activity-chart">
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-activity-chart-title">
+            Member Activity ({period === 'all' ? 'All Time' : `This ${period.charAt(0).toUpperCase() + period.slice(1)}`})
+          </p>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.activityByPeriod[period]}>
+                <defs>
+                  <linearGradient id="colorActivity" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis 
+                  dataKey="label" 
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                />
+                <YAxis 
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  stroke="hsl(var(--chart-2))"
+                  fillOpacity={1}
+                  fill="url(#colorActivity)"
+                  name="Active Members"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReportsDashboard() {
   const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const [accessChecked, setAccessChecked] = useState(false);
   const [reportCards, setReportCards] = useState(DEFAULT_REPORT_CARDS);
   const [membersPeriod, setMembersPeriod] = useState('month');
+  const [activityPeriod, setActivityPeriod] = useState('month');
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const storageKey = useMemo(() => 
@@ -224,6 +392,7 @@ export default function ReportsDashboard() {
           const parsed = JSON.parse(saved);
           if (parsed.reportCards) setReportCards(parsed.reportCards);
           if (parsed.membersPeriod) setMembersPeriod(parsed.membersPeriod);
+          if (parsed.activityPeriod) setActivityPeriod(parsed.activityPeriod);
         }
       } catch (e) {
         console.error('Error loading dashboard preferences:', e);
@@ -236,13 +405,14 @@ export default function ReportsDashboard() {
       try {
         localStorage.setItem(storageKey, JSON.stringify({
           reportCards,
-          membersPeriod
+          membersPeriod,
+          activityPeriod
         }));
       } catch (e) {
         console.error('Error saving dashboard preferences:', e);
       }
     }
-  }, [reportCards, membersPeriod, storageKey, memberInfo?.id, tenantSlug]);
+  }, [reportCards, membersPeriod, activityPeriod, storageKey, memberInfo?.id, tenantSlug]);
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
@@ -283,6 +453,13 @@ export default function ReportsDashboard() {
             onPeriodChange={setMembersPeriod}
           />
         );
+      case 'activity':
+        return (
+          <ActivityReportCard
+            period={activityPeriod}
+            onPeriodChange={setActivityPeriod}
+          />
+        );
       default:
         return null;
     }
@@ -292,6 +469,8 @@ export default function ReportsDashboard() {
     switch (cardId) {
       case 'members':
         return <Users className="w-5 h-5" />;
+      case 'activity':
+        return <Activity className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }
