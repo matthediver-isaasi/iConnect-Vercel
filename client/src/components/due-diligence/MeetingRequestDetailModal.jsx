@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Calendar, Check, Clock, User, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, ExternalLink
 } from "lucide-react";
@@ -114,25 +113,22 @@ function AddAlternativeRequestForm({
   onSubmit, 
   isSubmitting, 
   isDisabled, 
-  meetingTemplates, 
-  agents,
-  currentTemplateId
+  currentTemplateId,
+  currentAgentId
 }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [selectedTemplateId, setSelectedTemplateId] = useState(currentTemplateId || '');
-  const [selectedAgentId, setSelectedAgentId] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!email.trim() || !selectedTemplateId || !selectedAgentId) return;
+    if (!email.trim()) return;
     onSubmit({ 
       firstName: firstName.trim(), 
       lastName: lastName.trim(), 
       email: email.trim(),
-      meetingTemplateId: selectedTemplateId,
-      agentIdentityId: selectedAgentId
+      meetingTemplateId: currentTemplateId,
+      agentIdentityId: currentAgentId
     });
     setFirstName('');
     setLastName('');
@@ -153,7 +149,7 @@ function AddAlternativeRequestForm({
     <form onSubmit={handleSubmit} className="p-4 bg-muted/50 rounded-lg space-y-4">
       <h4 className="text-sm font-semibold flex items-center gap-2">
         <UserPlus className="w-4 h-4" />
-        Add Alternative Meeting Request
+        Add Alternative Contact
       </h4>
       <p className="text-xs text-muted-foreground">
         Add another person who can book this meeting. The first to book wins.
@@ -195,45 +191,11 @@ function AddAlternativeRequestForm({
         />
       </div>
 
-      {meetingTemplates && meetingTemplates.length > 0 && (
-        <div className="space-y-1">
-          <Label htmlFor="meeting-template" className="text-xs">Meeting Type *</Label>
-          <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-            <SelectTrigger data-testid="select-meeting-template">
-              <SelectValue placeholder="Select meeting type" />
-            </SelectTrigger>
-            <SelectContent>
-              {meetingTemplates.map(t => (
-                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {agents && agents.length > 0 && (
-        <div className="space-y-1">
-          <Label htmlFor="agent" className="text-xs">Host (Agent) *</Label>
-          <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-            <SelectTrigger data-testid="select-agent">
-              <SelectValue placeholder="Select host" />
-            </SelectTrigger>
-            <SelectContent>
-              {agents.map(a => (
-                <SelectItem key={a.id} value={a.id}>
-                  {[a.first_name, a.last_name].filter(Boolean).join(' ') || a.email}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
       <div className="flex justify-end">
         <Button
           type="submit"
           size="sm"
-          disabled={isSubmitting || !email.trim() || !selectedTemplateId || !selectedAgentId}
+          disabled={isSubmitting || !email.trim() || !currentTemplateId || !currentAgentId}
           data-testid="button-add-alt-request"
         >
           {isSubmitting ? (
@@ -260,15 +222,6 @@ export default function MeetingRequestDetailModal({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: templatesData } = useQuery({
-    queryKey: ['/api/entities/meeting_template'],
-    enabled: isOpen && !hasBookedRequest
-  });
-
-  const { data: agentsData } = useQuery({
-    queryKey: ['/api/booking-agents'],
-    enabled: isOpen && !hasBookedRequest
-  });
 
   const resendMutation = useMutation({
     mutationFn: async (meetingRequestId) => {
@@ -340,9 +293,6 @@ export default function MeetingRequestDetailModal({
     r.meeting_template_id === request.meeting_template_id
   );
 
-  const meetingTemplates = templatesData || [];
-  const agents = agentsData?.agents || [];
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid="meeting-request-detail-modal">
@@ -397,9 +347,8 @@ export default function MeetingRequestDetailModal({
               onSubmit={handleAddAlternative}
               isSubmitting={addAlternativeMutation.isPending}
               isDisabled={hasBookedRequest}
-              meetingTemplates={meetingTemplates}
-              agents={agents}
               currentTemplateId={request.meeting_template_id}
+              currentAgentId={request.agent_identity_id || request.agent?.id}
             />
           </div>
         </ScrollArea>
