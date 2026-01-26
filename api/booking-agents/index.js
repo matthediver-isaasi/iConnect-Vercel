@@ -1,17 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export default async function handler(req, res) {
-  const tenantUser = await getSessionTenantUser(req);
-  if (!tenantUser) {
+  const tenantContext = await getTenantContext(req);
+  if (!tenantContext || !tenantContext.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
+  const tenantId = tenantContext.tenantId;
 
   // Validate tenantId
   if (!tenantId || tenantId === 'undefined') {

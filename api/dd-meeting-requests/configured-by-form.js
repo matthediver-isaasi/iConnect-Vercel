@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,12 +7,12 @@ export default async function handler(req, res) {
   }
 
   try {
-    const tenantUser = await getSessionTenantUser(req);
-    if (!tenantUser) {
+    const tenantContext = await getTenantContext(req);
+    if (!tenantContext || !tenantContext.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
+    const tenantId = tenantContext.tenantId;
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant context required' });
     }
