@@ -100,9 +100,9 @@ async function main() {
       SELECT 
         identity_id, 
         COUNT(*) as cnt,
-        array_agg(id ORDER BY created_at DESC) as member_ids,
-        array_agg(email ORDER BY created_at DESC) as emails,
-        array_agg(created_at ORDER BY created_at DESC) as created_dates
+        array_agg(id ORDER BY created_on DESC) as member_ids,
+        array_agg(email ORDER BY created_on DESC) as emails,
+        array_agg(created_on ORDER BY created_on DESC) as created_dates
       FROM member 
       WHERE tenant_id = $1
         AND identity_id IS NOT NULL
