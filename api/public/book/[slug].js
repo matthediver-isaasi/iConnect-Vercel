@@ -66,30 +66,41 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Find identity by booking slug, then verify tenant membership
-    // (tenant_identity table doesn't have tenant_id column)
-    const { data: identity, error: identityError } = await supabase
-      .from('tenant_identity')
-      .select('id, first_name, last_name, email, avatar_url, booking_slug')
-      .eq('booking_slug', slug)
+    // Find member by handle (the slug is now the member's handle)
+    console.log('[Booking] Looking up member by handle:', slug, 'tenant:', tenantId);
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, email, handle, organization_id')
+      .eq('handle', slug)
+      .eq('tenant_id', tenantId)
       .single();
 
-    if (identityError || !identity) {
+    console.log('[Booking] Member lookup result:', { found: !!member, error: memberError?.message, member_id: member?.id });
+    
+    if (memberError || !member) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
 
-    // Verify this identity belongs to the tenant via tenant_membership
+    // Find the identity linked to this member via tenant_membership
     const { data: membership } = await supabase
       .from('tenant_membership')
-      .select('identity_id')
-      .eq('identity_id', identity.id)
+      .select('identity_id, identity:identity_id(id, first_name, last_name, email, avatar_url)')
+      .eq('member_id', member.id)
       .eq('tenant_id', tenantId)
-      .limit(1)
       .single();
 
-    if (!membership) {
+    if (!membership?.identity_id) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
+
+    // Use member data for display, identity for system lookups
+    const identity = {
+      id: membership.identity_id,
+      first_name: member.first_name,
+      last_name: member.last_name,
+      email: member.email,
+      avatar_url: membership.identity?.avatar_url
+    };
 
     // Find availability profile for this identity AND this specific tenant
     const { data: profile, error: profileError } = await supabase
