@@ -103,7 +103,8 @@ export default function BookingAgentsManagement() {
     duration_minutes: 30,
     meeting_type: 'phone',
     is_active: true,
-    email_template_id: ''
+    email_template_id: '',
+    max_days_ahead: 30
   });
 
   const { data: emailTemplatesData } = useQuery({
@@ -282,7 +283,8 @@ export default function BookingAgentsManagement() {
       duration_minutes: 30,
       meeting_type: 'phone',
       is_active: true,
-      email_template_id: ''
+      email_template_id: '',
+      max_days_ahead: 30
     });
   };
 
@@ -294,7 +296,8 @@ export default function BookingAgentsManagement() {
       duration_minutes: template.duration_minutes,
       meeting_type: template.meeting_type,
       is_active: template.is_active,
-      email_template_id: template.email_template_id || ''
+      email_template_id: template.email_template_id || '',
+      max_days_ahead: template.max_days_ahead || 30
     });
     setTemplateDialogOpen(true);
   };
@@ -673,6 +676,24 @@ export default function BookingAgentsManagement() {
                                 </div>
                               </SelectItem>
                             ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Booking Window</Label>
+                        <Select
+                          value={String(templateForm.max_days_ahead)}
+                          onValueChange={(v) => setTemplateForm(prev => ({ ...prev, max_days_ahead: parseInt(v) }))}
+                        >
+                          <SelectTrigger data-testid="select-max-days-ahead">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="7">7 days ahead</SelectItem>
+                            <SelectItem value="14">14 days ahead</SelectItem>
+                            <SelectItem value="30">30 days ahead</SelectItem>
+                            <SelectItem value="60">60 days ahead</SelectItem>
+                            <SelectItem value="90">90 days ahead</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

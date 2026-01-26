@@ -135,7 +135,7 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const { slug, date, days = 7 } = req.query;
+  const { slug, date, days = 7, meeting } = req.query;
   if (!slug) {
     return res.status(400).json({ error: 'Booking slug required' });
   }
@@ -209,7 +209,41 @@ export default async function handler(req, res) {
     
     console.log('[Slots] Working hours from profile:', JSON.stringify(profile.working_hours, null, 2));
 
-    const numDays = Math.min(parseInt(days) || 7, 30);
+    // Look up meeting template if specified to get max_days_ahead
+    let maxDaysAhead = 30; // default
+    let meetingTemplate = null;
+    if (meeting) {
+      const { data: template } = await supabase
+        .from('meeting_template')
+        .select('id, name, max_days_ahead, duration_minutes')
+        .eq('tenant_id', tenantId)
+        .eq('slug', meeting)
+        .eq('is_active', true)
+        .single();
+      
+      if (!template) {
+        return res.status(404).json({ error: 'Meeting type not found or inactive' });
+      }
+
+      // Verify template is assigned to this agent
+      const { data: assignment } = await supabase
+        .from('agent_meeting_template')
+        .select('id')
+        .eq('identity_id', identityId)
+        .eq('meeting_template_id', template.id)
+        .single();
+
+      if (!assignment) {
+        return res.status(404).json({ error: 'Meeting type not available for this agent' });
+      }
+
+      meetingTemplate = template;
+      maxDaysAhead = template.max_days_ahead || 30;
+      console.log('[Slots] Meeting template found:', template.name, 'max_days_ahead:', maxDaysAhead);
+    }
+
+    const requestedDays = Math.max(1, parseInt(days) || 7);
+    const numDays = Math.min(requestedDays, maxDaysAhead);
     
     const agentTimezone = profile.timezone || 'Europe/London';
     const nowInAgentTz = toZonedTime(new Date(), agentTimezone);
@@ -271,7 +305,8 @@ export default async function handler(req, res) {
       slots: slotsByDate,
       timezone: profile.timezone,
       slotMinutes: profile.default_slot_minutes,
-      calendarConnected
+      calendarConnected,
+      maxDaysAhead
     });
   } catch (err) {
     console.error('[Slots] Error:', err);

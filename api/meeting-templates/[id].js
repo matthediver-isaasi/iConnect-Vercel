@@ -45,7 +45,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PUT' || req.method === 'PATCH') {
     try {
-      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id } = req.body;
+      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, max_days_ahead } = req.body;
 
       const updates = {};
       if (name !== undefined) {
@@ -63,6 +63,13 @@ export default async function handler(req, res) {
       if (buffer_after_minutes !== undefined) updates.buffer_after_minutes = buffer_after_minutes;
       if (sort_order !== undefined) updates.sort_order = sort_order;
       if (email_template_id !== undefined) updates.email_template_id = email_template_id || null;
+      if (max_days_ahead !== undefined) {
+        const validatedMaxDays = parseInt(max_days_ahead) || 30;
+        if (validatedMaxDays < 1 || validatedMaxDays > 365) {
+          return res.status(400).json({ error: 'Booking window must be between 1 and 365 days' });
+        }
+        updates.max_days_ahead = validatedMaxDays;
+      }
 
       const { data, error } = await supabase
         .from('meeting_template')

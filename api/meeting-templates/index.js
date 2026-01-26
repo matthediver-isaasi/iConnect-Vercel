@@ -42,10 +42,16 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id } = req.body;
+      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, max_days_ahead } = req.body;
 
       if (!name) {
         return res.status(400).json({ error: 'Name is required' });
+      }
+
+      // Validate max_days_ahead
+      const validatedMaxDays = parseInt(max_days_ahead) || 30;
+      if (validatedMaxDays < 1 || validatedMaxDays > 365) {
+        return res.status(400).json({ error: 'Booking window must be between 1 and 365 days' });
       }
 
       const slug = name
@@ -75,7 +81,8 @@ export default async function handler(req, res) {
           buffer_before_minutes: buffer_before_minutes || 0,
           buffer_after_minutes: buffer_after_minutes || 0,
           sort_order: sort_order || 0,
-          email_template_id: email_template_id || null
+          email_template_id: email_template_id || null,
+          max_days_ahead: validatedMaxDays
         })
         .select()
         .single();
