@@ -21,7 +21,9 @@ import {
   Eye,
   EyeOff,
   LayoutDashboard,
-  Activity
+  Activity,
+  FileText,
+  BookOpen
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -41,7 +43,8 @@ const STORAGE_KEY_PREFIX = 'reports_dashboard_';
 
 const DEFAULT_REPORT_CARDS = [
   { id: 'members', title: 'Members', visible: true, order: 0 },
-  { id: 'activity', title: 'Activity', visible: true, order: 1 }
+  { id: 'activity', title: 'Activity', visible: true, order: 1 },
+  { id: 'article-views', title: 'Article Views', visible: true, order: 2 }
 ];
 
 const PERIOD_OPTIONS = [
@@ -360,6 +363,190 @@ function ActivityReportCard({ period, onPeriodChange }) {
   );
 }
 
+function ArticleViewsReportCard({ period, onPeriodChange }) {
+  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/article-views-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/article-views-stats'),
+    staleTime: 60000,
+    refetchOnWindowFocus: false
+  });
+
+  const periodData = stats?.periodStats?.[period];
+  const changePercent = periodData?.change;
+  const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
+  const isPositive = periodData?.changeDirection === 'up';
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-article-views-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-article-views-error">
+        <p className="text-muted-foreground" data-testid="text-article-views-error-message">Failed to load article view statistics</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-article-views-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Select value={period} onValueChange={onPeriodChange}>
+          <SelectTrigger className="w-40" data-testid="select-article-views-period">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map(opt => (
+              <SelectItem key={opt.value} value={opt.value} data-testid={`select-article-views-period-${opt.value}`}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-refresh-article-views"
+        >
+          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="container-article-views-stats-grid">
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-total-views">Total Views</p>
+          <p className="text-2xl font-bold" data-testid="text-total-views">{stats?.totalViews?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-unique-articles">Total Articles</p>
+          <p className="text-2xl font-bold" data-testid="text-unique-articles">{stats?.uniqueArticles?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-views-week">This Week</p>
+          <p className="text-2xl font-bold" data-testid="text-views-week">{stats?.viewsThisWeek?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-views-today">Today</p>
+          <p className="text-2xl font-bold text-green-600" data-testid="text-views-today">{stats?.viewsToday?.toLocaleString() || 0}</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-views-summary">
+        <div className="p-2 rounded-full bg-primary/10">
+          <BookOpen className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <p className="text-sm font-medium" data-testid="text-views-summary">
+            <span className="text-primary text-lg font-bold">{stats?.viewsThisWeek?.toLocaleString() || 0}</span>
+            {' '}views this week
+          </p>
+          <p className="text-xs text-muted-foreground" data-testid="text-views-month">
+            {stats?.viewsThisMonth?.toLocaleString() || 0} views this month
+          </p>
+        </div>
+      </div>
+
+      {hasValidComparison && periodData && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-article-views-comparison">
+          <div className={`p-2 rounded-full ${isPositive ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+            {isPositive ? (
+              <TrendingUp className="w-5 h-5 text-green-600" />
+            ) : (
+              <TrendingDown className="w-5 h-5 text-red-600" />
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium" data-testid="text-article-views-comparison">
+              <span className={isPositive ? 'text-green-600' : 'text-red-600'}>
+                {isPositive ? '+' : ''}{changePercent}%
+              </span>
+              {' '}vs previous {period}
+            </p>
+            <p className="text-xs text-muted-foreground" data-testid="text-article-views-details">
+              {periodData.current} views (was {periodData.previous})
+            </p>
+          </div>
+        </div>
+      )}
+
+      {stats?.topArticles?.length > 0 && (
+        <div className="space-y-3" data-testid="container-top-articles">
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-top-articles-title">Most Viewed (Recent)</p>
+          <div className="space-y-2">
+            {stats.topArticles.map((article, idx) => (
+              <div key={article.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/30" data-testid={`row-top-article-${idx}`}>
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <span className="text-sm font-medium text-muted-foreground w-5">{idx + 1}.</span>
+                  <span className="text-sm truncate" data-testid={`text-article-title-${idx}`}>{article.title}</span>
+                </div>
+                <Badge variant="secondary" data-testid={`badge-article-views-${idx}`}>
+                  {article.views} views
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats?.viewsByPeriod?.[period]?.length > 0 && (
+        <div className="space-y-3" data-testid="container-views-chart">
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-views-chart-title">
+            Article Views ({period === 'all' ? 'All Time' : `This ${period.charAt(0).toUpperCase() + period.slice(1)}`})
+          </p>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.viewsByPeriod[period]}>
+                <defs>
+                  <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--chart-3))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--chart-3))" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis 
+                  dataKey="label" 
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                />
+                <YAxis 
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  stroke="hsl(var(--chart-3))"
+                  fillOpacity={1}
+                  fill="url(#colorViews)"
+                  name="Article Views"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReportsDashboard() {
   const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
@@ -367,6 +554,7 @@ export default function ReportsDashboard() {
   const [reportCards, setReportCards] = useState(DEFAULT_REPORT_CARDS);
   const [membersPeriod, setMembersPeriod] = useState('month');
   const [activityPeriod, setActivityPeriod] = useState('month');
+  const [articleViewsPeriod, setArticleViewsPeriod] = useState('month');
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const storageKey = useMemo(() => 
@@ -393,6 +581,7 @@ export default function ReportsDashboard() {
           if (parsed.reportCards) setReportCards(parsed.reportCards);
           if (parsed.membersPeriod) setMembersPeriod(parsed.membersPeriod);
           if (parsed.activityPeriod) setActivityPeriod(parsed.activityPeriod);
+          if (parsed.articleViewsPeriod) setArticleViewsPeriod(parsed.articleViewsPeriod);
         }
       } catch (e) {
         console.error('Error loading dashboard preferences:', e);
@@ -406,13 +595,14 @@ export default function ReportsDashboard() {
         localStorage.setItem(storageKey, JSON.stringify({
           reportCards,
           membersPeriod,
-          activityPeriod
+          activityPeriod,
+          articleViewsPeriod
         }));
       } catch (e) {
         console.error('Error saving dashboard preferences:', e);
       }
     }
-  }, [reportCards, membersPeriod, activityPeriod, storageKey, memberInfo?.id, tenantSlug]);
+  }, [reportCards, membersPeriod, activityPeriod, articleViewsPeriod, storageKey, memberInfo?.id, tenantSlug]);
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
@@ -460,6 +650,13 @@ export default function ReportsDashboard() {
             onPeriodChange={setActivityPeriod}
           />
         );
+      case 'article-views':
+        return (
+          <ArticleViewsReportCard
+            period={articleViewsPeriod}
+            onPeriodChange={setArticleViewsPeriod}
+          />
+        );
       default:
         return null;
     }
@@ -471,6 +668,8 @@ export default function ReportsDashboard() {
         return <Users className="w-5 h-5" />;
       case 'activity':
         return <Activity className="w-5 h-5" />;
+      case 'article-views':
+        return <FileText className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }
