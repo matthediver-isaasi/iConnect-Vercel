@@ -378,7 +378,8 @@ export async function provisionTenant({
       .insert({
         name: tenantName,
         tenant_id: tenant.id,
-        status: 'active'
+        status: 'active',
+        is_primary: true
       })
       .select()
       .single();

@@ -653,6 +653,27 @@ export default async function handler(req, res) {
       if (entity === 'Organization') {
         console.log(`[Organization Delete] Starting cascade delete for organization ${id}`);
         
+        // Check if this is a primary organization (created during tenant provisioning)
+        const { data: orgCheck, error: orgCheckError } = await supabase
+          .from('organization')
+          .select('is_primary, name')
+          .eq('id', id)
+          .eq('tenant_id', tenantId)
+          .single();
+        
+        if (orgCheckError) {
+          console.error('[Organization Delete] Error checking organization:', orgCheckError);
+          return res.status(500).json({ error: 'Failed to verify organization' });
+        }
+        
+        if (orgCheck?.is_primary === true) {
+          console.log(`[Organization Delete] Blocked deletion of primary organization "${orgCheck.name}"`);
+          return res.status(403).json({ 
+            error: 'Cannot delete primary organization',
+            message: 'This organization was created with your workspace and cannot be deleted. You can rename it or create additional organizations.'
+          });
+        }
+        
         // First, get all members belonging to this organization
         const { data: members, error: membersError } = await supabase
           .from('member')
