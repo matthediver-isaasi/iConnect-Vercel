@@ -78,11 +78,30 @@ async function findExistingForms(supabase) {
     console.log('  Using manual form ID overrides from environment variables');
   }
   
+  // Query forms that have active DD config (DD enabled is in form_due_diligence_config table)
+  const { data: ddConfigs, error: ddError } = await supabase
+    .from('form_due_diligence_config')
+    .select('form_id')
+    .eq('tenant_id', TENANT_ID)
+    .eq('is_active', true);
+  
+  if (ddError) {
+    throw new Error(`Failed to query DD configs: ${ddError.message}`);
+  }
+  
+  const ddFormIds = ddConfigs.map(c => c.form_id);
+  
+  if (ddFormIds.length === 0) {
+    console.log('  No forms with active DD configuration found');
+    return {};
+  }
+  
+  // Get form details for those with DD config
   const { data: forms, error } = await supabase
     .from('form')
-    .select('id, name, slug, is_due_diligence_enabled')
+    .select('id, name, slug')
     .eq('tenant_id', TENANT_ID)
-    .eq('is_due_diligence_enabled', true);
+    .in('id', ddFormIds);
   
   if (error) {
     throw new Error(`Failed to query forms: ${error.message}`);
