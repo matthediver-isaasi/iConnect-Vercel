@@ -6,8 +6,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const tenantContext = await getTenantContext(req);
-  if (!tenantContext) {
+  let tenantContext;
+  try {
+    tenantContext = await getTenantContext(req);
+    console.log('[contracts/by-submission] tenantContext:', JSON.stringify({
+      tenantId: tenantContext?.tenantId,
+      memberId: tenantContext?.memberId,
+      isAuthenticated: tenantContext?.isAuthenticated
+    }));
+  } catch (err) {
+    console.error('[contracts/by-submission] Error getting tenant context:', err);
+    return res.status(500).json({ error: 'Failed to get tenant context' });
+  }
+  
+  if (!tenantContext || !tenantContext.isAuthenticated) {
+    console.log('[contracts/by-submission] Unauthorized - no valid authenticated context');
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

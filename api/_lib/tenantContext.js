@@ -220,9 +220,11 @@ export async function getTenantContext(req) {
   }
   
   // Check for member session (portal users)
+  console.log('[TenantContext] Checking for member session...');
   const member = await getSessionMember(req);
   
   if (!member) {
+    console.log('[TenantContext] No member found, returning unauthenticated context');
     return {
       tenantId: tenantFromHost?.id || null,
       organizationId: null,
@@ -232,6 +234,8 @@ export async function getTenantContext(req) {
       tenantFromHost,
     };
   }
+  
+  console.log('[TenantContext] Member found:', { memberId: member.id, organizationId: member.organization_id });
   
   // Get tenant_id from the member's organization
   let tenantId = null;
@@ -245,11 +249,13 @@ export async function getTenantContext(req) {
     if (org) {
       tenantId = org.tenant_id;
     }
+    console.log('[TenantContext] Tenant from organization:', tenantId);
   }
   
   // If no tenant from session, use hostname-based tenant
   if (!tenantId && tenantFromHost) {
     tenantId = tenantFromHost.id;
+    console.log('[TenantContext] Using tenant from host:', tenantId);
   }
   
   // TODO: Add super-admin detection based on role or specific flag
