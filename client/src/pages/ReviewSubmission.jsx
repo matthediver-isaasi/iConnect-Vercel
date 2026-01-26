@@ -670,6 +670,7 @@ export default function ReviewSubmissionPage() {
   const [staticQuestionResponses, setStaticQuestionResponses] = useState({});
   const [staticQuestionNotes, setStaticQuestionNotes] = useState({});
   const [workflowStatus, setWorkflowStatus] = useState('');
+  const [isProcessingStatusChange, setIsProcessingStatusChange] = useState(false);
   const [notes, setNotes] = useState('');
   const [showNotesEditor, setShowNotesEditor] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -942,6 +943,9 @@ export default function ReviewSubmissionPage() {
     },
     onError: (error) => {
       toast.error('Failed to update status: ' + error.message);
+    },
+    onSettled: () => {
+      setIsProcessingStatusChange(false); // Always release lock when mutation completes
     }
   });
 
@@ -974,6 +978,9 @@ export default function ReviewSubmissionPage() {
       console.log('[ReviewSubmission] Status unchanged, returning early');
       return;
     }
+    
+    // Immediately show lock overlay to prevent race conditions
+    setIsProcessingStatusChange(true);
     
     const formId = form?.id || ddSubmission?.form_submission?.form_id;
     
@@ -1030,6 +1037,7 @@ export default function ReviewSubmissionPage() {
         
         if (skippedWithActions.length > 0) {
           console.log('[ReviewSubmission] Skipped stages with actions:', skippedWithActions);
+          setIsProcessingStatusChange(false); // Release lock to allow modal interaction
           setSkipWarningModal({
             open: true,
             pendingStatus: newStatus,
@@ -1088,6 +1096,7 @@ export default function ReviewSubmissionPage() {
           // Show modal if there are any agents to select from (even just 1 for confirmation)
           if (allAgents.length >= 1) {
             console.log('[ReviewSubmission] Opening agent selection modal');
+            setIsProcessingStatusChange(false); // Release lock to allow modal interaction
             setAgentSelectionModal({
               open: true,
               agents: allAgents,
@@ -1100,6 +1109,7 @@ export default function ReviewSubmissionPage() {
             return;
           } else if (allAgents.length === 0) {
             console.log('[ReviewSubmission] No agents available');
+            setIsProcessingStatusChange(false); // Release lock on error
             toast.error('No booking agents available for this meeting type. Please configure agents first.');
             return;
           }
@@ -1111,6 +1121,7 @@ export default function ReviewSubmissionPage() {
         // If no agent selection needed but custom message is required, show custom message modal
         if (!requiresAgentSelection && requiresCustomMessage) {
           console.log('[ReviewSubmission] Opening custom message modal (no agent selection needed)');
+          setIsProcessingStatusChange(false); // Release lock to allow modal interaction
           setCustomMessageModal({
             open: true,
             pendingStatus: newStatus,
@@ -1127,6 +1138,7 @@ export default function ReviewSubmissionPage() {
       console.error('[ReviewSubmission] Error checking stage actions:', error);
       // Show error for auth/access issues but allow proceeding for other errors
       if (error.message?.includes('Authentication') || error.message?.includes('Tenant')) {
+        setIsProcessingStatusChange(false); // Release lock on error
         toast.error('Unable to change status: ' + error.message);
         return;
       }
@@ -1502,7 +1514,7 @@ export default function ReviewSubmissionPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 space-y-6 relative">
-      {updateStatusMutation.isPending && (
+      {(isProcessingStatusChange || updateStatusMutation.isPending) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center" data-testid="status-processing-overlay">
           <div className="bg-white rounded-xl p-8 shadow-2xl flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
