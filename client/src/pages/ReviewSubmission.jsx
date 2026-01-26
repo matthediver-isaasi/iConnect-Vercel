@@ -870,10 +870,17 @@ export default function ReviewSubmissionPage() {
     mutationFn: async (data) => {
       return await apiRequest('POST', '/api/due-diligence/save-review', data);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['dd-submission', submissionId] });
       setHasUnsavedChanges(false);
-      toast.success('Review saved successfully');
+      
+      // Check if an auto-transition occurred on first edit
+      if (data.first_edit_transition?.triggered) {
+        setWorkflowStatus(data.first_edit_transition.new_status);
+        toast.success(`Review saved - Stage changed to "${data.first_edit_transition.stage_label}"`);
+      } else {
+        toast.success('Review saved successfully');
+      }
     },
     onError: (error) => {
       toast.error('Failed to save: ' + error.message);
