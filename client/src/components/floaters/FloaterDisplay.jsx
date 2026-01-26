@@ -86,13 +86,14 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
 
   // Fetch full member record to get job_title (was base44.entities.Member.list)
   const { data: memberRecord } = useQuery({
-    queryKey: ["member-record", memberInfo?.email],
-    enabled: !!memberInfo?.email,
+    queryKey: ["member-record", memberInfo?.email, tenantId],
+    enabled: !!memberInfo?.email && !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("member")
         .select("*")
         .eq("email", memberInfo.email)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
 
       if (error) {
