@@ -12,9 +12,10 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -598,7 +599,153 @@ function formatEventDetails(entry, stages = []) {
   }
 }
 
-function HistoryLogModal({ isOpen, onClose, historyLog, stages = [] }) {
+function ScheduleStatusBadge({ status }) {
+  const config = {
+    scheduled: { label: 'Scheduled', variant: 'outline', icon: Timer, className: 'text-blue-600 border-blue-200 bg-blue-50' },
+    pending: { label: 'Pending', variant: 'outline', icon: Clock, className: 'text-amber-600 border-amber-200 bg-amber-50' },
+    sent: { label: 'Sent', variant: 'outline', icon: CheckCircle2, className: 'text-green-600 border-green-200 bg-green-50' },
+    completed: { label: 'Completed', variant: 'outline', icon: CheckCircle2, className: 'text-green-600 border-green-200 bg-green-50' },
+    cancelled: { label: 'Cancelled', variant: 'outline', icon: XCircle, className: 'text-muted-foreground border-muted bg-muted/50' },
+    missed: { label: 'Missed', variant: 'outline', icon: AlertCircle, className: 'text-red-600 border-red-200 bg-red-50' }
+  };
+  const c = config[status] || config.pending;
+  const Icon = c.icon;
+  return (
+    <Badge variant={c.variant} className={cn("gap-1", c.className)}>
+      <Icon className="w-3 h-3" />
+      {c.label}
+    </Badge>
+  );
+}
+
+function ScheduleEventIcon({ type }) {
+  switch (type) {
+    case 'contract_reminder':
+      return <Bell className="w-3 h-3 text-blue-500" />;
+    case 'contract_timeout':
+      return <AlertTriangle className="w-3 h-3 text-amber-500" />;
+    case 'meeting_request':
+      return <Calendar className="w-3 h-3 text-purple-500" />;
+    case 'meeting_reminder':
+      return <Bell className="w-3 h-3 text-purple-500" />;
+    default:
+      return <Clock className="w-3 h-3" />;
+  }
+}
+
+function ScheduleTab({ formSubmissionId }) {
+  const { data: scheduleData, isLoading, error } = useQuery({
+    queryKey: ['submission-schedule', formSubmissionId],
+    queryFn: async () => {
+      const response = await fetch(`/api/due-diligence/submission-schedule?form_submission_id=${formSubmissionId}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch schedule');
+      return response.json();
+    },
+    enabled: !!formSubmissionId
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center text-muted-foreground py-8">
+        Failed to load schedule
+      </div>
+    );
+  }
+
+  const events = scheduleData?.scheduled_events || [];
+
+  if (events.length === 0) {
+    return (
+      <div className="text-center text-muted-foreground py-8">
+        No scheduled events
+      </div>
+    );
+  }
+
+  const getEventTypeLabel = (type) => {
+    switch (type) {
+      case 'contract_reminder': return 'Contract Reminder';
+      case 'contract_timeout': return 'Contract Timeout';
+      case 'meeting_request': return 'Meeting Request';
+      case 'meeting_reminder': return 'Meeting Reminder';
+      default: return 'Event';
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {events.map((event, index) => (
+        <div 
+          key={index}
+          className={cn(
+            "p-3 rounded-lg border space-y-2",
+            event.status === 'cancelled' || event.status === 'missed' ? 'opacity-60' : ''
+          )}
+          data-testid={`schedule-event-${index}`}
+        >
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                <ScheduleEventIcon type={event.type} />
+              </div>
+              <div>
+                <span className="font-medium text-sm">{event.name}</span>
+                <span className="text-xs text-muted-foreground ml-2">
+                  {getEventTypeLabel(event.type)}
+                </span>
+              </div>
+            </div>
+            <ScheduleStatusBadge status={event.status} />
+          </div>
+          
+          <div className="pl-8 space-y-1 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <CalendarClock className="w-3.5 h-3.5" />
+              <span>
+                {event.status === 'sent' && event.actual_sent_date ? (
+                  <>Sent: {format(new Date(event.actual_sent_date), 'MMM d, yyyy h:mm a')}</>
+                ) : event.scheduled_date ? (
+                  <>Scheduled: {format(new Date(event.scheduled_date), 'MMM d, yyyy h:mm a')}</>
+                ) : (
+                  'Date unknown'
+                )}
+              </span>
+            </div>
+            
+            {event.recipient && (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Mail className="w-3.5 h-3.5" />
+                <span>{event.recipient.name || event.recipient.email}</span>
+              </div>
+            )}
+            
+            {event.status_reason && (
+              <p className="text-xs text-muted-foreground italic">{event.status_reason}</p>
+            )}
+            
+            {event.meeting && event.meeting.starts_at && (
+              <div className="mt-2 p-2 bg-green-50 dark:bg-green-950/30 rounded text-green-700 dark:text-green-400 text-xs">
+                Meeting booked: {format(new Date(event.meeting.starts_at), 'MMM d, yyyy h:mm a')}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistoryLogModal({ isOpen, onClose, historyLog, stages = [], formSubmissionId }) {
   if (!isOpen) return null;
   
   return (
@@ -607,43 +754,62 @@ function HistoryLogModal({ isOpen, onClose, historyLog, stages = [] }) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="w-5 h-5" />
-            Submission History
+            Submission Details
           </DialogTitle>
         </DialogHeader>
-        <div className="flex-1 overflow-y-auto py-4">
-          {historyLog && historyLog.length > 0 ? (
-            <div className="relative">
-              <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-border" />
-              <div className="space-y-4">
-                {[...historyLog].reverse().map((entry, index) => (
-                  <div 
-                    key={index} 
-                    className="relative pl-10"
-                    data-testid={`history-entry-${index}`}
-                  >
-                    <div className="absolute left-2 top-1 w-5 h-5 rounded-full bg-background border-2 border-border flex items-center justify-center">
-                      {getEventIcon(entry.event_type)}
-                    </div>
-                    <div className="p-3 bg-muted rounded-lg space-y-2">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{getEventLabel(entry.event_type)}</span>
-                        </div>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {entry.timestamp ? format(new Date(entry.timestamp), 'MMM d, yyyy h:mm a') : ''}
-                        </span>
+        
+        <Tabs defaultValue="history" className="flex-1 flex flex-col overflow-hidden">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="history" className="gap-2" data-testid="tab-history">
+              <History className="w-4 h-4" />
+              History
+            </TabsTrigger>
+            <TabsTrigger value="schedule" className="gap-2" data-testid="tab-schedule">
+              <CalendarClock className="w-4 h-4" />
+              Schedule
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="history" className="flex-1 overflow-y-auto py-4 mt-0">
+            {historyLog && historyLog.length > 0 ? (
+              <div className="relative">
+                <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-border" />
+                <div className="space-y-4">
+                  {[...historyLog].reverse().map((entry, index) => (
+                    <div 
+                      key={index} 
+                      className="relative pl-10"
+                      data-testid={`history-entry-${index}`}
+                    >
+                      <div className="absolute left-2 top-1 w-5 h-5 rounded-full bg-background border-2 border-border flex items-center justify-center">
+                        {getEventIcon(entry.event_type)}
                       </div>
-                      <p className="text-xs text-muted-foreground">{entry.user_email}</p>
-                      {formatEventDetails(entry, stages)}
+                      <div className="p-3 bg-muted rounded-lg space-y-2">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{getEventLabel(entry.event_type)}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            {entry.timestamp ? format(new Date(entry.timestamp), 'MMM d, yyyy h:mm a') : ''}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{entry.user_email}</p>
+                        {formatEventDetails(entry, stages)}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
-            <p className="text-center text-muted-foreground py-8">No history entries</p>
-          )}
-        </div>
+            ) : (
+              <p className="text-center text-muted-foreground py-8">No history entries</p>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="schedule" className="flex-1 overflow-y-auto py-4 mt-0">
+            <ScheduleTab formSubmissionId={formSubmissionId} />
+          </TabsContent>
+        </Tabs>
+        
         <DialogFooter>
           <Button variant="outline" onClick={() => onClose(false)} data-testid="button-close-history">
             Close
@@ -1888,6 +2054,7 @@ export default function ReviewSubmissionPage() {
         onClose={setShowHistoryModal}
         historyLog={ddSubmission.history_log}
         stages={ddConfig?.workflow_stages || []}
+        formSubmissionId={ddSubmission?.form_submission_id}
       />
 
       <Dialog open={agentSelectionModal.open} onOpenChange={(open) => !open && handleCancelAgentSelection()}>
