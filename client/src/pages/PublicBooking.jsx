@@ -26,7 +26,7 @@ import {
   Video,
   MapPin
 } from 'lucide-react';
-import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { format, addDays, addMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isBefore, isAfter } from 'date-fns';
 import { publicClient } from '@/api/publicClient';
 
 const MEETING_TYPE_ICONS = {
@@ -65,7 +65,7 @@ export default function PublicBooking() {
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [weekStart, setWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [currentMonth, setCurrentMonth] = useState(startOfMonth(new Date()));
   const [visitorTimezone] = useState(getVisitorTimezone);
   const [step, setStep] = useState('select');
   const [selectedMeetingType, setSelectedMeetingType] = useState(null);
@@ -103,17 +103,39 @@ export default function PublicBooking() {
     }
   }, [meetingTypes, meetingParam, selectedMeetingType]);
 
-  const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+  const meetingSlug = selectedMeetingType?.slug;
+  
+  // Calculate days to fetch based on selected meeting type's max_days_ahead
+  const maxDaysAhead = selectedMeetingType?.max_days_ahead || 30;
+  
+  // Calculate max bookable date
+  const maxBookableDate = useMemo(() => {
+    return addDays(new Date(), maxDaysAhead);
+  }, [maxDaysAhead]);
+  
+  // Calculate fetch range - always fetch from today for the full booking window
+  const fetchStartStr = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return format(today, 'yyyy-MM-dd');
+  }, []);
+  
+  // Fetch full booking window to cover all possible visible months
+  const fetchDays = maxDaysAhead;
   
   const { data: slotsData, isLoading: slotsLoading, error: slotsError } = useQuery({
-    queryKey: ['public-booking-slots', slug, weekStartStr],
+    queryKey: ['public-booking-slots', slug, fetchStartStr, fetchDays, meetingSlug],
     queryFn: async () => {
-      console.log('[PublicBooking] Fetching slots for', slug, 'from', weekStartStr);
-      const data = await publicClient.getBookingSlots(slug, { date: weekStartStr, days: 14 });
+      console.log('[PublicBooking] Fetching slots for', slug, 'from', fetchStartStr, 'days:', fetchDays, 'meeting:', meetingSlug);
+      const params = { date: fetchStartStr, days: fetchDays };
+      if (meetingSlug) {
+        params.meeting = meetingSlug;
+      }
+      const data = await publicClient.getBookingSlots(slug, params);
       console.log('[PublicBooking] Slots data received:', data);
       return data;
     },
-    enabled: !!slug && !!pageData
+    enabled: !!slug && !!pageData && (meetingTypes.length === 0 || !!selectedMeetingType)
   });
   
   // Debug logging
@@ -124,7 +146,10 @@ export default function PublicBooking() {
     slotsData: !!slotsData, 
     slotsLoading,
     slotsError: slotsError?.message,
-    weekStartStr 
+    fetchStartStr,
+    fetchDays,
+    meetingSlug,
+    maxDaysAhead
   });
 
   const bookingMutation = useMutation({
@@ -137,13 +162,21 @@ export default function PublicBooking() {
     }
   });
 
-  const weekDays = useMemo(() => {
+  // Generate calendar days for month view
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    
     const days = [];
-    for (let i = 0; i < 7; i++) {
-      days.push(addDays(weekStart, i));
+    let day = calendarStart;
+    while (day <= calendarEnd) {
+      days.push(day);
+      day = addDays(day, 1);
     }
     return days;
-  }, [weekStart]);
+  }, [currentMonth]);
 
   const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
   const availableSlots = slotsData?.slots?.[selectedDateStr] || [];
@@ -342,22 +375,23 @@ export default function PublicBooking() {
                     </div>
                   )}
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold">Select a Date</h3>
+                    <h3 className="font-semibold">{format(currentMonth, 'MMMM yyyy')}</h3>
                     <div className="flex gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setWeekStart(addDays(weekStart, -7))}
-                        disabled={weekStart <= new Date()}
-                        data-testid="button-prev-week"
+                        onClick={() => setCurrentMonth(addMonths(currentMonth, -1))}
+                        disabled={isBefore(currentMonth, startOfMonth(new Date()))}
+                        data-testid="button-prev-month"
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setWeekStart(addDays(weekStart, 7))}
-                        data-testid="button-next-week"
+                        onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                        disabled={isAfter(startOfMonth(addMonths(currentMonth, 1)), maxBookableDate)}
+                        data-testid="button-next-month"
                       >
                         <ChevronRight className="h-4 w-4" />
                       </Button>
@@ -366,30 +400,33 @@ export default function PublicBooking() {
 
                   <div className="grid grid-cols-7 gap-1 text-center text-sm">
                     {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                      <div key={day} className="text-muted-foreground py-2">{day}</div>
+                      <div key={day} className="text-muted-foreground py-1 text-xs font-medium">{day}</div>
                     ))}
-                    {weekDays.map((day, index) => {
+                    {calendarDays.map((day, index) => {
                       const dateStr = format(day, 'yyyy-MM-dd');
                       const hasSlots = (slotsData?.slots?.[dateStr]?.length || 0) > 0;
-                      const isPast = day < new Date(new Date().setHours(0,0,0,0));
+                      const isPast = isBefore(day, new Date(new Date().setHours(0,0,0,0)));
+                      const isBeyondLimit = isAfter(day, maxBookableDate);
+                      const isCurrentMonth = isSameMonth(day, currentMonth);
                       const isSelected = isSameDay(day, selectedDate);
+                      const isDisabled = !hasSlots || isPast || isBeyondLimit || !isCurrentMonth;
 
                       return (
                         <Button
                           key={index}
                           variant={isSelected ? 'default' : 'ghost'}
-                          className={`h-12 ${!hasSlots || isPast ? 'opacity-50' : ''}`}
-                          disabled={!hasSlots || isPast}
+                          className={`h-10 w-full p-0 ${!isCurrentMonth ? 'text-muted-foreground/30' : ''} ${isDisabled ? 'opacity-50' : ''}`}
+                          disabled={isDisabled}
                           onClick={() => {
                             setSelectedDate(day);
                             setSelectedSlot(null);
                           }}
                           data-testid={`button-date-${dateStr}`}
                         >
-                          <div className="flex flex-col">
-                            <span>{format(day, 'd')}</span>
-                            {hasSlots && !isPast && (
-                              <span className="w-1 h-1 rounded-full bg-green-500 mx-auto mt-0.5" />
+                          <div className="flex flex-col items-center">
+                            <span className="text-sm">{format(day, 'd')}</span>
+                            {hasSlots && !isPast && !isBeyondLimit && isCurrentMonth && (
+                              <span className="w-1 h-1 rounded-full bg-green-500 mt-0.5" />
                             )}
                           </div>
                         </Button>
@@ -397,8 +434,8 @@ export default function PublicBooking() {
                     })}
                   </div>
 
-                  <div className="mt-4 text-sm text-muted-foreground text-center">
-                    {format(weekStart, 'MMMM yyyy')}
+                  <div className="mt-3 text-xs text-muted-foreground text-center">
+                    Bookings available up to {maxDaysAhead} days ahead
                   </div>
                 </div>
 
