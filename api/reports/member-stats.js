@@ -124,47 +124,101 @@ export default async function handler(req, res) {
       periodStats[period] = await calculatePeriodStats(period);
     }
 
-    const getAcquisitionData = async () => {
-      const twelveMonthsAgo = new Date(now);
-      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    const getAcquisitionDataForPeriod = async (period) => {
+      let startDate = new Date(now);
+      let groupBy = 'day';
+      
+      switch (period) {
+        case 'week':
+          startDate.setDate(startDate.getDate() - 7);
+          groupBy = 'day';
+          break;
+        case 'month':
+          startDate.setMonth(startDate.getMonth() - 1);
+          groupBy = 'day';
+          break;
+        case 'quarter':
+          startDate.setMonth(startDate.getMonth() - 3);
+          groupBy = 'week';
+          break;
+        case 'year':
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          groupBy = 'month';
+          break;
+        case 'all':
+        default:
+          startDate = null;
+          groupBy = 'month';
+          break;
+      }
 
-      const { data: recentMembers, error } = await supabase
+      let query = supabase
         .from('member')
         .select('created_on')
         .eq('tenant_id', tenantId)
-        .gte('created_on', twelveMonthsAgo.toISOString())
         .order('created_on', { ascending: true });
+      
+      if (startDate) {
+        query = query.gte('created_on', startDate.toISOString());
+      }
 
-      if (error || !recentMembers || recentMembers.length === 0) {
+      const { data: members, error } = await query;
+
+      if (error || !members || members.length === 0) {
         return [];
       }
 
-      const monthlyData = {};
-      recentMembers.forEach(member => {
+      const groupedData = {};
+      members.forEach(member => {
         if (!member.created_on) return;
         const date = new Date(member.created_on);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
+        let key;
+        
+        if (groupBy === 'day') {
+          key = date.toISOString().split('T')[0];
+        } else if (groupBy === 'week') {
+          const weekStart = new Date(date);
+          weekStart.setDate(date.getDate() - date.getDay());
+          key = weekStart.toISOString().split('T')[0];
+        } else {
+          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+        
+        groupedData[key] = (groupedData[key] || 0) + 1;
       });
 
-      const sortedMonths = Object.keys(monthlyData).sort();
-      const last12Months = sortedMonths.slice(-12);
+      const sortedKeys = Object.keys(groupedData).sort();
       
-      return last12Months.map(month => {
-        const [year, monthNum] = month.split('-');
-        const monthName = new Date(year, parseInt(monthNum) - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      return sortedKeys.map(key => {
+        let label;
+        if (groupBy === 'day') {
+          const date = new Date(key);
+          label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        } else if (groupBy === 'week') {
+          const date = new Date(key);
+          label = `Week of ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        } else {
+          const [year, monthNum] = key.split('-');
+          label = new Date(year, parseInt(monthNum) - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        }
+        
         return {
-          month: monthName,
-          count: monthlyData[month]
+          label,
+          count: groupedData[key]
         };
       });
     };
+
+    const acquisitionByPeriod = {};
+    for (const period of periods) {
+      acquisitionByPeriod[period] = await getAcquisitionDataForPeriod(period);
+    }
 
     const stats = {
       totalMembers: totalMembers || 0,
       activeMembers: activeMembers || 0,
       periodStats,
-      acquisitionData: await getAcquisitionData(),
+      acquisitionByPeriod,
       lastUpdated: now.toISOString()
     };
 

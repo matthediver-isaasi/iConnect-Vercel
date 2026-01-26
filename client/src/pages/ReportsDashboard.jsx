@@ -143,12 +143,14 @@ function MembersReportCard({ period, onPeriodChange }) {
         </div>
       )}
 
-      {stats?.acquisitionData?.length > 0 && (
+      {stats?.acquisitionByPeriod?.[period]?.length > 0 && (
         <div className="space-y-3" data-testid="container-acquisition-chart">
-          <p className="text-sm font-medium text-muted-foreground" data-testid="text-chart-title">Member Acquisition (Last 12 Months)</p>
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-chart-title">
+            Member Acquisition ({period === 'all' ? 'All Time' : `This ${period.charAt(0).toUpperCase() + period.slice(1)}`})
+          </p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.acquisitionData}>
+              <AreaChart data={stats.acquisitionByPeriod[period]}>
                 <defs>
                   <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
@@ -157,7 +159,7 @@ function MembersReportCard({ period, onPeriodChange }) {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis 
-                  dataKey="month" 
+                  dataKey="label" 
                   tick={{ fontSize: 11 }}
                   className="text-muted-foreground"
                 />
