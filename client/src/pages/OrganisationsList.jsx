@@ -38,7 +38,8 @@ import {
   Save,
   Calendar,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  ShieldCheck
 } from "lucide-react";
 import {
   Dialog,
@@ -48,6 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
@@ -330,8 +332,10 @@ export default function OrganisationsListPage() {
   };
 
   const toggleSelectAll = () => {
-    const currentPageIds = paginatedOrganizations.map(org => org.id);
-    const allSelected = currentPageIds.every(id => selectedOrgs.includes(id));
+    // Only include non-primary organizations in select all
+    const selectableOrgs = paginatedOrganizations.filter(org => !org.is_primary);
+    const currentPageIds = selectableOrgs.map(org => org.id);
+    const allSelected = currentPageIds.length > 0 && currentPageIds.every(id => selectedOrgs.includes(id));
     if (allSelected) {
       setSelectedOrgs(prev => prev.filter(id => !currentPageIds.includes(id)));
     } else {
@@ -940,8 +944,9 @@ export default function OrganisationsListPage() {
                     <tr>
                       <th className="w-12 px-4 py-3">
                         <Checkbox 
-                          checked={paginatedOrganizations.length > 0 && paginatedOrganizations.every(org => selectedOrgs.includes(org.id))}
+                          checked={paginatedOrganizations.filter(org => !org.is_primary).length > 0 && paginatedOrganizations.filter(org => !org.is_primary).every(org => selectedOrgs.includes(org.id))}
                           onCheckedChange={toggleSelectAll}
+                          disabled={paginatedOrganizations.every(org => org.is_primary)}
                           data-testid="checkbox-select-all"
                         />
                       </th>
@@ -965,6 +970,7 @@ export default function OrganisationsListPage() {
                           <Checkbox 
                             checked={selectedOrgs.includes(org.id)}
                             onCheckedChange={(checked) => toggleOrgSelection(org.id, { stopPropagation: () => {} })}
+                            disabled={org.is_primary}
                             data-testid={`checkbox-org-${org.id}`}
                           />
                         </td>
@@ -1051,15 +1057,34 @@ export default function OrganisationsListPage() {
                           return <td key={col.id} className="px-4 py-3">-</td>;
                         })}
                         <td className="w-12 px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-slate-400 hover:text-red-600"
-                            onClick={(e) => handleDeleteOrgClick(org, e)}
-                            data-testid={`button-delete-org-${org.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          {org.is_primary ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled
+                                  className="text-green-600"
+                                  data-testid={`button-delete-org-protected-${org.id}`}
+                                >
+                                  <ShieldCheck className="w-4 h-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Primary organisation - cannot be deleted</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400"
+                              onClick={(e) => handleDeleteOrgClick(org, e)}
+                              data-testid={`button-delete-org-${org.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}
