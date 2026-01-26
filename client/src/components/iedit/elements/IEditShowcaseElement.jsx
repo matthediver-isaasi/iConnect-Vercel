@@ -61,7 +61,7 @@ function CardSlotEditor({ index, card, onUpdate }) {
   const { data: articleDisplayName = 'Articles' } = useQuery({
     queryKey: ['article-display-name'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await base44.entities.SystemSettings.list() || [];
       const setting = allSettings.find(s => s.setting_key === 'article_display_name');
       return setting?.setting_value || 'Articles';
     }
@@ -73,15 +73,15 @@ function CardSlotEditor({ index, card, onUpdate }) {
     queryFn: async () => {
       switch (card.contentType) {
         case 'news':
-          const news = await base44.entities.NewsPost.list('-published_date');
+          const news = await base44.entities.NewsPost.list('-published_date') || [];
           return news.filter(n => n.status === 'published');
         case 'resources':
-          return await base44.entities.Resource.list('-release_date');
+          return await base44.entities.Resource.list('-release_date') || [];
         case 'articles':
-          const articles = await base44.entities.BlogPost.list('-published_date');
+          const articles = await base44.entities.BlogPost.list('-published_date') || [];
           return articles.filter(a => a.status === 'published');
         case 'jobs':
-          const jobs = await base44.entities.JobPosting.list('-created_at');
+          const jobs = await base44.entities.JobPosting.list('-created_at') || [];
           return jobs.filter(j => j.status === 'active');
         default:
           return [];

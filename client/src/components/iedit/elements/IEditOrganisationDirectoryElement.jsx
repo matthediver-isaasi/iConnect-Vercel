@@ -744,7 +744,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const { data: displaySettings } = useQuery({
     queryKey: ['org-directory-settings-element'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await base44.entities.SystemSettings.list() || [];
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
       const nameTooltipSetting = allSettings.find(s => s.setting_key === 'org_directory_show_name_tooltip');
       const titleSetting = allSettings.find(s => s.setting_key === 'org_directory_show_title');

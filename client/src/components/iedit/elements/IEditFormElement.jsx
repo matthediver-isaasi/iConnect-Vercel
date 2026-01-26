@@ -277,7 +277,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     queryKey: ['form-embed', formSlug],
     queryFn: async () => {
       if (!formSlug) return null;
-      const allForms = await base44.entities.Form.list();
+      const allForms = await base44.entities.Form.list() || [];
       return allForms.find(f => f.slug === formSlug && f.is_active);
     },
     enabled: !!formSlug
@@ -1861,7 +1861,7 @@ export function IEditFormElementEditor({ element, onChange }) {
   const { data: forms = [] } = useQuery({
     queryKey: ['forms-list-editor'],
     queryFn: async () => {
-      const allForms = await base44.entities.Form.list();
+      const allForms = await base44.entities.Form.list() || [];
       return allForms.filter(f => f.is_active);
     }
   });

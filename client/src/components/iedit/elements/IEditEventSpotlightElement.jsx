@@ -444,7 +444,7 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
   useEffect(() => {
     const fetchStyles = async () => {
       try {
-        const styles = await base44.entities.ButtonStyle.list();
+        const styles = await base44.entities.ButtonStyle.list() || [];
         setButtonStyles(styles.filter(s => s.is_active));
       } catch (error) {
         console.error('Failed to fetch button styles:', error);

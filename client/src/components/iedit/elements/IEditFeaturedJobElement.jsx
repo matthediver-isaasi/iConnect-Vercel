@@ -700,7 +700,7 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
   const { data: jobs = [] } = useQuery({
     queryKey: ['all-jobs-for-selector'],
     queryFn: async () => {
-      const allJobs = await base44.entities.JobPosting.list();
+      const allJobs = await base44.entities.JobPosting.list() || [];
       return allJobs.filter(j => j.status === 'active');
     }
   });
