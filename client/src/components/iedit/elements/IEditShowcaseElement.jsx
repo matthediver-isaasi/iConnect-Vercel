@@ -1125,11 +1125,12 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
     enabled: content.cards?.some(c => c.contentType === 'resources' && c.itemId)
   });
 
-  const { data: allArticles = [] } = useQuery({
+  const { data: articlesData = { articles: [] } } = useQuery({
     queryKey: ['public-showcase-articles'],
-    queryFn: async () => await publicClient.listArticles() || [],
+    queryFn: async () => await publicClient.listArticles() || { articles: [] },
     enabled: content.cards?.some(c => c.contentType === 'articles' && c.itemId)
   });
+  const allArticles = articlesData?.articles || [];
 
   const { data: allJobs = [] } = useQuery({
     queryKey: ['public-showcase-jobs'],
