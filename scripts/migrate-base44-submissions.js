@@ -1,15 +1,18 @@
+#!/usr/bin/env node
+
 /**
  * Base44 to Supabase Migration Script
  * 
  * Migrates Due Diligence submissions from Base44 CSV export to Supabase.
- * Uses the destination multi-tenant Supabase database as documented in replit.md.
+ * Uses Supabase client with DEV_SUPABASE_URL/SUPABASE_URL (consistent with debug-tenant.mjs).
  * 
  * Usage:
  *   DRY_RUN=true node scripts/migrate-base44-submissions.js   # Preview only
  *   node scripts/migrate-base44-submissions.js                 # Execute migration
  * 
- * Required secrets (stored in Replit Secrets):
- *   DEST_SUPABASE_KEY - Supabase service role key for destination database
+ * Required environment (uses existing secrets):
+ *   DEV_SUPABASE_URL or SUPABASE_URL - Supabase project URL
+ *   DEV_SUPABASE_SERVICE_KEY or SUPABASE_SERVICE_KEY - Service role key
  * 
  * Optional: Manual form ID mapping (use if auto-matching fails)
  *   FORM_ESO_ID - Supabase UUID for ESO form
@@ -27,9 +30,11 @@ import crypto from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration
+// Configuration (matches debug-tenant.mjs pattern)
 const TENANT_ID = '21296ad6-1350-483a-a90c-1b06ece70501';
 const DRY_RUN = process.env.DRY_RUN === 'true';
+const SUPABASE_URL = process.env.DEV_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.DEV_SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
 // Manual form ID overrides (optional - use these if auto-matching fails)
 const MANUAL_FORM_IDS = {
@@ -39,24 +44,11 @@ const MANUAL_FORM_IDS = {
 };
 
 // Base44 form_config_id to form type mapping (extracted from FormConfiguration CSV)
-// We'll query Supabase to find forms with these keywords in their names
 const BASE44_FORM_MAPPING = {
   '691337d08d01bd0427f927e7': { name: 'isaasiLongFormESO', searchTerm: 'ESO', count: 30 },
   '6907b1e12f7725fee16e28b4': { name: 'isaasiLongFormSO', searchTerm: 'SO', count: 29 },
   '695d0e0ca53944fa6588de4b': { name: 'isaasiLongFormPartner', searchTerm: 'Partner', count: 2 }
 };
-
-function loadSupabaseClient() {
-  // Destination multi-tenant Supabase database (as per replit.md)
-  const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
-  const supabaseKey = process.env.DEST_SUPABASE_KEY;
-  
-  if (!supabaseKey) {
-    throw new Error('Missing DEST_SUPABASE_KEY secret. Add it to Replit Secrets.');
-  }
-  
-  return createClient(supabaseUrl, supabaseKey);
-}
 
 function parseCSV(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
@@ -81,7 +73,6 @@ function safeParseJSON(str, defaultValue = {}) {
 async function findExistingForms(supabase) {
   console.log('\n📋 Finding existing forms in Supabase...');
   
-  // Check for manual overrides first
   const hasManualOverrides = Object.values(MANUAL_FORM_IDS).some(id => id);
   if (hasManualOverrides) {
     console.log('  Using manual form ID overrides from environment variables');
@@ -96,7 +87,6 @@ async function findExistingForms(supabase) {
   if (error) {
     throw new Error(`Failed to query forms: ${error.message}`);
   }
-  
   console.log(`Found ${forms.length} DD-enabled forms:`);
   forms.forEach(f => console.log(`  - ${f.name} (${f.id})`));
   
@@ -167,18 +157,6 @@ async function migrateSubmissions(supabase, formMapping, submissions) {
     const sentWebhookMessages = safeParseJSON(submission.sent_webhook_messages, []);
     const historyLog = safeParseJSON(submission.history_log, []);
     
-    // Prepare form_submission record
-    const formSubmissionData = {
-      form_id: supabaseFormId,
-      tenant_id: TENANT_ID,
-      data: formData,
-      applicant_name: applicantName,
-      applicant_email: applicantEmail,
-      status: 'submitted',
-      created_at: submission.created_date || new Date().toISOString(),
-      updated_at: submission.updated_date || new Date().toISOString()
-    };
-    
     // Add migration history log entry
     const migrationLogEntry = {
       timestamp: new Date().toISOString(),
@@ -192,36 +170,13 @@ async function migrateSubmissions(supabase, formMapping, submissions) {
       }
     };
     
-    // Combine existing history with migration entry
     const combinedHistoryLog = [...historyLog, migrationLogEntry];
     
     // Use original application_uid from CSV, or generate new one if missing
     const applicationUid = submission.application_uid || crypto.randomUUID();
     
-    // Prepare form_submission_due_diligence record
-    const ddData = {
-      tenant_id: TENANT_ID,
-      application_uid: applicationUid,
-      original_form_values: originalFormData,
-      reviewed_form_values: formData,
-      field_notes: fieldNotes,
-      static_question_responses: staticQuestionResponses,
-      static_question_notes: staticQuestionNotes,
-      workflow_status: submission.status || 'new',
-      due_diligence_score: submission.due_diligence_score ? parseInt(submission.due_diligence_score) : null,
-      risk_level: submission.risk_level || null,
-      dd_call_date: submission.dd_call_date || null,
-      notes: submission.notes || null,
-      agreements_status: agreementsStatus,
-      crm_attachments_status: crmAttachmentsStatus,
-      status_webhook_reminders_status: statusWebhookRemindersStatus,
-      sent_webhook_messages: sentWebhookMessages,
-      history_log: combinedHistoryLog,
-      reviewed_by: submission.reviewed_by || null,
-      reviewed_date: submission.reviewed_date || null,
-      created_at: submission.created_date || new Date().toISOString(),
-      updated_at: submission.updated_date || new Date().toISOString()
-    };
+    const createdAt = submission.created_date || new Date().toISOString();
+    const updatedAt = submission.updated_date || new Date().toISOString();
     
     if (DRY_RUN) {
       console.log(`  [DRY RUN] Would insert: ${applicantName} (${applicantEmail}) → form ${supabaseFormId}`);
@@ -233,7 +188,16 @@ async function migrateSubmissions(supabase, formMapping, submissions) {
       // Insert form_submission
       const { data: newSubmission, error: submissionError } = await supabase
         .from('form_submission')
-        .insert(formSubmissionData)
+        .insert({
+          form_id: supabaseFormId,
+          tenant_id: TENANT_ID,
+          data: formData,
+          applicant_name: applicantName,
+          applicant_email: applicantEmail,
+          status: 'submitted',
+          created_at: createdAt,
+          updated_at: updatedAt
+        })
         .select('id')
         .single();
       
@@ -241,12 +205,32 @@ async function migrateSubmissions(supabase, formMapping, submissions) {
         throw new Error(`form_submission insert failed: ${submissionError.message}`);
       }
       
-      // Insert form_submission_due_diligence with link to form_submission
+      // Insert form_submission_due_diligence
       const { error: ddError } = await supabase
         .from('form_submission_due_diligence')
         .insert({
-          ...ddData,
-          form_submission_id: newSubmission.id
+          form_submission_id: newSubmission.id,
+          tenant_id: TENANT_ID,
+          application_uid: applicationUid,
+          original_form_values: originalFormData,
+          reviewed_form_values: formData,
+          field_notes: fieldNotes,
+          static_question_responses: staticQuestionResponses,
+          static_question_notes: staticQuestionNotes,
+          workflow_status: submission.status || 'new',
+          due_diligence_score: submission.due_diligence_score ? parseInt(submission.due_diligence_score) : null,
+          risk_level: submission.risk_level || null,
+          dd_call_date: submission.dd_call_date || null,
+          notes: submission.notes || null,
+          agreements_status: agreementsStatus,
+          crm_attachments_status: crmAttachmentsStatus,
+          status_webhook_reminders_status: statusWebhookRemindersStatus,
+          sent_webhook_messages: sentWebhookMessages,
+          history_log: combinedHistoryLog,
+          reviewed_by: submission.reviewed_by || null,
+          reviewed_date: submission.reviewed_date || null,
+          created_at: createdAt,
+          updated_at: updatedAt
         });
       
       if (ddError) {
@@ -279,6 +263,11 @@ async function main() {
   console.log(`Mode: ${DRY_RUN ? '🔍 DRY RUN (no changes will be made)' : '🚀 LIVE MIGRATION'}`);
   console.log(`Target tenant: ${TENANT_ID}`);
   
+  // Validate env
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY. Check DEV_SUPABASE_URL/SUPABASE_URL and DEV_SUPABASE_SERVICE_KEY/SUPABASE_SERVICE_KEY secrets.');
+  }
+  
   // Load CSV files
   const submissionsPath = path.join(__dirname, '../attached_assets/Submission_export_1769416598722.csv');
   const formConfigPath = path.join(__dirname, '../attached_assets/FormConfiguration_export_1769416916949.csv');
@@ -296,8 +285,10 @@ async function main() {
     console.log(`  Loaded ${formConfigs.length} form configurations`);
   }
   
-  // Initialize Supabase client
-  const supabase = await loadSupabaseClient();
+  // Connect to Supabase
+  console.log(`\n🔗 Connecting to Supabase: ${SUPABASE_URL}`);
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  console.log('  Connected successfully');
   
   // Find and map forms
   const formMapping = await findExistingForms(supabase);
