@@ -20,9 +20,9 @@ export default async function handler(req, res) {
 
     const { data: members, error } = await supabase
       .from('member')
-      .select('id, created_at, status')
+      .select('id, created_on, status')
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: true });
+      .order('created_on', { ascending: true });
 
     if (error) {
       console.error('Error fetching members:', error);
@@ -70,8 +70,8 @@ export default async function handler(req, res) {
     const countMembersInRange = (startDate, endDate) => {
       if (!startDate) return totalMembers;
       return members?.filter(m => {
-        const createdAt = new Date(m.created_at);
-        return createdAt >= startDate && createdAt <= endDate;
+        const createdOn = new Date(m.created_on);
+        return createdOn >= startDate && createdOn <= endDate;
       }).length || 0;
     };
 
@@ -113,8 +113,8 @@ export default async function handler(req, res) {
 
       const monthlyData = {};
       members.forEach(member => {
-        if (!member.created_at) return;
-        const date = new Date(member.created_at);
+        if (!member.created_on) return;
+        const date = new Date(member.created_on);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         monthlyData[monthKey] = (monthlyData[monthKey] || 0) + 1;
       });
