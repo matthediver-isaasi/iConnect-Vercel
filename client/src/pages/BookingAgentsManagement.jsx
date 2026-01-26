@@ -29,7 +29,8 @@ import {
   Check,
   ExternalLink,
   UserCheck,
-  UserX
+  UserX,
+  Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -49,6 +50,25 @@ const DURATION_OPTIONS = [
   { value: 120, label: '2 hours' }
 ];
 
+const TIMEZONE_OPTIONS = [
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
+  { value: 'America/New_York', label: 'New York (EST/EDT)' },
+  { value: 'America/Los_Angeles', label: 'Los Angeles (PST/PDT)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' }
+];
+
+const DAYS_OF_WEEK = [
+  { key: 'monday', label: 'Monday' },
+  { key: 'tuesday', label: 'Tuesday' },
+  { key: 'wednesday', label: 'Wednesday' },
+  { key: 'thursday', label: 'Thursday' },
+  { key: 'friday', label: 'Friday' },
+  { key: 'saturday', label: 'Saturday' },
+  { key: 'sunday', label: 'Sunday' }
+];
+
 export default function BookingAgentsManagement() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('agents');
@@ -57,6 +77,25 @@ export default function BookingAgentsManagement() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedTemplateForAssign, setSelectedTemplateForAssign] = useState(null);
   const [copied, setCopied] = useState(null);
+  const [availabilityDialogOpen, setAvailabilityDialogOpen] = useState(false);
+  const [selectedAgentForAvailability, setSelectedAgentForAvailability] = useState(null);
+  const [availabilityForm, setAvailabilityForm] = useState({
+    is_active: true,
+    timezone: 'Europe/London',
+    default_slot_minutes: 30,
+    buffer_minutes: 15,
+    booking_title: 'Book a Meeting',
+    booking_description: '',
+    working_hours: {
+      monday: { enabled: true, start: '09:00', end: '17:00' },
+      tuesday: { enabled: true, start: '09:00', end: '17:00' },
+      wednesday: { enabled: true, start: '09:00', end: '17:00' },
+      thursday: { enabled: true, start: '09:00', end: '17:00' },
+      friday: { enabled: true, start: '09:00', end: '17:00' },
+      saturday: { enabled: false, start: '09:00', end: '17:00' },
+      sunday: { enabled: false, start: '09:00', end: '17:00' }
+    }
+  });
 
   const [templateForm, setTemplateForm] = useState({
     name: '',
@@ -100,6 +139,16 @@ export default function BookingAgentsManagement() {
     }
   });
 
+  const { data: availabilityProfilesData, isLoading: isLoadingProfiles } = useQuery({
+    queryKey: ['availability-profiles'],
+    queryFn: async () => {
+      const response = await fetch('/api/availability-profiles', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch availability profiles');
+      return response.json();
+    }
+  });
+  const availabilityProfiles = availabilityProfilesData?.profiles || [];
+
   const toggleAgentMutation = useMutation({
     mutationFn: async ({ identity_id, is_booking_agent }) => {
       const response = await fetch('/api/booking-agents', {
@@ -113,10 +162,32 @@ export default function BookingAgentsManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['booking-agents'] });
+      queryClient.invalidateQueries({ queryKey: ['availability-profiles'] });
       toast.success('Agent status updated');
     },
     onError: (err) => {
       toast.error(err.message || 'Failed to update agent');
+    }
+  });
+
+  const saveAvailabilityMutation = useMutation({
+    mutationFn: async ({ identity_id, ...data }) => {
+      const response = await fetch('/api/availability-profiles', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity_id, ...data })
+      });
+      if (!response.ok) throw new Error('Failed to save availability');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['availability-profiles'] });
+      toast.success('Availability settings saved');
+      setAvailabilityDialogOpen(false);
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Failed to save availability');
     }
   });
 
@@ -256,6 +327,61 @@ export default function BookingAgentsManagement() {
     return (assignmentsData?.assignments || [])
       .filter(a => a.identity_id === agentId)
       .map(a => a.meeting_template_id);
+  };
+
+  const getAvailabilityProfile = (identityId) => {
+    return availabilityProfiles.find(p => p.identity_id === identityId);
+  };
+
+  const openAvailabilityDialog = (agent) => {
+    const profile = getAvailabilityProfile(agent.id);
+    setSelectedAgentForAvailability(agent);
+    if (profile) {
+      setAvailabilityForm({
+        is_active: profile.is_active ?? true,
+        timezone: profile.timezone || 'Europe/London',
+        default_slot_minutes: profile.default_slot_minutes || 30,
+        buffer_minutes: profile.buffer_minutes || 15,
+        booking_title: profile.booking_title || 'Book a Meeting',
+        booking_description: profile.booking_description || '',
+        working_hours: profile.working_hours || {
+          monday: { enabled: true, start: '09:00', end: '17:00' },
+          tuesday: { enabled: true, start: '09:00', end: '17:00' },
+          wednesday: { enabled: true, start: '09:00', end: '17:00' },
+          thursday: { enabled: true, start: '09:00', end: '17:00' },
+          friday: { enabled: true, start: '09:00', end: '17:00' },
+          saturday: { enabled: false, start: '09:00', end: '17:00' },
+          sunday: { enabled: false, start: '09:00', end: '17:00' }
+        }
+      });
+    } else {
+      setAvailabilityForm({
+        is_active: true,
+        timezone: 'Europe/London',
+        default_slot_minutes: 30,
+        buffer_minutes: 15,
+        booking_title: 'Book a Meeting',
+        booking_description: '',
+        working_hours: {
+          monday: { enabled: true, start: '09:00', end: '17:00' },
+          tuesday: { enabled: true, start: '09:00', end: '17:00' },
+          wednesday: { enabled: true, start: '09:00', end: '17:00' },
+          thursday: { enabled: true, start: '09:00', end: '17:00' },
+          friday: { enabled: true, start: '09:00', end: '17:00' },
+          saturday: { enabled: false, start: '09:00', end: '17:00' },
+          sunday: { enabled: false, start: '09:00', end: '17:00' }
+        }
+      });
+    }
+    setAvailabilityDialogOpen(true);
+  };
+
+  const handleSaveAvailability = () => {
+    if (!selectedAgentForAvailability) return;
+    saveAvailabilityMutation.mutate({
+      identity_id: selectedAgentForAvailability.id,
+      ...availabilityForm
+    });
   };
 
   const isAgentAssigned = (agentId, templateId) => {
@@ -398,37 +524,60 @@ export default function BookingAgentsManagement() {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {agents.map((agent) => (
-                    <Card key={agent.id} className="relative">
-                      <CardContent className="pt-4">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="font-medium">{agent.first_name} {agent.last_name}</p>
-                            <p className="text-sm text-muted-foreground">{agent.email}</p>
+                  {agents.map((agent) => {
+                    const hasProfile = !!getAvailabilityProfile(agent.id);
+                    return (
+                      <Card key={agent.id} className="relative">
+                        <CardContent className="pt-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium">{agent.first_name} {agent.last_name}</p>
+                              <p className="text-sm text-muted-foreground truncate">{agent.email}</p>
+                            </div>
+                            <Badge variant="secondary">
+                              {getAssignedTemplatesForAgent(agent.id).length} meeting types
+                            </Badge>
                           </div>
-                          <Badge variant="secondary">
-                            {getAssignedTemplatesForAgent(agent.id).length} meeting types
-                          </Badge>
-                        </div>
-                        {agent.booking_slug && (
-                          <div className="mt-3 flex items-center gap-2 text-sm">
-                            <LinkIcon className="h-3 w-3 text-muted-foreground" />
-                            <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                              /book/{agent.booking_slug}
-                            </code>
-                            <a
-                              href={`/book/${agent.booking_slug}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary hover:underline"
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm min-w-0">
+                              {agent.booking_slug ? (
+                                <>
+                                  <LinkIcon className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                  <code className="text-xs bg-muted px-1 py-0.5 rounded truncate">
+                                    /book/{agent.booking_slug}
+                                  </code>
+                                  <a
+                                    href={`/book/${agent.booking_slug}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary hover:underline flex-shrink-0"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                </>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">No booking link</span>
+                              )}
+                            </div>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => openAvailabilityDialog(agent)}
+                              data-testid={`button-configure-availability-${agent.id}`}
                             >
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
+                              <Settings className="h-3 w-3 mr-1" />
+                              {hasProfile ? 'Edit' : 'Setup'}
+                            </Button>
                           </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
+                          {!isLoadingProfiles && !hasProfile && (
+                            <p className="text-xs text-amber-600 mt-2">
+                              Availability not configured - booking page won't work
+                            </p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -721,6 +870,190 @@ export default function BookingAgentsManagement() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssignDialogOpen(false)}>
               Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={availabilityDialogOpen} onOpenChange={setAvailabilityDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Availability Settings
+              {selectedAgentForAvailability && (
+                <span className="text-muted-foreground font-normal ml-2">
+                  - {selectedAgentForAvailability.first_name} {selectedAgentForAvailability.last_name}
+                </span>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              Configure when this agent is available for bookings
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Booking Page Title</Label>
+                <Input
+                  value={availabilityForm.booking_title}
+                  onChange={(e) => setAvailabilityForm(f => ({ ...f, booking_title: e.target.value }))}
+                  placeholder="Book a Meeting"
+                  data-testid="input-booking-title"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Timezone</Label>
+                <Select
+                  value={availabilityForm.timezone}
+                  onValueChange={(v) => setAvailabilityForm(f => ({ ...f, timezone: v }))}
+                >
+                  <SelectTrigger data-testid="select-timezone">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONE_OPTIONS.map(tz => (
+                      <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Booking Page Description (optional)</Label>
+              <Textarea
+                value={availabilityForm.booking_description}
+                onChange={(e) => setAvailabilityForm(f => ({ ...f, booking_description: e.target.value }))}
+                placeholder="Describe what visitors can expect when booking a meeting..."
+                rows={2}
+                data-testid="input-booking-description"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Default Slot Duration</Label>
+                <Select
+                  value={String(availabilityForm.default_slot_minutes)}
+                  onValueChange={(v) => setAvailabilityForm(f => ({ ...f, default_slot_minutes: parseInt(v) }))}
+                >
+                  <SelectTrigger data-testid="select-slot-duration">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DURATION_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Buffer Between Meetings</Label>
+                <Select
+                  value={String(availabilityForm.buffer_minutes)}
+                  onValueChange={(v) => setAvailabilityForm(f => ({ ...f, buffer_minutes: parseInt(v) }))}
+                >
+                  <SelectTrigger data-testid="select-buffer">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">No buffer</SelectItem>
+                    <SelectItem value="5">5 minutes</SelectItem>
+                    <SelectItem value="10">10 minutes</SelectItem>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label>Working Hours</Label>
+              <div className="space-y-2">
+                {DAYS_OF_WEEK.map(day => {
+                  const dayData = availabilityForm.working_hours[day.key] || { enabled: false, start: '09:00', end: '17:00' };
+                  return (
+                    <div key={day.key} className="flex items-center gap-3">
+                      <div className="w-28">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={dayData.enabled}
+                            onCheckedChange={(checked) => {
+                              setAvailabilityForm(f => ({
+                                ...f,
+                                working_hours: {
+                                  ...f.working_hours,
+                                  [day.key]: { ...dayData, enabled: !!checked }
+                                }
+                              }));
+                            }}
+                            data-testid={`checkbox-day-${day.key}`}
+                          />
+                          <span className="text-sm">{day.label}</span>
+                        </label>
+                      </div>
+                      {dayData.enabled && (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            value={dayData.start}
+                            onChange={(e) => {
+                              setAvailabilityForm(f => ({
+                                ...f,
+                                working_hours: {
+                                  ...f.working_hours,
+                                  [day.key]: { ...dayData, start: e.target.value }
+                                }
+                              }));
+                            }}
+                            className="w-28"
+                            data-testid={`input-start-${day.key}`}
+                          />
+                          <span className="text-muted-foreground">to</span>
+                          <Input
+                            type="time"
+                            value={dayData.end}
+                            onChange={(e) => {
+                              setAvailabilityForm(f => ({
+                                ...f,
+                                working_hours: {
+                                  ...f.working_hours,
+                                  [day.key]: { ...dayData, end: e.target.value }
+                                }
+                              }));
+                            }}
+                            className="w-28"
+                            data-testid={`input-end-${day.key}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={availabilityForm.is_active}
+                onCheckedChange={(checked) => setAvailabilityForm(f => ({ ...f, is_active: checked }))}
+                data-testid="switch-availability-active"
+              />
+              <Label>Accept new bookings</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAvailabilityDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveAvailability}
+              disabled={saveAvailabilityMutation.isPending}
+              data-testid="button-save-availability"
+            >
+              {saveAvailabilityMutation.isPending ? 'Saving...' : 'Save Settings'}
             </Button>
           </DialogFooter>
         </DialogContent>

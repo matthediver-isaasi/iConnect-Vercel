@@ -162,6 +162,49 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to update agent status' });
       }
 
+      // If enabling as booking agent, create a default availability profile if one doesn't exist
+      if (is_booking_agent === true) {
+        const { data: existingProfile } = await supabase
+          .from('agent_availability_profile')
+          .select('id')
+          .eq('identity_id', identity_id)
+          .eq('tenant_id', tenantId)
+          .single();
+
+        if (!existingProfile) {
+          const defaultWorkingHours = {
+            monday: { enabled: true, start: '09:00', end: '17:00' },
+            tuesday: { enabled: true, start: '09:00', end: '17:00' },
+            wednesday: { enabled: true, start: '09:00', end: '17:00' },
+            thursday: { enabled: true, start: '09:00', end: '17:00' },
+            friday: { enabled: true, start: '09:00', end: '17:00' },
+            saturday: { enabled: false, start: '09:00', end: '17:00' },
+            sunday: { enabled: false, start: '09:00', end: '17:00' }
+          };
+
+          const { error: profileError } = await supabase
+            .from('agent_availability_profile')
+            .insert({
+              tenant_id: tenantId,
+              identity_id: identity_id,
+              is_active: true,
+              timezone: 'Europe/London',
+              default_slot_minutes: 30,
+              buffer_minutes: 15,
+              working_hours: defaultWorkingHours,
+              booking_title: 'Book a Meeting',
+              booking_description: 'Schedule a time that works for you.'
+            });
+
+          if (profileError) {
+            console.error('[booking-agents] Failed to create availability profile:', profileError);
+            // Don't fail the request - the agent was still enabled
+          } else {
+            console.log('[booking-agents] Created default availability profile for identity:', identity_id);
+          }
+        }
+      }
+
       return res.json({ agent: data });
     } catch (err) {
       console.error('[booking-agents] Error:', err);
