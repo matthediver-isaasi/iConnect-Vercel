@@ -22,7 +22,7 @@ export default function PageTour({ tourGroupName, viewId, onComplete, onDismissP
   const { data: tourGroup } = useQuery({
     queryKey: ['tourGroup', tourGroupName, viewId],
     queryFn: async () => {
-      const allGroups = await base44.entities.TourGroup.list();
+      const allGroups = await base44.entities.TourGroup.list() || [];
       
       const found = allGroups.find(g => {
         const pageNameMatch = g.page_name === tourGroupName;
@@ -43,7 +43,7 @@ export default function PageTour({ tourGroupName, viewId, onComplete, onDismissP
       if (!tourGroup?.id) {
         return [];
       }
-      const allSteps = await base44.entities.TourStep.list();
+      const allSteps = await base44.entities.TourStep.list() || [];
       const filteredSteps = allSteps
         .filter(s => s.tour_group_id === tourGroup.id)
         .sort((a, b) => a.step_order - b.step_order);

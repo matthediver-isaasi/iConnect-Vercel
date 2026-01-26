@@ -75,7 +75,7 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     queryFn: async () => {
       if (!userIdentifier) return [];
       if (isAuthenticated) {
-        const allReactions = await base44.entities.CommentReaction.list();
+        const allReactions = await base44.entities.CommentReaction.list() || [];
         return allReactions.filter(reaction => reaction.user_identifier === userIdentifier);
       } else {
         const result = await publicClient.getCommentReactionsByUser(userIdentifier);

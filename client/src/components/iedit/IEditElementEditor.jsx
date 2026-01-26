@@ -66,7 +66,7 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
   const { data: template } = useQuery({
     queryKey: ['iedit-template', element.element_type],
     queryFn: async () => {
-      const templates = await base44.entities.IEditElementTemplate.list();
+      const templates = await base44.entities.IEditElementTemplate.list() || [];
       return templates.find(t => t.element_type === element.element_type);
     }
   });
@@ -211,7 +211,7 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
   const { data: forms = [] } = useQuery({
     queryKey: ['forms-list'],
     queryFn: async () => {
-      const allForms = await base44.entities.Form.list();
+      const allForms = await base44.entities.Form.list() || [];
       return allForms.filter(f => f.is_active);
     },
     enabled: isFormElement

@@ -229,7 +229,7 @@ export function IEditImageElementEditor({ element, onChange }) {
 
   const { data: repositoryFiles = [] } = useQuery({
     queryKey: ['file-repository'],
-    queryFn: () => base44.entities.FileRepository.list(),
+    queryFn: async () => await base44.entities.FileRepository.list() || [],
     staleTime: 0,
   });
 

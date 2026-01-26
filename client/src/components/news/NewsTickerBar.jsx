@@ -13,7 +13,7 @@ export default function NewsTickerBar() {
     queryKey: ["news-ticker-settings"],
     queryFn: async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
+        const allSettings = await base44.entities.SystemSettings.list() || [];
         return allSettings.filter(s => 
           s.setting_key === 'news_ticker_count' || 
           s.setting_key === 'news_ticker_cycle_seconds' ||
@@ -57,7 +57,7 @@ export default function NewsTickerBar() {
     queryFn: async () => {
       try {
         const nowIso = new Date().toISOString();
-        const allNews = await base44.entities.NewsPost.list();
+        const allNews = await base44.entities.NewsPost.list() || [];
         
         // Filter for published news with published_date <= now
         const publishedNews = allNews

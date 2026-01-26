@@ -812,7 +812,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     enabled: !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0),
     queryFn: async () => {
       try {
-        const values = await base44.entities.OrganizationPreferenceValue.list();
+        const values = await base44.entities.OrganizationPreferenceValue.list() || [];
         return values || [];
       } catch {
         return [];

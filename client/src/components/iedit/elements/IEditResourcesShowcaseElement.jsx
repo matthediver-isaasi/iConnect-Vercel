@@ -70,7 +70,7 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
   // Fetch button styles
   const { data: buttonStyles = [] } = useQuery({
     queryKey: ['button-styles'],
-    queryFn: () => base44.entities.ButtonStyle.list()
+    queryFn: async () => await base44.entities.ButtonStyle.list() || []
   });
 
   const updateContent = (key, value) => {

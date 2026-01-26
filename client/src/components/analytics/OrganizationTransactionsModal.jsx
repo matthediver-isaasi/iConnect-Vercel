@@ -29,7 +29,7 @@ export default function OrganizationTransactionsModal({
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['organization-transactions', organizationId, programNameFilter],
     queryFn: async () => {
-      const allTransactions = await base44.entities.ProgramTicketTransaction.list();
+      const allTransactions = await base44.entities.ProgramTicketTransaction.list() || [];
       let filtered = allTransactions.filter(t => t.organization_id === organizationId);
       
       if (programNameFilter && programNameFilter !== 'all') {

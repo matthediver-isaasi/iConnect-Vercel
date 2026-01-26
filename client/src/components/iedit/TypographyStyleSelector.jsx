@@ -27,7 +27,7 @@ export async function fetchTypographyStyles(forceRefresh = false) {
   cachePromise = (async () => {
     try {
       const { base44 } = await import("@/api/base44Client");
-      const allStyles = await base44.entities.TypographyStyle.list();
+      const allStyles = await base44.entities.TypographyStyle.list() || [];
       cachedStyles = allStyles.filter(s => s.is_active);
       cacheTimestamp = Date.now();
       return cachedStyles;

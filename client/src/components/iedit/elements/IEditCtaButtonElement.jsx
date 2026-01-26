@@ -135,7 +135,7 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
     const fetchButtonStyles = async () => {
       try {
         const { base44 } = await import("@/api/base44Client");
-        const styles = await base44.entities.ButtonStyle.list();
+        const styles = await base44.entities.ButtonStyle.list() || [];
         setButtonStyles(styles || []);
       } catch (error) {
         console.error('Failed to fetch button styles:', error);

@@ -256,7 +256,7 @@ export default function MemberDetailView({
     queryKey: ['events-for-member-detail'],
     enabled: activeTab === 'activity' && memberBookings.length > 0,
     queryFn: async () => {
-      return await base44.entities.Event.list();
+      return await base44.entities.Event.list() || [];
     }
   });
 
@@ -311,7 +311,7 @@ export default function MemberDetailView({
   const { data: segmentationFieldSetting } = useQuery({
     queryKey: ['role-segmentation-field-setting'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await base44.entities.SystemSettings.list() || [];
       return allSettings.find(s => s.setting_key === 'role_segmentation_field_id');
     }
   });

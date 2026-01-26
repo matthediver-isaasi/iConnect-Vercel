@@ -215,7 +215,7 @@ export default function PaymentOptions({
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
       // Fetch from Voucher entity (not ProgramTicketTransaction)
-      const allVouchers = await base44.entities.Voucher.list();
+      const allVouchers = await base44.entities.Voucher.list() || [];
       const now = new Date();
       return allVouchers.filter(v => 
         v.organization_id === organizationInfo.id && 

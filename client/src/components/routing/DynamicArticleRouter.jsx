@@ -20,7 +20,7 @@ export function useDynamicArticleRouting() {
     queryKey: ['article-url-settings'],
     queryFn: async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
+        const allSettings = await base44.entities.SystemSettings.list() || [];
         const setting = allSettings.find(s => s.setting_key === 'article_display_name');
         return setting?.setting_value || 'Articles';
       } catch (error) {

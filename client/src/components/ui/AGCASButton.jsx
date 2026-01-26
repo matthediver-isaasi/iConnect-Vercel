@@ -29,7 +29,7 @@ export default function AGCASButton({
       const fetchStyle = async () => {
         try {
           const { base44 } = await import("@/api/base44Client");
-          const styles = await base44.entities.ButtonStyle.list();
+          const styles = await base44.entities.ButtonStyle.list() || [];
           const style = styles.find(s => s.id === buttonStyleId);
           setButtonStyle(style);
         } catch (error) {

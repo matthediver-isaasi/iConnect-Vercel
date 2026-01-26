@@ -61,7 +61,7 @@ export default function WallOfFameDisplay({
   const { data: section, isLoading: sectionLoading } = useQuery({
     queryKey: ['wall-of-fame-section', sectionId],
     queryFn: async () => {
-      const sections = await base44.entities.WallOfFameSection.list();
+      const sections = await base44.entities.WallOfFameSection.list() || [];
       return sections.find(s => s.id === sectionId);
     },
     enabled: !!sectionId,
@@ -70,7 +70,7 @@ export default function WallOfFameDisplay({
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['wall-of-fame-categories', sectionId],
     queryFn: async () => {
-      const cats = await base44.entities.WallOfFameCategory.list();
+      const cats = await base44.entities.WallOfFameCategory.list() || [];
       return cats.filter(c => c.section_id === sectionId && c.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     enabled: !!sectionId,
@@ -89,7 +89,7 @@ export default function WallOfFameDisplay({
   const { data: people = [], isLoading: peopleLoading } = useQuery({
     queryKey: ['wall-of-fame-people', selectedCategory?.id],
     queryFn: async () => {
-      const allPeople = await base44.entities.WallOfFamePerson.list();
+      const allPeople = await base44.entities.WallOfFamePerson.list() || [];
       return allPeople.filter(p => p.category_id === selectedCategory.id && p.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     enabled: !!selectedCategory,
@@ -98,7 +98,7 @@ export default function WallOfFameDisplay({
   const { data: photoSizeSetting } = useQuery({
     queryKey: ['wall-of-fame-photo-size'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await base44.entities.SystemSettings.list() || [];
       const setting = allSettings.find(s => s.setting_key === 'wall_of_fame_photo_size');
       return setting?.setting_value || 'medium';
     }

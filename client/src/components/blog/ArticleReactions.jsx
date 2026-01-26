@@ -34,7 +34,7 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
     queryKey: ['article-reactions', articleId, isAuthenticated],
     queryFn: async () => {
       if (isAuthenticated) {
-        const reactions = await base44.entities.ArticleReaction.list();
+        const reactions = await base44.entities.ArticleReaction.list() || [];
         return reactions.filter(r => r.article_id === articleId);
       } else {
         const result = await publicClient.getArticleReactions(articleId);

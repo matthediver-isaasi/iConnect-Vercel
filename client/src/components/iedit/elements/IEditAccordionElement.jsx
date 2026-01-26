@@ -134,7 +134,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
   // Fetch files from repository
   const { data: repositoryFiles = [], isLoading: filesLoading } = useQuery({
     queryKey: ['file-repository-for-accordion'],
-    queryFn: () => base44.entities.FileRepository.list(),
+    queryFn: async () => await base44.entities.FileRepository.list() || [],
     staleTime: 60000
   });
 

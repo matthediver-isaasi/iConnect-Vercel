@@ -18,7 +18,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       console.log('[VoucherSelector] Fetching vouchers for org:', organizationId);
       
       // Fetch ALL vouchers, then filter in JavaScript
-      const allVouchers = await base44.entities.Voucher.list();
+      const allVouchers = await base44.entities.Voucher.list() || [];
       
       console.log('[VoucherSelector] All vouchers fetched:', allVouchers.length);
       

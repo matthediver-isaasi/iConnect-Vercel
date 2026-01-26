@@ -1,0 +1,314 @@
+index-C0go0E6s.js:1086 [publicClient] Detected tenant from subdomain: gfi
+index-C0go0E6s.js:1171 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-26T07:32:44.854Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Jf @ index-C0go0E6s.js:1171
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1172 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-C0go0E6s.js:1086 [publicClient] Detected tenant from subdomain: gfi
+index-C0go0E6s.js:1519 [Events] Debug - accessibleEvents count: 0
+index-C0go0E6s.js:1519 [Events] Debug - searchQuery: 
+index-C0go0E6s.js:1519 [Events] Debug - showPastEvents: false
+index-C0go0E6s.js:1519 [Events] Debug - memberInfo exists: false
+index-C0go0E6s.js:1519 [Events] Debug - memberInfo source: none
+index-C0go0E6s.js:1519 [Events] Debug - filteredEvents count: 0
+index-C0go0E6s.js:1172 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-C0go0E6s.js:1441 [PublicLayout] Fetching banners for page: HomePageRedirect portalPageId: null isCustomSlug: true urlSlug: blogs
+index-C0go0E6s.js:1441 [PublicLayout] All banners found: 15
+index-C0go0E6s.js:1441 [PublicLayout] pageToPortalPageMap keys: Array(26)
+index-C0go0E6s.js:1441 [PublicLayout] Matched banners: 0
+index-C0go0E6s.js:1475 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] memberInfo: null
+index-C0go0E6s.js:1475 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C0go0E6s.js:1475 [Layout] currentPageName: HomePageRedirect currentPortalPageId: null
+index-C0go0E6s.js:1519 [Events] Debug - accessibleEvents count: 0
+index-C0go0E6s.js:1519 [Events] Debug - searchQuery: 
+index-C0go0E6s.js:1519 [Events] Debug - showPastEvents: false
+index-C0go0E6s.js:1519 [Events] Debug - memberInfo exists: false
+index-C0go0E6s.js:1519 [Events] Debug - memberInfo source: none
+index-C0go0E6s.js:1519 [Events] Debug - filteredEvents count: 0
+index-C0go0E6s.js:1826 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image"}
+index-C0go0E6s.js:1826 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-C0go0E6s.js:1826 [PageHeaderHero] About to render: Object
+/api/public/form/d11afd07-df3c-4187-b627-ea8e3a692907?tenant=gfi:1  Failed to load resource: the server responded with a status of 404 ()
+index-C0go0E6s.js:1441 Failed to fetch newsletter form: Error: Public API Error (404): Form not found or inactive
+    at sse (index-C0go0E6s.js:1086:41722)
+    at async index-C0go0E6s.js:1441:265522
+(anonymous) @ index-C0go0E6s.js:1441
+await in (anonymous)
+(anonymous) @ index-C0go0E6s.js:1441
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+(anonymous) @ index-C0go0E6s.js:40
+N @ index-C0go0E6s.js:25
+E @ index-C0go0E6s.js:25
+index-C0go0E6s.js:40 TypeError: d.find is not a function
+    at index-C0go0E6s.js:1683:27234
+    at Array.map (<anonymous>)
+    at index-C0go0E6s.js:1683:27057
+    at Object.q$ [as useMemo] (index-C0go0E6s.js:38:21401)
+    at Ka.useMemo (index-C0go0E6s.js:9:6223)
+    at H4e (index-C0go0E6s.js:1683:27029)
+    at d4 (index-C0go0E6s.js:38:17018)
+    at uC (index-C0go0E6s.js:40:3139)
+    at fI (index-C0go0E6s.js:40:44833)
+    at xI (index-C0go0E6s.js:40:39790)
+dC @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+setOptions @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+(anonymous) @ index-C0go0E6s.js:40
+N @ index-C0go0E6s.js:25
+E @ index-C0go0E6s.js:25
+index-C0go0E6s.js:1683 Uncaught TypeError: d.find is not a function
+    at index-C0go0E6s.js:1683:27234
+    at Array.map (<anonymous>)
+    at index-C0go0E6s.js:1683:27057
+    at Object.q$ [as useMemo] (index-C0go0E6s.js:38:21401)
+    at Ka.useMemo (index-C0go0E6s.js:9:6223)
+    at H4e (index-C0go0E6s.js:1683:27029)
+    at d4 (index-C0go0E6s.js:38:17018)
+    at uC (index-C0go0E6s.js:40:3139)
+    at fI (index-C0go0E6s.js:40:44833)
+    at xI (index-C0go0E6s.js:40:39790)
+(anonymous) @ index-C0go0E6s.js:1683
+(anonymous) @ index-C0go0E6s.js:1683
+q$ @ index-C0go0E6s.js:38
+Ka.useMemo @ index-C0go0E6s.js:9
+H4e @ index-C0go0E6s.js:1683
+d4 @ index-C0go0E6s.js:38
+uC @ index-C0go0E6s.js:40
+fI @ index-C0go0E6s.js:40
+xI @ index-C0go0E6s.js:40
+nX @ index-C0go0E6s.js:40
+Tj @ index-C0go0E6s.js:40
+_C @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+setOptions @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+iX @ index-C0go0E6s.js:40
+tm @ index-C0go0E6s.js:40
+yF @ index-C0go0E6s.js:40
+Au @ index-C0go0E6s.js:38
+(anonymous) @ index-C0go0E6s.js:40
+setTimeout
+r @ index-C0go0E6s.js:1086
+l @ index-C0go0E6s.js:1086
+batch @ index-C0go0E6s.js:1086
+Ac @ index-C0go0E6s.js:1086
+setData @ index-C0go0E6s.js:1086
+onSuccess @ index-C0go0E6s.js:1086
+m @ index-C0go0E6s.js:1086
+Promise.then
+b @ index-C0go0E6s.js:1086
+start @ index-C0go0E6s.js:1086
+fetch @ index-C0go0E6s.js:1086
+Kg @ index-C0go0E6s.js:1086
+onSubscribe @ index-C0go0E6s.js:1086
+subscribe @ index-C0go0E6s.js:1086
+(anonymous) @ index-C0go0E6s.js:1086
+A$ @ index-C0go0E6s.js:38
+Xy @ index-C0go0E6s.js:40
+ux @ index-C0go0E6s.js:40
+(anonymous) @ index-C0go0E6s.js:40
+N @ index-C0go0E6s.js:25
+E @ index-C0go0E6s.js:25
+index-C0go0E6s.js:1172 [useNavigationRealtime] Cleaning up realtime subscription
+index-C0go0E6s.js:1172 [useNavigationRealtime] Subscription status: CLOSED

@@ -301,7 +301,7 @@ export default function OrganisationDetailView({
     enabled: isCreatingMember,
     queryFn: async () => {
       try {
-        const fields = await base44.entities.MemberPreferenceField.list();
+        const fields = await base44.entities.MemberPreferenceField.list() || [];
         return fields || [];
       } catch {
         return [];
@@ -314,7 +314,7 @@ export default function OrganisationDetailView({
     enabled: isCreatingMember,
     queryFn: async () => {
       try {
-        const orgs = await base44.entities.Organization.list();
+        const orgs = await base44.entities.Organization.list() || [];
         return orgs || [];
       } catch {
         return [];
@@ -327,7 +327,7 @@ export default function OrganisationDetailView({
     enabled: isCreatingMember,
     queryFn: async () => {
       try {
-        const rolesList = await base44.entities.Role.list();
+        const rolesList = await base44.entities.Role.list() || [];
         return rolesList || [];
       } catch {
         return [];

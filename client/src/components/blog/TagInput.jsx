@@ -17,7 +17,7 @@ export default function TagInput({ tags, onChange }) {
   const { data: articles = [], isLoading } = useQuery({
     queryKey: ['/api/blog-posts/tags'],
     queryFn: async () => {
-      const articles = await base44.entities.BlogPost.list();
+      const articles = await base44.entities.BlogPost.list() || [];
       return articles;
     },
     staleTime: 5 * 60 * 1000,

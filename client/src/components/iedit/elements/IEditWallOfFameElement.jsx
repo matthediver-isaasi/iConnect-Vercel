@@ -37,7 +37,7 @@ export function IEditWallOfFameElementEditor({ element, onChange }) {
 
   const { data: sections = [] } = useQuery({
     queryKey: ['wall-of-fame-sections-selector'],
-    queryFn: () => base44.entities.WallOfFameSection.list(),
+    queryFn: async () => await base44.entities.WallOfFameSection.list() || [],
   });
 
   const activeSections = sections.filter(s => s.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
