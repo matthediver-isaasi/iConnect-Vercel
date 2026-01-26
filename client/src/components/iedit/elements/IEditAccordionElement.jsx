@@ -141,7 +141,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
   // Fetch folders for file repository
   const { data: fileRepositoryFolders = [] } = useQuery({
     queryKey: ['file-repository-folders-for-accordion'],
-    queryFn: () => base44.entities.FileRepositoryFolder.list('display_order'),
+    queryFn: async () => await base44.entities.FileRepositoryFolder.list('display_order') || [],
     staleTime: 60000
   });
 

@@ -262,7 +262,7 @@ export function IEditTextOverlayImageElementEditor({ element, onChange }) {
 
   const { data: fileRepositoryFolders = [] } = useQuery({
     queryKey: ['file-repository-folders'],
-    queryFn: () => base44.entities.FileRepositoryFolder.list('display_order'),
+    queryFn: async () => await base44.entities.FileRepositoryFolder.list('display_order') || [],
     staleTime: 0,
   });
 

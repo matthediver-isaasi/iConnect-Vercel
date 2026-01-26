@@ -93,7 +93,7 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
 
   const { data: allCards = [] } = useQuery({
     queryKey: ['card-deck-renderer'],
-    queryFn: () => base44.entities.CardDeck.list('display_order'),
+    queryFn: async () => await base44.entities.CardDeck.list('display_order') || [],
     staleTime: 60000,
   });
 
@@ -307,7 +307,7 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
 
   const { data: cards = [] } = useQuery({
     queryKey: ['card-deck-list'],
-    queryFn: () => base44.entities.CardDeck.list('display_order'),
+    queryFn: async () => await base44.entities.CardDeck.list('display_order') || [],
     staleTime: 0,
     refetchOnMount: true,
   });

@@ -12,10 +12,10 @@ export default function IEditElementPalette({ onClose, onSelectTemplate }) {
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['iedit-templates'],
-    queryFn: () => base44.entities.IEditElementTemplate.list({ 
+    queryFn: async () => await base44.entities.IEditElementTemplate.list({ 
       filter: { is_active: true }, 
       sort: { display_order: 'asc' } 
-    }),
+    }) || [],
     staleTime: 0
   });
 
