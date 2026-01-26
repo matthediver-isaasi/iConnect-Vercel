@@ -186,13 +186,13 @@ export default async function handler(req, res) {
     periods.forEach((p, i) => { viewsByPeriod[p] = viewsByPeriodResults[i]; });
 
     const stats = {
-      totalViews: statsData?.totalviews || 0,
-      uniqueArticles: statsData?.uniquearticles || 0,
-      uniqueViewers: statsData?.uniqueviewers || 0,
+      totalViews: statsData?.totalViews || 0,
+      uniqueArticles: statsData?.uniqueArticles || 0,
+      uniqueViewers: statsData?.uniqueViewers || 0,
       totalArticles: totalArticles || 0,
-      viewsToday: statsData?.viewstoday || 0,
-      viewsThisWeek: statsData?.viewsthisweek || 0,
-      viewsThisMonth: statsData?.viewsthismonth || 0,
+      viewsToday: statsData?.viewsToday || 0,
+      viewsThisWeek: statsData?.viewsThisWeek || 0,
+      viewsThisMonth: statsData?.viewsThisMonth || 0,
       periodStats,
       viewsByPeriod,
       topArticles: topArticles || [],
