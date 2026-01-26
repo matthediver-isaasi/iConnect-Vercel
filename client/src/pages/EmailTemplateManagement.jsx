@@ -112,6 +112,18 @@ const PLACEHOLDER_GROUPS = [
     ]
   },
   {
+    label: 'Meeting Booking',
+    placeholders: [
+      { value: '{{recipient_name}}', label: 'Invitee Name' },
+      { value: '{{recipient_email}}', label: 'Invitee Email' },
+      { value: '{{meeting_type}}', label: 'Meeting Type' },
+      { value: '{{duration}}', label: 'Meeting Duration' },
+      { value: '{{agent_name}}', label: 'Host Name' },
+      { value: '{{booking_url}}', label: 'Booking URL' },
+      { value: '{{booking_link}}', label: 'Booking Link (HTML)' },
+    ]
+  },
+  {
     label: 'System',
     placeholders: [
       { value: '{{set_password_url}}', label: 'Set Password URL' },
