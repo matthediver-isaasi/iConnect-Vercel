@@ -136,7 +136,7 @@ export default async function handler(req, res) {
         is_active,
         custom_duration_minutes,
         template:meeting_template_id(
-          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order
+          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order, max_days_ahead
         )
       `)
       .eq('tenant_id', tenantId)
@@ -153,7 +153,8 @@ export default async function handler(req, res) {
         description: at.template.description,
         duration_minutes: at.custom_duration_minutes || at.template.duration_minutes,
         meeting_type: at.template.meeting_type,
-        sort_order: at.template.sort_order
+        sort_order: at.template.sort_order,
+        max_days_ahead: at.template.max_days_ahead || 30
       }))
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
