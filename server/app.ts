@@ -42,6 +42,19 @@ app.use('/embed', (req, res, next) => {
   next();
 });
 
+// Allow iframe embedding for file/upload routes (document preview feature)
+app.use('/api/files', (req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  next();
+});
+
+app.use('/api/uploads', (req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
