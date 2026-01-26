@@ -191,7 +191,9 @@ export async function getTenantContext(req) {
   }
 
   // Check for tenant_user session first (admin dashboard users)
+  console.log('[TenantContext] About to call getSessionTenantUser');
   const tenantUser = await getSessionTenantUser(req);
+  console.log('[TenantContext] getSessionTenantUser returned:', tenantUser ? 'tenant_user found' : 'null');
   if (tenantUser) {
     // Tenant users may also have an associated member identity (for portal access)
     // Check if there's a memberId in the session for MEMBER-scoped entity access
