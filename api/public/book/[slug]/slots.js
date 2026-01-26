@@ -40,7 +40,23 @@ function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, 
   
   console.log(`[Slots] Date: ${dateStr}, Day of week: ${dayOfWeek}, Working hours:`, workingHours?.[dayOfWeek]);
   
-  const dayHours = workingHours?.[dayOfWeek] || [];
+  // Handle both array format [{start, end}] and object format {enabled, start, end}
+  let dayHours = workingHours?.[dayOfWeek];
+  if (!dayHours) {
+    console.log(`[Slots] No hours configured for ${dayOfWeek}`);
+    return slots;
+  }
+  
+  // Convert object format to array format
+  if (!Array.isArray(dayHours)) {
+    if (dayHours.enabled && dayHours.start && dayHours.end) {
+      dayHours = [{ start: dayHours.start, end: dayHours.end }];
+    } else {
+      console.log(`[Slots] Day ${dayOfWeek} is disabled or missing times`);
+      return slots;
+    }
+  }
+  
   if (dayHours.length === 0) {
     console.log(`[Slots] No hours configured for ${dayOfWeek}`);
     return slots;
@@ -150,21 +166,37 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data: identity } = await supabase
-      .from('tenant_identity')
-      .select('id')
-      .eq('booking_slug', slug)
+    // Look up agent by member handle (not tenant_identity.booking_slug)
+    const { data: member } = await supabase
+      .from('member')
+      .select('id, tenant_id')
+      .eq('handle', slug)
+      .eq('tenant_id', tenantId)
       .single();
 
-    if (!identity) {
+    if (!member) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
+
+    // Get the identity_id for this member via tenant_membership
+    const { data: membership } = await supabase
+      .from('tenant_membership')
+      .select('identity_id')
+      .eq('member_id', member.id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (!membership) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    const identityId = membership.identity_id;
 
     // Find availability profile for this identity AND this specific tenant
     const { data: profile, error: profileError } = await supabase
       .from('agent_availability_profile')
       .select('*')
-      .eq('identity_id', identity.id)
+      .eq('identity_id', identityId)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .single();
@@ -192,7 +224,7 @@ export default async function handler(req, res) {
     const { data: existingBookings } = await supabase
       .from('agent_booking')
       .select('starts_at, ends_at')
-      .eq('identity_id', identity.id)
+      .eq('identity_id', identityId)
       .eq('tenant_id', tenantId)
       .neq('status', 'cancelled')
       .gte('starts_at', startDateUtc.toISOString())
@@ -202,7 +234,7 @@ export default async function handler(req, res) {
     let calendarBusyTimes = [];
     let calendarConnected = false;
     try {
-      const outlookConnection = await getOutlookConnectionForIdentity(identity.id, tenantId);
+      const outlookConnection = await getOutlookConnectionForIdentity(identityId, tenantId);
       if (outlookConnection) {
         calendarConnected = true;
         calendarBusyTimes = await getBusyTimes(
