@@ -52,6 +52,7 @@ export default async function handler(req, res) {
 
     // Check if this is the first edit (reviewed_by was previously null)
     const isFirstEdit = !ddSubmission.reviewed_by;
+    console.log(`[DD Review] First edit check: reviewed_by=${ddSubmission.reviewed_by}, isFirstEdit=${isFirstEdit}, first_edit_triggered=${ddSubmission.first_edit_triggered}`);
 
     const updateData = {
       updated_at: new Date().toISOString(),
@@ -98,20 +99,25 @@ export default async function handler(req, res) {
     let firstEditTransition = null;
 
     // Handle first edit stage transition if configured
+    console.log(`[DD Review] Auto-transition check: isFirstEdit=${isFirstEdit}, form_id=${ddSubmission.form_submission?.form_id}`);
     if (isFirstEdit && ddSubmission.form_submission?.form_id) {
       try {
         // Get the DD config to check for on_first_edit_stage
-        const { data: ddConfig } = await supabase
+        const { data: ddConfig, error: configError } = await supabase
           .from('form_due_diligence_config')
           .select('*')
           .eq('form_id', ddSubmission.form_submission.form_id)
           .eq('tenant_id', tenantCtx.tenantId)
           .single();
 
+        console.log(`[DD Review] DD Config lookup: on_first_edit_stage=${ddConfig?.on_first_edit_stage}, configError=${configError?.message || 'none'}`);
+
         if (ddConfig?.on_first_edit_stage) {
           const targetStageId = ddConfig.on_first_edit_stage;
           const workflowStages = ddConfig.workflow_stages || [];
           const targetStage = workflowStages.find(s => s.id === targetStageId);
+
+          console.log(`[DD Review] Target stage: id=${targetStageId}, found=${!!targetStage}, label=${targetStage?.label}, stageCount=${workflowStages.length}`);
 
           if (targetStage) {
             // Atomic concurrency guard: set first_edit_triggered flag only if not already set
@@ -127,12 +133,15 @@ export default async function handler(req, res) {
               .or('first_edit_triggered.is.null,first_edit_triggered.eq.false')
               .select('id');
 
+            console.log(`[DD Review] Guard result: error=${guardError?.message || 'none'}, rowsUpdated=${guardResult?.length || 0}`);
+
             // Only proceed if we successfully set the flag (guard succeeded)
             if (!guardError && guardResult && guardResult.length > 0) {
               const previousStatus = ddSubmission.workflow_status;
 
               // Check selection conditions (same as update-status.js for consistency)
               const conditionCheck = evaluateStageConditions(targetStage, ddSubmission);
+              console.log(`[DD Review] Condition check: canSelect=${conditionCheck.canSelect}, reasons=${JSON.stringify(conditionCheck.reasons)}, stageConditions=${JSON.stringify(targetStage.selection_conditions || 'none')}`);
               
               if (conditionCheck.canSelect) {
                 // Update the submission status
