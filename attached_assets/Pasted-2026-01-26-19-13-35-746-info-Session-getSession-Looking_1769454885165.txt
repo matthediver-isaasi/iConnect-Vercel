@@ -1,0 +1,118 @@
+2026-01-26 19:13:35.746 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-26 19:13:35.956 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 19:13:35.956 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-26 19:13:36.091 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-26 19:13:36.091 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 19:13:36.240 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-26 19:13:36.241 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-26 19:13:36.375 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 19:13:36.376 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-26 19:13:36.376 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-26 19:13:38.939 [info] [DD Stage Actions] Created contract instance d017b887-6d4d-4d1b-806e-c3be041047ba for field field_1768830008963
+2026-01-26 19:13:39.227 [info] [Email Service] tenantId provided: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-26 19:13:39.369 [info] [Email Service] Using tenant domain: gsf.iconn.app (tenantId: 21296ad6-1350-483a-a90c-1b06ece70501)
+2026-01-26 19:13:39.507 [info] [Email Service] Email footer loaded successfully
+2026-01-26 19:13:39.648 [info] [Email Service] Email footer appended
+2026-01-26 19:13:39.648 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com, domain: gsf.iconn.app
+2026-01-26 19:13:39.648 [info] [Email Service] Subject: Request to provide reference
+2026-01-26 19:13:40.010 [info] [Email Service] Email sent successfully. Message ID: <20260126191339.6ee2f03c63d49535@gsf.iconn.app>
+2026-01-26 19:13:40.011 [info] [DD Stage Actions] Sent contract to mat.the.diver@googlemail.com
+2026-01-26 19:13:40.804 [info] [DD Stage Actions] Created contract instance edad49fd-45e5-4523-9a95-53fd42e1acf3 for field field_1768830045163
+2026-01-26 19:13:41.104 [info] [Email Service] tenantId provided: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-26 19:13:41.104 [info] [Email Service] Using tenant domain: gsf.iconn.app (tenantId: 21296ad6-1350-483a-a90c-1b06ece70501)
+2026-01-26 19:13:41.238 [info] [Email Service] Email footer appended
+2026-01-26 19:13:41.238 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com, domain: gsf.iconn.app
+2026-01-26 19:13:41.238 [info] [Email Service] Subject: Request to provide reference
+2026-01-26 19:13:41.401 [info] [Email Service] Email sent successfully. Message ID: <20260126191341.c6e507ec2a5b44ff@gsf.iconn.app>
+2026-01-26 19:13:41.401 [info] [DD Stage Actions] Sent contract to mat.the.diver@googlemail.com
+2026-01-26 19:13:41.832 [info] [DD Meeting Request] ========== START executeMeetingRequestActions ==========
+2026-01-26 19:13:41.833 [info] [DD Meeting Request] Params: {
+  stageId: 'verified',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'mat.the.diver@googlemail.com',
+  selectedAgentId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 19:13:41.833 [info] [DD Meeting Request] ddSubmission ID: f0c308da-cf92-4b58-b637-63fabe857d98
+2026-01-26 19:13:41.833 [info] [DD Meeting Request] form_submission_id: 2b93bae6-3463-4f11-a71b-97e3b203d630
+2026-01-26 19:13:41.833 [info] [DD Meeting Request] Querying stage_meeting_request for stageId: verified tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-26 19:13:42.050 [info] [DD Meeting Request] Found 1 meeting request config(s): [
+  {
+    id: 'd7c1310d-c607-43cc-9896-7ab54ab273bf',
+    template_id: '79511fd1-3cd1-40b7-a45f-60e64d99a35e',
+    template_name: 'Membership meeting'
+  }
+]
+2026-01-26 19:13:36.683 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-26 19:13:36.809 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-26 19:13:36.809 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-01-26 19:13:36.809 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-26 19:13:36.977 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 19:13:36.977 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-26 19:13:37.116 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-26 19:13:37.116 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 19:13:42.701 [info] [DD Meeting Request] Agent assignments: [
+  '545269d1-326b-4fff-90d0-b8a4e0cab9bb',
+  '8180d1cf-340e-473c-8dee-5625fad7b005'
+]
+2026-01-26 19:13:42.701 [info] [DD Meeting Request] selectedAgentId from options: 545269d1-326b-4fff-90d0-b8a4e0cab9bb
+2026-01-26 19:13:42.701 [info] [DD Meeting Request] Using selected agent: 545269d1-326b-4fff-90d0-b8a4e0cab9bb
+2026-01-26 19:13:42.831 [info] [DD Meeting Request] Agent identity lookup result: {
+  agentId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb',
+  found: true,
+  booking_slug: 'mat-henderson',
+  name: 'Mat Henderson'
+}
+2026-01-26 19:13:43.146 [info] [DD Meeting Request] About to send email: {
+  to: 'mat.the.diver@googlemail.com',
+  subject: 'GSF Membership application - Next Steps: Reference Checks & Due Diligence Call',
+  from: 'community@globalschoolsforum.org',
+  bookingUrl: 'https://gsf.iconn.app/book/mat-henderson?meeting=membership-meeting&dd_request=5dce72d9-7e63-47fa-b501-cd01ce74f75c'
+}
+2026-01-26 19:13:43.146 [info] [Email Service] tenantId provided: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-26 19:13:43.146 [info] [Email Service] Using tenant domain: gsf.iconn.app (tenantId: 21296ad6-1350-483a-a90c-1b06ece70501)
+2026-01-26 19:13:43.287 [info] [Email Service] Email footer appended
+2026-01-26 19:13:43.287 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com, domain: gsf.iconn.app
+2026-01-26 19:13:43.287 [info] [Email Service] Subject: GSF Membership application - Next Steps: Reference Checks & Due Diligence Call
+2026-01-26 19:13:43.451 [info] [Email Service] Email sent successfully. Message ID: <20260126191343.04072f7ecdd22e23@gsf.iconn.app>
+2026-01-26 19:13:43.451 [info] [DD Meeting Request] Email sent successfully!
+2026-01-26 19:13:43.590 [info] [DD Stage Actions] Sent meeting invitation to mat.the.diver@googlemail.com for Membership meeting
+2026-01-26 19:13:43.590 [info] [DD Stage Actions] Created tracking record 5dce72d9-7e63-47fa-b501-cd01ce74f75c for meeting request
+2026-01-26 19:13:43.591 [error] [DD Stage Actions] Failed to send meeting invitation to mat.the.diver@googlemail.com: ReferenceError: agent is not defined
+    at executeMeetingRequestActions (file:///var/task/api/due-diligence/_stageActions.js:676:23)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:1543:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:9988)
+2026-01-26 19:13:43.592 [info] [DD Email Action] ========== START executeEmailTemplateActions ==========
+2026-01-26 19:13:43.592 [info] [DD Email Action] customMessage from options: null
+2026-01-26 19:13:43.592 [info] [DD Email Action] Params: {
+  stageId: 'verified',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'mat.the.diver@googlemail.com'
+}
+2026-01-26 19:13:43.592 [info] [DD Email Action] ddSubmission ID: f0c308da-cf92-4b58-b637-63fabe857d98
+2026-01-26 19:13:43.592 [info] [DD Email Action] form_submission_id: 2b93bae6-3463-4f11-a71b-97e3b203d630
+2026-01-26 19:13:43.592 [info] [DD Email Action] Querying stage_email_action for stageId: verified tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-26 19:13:43.733 [info] [DD Email Action] No email action configs found for this stage. Returning empty results.
+2026-01-26 19:13:43.733 [info] [DD Member Action] ========== START executeMemberCreationActions ==========
+2026-01-26 19:13:43.733 [info] [DD Member Action] Params: {
+  stageId: 'verified',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'mat.the.diver@googlemail.com'
+}
+2026-01-26 19:13:43.733 [info] [DD Member Action] ddSubmission ID: f0c308da-cf92-4b58-b637-63fabe857d98
+2026-01-26 19:13:43.891 [info] [DD Member Action] No member action configs found for this stage.
