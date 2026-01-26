@@ -82,15 +82,22 @@ export default async function handler(req, res) {
     }
 
     // Find the identity linked to this member via tenant_membership
-    const { data: membership } = await supabase
+    console.log('[Booking] Looking up tenant_membership for member_id:', member.id);
+    const { data: membership, error: membershipError } = await supabase
       .from('tenant_membership')
       .select('identity_id, identity:identity_id(id, first_name, last_name, email, avatar_url)')
       .eq('member_id', member.id)
       .eq('tenant_id', tenantId)
       .single();
 
+    console.log('[Booking] Membership lookup result:', { 
+      found: !!membership, 
+      identity_id: membership?.identity_id,
+      error: membershipError?.message 
+    });
+
     if (!membership?.identity_id) {
-      return res.status(404).json({ error: 'Booking page not found' });
+      return res.status(404).json({ error: 'Booking page not found - no membership' });
     }
 
     // Use member data for display, identity for system lookups
@@ -103,6 +110,7 @@ export default async function handler(req, res) {
     };
 
     // Find availability profile for this identity AND this specific tenant
+    console.log('[Booking] Looking up availability profile for identity:', identity.id);
     const { data: profile, error: profileError } = await supabase
       .from('agent_availability_profile')
       .select('*')
@@ -110,6 +118,11 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .single();
+
+    console.log('[Booking] Profile lookup result:', { 
+      found: !!profile, 
+      error: profileError?.message 
+    });
 
     if (profileError || !profile) {
       return res.status(404).json({ error: 'Booking page not active for this organization' });
