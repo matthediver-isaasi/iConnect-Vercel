@@ -21,11 +21,28 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      // Query via tenant_membership to get identities for this tenant
+      // First, find the primary organization for this tenant
+      const { data: primaryOrg, error: orgError } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('is_primary', true)
+        .single();
+
+      if (orgError || !primaryOrg) {
+        console.error('[booking-agents] Primary org not found:', orgError);
+        return res.status(404).json({ error: 'Primary organization not found' });
+      }
+
+      // Query via tenant_membership to get identities whose member belongs to primary org
       const { data: memberships, error } = await supabase
         .from('tenant_membership')
         .select(`
           identity_id,
+          member:member_id (
+            id,
+            organization_id
+          ),
           tenant_identity:identity_id (
             id,
             email,
@@ -43,10 +60,10 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch team members' });
       }
 
-      // Flatten to get unique identities
+      // Filter to only members belonging to the primary organization
       const identityMap = new Map();
       for (const m of memberships || []) {
-        if (m.tenant_identity) {
+        if (m.tenant_identity && m.member && m.member.organization_id === primaryOrg.id) {
           identityMap.set(m.tenant_identity.id, m.tenant_identity);
         }
       }
@@ -71,10 +88,28 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Identity ID is required' });
       }
 
-      // Verify the identity belongs to this tenant via membership
+      // Find the primary organization for this tenant
+      const { data: primaryOrg, error: orgError } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('is_primary', true)
+        .single();
+
+      if (orgError || !primaryOrg) {
+        return res.status(404).json({ error: 'Primary organization not found' });
+      }
+
+      // Verify the identity belongs to primary org via membership
       const { data: membership, error: membershipError } = await supabase
         .from('tenant_membership')
-        .select('identity_id')
+        .select(`
+          identity_id,
+          member:member_id (
+            id,
+            organization_id
+          )
+        `)
         .eq('tenant_id', tenantId)
         .eq('identity_id', identity_id)
         .eq('status', 'active')
@@ -82,6 +117,11 @@ export default async function handler(req, res) {
 
       if (membershipError || !membership) {
         return res.status(404).json({ error: 'Team member not found in this tenant' });
+      }
+
+      // Verify member belongs to primary organization
+      if (!membership.member || membership.member.organization_id !== primaryOrg.id) {
+        return res.status(403).json({ error: 'Only members of the tenant organization can be booking agents' });
       }
 
       const { data, error } = await supabase
