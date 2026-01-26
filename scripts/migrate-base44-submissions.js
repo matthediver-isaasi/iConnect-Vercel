@@ -204,18 +204,17 @@ async function migrateSubmissions(supabase, formMapping, submissions) {
     }
     
     try {
-      // Insert form_submission
+      // Insert form_submission (using actual column names from schema)
       const { data: newSubmission, error: submissionError } = await supabase
         .from('form_submission')
         .insert({
           form_id: supabaseFormId,
           tenant_id: TENANT_ID,
-          data: formData,
-          applicant_name: applicantName,
-          applicant_email: applicantEmail,
+          submission_data: formData,
+          submitted_by_name: applicantName,
+          submitted_by_email: applicantEmail,
           status: 'submitted',
-          created_at: createdAt,
-          updated_at: updatedAt
+          created_date: createdAt
         })
         .select('id')
         .single();
