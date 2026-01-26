@@ -505,7 +505,8 @@ export default function ArticleViewPage() {
         await base44.entities.ArticleView.create({
           article_id: article.id,
           user_identifier: userIdentifier,
-          is_member: !!memberInfo
+          is_member: !!memberInfo,
+          viewed_at: new Date().toISOString()
         });
         setViewRecorded(true);
       }
