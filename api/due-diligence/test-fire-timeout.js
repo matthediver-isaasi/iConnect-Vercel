@@ -75,6 +75,108 @@ function generateToken(contractId, round, secret) {
   return crypto.createHmac('sha256', secret).update(data).digest('hex');
 }
 
+// Helper to build email details for preview
+async function buildEmailDetails(params) {
+  const {
+    tenantId,
+    instance,
+    form,
+    contractSettings,
+    sourceSubmission,
+    applicantEmail,
+    applicantName,
+    emailTemplate,
+    tenant
+  } = params;
+
+  const tenantSlug = tenant?.slug || 'app';
+  const tokenSecret = process.env.ALTERNATIVE_SIGNER_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-secret';
+  const currentRound = instance.timeout_notification_round || 0;
+  const token = generateToken(instance.id, currentRound.toString(), tokenSecret);
+  const alternativeSignerLink = `https://${tenantSlug}.iconn.app/embed/alternative-signer?contract=${instance.id}&token=${token}&tenant=${tenantSlug}&round=${currentRound}`;
+  const timeoutDays = instance.timeout_days || contractSettings.timeout_days || 30;
+
+  const placeholders = {
+    applicant_name: applicantName,
+    first_name: applicantName,
+    contract_name: form.name,
+    organization_name: '',
+    alternative_signer_link: alternativeSignerLink,
+    alternative_signer_url: alternativeSignerLink,
+    tenant_name: tenant?.name || '',
+    timeout_days: timeoutDays.toString()
+  };
+
+  // Fetch organization name from instance.organization_id first
+  if (instance.organization_id) {
+    const { data: org } = await supabase
+      .from('organization')
+      .select('name')
+      .eq('id', instance.organization_id)
+      .single();
+    placeholders.organization_name = org?.name || '';
+  }
+
+  // Also try to get organization from form_submission if not found via instance.organization_id
+  let organizationName = placeholders.organization_name;
+  if (!organizationName && instance.form_submission_id) {
+    const { data: submission } = await supabase
+      .from('form_submission')
+      .select('organization_id, created_organization_id')
+      .eq('id', instance.form_submission_id)
+      .single();
+    
+    const orgId = submission?.organization_id || submission?.created_organization_id;
+    if (orgId) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('id, name')
+        .eq('id', orgId)
+        .single();
+      organizationName = org?.name || '';
+      placeholders.organization_name = organizationName;
+    }
+  }
+
+  let emailBody = emailTemplate.body || '';
+  let emailSubject = emailTemplate.subject || 'Contract Signing Timeout';
+
+  // Replace {{...}} style placeholders
+  for (const [key, value] of Object.entries(placeholders)) {
+    const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'gi');
+    emailBody = emailBody.replace(regex, value || '');
+    emailSubject = emailSubject.replace(regex, value || '');
+  }
+
+  // Replace [[...]] style placeholders (e.g., [[organization.name]])
+  const doubleBracketPlaceholders = {
+    'organization.name': organizationName || '',
+    'tenant.name': tenant?.name || '',
+    'applicant.name': applicantName,
+    'contract.name': form.name
+  };
+  emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+  emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
+
+  const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
+  const senderName = tenant?.sender_name || tenant?.name || 'Contracts';
+
+  // Fetch email footer for preview
+  const emailFooter = await getEmailFooterForPreview(tenantId);
+  const fullEmailBody = emailFooter ? emailBody + emailFooter : emailBody;
+
+  return {
+    to: applicantEmail,
+    from: `${senderName} <${senderEmail}>`,
+    subject: emailSubject,
+    bodyHtml: fullEmailBody,
+    bodyPreview: emailBody.substring(0, 500) + (emailBody.length > 500 ? '...' : ''),
+    templateUsed: { id: emailTemplate.id, name: emailTemplate.name },
+    alternativeSignerLink,
+    hasFooter: !!emailFooter
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -162,6 +264,90 @@ export default async function handler(req, res) {
     }
     result.checks.push({ check: 'Timeout email template configured', passed: true });
 
+    // ========== PHASE 1: Gather all data needed for email preview ==========
+    
+    // Check for form_submission_id early so we can build preview
+    let sourceSubmission = null;
+    if (instance.form_submission_id) {
+      const { data: submission, error: submissionError } = await supabase
+        .from('form_submission')
+        .select('*, form:form_id(id, name, fields)')
+        .eq('id', instance.form_submission_id)
+        .single();
+      
+      if (!submissionError && submission) {
+        sourceSubmission = submission;
+      }
+    }
+
+    const submissionData = sourceSubmission?.submission_data || {};
+    const applicantEmailField = contractSettings.applicant_email_field;
+    const applicantNameField = contractSettings.applicant_name_field;
+    const applicantEmail = applicantEmailField ? submissionData[applicantEmailField] : null;
+    const applicantName = applicantNameField ? (submissionData[applicantNameField] || 'Applicant') : 'Applicant';
+
+    // Fetch email template
+    const { data: emailTemplate, error: templateError } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', contractSettings.timeout_email_template_id)
+      .single();
+
+    // Fetch tenant info
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('id, slug, name, contact_email, sender_email, sender_name')
+      .eq('id', tenantId)
+      .single();
+
+    // ========== PHASE 2: Build email preview (always attempt, even with partial data) ==========
+    
+    // Always try to build email preview so it's shown in UI even when CRON would skip
+    const previewApplicantEmail = applicantEmail || '[applicant email not found]';
+    const previewApplicantName = applicantName || 'Applicant';
+    
+    if (emailTemplate) {
+      result.emailDetails = await buildEmailDetails({
+        tenantId,
+        instance,
+        form,
+        contractSettings,
+        sourceSubmission,
+        applicantEmail: previewApplicantEmail,
+        applicantName: previewApplicantName,
+        emailTemplate,
+        tenant
+      });
+      
+      // Add warning if preview data is incomplete
+      if (!applicantEmail) {
+        result.emailDetails.previewWarning = 'Applicant email not found - preview uses placeholder';
+      }
+    } else if (contractSettings.timeout_email_template_id) {
+      // Template configured but not found or fetch failed - create minimal preview info
+      const isTemplateError = !!templateError;
+      result.emailDetails = {
+        to: previewApplicantEmail,
+        from: `${tenant?.sender_name || 'Contracts'} <${tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app'}>`,
+        subject: '[Template not found]',
+        bodyHtml: '<p>Email template could not be loaded.</p>',
+        bodyPreview: 'Email template could not be loaded.',
+        templateUsed: { id: contractSettings.timeout_email_template_id, name: 'Template not found' },
+        previewWarning: isTemplateError 
+          ? `Template fetch error: ${templateError?.message || 'Unknown error'}` 
+          : 'Email template not found in database',
+        previewIncomplete: true,
+        hasFooter: false
+      };
+    }
+    
+    // Add previewIncomplete flag for UI to highlight partial previews
+    if (result.emailDetails && !applicantEmail) {
+      result.emailDetails.previewIncomplete = true;
+    }
+
+    // ========== PHASE 3: Run validation checks (with early returns that still include emailDetails) ==========
+
     const signers = instance.signers || [];
     const timeoutDays = instance.timeout_days || contractSettings.timeout_days || 30;
     const sentAt = instance.sent_at;
@@ -223,46 +409,29 @@ export default async function handler(req, res) {
       if (!cooldownPassed) {
         result.action = 'would_skip';
         result.error = 'CRON would skip: Cooldown period not passed (24h between notifications)';
+        // emailDetails is already populated, so it will be included in the response
         return res.status(200).json(result);
       }
     } else {
       result.checks.push({ check: 'Cooldown period passed', passed: true, reason: 'No previous notification sent' });
     }
 
-    if (!instance.form_submission_id) {
-      result.checks.push({ check: 'Source submission exists', passed: false, reason: 'No form_submission_id linked' });
+    // Source submission check
+    if (!instance.form_submission_id || !sourceSubmission) {
+      result.checks.push({ check: 'Source submission exists', passed: false, reason: 'No form_submission_id linked or submission not found' });
       result.action = 'skipped';
       result.error = 'CRON would skip: No source submission linked to contract';
       return res.status(200).json(result);
     }
-
-    const { data: sourceSubmission, error: submissionError } = await supabase
-      .from('form_submission')
-      .select('*, form:form_id(id, name, fields)')
-      .eq('id', instance.form_submission_id)
-      .single();
-
-    if (submissionError || !sourceSubmission) {
-      result.checks.push({ check: 'Source submission exists', passed: false, reason: 'Submission not found' });
-      result.action = 'skipped';
-      result.error = 'CRON would skip: Source submission not found';
-      return res.status(200).json(result);
-    }
     result.checks.push({ check: 'Source submission exists', passed: true });
 
-    const submissionData = sourceSubmission.submission_data || {};
-    const applicantEmailField = contractSettings.applicant_email_field;
-    const applicantNameField = contractSettings.applicant_name_field;
-
+    // Applicant email field check
     if (!applicantEmailField) {
       result.checks.push({ check: 'Applicant email field configured', passed: false, reason: 'No applicant_email_field in contract settings' });
       result.action = 'skipped';
       result.error = 'CRON would skip: No applicant email field configured';
       return res.status(200).json(result);
     }
-
-    const applicantEmail = submissionData[applicantEmailField];
-    const applicantName = applicantNameField ? submissionData[applicantNameField] : 'Applicant';
 
     if (!applicantEmail) {
       result.checks.push({ check: 'Applicant email found', passed: false, reason: `Field "${applicantEmailField}" is empty` });
@@ -272,12 +441,7 @@ export default async function handler(req, res) {
     }
     result.checks.push({ check: 'Applicant email found', passed: true, details: { applicantEmail, applicantName } });
 
-    const { data: emailTemplate, error: templateError } = await supabase
-      .from('email_template')
-      .select('*')
-      .eq('id', contractSettings.timeout_email_template_id)
-      .single();
-
+    // Email template check
     if (templateError || !emailTemplate) {
       result.checks.push({ check: 'Email template exists', passed: false, reason: 'Template not found' });
       result.action = 'skipped';
@@ -286,94 +450,7 @@ export default async function handler(req, res) {
     }
     result.checks.push({ check: 'Email template exists', passed: true, details: { templateName: emailTemplate.name } });
 
-    const { data: tenant } = await supabase
-      .from('tenant')
-      .select('id, slug, name, contact_email, sender_email, sender_name')
-      .eq('id', tenantId)
-      .single();
-
-    const tenantSlug = tenant?.slug || 'app';
-    const tokenSecret = process.env.ALTERNATIVE_SIGNER_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-secret';
-    const currentRound = instance.timeout_notification_round || 0;
-    const token = generateToken(instance.id, currentRound.toString(), tokenSecret);
-    const alternativeSignerLink = `https://${tenantSlug}.iconn.app/embed/alternative-signer?contract=${instance.id}&token=${token}&tenant=${tenantSlug}&round=${currentRound}`;
-
-    const placeholders = {
-      applicant_name: applicantName,
-      first_name: applicantName,
-      contract_name: form.name,
-      organization_name: '',
-      alternative_signer_link: alternativeSignerLink,
-      alternative_signer_url: alternativeSignerLink,
-      tenant_name: tenant?.name || '',
-      timeout_days: timeoutDays.toString()
-    };
-
-    if (instance.organization_id) {
-      const { data: org } = await supabase
-        .from('organization')
-        .select('name')
-        .eq('id', instance.organization_id)
-        .single();
-      placeholders.organization_name = org?.name || '';
-    }
-
-    let emailBody = emailTemplate.body || '';
-    let emailSubject = emailTemplate.subject || 'Contract Signing Timeout';
-
-    for (const [key, value] of Object.entries(placeholders)) {
-      const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'gi');
-      emailBody = emailBody.replace(regex, value || '');
-      emailSubject = emailSubject.replace(regex, value || '');
-    }
-
-    // Also try to get organization from form_submission if not found via instance.organization_id
-    let organizationName = placeholders.organization_name;
-    if (!organizationName && instance.form_submission_id) {
-      const { data: submission } = await supabase
-        .from('form_submission')
-        .select('organization_id, created_organization_id')
-        .eq('id', instance.form_submission_id)
-        .single();
-      
-      const orgId = submission?.organization_id || submission?.created_organization_id;
-      if (orgId) {
-        const { data: org } = await supabase
-          .from('organization')
-          .select('id, name')
-          .eq('id', orgId)
-          .single();
-        organizationName = org?.name || '';
-      }
-    }
-
-    // Replace [[...]] style placeholders (e.g., [[organization.name]])
-    const doubleBracketPlaceholders = {
-      'organization.name': organizationName || '',
-      'tenant.name': tenant?.name || '',
-      'applicant.name': applicantName,
-      'contract.name': form.name
-    };
-    emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
-    emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
-
-    const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
-    const senderName = tenant?.sender_name || tenant?.name || 'Contracts';
-
-    // Fetch email footer for preview
-    const emailFooter = await getEmailFooterForPreview(tenantId);
-    const fullEmailBody = emailFooter ? emailBody + emailFooter : emailBody;
-
-    result.emailDetails = {
-      to: applicantEmail,
-      from: `${senderName} <${senderEmail}>`,
-      subject: emailSubject,
-      bodyHtml: fullEmailBody,
-      bodyPreview: emailBody.substring(0, 500) + (emailBody.length > 500 ? '...' : ''),
-      templateUsed: { id: emailTemplate.id, name: emailTemplate.name },
-      alternativeSignerLink,
-      hasFooter: !!emailFooter
-    };
+    // ========== PHASE 4: All checks passed - ready to send ==========
 
     if (dryRun) {
       result.success = true;
@@ -382,12 +459,20 @@ export default async function handler(req, res) {
       return res.status(200).json(result);
     }
 
+    // Actually send the email - guard against missing emailDetails
+    if (!result.emailDetails || !applicantEmail || !emailTemplate) {
+      result.success = false;
+      result.action = 'failed';
+      result.error = 'Cannot send: missing email details, applicant email, or template';
+      return res.status(400).json(result);
+    }
+    
     try {
       await sendEmail({
-        to: applicantEmail,
-        from: `${senderName} <${senderEmail}>`,
-        subject: emailSubject,
-        html: emailBody,
+        to: applicantEmail, // Use actual applicantEmail, not preview placeholder
+        from: result.emailDetails.from,
+        subject: result.emailDetails.subject,
+        html: result.emailDetails.bodyHtml,
         tenantId
       });
 
