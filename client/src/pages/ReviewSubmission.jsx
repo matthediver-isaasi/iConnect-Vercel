@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -606,7 +606,9 @@ function ScheduleStatusBadge({ status }) {
     sent: { label: 'Sent', variant: 'outline', icon: CheckCircle2, className: 'text-green-600 border-green-200 bg-green-50' },
     completed: { label: 'Completed', variant: 'outline', icon: CheckCircle2, className: 'text-green-600 border-green-200 bg-green-50' },
     cancelled: { label: 'Cancelled', variant: 'outline', icon: XCircle, className: 'text-muted-foreground border-muted bg-muted/50' },
-    missed: { label: 'Missed', variant: 'outline', icon: AlertCircle, className: 'text-red-600 border-red-200 bg-red-50' }
+    missed: { label: 'Missed', variant: 'outline', icon: AlertCircle, className: 'text-red-600 border-red-200 bg-red-50' },
+    awaiting_send: { label: 'Awaiting Send', variant: 'outline', icon: Clock, className: 'text-slate-600 border-slate-200 bg-slate-50' },
+    info: { label: 'Info', variant: 'outline', icon: Info, className: 'text-blue-600 border-blue-200 bg-blue-50' }
   };
   const c = config[status] || config.pending;
   const Icon = c.icon;
@@ -628,6 +630,8 @@ function ScheduleEventIcon({ type }) {
       return <Calendar className="w-3 h-3 text-purple-500" />;
     case 'meeting_reminder':
       return <Bell className="w-3 h-3 text-purple-500" />;
+    case 'info':
+      return <Info className="w-3 h-3 text-blue-500" />;
     default:
       return <Clock className="w-3 h-3" />;
   }
@@ -806,8 +810,10 @@ function ScheduleTab({ formSubmissionId }) {
                     <>Sent: {format(new Date(event.actual_sent_date), 'MMM d, yyyy h:mm a')}</>
                   ) : event.scheduled_date ? (
                     <>Scheduled: {format(new Date(event.scheduled_date), 'MMM d, yyyy h:mm a')}</>
+                  ) : event.status === 'awaiting_send' ? (
+                    <>Timing: {event.reminder_config?.days || '?'} days {event.reminder_config?.timing_type === 'before_timeout' ? 'before timeout' : 'after send'}</>
                   ) : (
-                    'Date unknown'
+                    'Date pending'
                   )}
                 </span>
               </div>

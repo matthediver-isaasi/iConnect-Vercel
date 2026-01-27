@@ -40,16 +40,55 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Form submission not found' });
     }
 
+    console.log('[submission-schedule] Form submission found:', {
+      submissionId: formSubmission.id,
+      contractInstanceId: formSubmission.contract_instance_id
+    });
+
     // Fetch contract-related scheduled events if there's a contract instance
     if (formSubmission.contract_instance_id) {
-      const contractSchedule = await getContractSchedule(
+      console.log('[submission-schedule] Has contract instance, fetching schedule...');
+      const { events: contractSchedule, metadata } = await getContractSchedule(
         supabase, 
         tenantId, 
         formSubmission.contract_instance_id, 
         now, 
         todayStr
       );
+      console.log('[submission-schedule] Contract schedule events:', contractSchedule.length, 'metadata:', metadata);
       scheduledEvents.push(...contractSchedule);
+      
+      // If no contract events but we expected some, add an info event
+      if (contractSchedule.length === 0 && metadata) {
+        if (metadata.noRemindersConfigured) {
+          scheduledEvents.push({
+            type: 'info',
+            name: 'No Reminders Configured',
+            status: 'info',
+            status_reason: 'No contract reminders are configured in the form settings',
+            scheduled_date: null
+          });
+        }
+        if (metadata.noSigners) {
+          scheduledEvents.push({
+            type: 'info', 
+            name: 'No Signers',
+            status: 'info',
+            status_reason: 'No signers are configured for this contract',
+            scheduled_date: null
+          });
+        }
+      }
+    } else {
+      console.log('[submission-schedule] No contract instance linked to submission');
+      // Check if there's a form with contract settings that we could show projected schedule from
+      scheduledEvents.push({
+        type: 'info',
+        name: 'No Contract Created',
+        status: 'info',
+        status_reason: 'A contract has not been created for this submission yet',
+        scheduled_date: null
+      });
     }
 
     // Fetch meeting request schedule
@@ -80,6 +119,10 @@ export default async function handler(req, res) {
 
 async function getContractSchedule(supabase, tenantId, contractInstanceId, now, todayStr) {
   const events = [];
+  const metadata = {
+    noRemindersConfigured: false,
+    noSigners: false
+  };
 
   // Fetch the contract instance
   const { data: instance, error: instanceError } = await supabase
@@ -90,7 +133,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
     .single();
 
   if (instanceError || !instance) {
-    return events;
+    console.log('[submission-schedule] No contract instance found:', { contractInstanceId, instanceError });
+    return { events, metadata };
   }
 
   // Fetch the form for contract settings
@@ -101,7 +145,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
     .single();
 
   if (formError || !form) {
-    return events;
+    console.log('[submission-schedule] No form found:', { formId: instance.form_id, formError });
+    return { events, metadata };
   }
 
   const contractSettings = form.contract_settings || {};
@@ -110,8 +155,80 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
   const timeoutDays = instance.timeout_days || contractSettings.timeout_days || 30;
   const sentAt = instance.sent_at;
 
+  // Track metadata for empty cases
+  if (reminders.length === 0) {
+    metadata.noRemindersConfigured = true;
+  }
+  if (signers.length === 0) {
+    metadata.noSigners = true;
+  }
+
+  console.log('[submission-schedule] Contract schedule data:', {
+    contractInstanceId,
+    formId: form.id,
+    formName: form.name,
+    reminderCount: reminders.length,
+    signerCount: signers.length,
+    sentAt,
+    timeoutDays,
+    contractSettings: JSON.stringify(contractSettings).substring(0, 500)
+  });
+
+  // If contract not sent yet, show projected schedule based on configuration
   if (!sentAt) {
-    return events;
+    console.log('[submission-schedule] Contract not sent yet, showing projected schedule');
+    
+    // Show projected reminders based on what WOULD happen when sent
+    for (const reminder of reminders) {
+      const reminderDays = reminder.days || reminder.days_before_timeout || 7;
+      const timingType = reminder.timing_type || 'before_timeout';
+      const reminderName = reminder.name || `Reminder (${reminderDays} days ${timingType === 'before_timeout' ? 'before timeout' : 'after send'})`;
+      
+      for (const signer of signers) {
+        if (!signer.email) continue;
+        const signerName = signer.first_name ? `${signer.first_name} ${signer.last_name || ''}`.trim() : signer.name || signer.email;
+        
+        events.push({
+          type: 'contract_reminder',
+          name: reminderName,
+          scheduled_date: null, // Unknown until contract is sent
+          actual_sent_date: null,
+          status: 'awaiting_send',
+          status_reason: 'Contract has not been sent yet',
+          recipient: {
+            name: signerName,
+            email: signer.email
+          },
+          contract: {
+            id: instance.id,
+            name: form.name
+          },
+          reminder_config: {
+            id: reminder.id,
+            timing_type: timingType,
+            days: reminderDays
+          }
+        });
+      }
+    }
+    
+    // Show projected timeout notification
+    if (contractSettings.timeout_email_template_id) {
+      events.push({
+        type: 'contract_timeout',
+        name: 'Contract Timeout Notification',
+        scheduled_date: null,
+        actual_sent_date: null,
+        status: 'awaiting_send',
+        status_reason: 'Contract has not been sent yet',
+        contract: {
+          id: instance.id,
+          name: form.name
+        }
+      });
+    }
+    
+    return { events, metadata };
   }
 
   const sentDate = new Date(sentAt);
@@ -162,6 +279,13 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
   const contractComplete = instance.status === 'signed' || instance.status === 'cancelled' || instance.status === 'expired';
   // Check if any signer has completed - used for timeout logic only
   const hasWinner = signers.some(s => s.status === 'received' || s.signed_at);
+
+  console.log('[submission-schedule] Processing reminders:', {
+    reminderCount: reminders.length,
+    unsignedSignerCount: unsignedSigners.length,
+    signedSignerCount: signers.length - unsignedSigners.length,
+    reminderDetails: reminders.map(r => ({ id: r.id, name: r.name, days: r.days || r.days_before_timeout, timingType: r.timing_type }))
+  });
 
   // Generate reminder events - mirror CRON logic exactly
   // CRON iterates reminders, then unsigned signers only
@@ -365,7 +489,7 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
     });
   }
 
-  return events;
+  return { events, metadata };
 }
 
 async function getMeetingRequestSchedule(supabase, tenantId, formSubmissionId) {
