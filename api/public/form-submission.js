@@ -264,6 +264,101 @@ export default async function handler(req, res) {
             }
           }
           
+          // Update contract_instance signer status and overall status
+          try {
+            // Try multiple sources for signer email
+            let signerEmail = (submission_data?.signer_email || submission_data?.email || '').toLowerCase();
+            
+            // If no direct email field, try to extract from signature field metadata
+            if (!signerEmail) {
+              for (const [key, value] of Object.entries(submission_data || {})) {
+                if (value && typeof value === 'object' && (value.type === 'signature' || value.signed_at)) {
+                  if (value.signer_email) {
+                    signerEmail = value.signer_email.toLowerCase();
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // SECURITY: Fetch contract instance with tenant_id filter to prevent cross-tenant access
+            const { data: contractInstance, error: ciError } = await supabase
+              .from('contract_instance')
+              .select('id, form_submission_id, form_id, signers, status, tenant_id')
+              .eq('id', contract_instance_id)
+              .eq('tenant_id', tenantData.id)
+              .single();
+            
+            if (ciError) {
+              console.error('[Public Form Submission] Failed to fetch contract instance:', ciError);
+            } else if (contractInstance) {
+              const signers = contractInstance.signers || [];
+              let signerFound = false;
+              
+              // Mark the signer who just signed as signed=true
+              const updatedSigners = signers.map(signer => {
+                if ((signer.email || '').toLowerCase() === signerEmail && !signer.signed) {
+                  signerFound = true;
+                  return {
+                    ...signer,
+                    signed: true,
+                    signed_at: new Date().toISOString(),
+                    signature_submission_id: submission.id
+                  };
+                }
+                return signer;
+              });
+              
+              // If we couldn't match by email but there's only one unsigned signer, mark them
+              if (!signerFound && signers.length === 1 && !signers[0].signed) {
+                signerFound = true;
+                updatedSigners[0] = {
+                  ...updatedSigners[0],
+                  signed: true,
+                  signed_at: new Date().toISOString(),
+                  signature_submission_id: submission.id
+                };
+                console.log(`[Public Form Submission] Single signer contract - marking as signed`);
+              }
+              
+              if (signerFound) {
+                // Check if all signers have now signed
+                const allSigned = updatedSigners.length > 0 && updatedSigners.every(s => s.signed === true);
+                const signedCount = updatedSigners.filter(s => s.signed === true).length;
+                
+                // Determine new status: 'signed' when all complete, 'received' for partial progress
+                let newStatus = contractInstance.status;
+                if (allSigned) {
+                  newStatus = 'signed';
+                } else if (signedCount > 0) {
+                  newStatus = 'received';
+                }
+                
+                // SECURITY: Update with tenant_id filter to prevent cross-tenant mutation
+                const { error: updateError } = await supabase
+                  .from('contract_instance')
+                  .update({
+                    signers: updatedSigners,
+                    status: newStatus,
+                    updated_at: new Date().toISOString(),
+                    ...(allSigned && { completed_at: new Date().toISOString() })
+                  })
+                  .eq('id', contract_instance_id)
+                  .eq('tenant_id', tenantData.id);
+                
+                if (updateError) {
+                  console.error('[Public Form Submission] Failed to update contract instance:', updateError);
+                } else {
+                  console.log(`[Public Form Submission] Updated contract instance ${contract_instance_id}: signer marked as signed (${signedCount}/${updatedSigners.length}), status: ${newStatus}`);
+                }
+              } else {
+                console.log(`[Public Form Submission] Signer ${signerEmail || 'unknown'} not found in contract instance signers list or already signed`);
+              }
+            }
+          } catch (contractUpdateError) {
+            console.error('[Public Form Submission] Error updating contract instance:', contractUpdateError);
+          }
+          
           // Add history log entry to related DD submission for contract signature
           try {
             const { data: contractInstance } = await supabase
