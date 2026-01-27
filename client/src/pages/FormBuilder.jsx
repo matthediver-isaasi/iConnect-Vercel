@@ -4480,6 +4480,50 @@ export default function FormBuilderPage() {
 
                     {formData.contract_settings?.timeout_email_template_id && (
                       <>
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg space-y-3 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Applicant Field Mapping</span>
+                          </div>
+                          <p className="text-xs text-blue-600 dark:text-blue-400">
+                            Enter the field keys from your Due Diligence form that contain the applicant's name and email. These populate placeholders like {'{{first_name}}'}, {'{{applicant_name}}'}, and determine who receives the timeout notification. Find field keys in your DD form's field settings.
+                          </p>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-600">Applicant Name Field</Label>
+                              <Input
+                                value={formData.contract_settings?.applicant_name_field || ""}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  contract_settings: {
+                                    ...formData.contract_settings,
+                                    applicant_name_field: e.target.value || null
+                                  }
+                                })}
+                                placeholder="e.g., full_name or first_name"
+                                data-testid="input-applicant-name-field"
+                                className="text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-600">Applicant Email Field</Label>
+                              <Input
+                                value={formData.contract_settings?.applicant_email_field || ""}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  contract_settings: {
+                                    ...formData.contract_settings,
+                                    applicant_email_field: e.target.value || null
+                                  }
+                                })}
+                                placeholder="e.g., email or contact_email"
+                                data-testid="input-applicant-email-field"
+                                className="text-xs"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        
                         <div className="space-y-1">
                           <Label className="text-xs text-slate-600">Form Title</Label>
                           <Input

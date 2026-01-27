@@ -202,6 +202,13 @@ export default async function handler(req, res) {
         const token = generateToken(instance.id, currentRound.toString(), tokenSecret);
         const alternativeSignerLink = `https://${tenantSlug}.iconn.app/embed/alternative-signer?contract=${instance.id}&token=${token}&tenant=${tenantSlug}&round=${currentRound}`;
 
+        // Get first signer info for signer placeholders (reuse signers from above)
+        const firstSigner = signers[0] || {};
+        const signerName = firstSigner.name || `${firstSigner.first_name || ''} ${firstSigner.last_name || ''}`.trim() || '';
+        const signerFirstName = firstSigner.first_name || (signerName ? signerName.split(' ')[0] : '');
+        const signerLastName = firstSigner.last_name || (signerName ? signerName.split(' ').slice(1).join(' ') : '');
+        const signerEmail = firstSigner.email || '';
+
         const placeholders = {
           applicant_name: applicantName,
           first_name: applicantName,
@@ -210,7 +217,12 @@ export default async function handler(req, res) {
           alternative_signer_link: alternativeSignerLink,
           alternative_signer_url: alternativeSignerLink,
           tenant_name: tenant?.name || '',
-          timeout_days: timeoutDays.toString()
+          timeout_days: timeoutDays.toString(),
+          // Signer placeholders (first signer)
+          signer_name: signerName,
+          signer_first_name: signerFirstName,
+          signer_last_name: signerLastName,
+          signer_email: signerEmail
         };
 
         // Try to get organization name from instance.organization_id first
