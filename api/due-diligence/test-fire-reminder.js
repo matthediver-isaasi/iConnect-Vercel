@@ -311,9 +311,8 @@ export default async function handler(req, res) {
       await sendEmail({
         to: signer.email,
         subject: emailSubject,
-        body: emailBody,
-        tenantId,
-        tenant
+        html: emailBody,
+        tenantId
       });
 
       await supabase

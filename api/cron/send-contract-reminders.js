@@ -220,9 +220,8 @@ export default async function handler(req, res) {
               await sendEmail({
                 to: signer.email,
                 subject: emailSubject,
-                body: emailBody,
-                tenantId: form.tenant_id,
-                tenant
+                html: emailBody,
+                tenantId: form.tenant_id
               });
 
               await supabase
