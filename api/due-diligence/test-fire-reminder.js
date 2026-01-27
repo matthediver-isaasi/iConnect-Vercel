@@ -44,18 +44,10 @@ export default async function handler(req, res) {
     // Log incoming parameters for debugging
     console.log('[test-fire-reminder] Request params:', { contractInstanceId, reminderId, signerEmail, tenantId });
 
+    // First fetch the contract instance
     const { data: instance, error: instanceError } = await supabase
       .from('contract_instance')
-      .select(`
-        *,
-        form:form_id (
-          id,
-          name,
-          slug,
-          tenant_id,
-          contract_settings
-        )
-      `)
+      .select('*')
       .eq('id', contractInstanceId)
       .eq('tenant_id', tenantId)
       .single();
@@ -74,8 +66,14 @@ export default async function handler(req, res) {
     // Tenant is already verified by the query filter above
     result.checks.push({ check: 'Tenant authorization', passed: true });
 
-    const form = instance.form;
-    if (!form) {
+    // Fetch the form separately
+    const { data: form, error: formError } = await supabase
+      .from('form')
+      .select('id, name, slug, tenant_id, contract_settings')
+      .eq('id', instance.form_id)
+      .single();
+
+    if (formError || !form) {
       result.checks.push({ check: 'Form linked', passed: false, reason: 'No form linked to instance' });
       return res.status(400).json(result);
     }
