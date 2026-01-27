@@ -3261,6 +3261,7 @@ export default function FormBuilderPage() {
       signers: [], // [{id, name, email, type: 'external'|'member', member_id}]
       // Timeout notification settings (for alternative signer feature)
       timeout_email_template_id: null, // Email to send when contract times out
+      source_dd_form_id: null, // Source DD form for applicant field mapping
       applicant_name_field: null, // Field ID from DD form for applicant's name
       applicant_email_field: null, // Field ID from DD form for applicant's email
       alternative_signer_form_id: null // Form where applicant provides new signer details
@@ -3362,6 +3363,25 @@ export default function FormBuilderPage() {
       }
     },
   });
+
+  // Fetch DD forms for applicant field mapping in timeout notifications
+  const { data: ddForms = [] } = useQuery({
+    queryKey: ['dd-forms-for-mapping'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || []).filter(f => f.is_active !== false && f.due_diligence_required === true);
+      } catch (err) {
+        console.warn('Failed to fetch DD forms:', err);
+        return [];
+      }
+    },
+  });
+
+  // Get fields from selected source DD form for applicant mapping
+  const selectedSourceDDFormId = formData?.contract_settings?.source_dd_form_id;
+  const selectedSourceDDForm = ddForms.find(f => f.id === selectedSourceDDFormId);
+  const sourceFormFields = selectedSourceDDForm?.fields || [];
 
   const { data: customFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'all-for-mapping'],
@@ -4485,42 +4505,98 @@ export default function FormBuilderPage() {
                             <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Applicant Field Mapping</span>
                           </div>
                           <p className="text-xs text-blue-600 dark:text-blue-400">
-                            Enter the field keys from your Due Diligence form that contain the applicant's name and email. These populate placeholders like {'{{first_name}}'}, {'{{applicant_name}}'}, and determine who receives the timeout notification. Find field keys in your DD form's field settings.
+                            Select the Due Diligence form that triggers this contract, then choose which fields contain the applicant's name and email. These populate placeholders like {'{{first_name}}'}, {'{{applicant_name}}'}.
                           </p>
                           
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-2">
                             <div className="space-y-1">
-                              <Label className="text-xs text-slate-600">Applicant Name Field</Label>
-                              <Input
-                                value={formData.contract_settings?.applicant_name_field || ""}
-                                onChange={(e) => setFormData({
+                              <Label className="text-xs text-slate-600">Source DD Form</Label>
+                              <Select
+                                value={formData.contract_settings?.source_dd_form_id || "_none"}
+                                onValueChange={(value) => setFormData({
                                   ...formData,
                                   contract_settings: {
                                     ...formData.contract_settings,
-                                    applicant_name_field: e.target.value || null
+                                    source_dd_form_id: value === "_none" ? null : value,
+                                    applicant_name_field: null,
+                                    applicant_email_field: null
                                   }
                                 })}
-                                placeholder="e.g., full_name or first_name"
-                                data-testid="input-applicant-name-field"
-                                className="text-xs"
-                              />
+                              >
+                                <SelectTrigger className="text-xs" data-testid="select-source-dd-form">
+                                  <SelectValue placeholder="Select DD form..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="_none">-- None --</SelectItem>
+                                  {ddForms.map(form => (
+                                    <SelectItem key={form.id} value={form.id}>
+                                      {form.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-slate-600">Applicant Email Field</Label>
-                              <Input
-                                value={formData.contract_settings?.applicant_email_field || ""}
-                                onChange={(e) => setFormData({
-                                  ...formData,
-                                  contract_settings: {
-                                    ...formData.contract_settings,
-                                    applicant_email_field: e.target.value || null
-                                  }
-                                })}
-                                placeholder="e.g., email or contact_email"
-                                data-testid="input-applicant-email-field"
-                                className="text-xs"
-                              />
-                            </div>
+                            
+                            {formData.contract_settings?.source_dd_form_id && sourceFormFields.length > 0 && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Applicant Name Field</Label>
+                                  <Select
+                                    value={formData.contract_settings?.applicant_name_field || "_none"}
+                                    onValueChange={(value) => setFormData({
+                                      ...formData,
+                                      contract_settings: {
+                                        ...formData.contract_settings,
+                                        applicant_name_field: value === "_none" ? null : value
+                                      }
+                                    })}
+                                  >
+                                    <SelectTrigger className="text-xs" data-testid="select-applicant-name-field">
+                                      <SelectValue placeholder="Select field..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="_none">-- None --</SelectItem>
+                                      {sourceFormFields.filter(f => f.type !== 'instructions').map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label || field.id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Applicant Email Field</Label>
+                                  <Select
+                                    value={formData.contract_settings?.applicant_email_field || "_none"}
+                                    onValueChange={(value) => setFormData({
+                                      ...formData,
+                                      contract_settings: {
+                                        ...formData.contract_settings,
+                                        applicant_email_field: value === "_none" ? null : value
+                                      }
+                                    })}
+                                  >
+                                    <SelectTrigger className="text-xs" data-testid="select-applicant-email-field">
+                                      <SelectValue placeholder="Select field..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="_none">-- None --</SelectItem>
+                                      {sourceFormFields.filter(f => f.type === 'email' || f.type === 'text').map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label || field.id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {formData.contract_settings?.source_dd_form_id && sourceFormFields.length === 0 && (
+                              <p className="text-xs text-amber-600 dark:text-amber-400">
+                                Selected form has no fields. Please add fields to the DD form first.
+                              </p>
+                            )}
                           </div>
                         </div>
                         
