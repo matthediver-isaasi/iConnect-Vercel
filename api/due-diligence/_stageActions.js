@@ -1580,9 +1580,18 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
 }
 
 export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+  console.log('[DD Stage Actions] executeStageActions called:', {
+    stageId,
+    ddSubmissionId: ddSubmission?.id,
+    formSubmissionId: ddSubmission?.form_submission_id,
+    tenantId,
+    triggeredBy
+  });
+  
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
   
   if (!formId) {
+    console.log('[DD Stage Actions] No formId in submission, looking up from form_submission table');
     const { data: formSub } = await supabase
       .from('form_submission')
       .select('form_id')
@@ -1591,22 +1600,41 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     
     if (formSub) {
       ddSubmission.form_id = formSub.form_id;
+      console.log('[DD Stage Actions] Found form_id:', formSub.form_id);
+    } else {
+      console.log('[DD Stage Actions] Could not find form_id for submission:', ddSubmission.form_submission_id);
     }
   }
 
-  const { data: ddConfig } = await supabase
+  const effectiveFormId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
+  console.log('[DD Stage Actions] Querying DD config for form_id:', effectiveFormId, 'tenant_id:', tenantId);
+  
+  const { data: ddConfig, error: configError } = await supabase
     .from('form_due_diligence_config')
     .select('workflow_stages')
-    .eq('form_id', ddSubmission.form_submission?.form_id || ddSubmission.form_id)
+    .eq('form_id', effectiveFormId)
     .eq('tenant_id', tenantId)
     .single();
 
+  if (configError) {
+    console.error('[DD Stage Actions] Error fetching DD config:', configError);
+  }
+
   if (!ddConfig) {
+    console.log('[DD Stage Actions] No DD config found, returning empty results');
     return { stage_actions_results: [] };
   }
+  
+  console.log('[DD Stage Actions] Found DD config with', ddConfig.workflow_stages?.length || 0, 'stages');
 
   const workflowStages = ddConfig.workflow_stages || [];
   const stage = workflowStages.find(s => s.id === stageId);
+  
+  if (!stage) {
+    console.log('[DD Stage Actions] Stage not found:', stageId, 'available stages:', workflowStages.map(s => s.id));
+  } else {
+    console.log('[DD Stage Actions] Found stage:', stageId);
+  }
   
   const results = [];
 
@@ -1614,13 +1642,18 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   if (stage) {
     // Support both "actions" and "stage_actions" keys for compatibility
     const stageActions = stage.actions || stage.stage_actions;
-    if (stageActions?.send_contracts && stageActions.send_contracts.length > 0) {
+    const sendContracts = stageActions?.send_contracts || [];
+    console.log('[DD Stage Actions] Stage has', sendContracts.length, 'send_contracts actions:', sendContracts);
+    
+    if (sendContracts.length > 0) {
+      console.log('[DD Stage Actions] Executing contract sending for contact fields:', sendContracts);
       const contractResults = await executeContractSendingActions(
-        stageActions.send_contracts,
+        sendContracts,
         ddSubmission,
         tenantId,
         triggeredBy
       );
+      console.log('[DD Stage Actions] Contract sending results:', contractResults.length, 'contracts processed');
       results.push(...contractResults);
     }
   }
@@ -1666,5 +1699,6 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   );
   results.push(...fieldMappingResults);
 
+  console.log('[DD Stage Actions] Completed all stage actions, total results:', results.length);
   return { stage_actions_results: results };
 }

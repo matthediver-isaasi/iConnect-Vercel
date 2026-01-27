@@ -463,15 +463,22 @@ export default async function handler(req, res) {
         } else {
           console.log('[Public Form Submission] Due diligence record created:', newDDRecord.id);
           
-          // Execute stage actions for the initial stage (e.g., send contracts)
-          const hasStageActions = initialStage && (initialStage.actions || initialStage.stage_actions);
-          if (hasStageActions) {
+          // Execute stage actions for the initial stage (e.g., send contracts, meeting requests, emails)
+          // Always attempt to execute when there's an initial stage - the function handles its own config lookup
+          // and checks for both inline actions (send_contracts) and database-stored actions (stage_email_action, etc.)
+          if (initialStage) {
+            const hasInlineActions = initialStage.actions || initialStage.stage_actions;
+            console.log('[Public Form Submission] Initial stage:', initialStage.id, 
+              'has inline actions:', !!hasInlineActions,
+              'send_contracts:', JSON.stringify(initialStage.stage_actions?.send_contracts || initialStage.actions?.send_contracts || []));
+            
             try {
               const ddSubmissionData = {
                 ...newDDRecord,
                 form_submission_id: submission.id,
                 form_id: form.id
               };
+              console.log('[Public Form Submission] Executing stage actions for initial stage:', initialStatus);
               const actionResults = await executeStageActions(
                 initialStatus,
                 ddSubmissionData,
@@ -480,12 +487,16 @@ export default async function handler(req, res) {
               );
               
               if (actionResults?.stage_actions_results?.length > 0) {
-                console.log('[Public Form Submission] Initial stage actions executed:', actionResults.stage_actions_results);
+                console.log('[Public Form Submission] Initial stage actions executed:', JSON.stringify(actionResults.stage_actions_results));
+              } else {
+                console.log('[Public Form Submission] No stage action results returned');
               }
             } catch (actionError) {
               console.error('[Public Form Submission] Error executing initial stage actions:', actionError);
               // Don't fail the submission for action errors
             }
+          } else {
+            console.log('[Public Form Submission] No initial stage found, skipping stage actions');
           }
         }
       } catch (ddError) {
