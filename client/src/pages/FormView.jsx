@@ -873,63 +873,93 @@ export default function FormViewPage() {
   });
 
   // Helper to evaluate a single condition
-  const evaluateSingleCondition = (triggerValue, operator, value) => {
+  const evaluateSingleCondition = (triggerValue, operator, value, debugInfo = {}) => {
+    let result;
     switch (operator) {
       case 'equals':
         if (Array.isArray(triggerValue)) {
-          return triggerValue.includes(value);
+          result = triggerValue.includes(value);
+        } else {
+          result = triggerValue === value;
         }
-        return triggerValue === value;
+        break;
       case 'not_equals':
         if (Array.isArray(triggerValue)) {
-          return !triggerValue.includes(value);
+          result = !triggerValue.includes(value);
+        } else {
+          result = triggerValue !== value;
         }
-        return triggerValue !== value;
+        break;
       case 'contains':
         if (Array.isArray(triggerValue)) {
-          return triggerValue.includes(value);
+          result = triggerValue.includes(value);
         } else if (typeof triggerValue === 'string') {
-          return triggerValue.includes(value);
+          result = triggerValue.includes(value);
+        } else {
+          result = false;
         }
-        return false;
+        break;
       case 'not_empty':
-        return triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
+        result = triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
           (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+        break;
       case 'is_empty':
-        return triggerValue === undefined || triggerValue === null || triggerValue === '' ||
+        result = triggerValue === undefined || triggerValue === null || triggerValue === '' ||
           (Array.isArray(triggerValue) && triggerValue.length === 0);
+        break;
       default:
-        return false;
+        result = false;
     }
+    console.log(`[SetValue Debug] Condition: triggerValue="${triggerValue}" (type: ${typeof triggerValue}) ${operator} "${value}" (type: ${typeof value}) => ${result}`, debugInfo);
+    return result;
   };
 
   // Helper to evaluate all conditions in a rule with AND/OR logic
   const evaluateRuleConditions = (rule, formValues) => {
+    console.log(`[SetValue Debug] Evaluating rule: ${rule.id}`, { rule, formValues });
+    
     // Check for legacy format FIRST - single trigger_field_id takes precedence for backward compat
     // This handles forms saved before the conditions array was introduced
     if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
       const triggerValue = formValues[rule.trigger_field_id];
-      return evaluateSingleCondition(triggerValue, rule.operator, rule.value);
+      const result = evaluateSingleCondition(triggerValue, rule.operator, rule.value, { ruleId: rule.id, format: 'legacy' });
+      console.log(`[SetValue Debug] Rule ${rule.id} (legacy format) => ${result}`);
+      return result;
     }
     
     // New format: rule has conditions array
     if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
       const logic = rule.logic || 'and';
-      const results = rule.conditions.map(condition => {
-        if (!condition.field_id) return false;
+      console.log(`[SetValue Debug] Rule ${rule.id}: Evaluating ${rule.conditions.length} conditions with ${logic.toUpperCase()} logic`);
+      
+      const results = rule.conditions.map((condition, idx) => {
+        if (!condition.field_id) {
+          console.log(`[SetValue Debug] Rule ${rule.id}, Condition ${idx}: No field_id, returning false`);
+          return false;
+        }
         const triggerValue = formValues[condition.field_id];
-        return evaluateSingleCondition(triggerValue, condition.operator, condition.value);
+        return evaluateSingleCondition(triggerValue, condition.operator, condition.value, { 
+          ruleId: rule.id, 
+          conditionIdx: idx, 
+          fieldId: condition.field_id,
+          format: 'new'
+        });
       });
       
       // AND logic: all conditions must be true
       // OR logic: at least one condition must be true
+      let finalResult;
       if (logic === 'and') {
-        return results.every(r => r === true);
+        finalResult = results.every(r => r === true);
       } else {
-        return results.some(r => r === true);
+        finalResult = results.some(r => r === true);
       }
+      
+      console.log(`[SetValue Debug] Rule ${rule.id}: ${logic.toUpperCase()} of [${results.join(', ')}] => ${finalResult}`);
+      return finalResult;
     }
     
+    console.log(`[SetValue Debug] Rule ${rule.id}: No conditions to evaluate, returning false`);
     return false;
   };
 
@@ -1420,6 +1450,10 @@ export default function FormViewPage() {
   useEffect(() => {
     if (!form?.visibility_rules || form.visibility_rules.length === 0) return;
     
+    console.log('[SetValue Debug] === Processing set_value rules ===');
+    console.log('[SetValue Debug] Current formValues:', formValues);
+    console.log('[SetValue Debug] Previously active actions:', Array.from(activeSetValueActionsRef.current));
+    
     const prefillEntity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
     const updates = {};
     
@@ -1430,7 +1464,10 @@ export default function FormViewPage() {
     // First pass: identify all active actions and build field->action mapping
     for (const rule of form.visibility_rules) {
       // Skip rules without conditions (new format) or trigger_field_id (legacy format)
-      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
+      if (!rule.conditions?.length && !rule.trigger_field_id) {
+        console.log(`[SetValue Debug] Rule ${rule.id}: Skipped (no conditions or trigger_field_id)`);
+        continue;
+      }
       
       // Evaluate conditions using AND/OR logic for new format, or single condition for legacy
       const conditionMet = evaluateRuleConditions(rule, formValues);
@@ -1440,6 +1477,7 @@ export default function FormViewPage() {
         for (const action of rule.actions) {
           if (action.action_type === 'set_value' && action.target_field_id) {
             const actionKey = action.id;
+            console.log(`[SetValue Debug] Action ${actionKey}: type=set_value, target=${action.target_field_id}, conditionMet=${conditionMet}, set_value="${action.set_value}"`);
             
             if (conditionMet) {
               nowActiveActions.add(actionKey);
@@ -1452,23 +1490,33 @@ export default function FormViewPage() {
               
               // If this action wasn't active before, save original value and apply
               if (!activeSetValueActionsRef.current.has(actionKey)) {
+                console.log(`[SetValue Debug] Action ${actionKey}: NEW activation - will apply value`);
                 // Save original value if we haven't already
                 if (!(action.target_field_id in originalValuesRef.current)) {
                   originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
+                  console.log(`[SetValue Debug] Action ${actionKey}: Saved original value "${originalValuesRef.current[action.target_field_id]}"`);
                 }
                 
                 const valueToSet = computeSetValue(action, prefillEntity);
+                console.log(`[SetValue Debug] Action ${actionKey}: computeSetValue returned "${valueToSet}" (type: ${typeof valueToSet})`);
                 if (valueToSet !== null && valueToSet !== undefined) {
                   updates[action.target_field_id] = valueToSet;
+                  console.log(`[SetValue Debug] Action ${actionKey}: Added to updates: ${action.target_field_id} = "${valueToSet}"`);
+                } else {
+                  console.log(`[SetValue Debug] Action ${actionKey}: Value is null/undefined, NOT adding to updates`);
                 }
+              } else {
+                console.log(`[SetValue Debug] Action ${actionKey}: Already active, checking source type...`);
               }
               // For field-source actions that are already active, continuously sync with source field
-              else if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id) {
+              if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id && activeSetValueActionsRef.current.has(actionKey)) {
                 const sourceValue = formValues[action.set_value_field_id];
                 const currentTargetValue = formValues[action.target_field_id];
+                console.log(`[SetValue Debug] Action ${actionKey}: Field source sync - source="${sourceValue}", current="${currentTargetValue}"`);
                 // Only update if source changed and target doesn't match
                 if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
                   updates[action.target_field_id] = sourceValue;
+                  console.log(`[SetValue Debug] Action ${actionKey}: Syncing field value to "${sourceValue}"`);
                 }
               }
               // For formula-source actions that are already active, continuously recalculate
@@ -1532,8 +1580,10 @@ export default function FormViewPage() {
     
     // Find actions that were active but are now inactive - need to revert
     // But only revert if NO other active action targets the same field
+    console.log('[SetValue Debug] Checking for actions to revert...');
     for (const actionKey of activeSetValueActionsRef.current) {
       if (!nowActiveActions.has(actionKey)) {
+        console.log(`[SetValue Debug] Action ${actionKey}: Was active, now inactive - checking if should revert`);
         // Find the target field for this action
         for (const rule of form.visibility_rules) {
           // Check new multi-action format
@@ -1546,9 +1596,12 @@ export default function FormViewPage() {
                 if (!activeActionsForField || activeActionsForField.size === 0) {
                   // No active actions target this field, safe to revert
                   if (targetFieldId in originalValuesRef.current) {
+                    console.log(`[SetValue Debug] Action ${actionKey}: REVERTING ${targetFieldId} to original "${originalValuesRef.current[targetFieldId]}"`);
                     updates[targetFieldId] = originalValuesRef.current[targetFieldId];
                     delete originalValuesRef.current[targetFieldId];
                   }
+                } else {
+                  console.log(`[SetValue Debug] Action ${actionKey}: NOT reverting, other active actions target this field:`, Array.from(activeActionsForField));
                 }
               }
             }
@@ -1571,11 +1624,15 @@ export default function FormViewPage() {
     }
     
     // Update the active actions set
+    console.log('[SetValue Debug] Now active actions:', Array.from(nowActiveActions));
     activeSetValueActionsRef.current = nowActiveActions;
     
     // Apply all updates at once to avoid multiple re-renders
     if (Object.keys(updates).length > 0) {
+      console.log('[SetValue Debug] === APPLYING UPDATES ===', updates);
       setFormValues(prev => ({ ...prev, ...updates }));
+    } else {
+      console.log('[SetValue Debug] No updates to apply');
     }
     
     // Process set_role and clear_role actions with transition detection
