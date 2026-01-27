@@ -71,14 +71,25 @@ export default async function handler(req, res) {
     const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
 
     // Get the member's handle via tenant_membership - the booking API looks up by member.handle
+    // Note: We do two queries because there's no FK relationship for PostgREST join
     const { data: agentMembership } = await supabase
       .from('tenant_membership')
-      .select('member:member_id(id, handle, first_name, last_name)')
+      .select('member_id')
       .eq('identity_id', meetingRequest.agent_identity_id)
       .eq('tenant_id', tenantId)
       .single();
 
-    const agentHandle = agentMembership?.member?.handle;
+    if (!agentMembership?.member_id) {
+      return res.status(400).json({ error: 'Agent has no membership configured' });
+    }
+
+    const { data: agentMember } = await supabase
+      .from('member')
+      .select('id, handle, first_name, last_name')
+      .eq('id', agentMembership.member_id)
+      .single();
+
+    const agentHandle = agentMember?.handle;
     if (!agentHandle) {
       return res.status(400).json({ error: 'Agent has no booking handle configured' });
     }
