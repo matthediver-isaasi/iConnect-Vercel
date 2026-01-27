@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer, Info, User, FileText } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer, Info, User, FileText, PenLine } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -825,39 +825,24 @@ function ScheduleTab({ formSubmissionId }) {
                 </div>
               )}
               
-              {event.recipient?.title && (
+              {(event.recipient?.title || event.contact_title) && (
                 <div className="flex items-center gap-2 text-muted-foreground">
-                  <User className="w-3.5 h-3.5" />
-                  <span>{event.recipient.title}</span>
+                  <PenLine className="w-3.5 h-3.5" />
+                  <span>{event.recipient?.title || event.contact_title}</span>
                 </div>
               )}
               
-              {event.recipient && (event.recipient.name || event.recipient.email) && (
-                <>
-                  {event.recipient.name && !event.recipient.title && (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <User className="w-3.5 h-3.5" />
-                      <span>{event.recipient.name}</span>
-                    </div>
-                  )}
-                  {event.recipient.name && event.recipient.title && (
-                    <div className="flex items-center gap-2 text-muted-foreground pl-5">
-                      <span>{event.recipient.name}</span>
-                    </div>
-                  )}
-                  {event.recipient.email && (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Mail className="w-3.5 h-3.5" />
-                      <span>{event.recipient.email}</span>
-                    </div>
-                  )}
-                </>
-              )}
-              
-              {event.contact_title && !event.recipient && (
+              {event.recipient?.name && (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <User className="w-3.5 h-3.5" />
-                  <span>{event.contact_title}</span>
+                  <span>{event.recipient.name}</span>
+                </div>
+              )}
+              
+              {event.recipient?.email && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{event.recipient.email}</span>
                 </div>
               )}
               
