@@ -62,6 +62,7 @@ export default function PublicBooking() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const meetingParam = searchParams.get('meeting');
+  const ddRequestId = searchParams.get('dd_request');
   
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedSlot, setSelectedSlot] = useState(null);
@@ -195,7 +196,8 @@ export default function PublicBooking() {
       attendee_timezone: visitorTimezone,
       starts_at: selectedSlot.start,
       duration_minutes: effectiveDuration,
-      meeting_template_id: selectedMeetingType?.id || null
+      meeting_template_id: selectedMeetingType?.id || null,
+      dd_request_id: ddRequestId || null
     });
   };
 
