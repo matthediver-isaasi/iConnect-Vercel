@@ -219,7 +219,9 @@ export default async function handler(req, res) {
           .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+          .replace(/\{\{sign_url\}\}/gi, signUrl)
           .replace(/\{\{signing_url\}\}/gi, signUrl)
+          .replace(/\{\{sign_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`);
 
         emailBody = (emailTemplate.body || emailBody)
@@ -228,7 +230,9 @@ export default async function handler(req, res) {
           .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+          .replace(/\{\{sign_url\}\}/gi, signUrl)
           .replace(/\{\{signing_url\}\}/gi, signUrl)
+          .replace(/\{\{sign_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`);
       }
     }

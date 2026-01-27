@@ -202,7 +202,9 @@ export default async function handler(req, res) {
         email: newSigner.email,
         contract_name: contractForm.name,
         organization_name: orgData?.name || '',
+        sign_url: signingUrl,
         signing_url: signingUrl,
+        sign_link: `<a href="${signingUrl}">Click here to sign</a>`,
         signing_link: `<a href="${signingUrl}">Click here to sign</a>`,
         tenant_name: tenant?.name || ''
       };

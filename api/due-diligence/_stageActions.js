@@ -297,7 +297,9 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+          .replace(/\{\{sign_url\}\}/gi, signingUrl)
           .replace(/\{\{signing_url\}\}/gi, signingUrl)
+          .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
 
         body = body
@@ -306,7 +308,9 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+          .replace(/\{\{sign_url\}\}/gi, signingUrl)
           .replace(/\{\{signing_url\}\}/gi, signingUrl)
+          .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
 
         try {

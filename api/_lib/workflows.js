@@ -596,14 +596,18 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
               .replace(/\{\{signer_name\}\}/gi, signer.name)
               .replace(/\{\{signer_email\}\}/gi, signer.email)
               .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+              .replace(/\{\{sign_url\}\}/gi, signingUrl)
               .replace(/\{\{signing_url\}\}/gi, signingUrl)
+              .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
               .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
             
             body = body
               .replace(/\{\{signer_name\}\}/gi, signer.name)
               .replace(/\{\{signer_email\}\}/gi, signer.email)
               .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+              .replace(/\{\{sign_url\}\}/gi, signingUrl)
               .replace(/\{\{signing_url\}\}/gi, signingUrl)
+              .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
               .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
             
             body = replacePlaceholders(body, entityType, entityData);

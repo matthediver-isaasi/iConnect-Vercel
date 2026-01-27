@@ -244,7 +244,8 @@ export default async function handler(req, res) {
                   .replace(/{{signer_last_name}}/g, signer.last_name || '')
                   .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
                   .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
-                  .replace(/{{sign_url}}/g, signingUrl);
+                  .replace(/{{sign_url}}/g, signingUrl)
+                  .replace(/{{signing_url}}/g, signingUrl);
               }
             }
 
