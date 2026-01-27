@@ -3,6 +3,22 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import crypto from 'crypto';
 
+// Helper to escape regex special characters
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Replace [[placeholder]] style placeholders with actual values
+function replaceDoubleBracketPlaceholders(text, placeholders) {
+  if (!text) return text;
+  let result = text;
+  for (const [key, value] of Object.entries(placeholders)) {
+    const placeholder = `[[${key}]]`;
+    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
+  }
+  return result;
+}
+
 // Helper to fetch email footer for preview (tenant-scoped)
 async function getEmailFooterForPreview(tenantId) {
   try {
@@ -310,6 +326,36 @@ export default async function handler(req, res) {
       emailBody = emailBody.replace(regex, value || '');
       emailSubject = emailSubject.replace(regex, value || '');
     }
+
+    // Also try to get organization from form_submission if not found via instance.organization_id
+    let organizationName = placeholders.organization_name;
+    if (!organizationName && instance.form_submission_id) {
+      const { data: submission } = await supabase
+        .from('form_submission')
+        .select('organization_id, created_organization_id')
+        .eq('id', instance.form_submission_id)
+        .single();
+      
+      const orgId = submission?.organization_id || submission?.created_organization_id;
+      if (orgId) {
+        const { data: org } = await supabase
+          .from('organization')
+          .select('id, name')
+          .eq('id', orgId)
+          .single();
+        organizationName = org?.name || '';
+      }
+    }
+
+    // Replace [[...]] style placeholders (e.g., [[organization.name]])
+    const doubleBracketPlaceholders = {
+      'organization.name': organizationName || '',
+      'tenant.name': tenant?.name || '',
+      'applicant.name': applicantName,
+      'contract.name': form.name
+    };
+    emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+    emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
 
     const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
     const senderName = tenant?.sender_name || tenant?.name || 'Contracts';

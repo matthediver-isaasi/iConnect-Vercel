@@ -2,6 +2,44 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import crypto from 'crypto';
 
+// Helper to escape regex special characters
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Replace [[placeholder]] style placeholders with actual values
+function replaceDoubleBracketPlaceholders(text, placeholders) {
+  if (!text) return text;
+  let result = text;
+  for (const [key, value] of Object.entries(placeholders)) {
+    const placeholder = `[[${key}]]`;
+    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
+  }
+  return result;
+}
+
+// Fetch organization name from a contract instance
+async function getOrganizationName(formSubmissionId) {
+  if (!formSubmissionId) return '';
+  
+  const { data: submission } = await supabase
+    .from('form_submission')
+    .select('organization_id, created_organization_id')
+    .eq('id', formSubmissionId)
+    .single();
+  
+  const orgId = submission?.organization_id || submission?.created_organization_id;
+  if (!orgId) return '';
+  
+  const { data: org } = await supabase
+    .from('organization')
+    .select('id, name')
+    .eq('id', orgId)
+    .single();
+  
+  return org?.name || '';
+}
+
 function generateToken(contractId, round, secret) {
   const data = `${contractId}:${round}`;
   return crypto.createHmac('sha256', secret).update(data).digest('hex');
@@ -175,6 +213,7 @@ export default async function handler(req, res) {
           timeout_days: timeoutDays.toString()
         };
 
+        // Try to get organization name from instance.organization_id first
         if (instance.organization_id) {
           const { data: org } = await supabase
             .from('organization')
@@ -182,6 +221,11 @@ export default async function handler(req, res) {
             .eq('id', instance.organization_id)
             .single();
           placeholders.organization_name = org?.name || '';
+        }
+        
+        // Fallback: try to get organization from form_submission if not found above
+        if (!placeholders.organization_name && instance.form_submission_id) {
+          placeholders.organization_name = await getOrganizationName(instance.form_submission_id);
         }
 
         let emailBody = emailTemplate.body || '';
@@ -192,6 +236,16 @@ export default async function handler(req, res) {
           emailBody = emailBody.replace(regex, value || '');
           emailSubject = emailSubject.replace(regex, value || '');
         }
+
+        // Replace [[...]] style placeholders (e.g., [[organization.name]])
+        const doubleBracketPlaceholders = {
+          'organization.name': placeholders.organization_name || '',
+          'tenant.name': tenant?.name || '',
+          'applicant.name': applicantName,
+          'contract.name': form.name
+        };
+        emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+        emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
 
         const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
         const senderName = tenant?.sender_name || tenant?.name || 'Contracts';

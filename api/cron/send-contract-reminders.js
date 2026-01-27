@@ -1,6 +1,44 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 
+// Helper to escape regex special characters
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Replace [[placeholder]] style placeholders with actual values
+function replaceDoubleBracketPlaceholders(text, placeholders) {
+  if (!text) return text;
+  let result = text;
+  for (const [key, value] of Object.entries(placeholders)) {
+    const placeholder = `[[${key}]]`;
+    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
+  }
+  return result;
+}
+
+// Fetch organization name from a contract instance
+async function getOrganizationName(formSubmissionId) {
+  if (!formSubmissionId) return '';
+  
+  const { data: submission } = await supabase
+    .from('form_submission')
+    .select('organization_id, created_organization_id')
+    .eq('id', formSubmissionId)
+    .single();
+  
+  const orgId = submission?.organization_id || submission?.created_organization_id;
+  if (!orgId) return '';
+  
+  const { data: org } = await supabase
+    .from('organization')
+    .select('id, name')
+    .eq('id', orgId)
+    .single();
+  
+  return org?.name || '';
+}
+
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
@@ -210,11 +248,26 @@ export default async function handler(req, res) {
               }
             }
 
+            // Fetch organization name for [[organization.name]] placeholder
+            const organizationName = await getOrganizationName(instance.form_submission_id);
+
             const { data: tenant } = await supabase
               .from('tenant')
               .select('*')
               .eq('id', form.tenant_id)
               .single();
+
+            // Replace [[...]] style placeholders (e.g., [[organization.name]])
+            const doubleBracketPlaceholders = {
+              'organization.name': organizationName,
+              'tenant.name': tenant?.name || '',
+              'signer.name': signerName,
+              'signer.first_name': signer.first_name || '',
+              'signer.last_name': signer.last_name || '',
+              'signer.email': signer.email || ''
+            };
+            emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+            emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
 
             try {
               await sendEmail({

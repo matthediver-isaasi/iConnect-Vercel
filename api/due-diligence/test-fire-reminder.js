@@ -2,6 +2,22 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
+// Helper to escape regex special characters
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Replace [[placeholder]] style placeholders with actual values
+function replaceDoubleBracketPlaceholders(text, placeholders) {
+  if (!text) return text;
+  let result = text;
+  for (const [key, value] of Object.entries(placeholders)) {
+    const placeholder = `[[${key}]]`;
+    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
+  }
+  return result;
+}
+
 // Helper to fetch email footer for preview (tenant-scoped)
 async function getEmailFooterForPreview(tenantId) {
   try {
@@ -292,6 +308,37 @@ export default async function handler(req, res) {
       .eq('id', tenantId)
       .single();
 
+    // Fetch organization data for [[organization.name]] placeholder
+    // Try instance.organization_id first, then fallback to form_submission
+    let organizationName = '';
+    if (instance.organization_id) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('id, name')
+        .eq('id', instance.organization_id)
+        .single();
+      organizationName = org?.name || '';
+    }
+    
+    // Fallback: try to get organization from form_submission
+    if (!organizationName && instance.form_submission_id) {
+      const { data: submission } = await supabase
+        .from('form_submission')
+        .select('organization_id, created_organization_id')
+        .eq('id', instance.form_submission_id)
+        .single();
+      
+      const orgId = submission?.organization_id || submission?.created_organization_id;
+      if (orgId) {
+        const { data: org } = await supabase
+          .from('organization')
+          .select('id, name')
+          .eq('id', orgId)
+          .single();
+        organizationName = org?.name || '';
+      }
+    }
+
     const tenantSlug = tenant?.slug || '';
     const appUrl = process.env.APP_URL || process.env.VERCEL_URL || 'https://iconn.app';
     const signingUrl = tenantSlug 
@@ -301,6 +348,16 @@ export default async function handler(req, res) {
     const signerName = signer.first_name 
       ? `${signer.first_name} ${signer.last_name || ''}`.trim()
       : signer.name || 'Signer';
+    
+    // Build [[...]] style placeholder values
+    const doubleBracketPlaceholders = {
+      'organization.name': organizationName,
+      'tenant.name': tenant?.name || '',
+      'signer.name': signerName,
+      'signer.first_name': signer.first_name || '',
+      'signer.last_name': signer.last_name || '',
+      'signer.email': signer.email || ''
+    };
 
     let emailSubject = `Reminder: Please sign ${form.name}`;
     let emailBody = `
@@ -338,6 +395,10 @@ export default async function handler(req, res) {
           .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
           .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
           .replace(/{{sign_url}}/g, signingUrl);
+        
+        // Replace [[...]] style placeholders (e.g., [[organization.name]])
+        emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+        emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
       }
     }
 
