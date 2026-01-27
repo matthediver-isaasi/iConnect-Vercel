@@ -682,21 +682,40 @@ function ScheduleTab({ formSubmissionId }) {
   const handleTestFire = (event, index) => {
     setTestingEventIndex(index);
     
+    // Validate required fields before making the request
+    if (!event.contract?.id) {
+      toast.error('Contract instance ID not found for this event');
+      setTestingEventIndex(null);
+      return;
+    }
+    
+    console.log('[handleTestFire] Event data:', {
+      type: event.type,
+      contractId: event.contract?.id,
+      reminderId: event.reminder_config?.id,
+      signerEmail: event.recipient?.email
+    });
+    
     if (event.type === 'contract_timeout') {
       testFireMutation.mutate({
         eventType: 'contract_timeout',
         payload: {
-          contractInstanceId: event.contract?.id,
+          contractInstanceId: event.contract.id,
           dryRun: true
         }
       });
     } else if (event.type === 'contract_reminder') {
+      if (!event.recipient?.email) {
+        toast.error('Signer email not found for this reminder');
+        setTestingEventIndex(null);
+        return;
+      }
       testFireMutation.mutate({
         eventType: 'contract_reminder',
         payload: {
-          contractInstanceId: event.contract?.id,
+          contractInstanceId: event.contract.id,
           reminderId: event.reminder_config?.id || event.reminder_id,
-          signerEmail: event.recipient?.email,
+          signerEmail: event.recipient.email,
           dryRun: true
         }
       });

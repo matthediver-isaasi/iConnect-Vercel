@@ -41,6 +41,9 @@ export default async function handler(req, res) {
       error: null
     };
 
+    // Log incoming parameters for debugging
+    console.log('[test-fire-reminder] Request params:', { contractInstanceId, reminderId, signerEmail, tenantId });
+
     const { data: instance, error: instanceError } = await supabase
       .from('contract_instance')
       .select(`
@@ -54,18 +57,21 @@ export default async function handler(req, res) {
         )
       `)
       .eq('id', contractInstanceId)
+      .eq('tenant_id', tenantId)
       .single();
 
     if (instanceError || !instance) {
-      result.checks.push({ check: 'Contract instance exists', passed: false, reason: 'Not found' });
+      console.log('[test-fire-reminder] Contract instance lookup failed:', { contractInstanceId, instanceError });
+      result.checks.push({ 
+        check: 'Contract instance exists', 
+        passed: false, 
+        reason: instanceError?.message || `Not found (ID: ${contractInstanceId})`
+      });
       return res.status(404).json(result);
     }
-    result.checks.push({ check: 'Contract instance exists', passed: true });
+    result.checks.push({ check: 'Contract instance exists', passed: true, details: { instanceId: instance.id } });
 
-    if (instance.form?.tenant_id !== tenantId) {
-      result.checks.push({ check: 'Tenant authorization', passed: false, reason: 'Instance belongs to different tenant' });
-      return res.status(403).json(result);
-    }
+    // Tenant is already verified by the query filter above
     result.checks.push({ check: 'Tenant authorization', passed: true });
 
     const form = instance.form;
