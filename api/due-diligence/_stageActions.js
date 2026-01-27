@@ -1,6 +1,35 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 
+// Helper to escape regex special characters
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Replace [[placeholder]] style placeholders with actual values
+function replaceDoubleBracketPlaceholders(text, placeholders) {
+  if (!text) return text;
+  let result = text;
+  for (const [key, value] of Object.entries(placeholders)) {
+    const placeholder = `[[${key}]]`;
+    result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value || '');
+  }
+  return result;
+}
+
+// Fetch organization name from organization_id
+async function getOrganizationName(organizationId) {
+  if (!organizationId) return '';
+  
+  const { data: org } = await supabase
+    .from('organization')
+    .select('id, name')
+    .eq('id', organizationId)
+    .single();
+  
+  return org?.name || '';
+}
+
 async function addHistoryLogEntry(ddSubmissionId, tenantId, eventType, userEmail, details) {
   try {
     const { data: submission } = await supabase
@@ -70,7 +99,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
     
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id')
+      .select('form_id, submission_data, organization_id, created_organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -276,6 +305,19 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       let failedCount = 0;
       const sentSignerEmails = [];
 
+      // Fetch organization name for [[organization.name]] placeholder
+      // Use organization_id OR created_organization_id (for forms where org is created during submission)
+      const resolvedOrgId = formSubmission.organization_id || formSubmission.created_organization_id;
+      const organizationName = await getOrganizationName(resolvedOrgId);
+      
+      // Fetch tenant name for [[tenant.name]] placeholder
+      const { data: tenantData } = await supabase
+        .from('tenant')
+        .select('name')
+        .eq('id', tenantId)
+        .single();
+      const tenantName = tenantData?.name || '';
+
       for (const signer of signers) {
         if (!signer.email) {
           failedCount++;
@@ -291,6 +333,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         const signerLastName = signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '';
         const signerFullName = signer.name || [signerFirstName, signerLastName].filter(Boolean).join(' ') || '';
 
+        // Replace {{...}} style placeholders
         subject = subject
           .replace(/\{\{signer_name\}\}/gi, signerFullName)
           .replace(/\{\{signer_first_name\}\}/gi, signerFirstName)
@@ -312,6 +355,19 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .replace(/\{\{signing_url\}\}/gi, signingUrl)
           .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
+
+        // Replace [[...]] style placeholders (e.g., [[organization.name]], [[tenant.name]])
+        const doubleBracketPlaceholders = {
+          'organization.name': organizationName,
+          'tenant.name': tenantName,
+          'signer.name': signerFullName,
+          'signer.first_name': signerFirstName,
+          'signer.last_name': signerLastName,
+          'signer.email': signer.email || '',
+          'contract.name': contractForm.name || ''
+        };
+        subject = replaceDoubleBracketPlaceholders(subject, doubleBracketPlaceholders);
+        body = replaceDoubleBracketPlaceholders(body, doubleBracketPlaceholders);
 
         try {
           await sendEmail({
@@ -431,7 +487,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     // Get form submission data
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id')
+      .select('form_id, submission_data, organization_id, created_organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -775,7 +831,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     // Get form submission data
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id')
+      .select('form_id, submission_data, organization_id, created_organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -1004,7 +1060,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     // Get form submission data
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id')
+      .select('form_id, submission_data, organization_id, created_organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
