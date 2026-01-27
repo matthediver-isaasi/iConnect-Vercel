@@ -160,19 +160,54 @@ export default async function handler(req, res) {
         }
 
         const submissionData = sourceSubmission.submission_data || {};
-        const applicantNameField = contractSettings.applicant_name_field;
-        const applicantEmailField = contractSettings.applicant_email_field;
+        const sourceFormFields = sourceSubmission?.form?.fields || [];
+        const applicantNameFieldId = contractSettings.applicant_name_field;
+        const applicantEmailFieldId = contractSettings.applicant_email_field;
+        const sourceDDFormId = contractSettings.source_dd_form_id;
 
-        if (!applicantEmailField) {
+        if (!applicantEmailFieldId) {
           console.log(`[cron/send-contract-timeout-notifications] No applicant email field configured for contract form ${form.id}`);
           continue;
         }
 
-        const applicantEmail = submissionData[applicantEmailField];
-        const applicantName = applicantNameField ? submissionData[applicantNameField] : 'Applicant';
+        // Pre-fetch source DD form fields once (if configured) for label-based matching
+        let sourceDDFormFields = null;
+        if (sourceDDFormId) {
+          const { data: sourceDDForm } = await supabase
+            .from('form')
+            .select('fields')
+            .eq('id', sourceDDFormId)
+            .single();
+          sourceDDFormFields = sourceDDForm?.fields || null;
+        }
+        
+        // Helper to find field value - tries label matching first, falls back to direct ID
+        const findFieldValue = (configuredFieldId) => {
+          if (!configuredFieldId) return null;
+          
+          // Try label-based matching if source DD form is configured
+          if (sourceDDFormFields) {
+            const configuredField = sourceDDFormFields.find(f => f.id === configuredFieldId);
+            if (configuredField?.label) {
+              const targetLabel = configuredField.label.toLowerCase().trim();
+              const matchingField = sourceFormFields.find(f => 
+                f.label && f.label.toLowerCase().trim() === targetLabel
+              );
+              if (matchingField && submissionData[matchingField.id] !== undefined) {
+                return submissionData[matchingField.id];
+              }
+            }
+          }
+          
+          // Fallback: direct ID match (backward compatible)
+          return submissionData[configuredFieldId] || null;
+        };
+
+        const applicantEmail = findFieldValue(applicantEmailFieldId);
+        const applicantName = findFieldValue(applicantNameFieldId) || 'Applicant';
 
         if (!applicantEmail) {
-          console.log(`[cron/send-contract-timeout-notifications] No applicant email found in field ${applicantEmailField} for submission ${instance.form_submission_id}`);
+          console.log(`[cron/send-contract-timeout-notifications] No applicant email found in field ${applicantEmailFieldId} for submission ${instance.form_submission_id}`);
           continue;
         }
 

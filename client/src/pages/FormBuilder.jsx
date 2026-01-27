@@ -4505,7 +4505,7 @@ export default function FormBuilderPage() {
                             <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Applicant Field Mapping</span>
                           </div>
                           <p className="text-xs text-blue-600 dark:text-blue-400">
-                            Select the Due Diligence form that triggers this contract, then choose which fields contain the applicant's name and email. These populate placeholders like {'{{first_name}}'}, {'{{applicant_name}}'}.
+                            Select a Due Diligence form and choose which fields contain the applicant's name and email. Fields are matched by label, so this works across multiple DD forms with the same field names. These populate placeholders like {'{{first_name}}'}, {'{{applicant_name}}'}.
                           </p>
                           
                           <div className="space-y-2">

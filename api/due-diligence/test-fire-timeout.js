@@ -294,10 +294,48 @@ export default async function handler(req, res) {
     }
 
     const submissionData = sourceSubmission?.submission_data || {};
-    const applicantEmailField = contractSettings.applicant_email_field;
-    const applicantNameField = contractSettings.applicant_name_field;
-    const applicantEmail = applicantEmailField ? submissionData[applicantEmailField] : null;
-    const applicantName = applicantNameField ? (submissionData[applicantNameField] || 'Applicant') : 'Applicant';
+    const sourceFormFields = sourceSubmission?.form?.fields || [];
+    
+    // Get configured field IDs and source DD form ID for label-based matching
+    const applicantEmailFieldId = contractSettings.applicant_email_field;
+    const applicantNameFieldId = contractSettings.applicant_name_field;
+    const sourceDDFormId = contractSettings.source_dd_form_id;
+    
+    // Pre-fetch source DD form fields once (if configured) for label-based matching
+    let sourceDDFormFields = null;
+    if (sourceDDFormId) {
+      const { data: sourceDDForm } = await supabase
+        .from('form')
+        .select('fields')
+        .eq('id', sourceDDFormId)
+        .single();
+      sourceDDFormFields = sourceDDForm?.fields || null;
+    }
+    
+    // Helper to find field value - tries label matching first, falls back to direct ID
+    const findFieldValue = (configuredFieldId) => {
+      if (!configuredFieldId) return null;
+      
+      // Try label-based matching if source DD form is configured
+      if (sourceDDFormFields) {
+        const configuredField = sourceDDFormFields.find(f => f.id === configuredFieldId);
+        if (configuredField?.label) {
+          const targetLabel = configuredField.label.toLowerCase().trim();
+          const matchingField = sourceFormFields.find(f => 
+            f.label && f.label.toLowerCase().trim() === targetLabel
+          );
+          if (matchingField && submissionData[matchingField.id] !== undefined) {
+            return submissionData[matchingField.id];
+          }
+        }
+      }
+      
+      // Fallback: direct ID match (backward compatible)
+      return submissionData[configuredFieldId] || null;
+    };
+    
+    const applicantEmail = findFieldValue(applicantEmailFieldId);
+    const applicantName = findFieldValue(applicantNameFieldId) || 'Applicant';
 
     // Fetch email template
     const { data: emailTemplate, error: templateError } = await supabase
@@ -439,7 +477,7 @@ export default async function handler(req, res) {
     result.checks.push({ check: 'Source submission exists', passed: true });
 
     // Applicant email field check
-    if (!applicantEmailField) {
+    if (!applicantEmailFieldId) {
       result.checks.push({ check: 'Applicant email field configured', passed: false, reason: 'No applicant_email_field in contract settings' });
       result.action = 'skipped';
       result.error = 'CRON would skip: No applicant email field configured';
@@ -447,7 +485,7 @@ export default async function handler(req, res) {
     }
 
     if (!applicantEmail) {
-      result.checks.push({ check: 'Applicant email found', passed: false, reason: `Field "${applicantEmailField}" is empty` });
+      result.checks.push({ check: 'Applicant email found', passed: false, reason: `Field "${applicantEmailFieldId}" is empty` });
       result.action = 'skipped';
       result.error = 'CRON would skip: Applicant email not found in submission';
       return res.status(200).json(result);
