@@ -975,10 +975,16 @@ function ScheduleTab({ formSubmissionId }) {
                     </div>
                   )}
                   <div className="pt-2 border-t">
-                    <span className="font-medium">Preview:</span>
-                    <pre className="mt-1 p-2 bg-background rounded border text-xs max-h-32 overflow-y-auto whitespace-pre-wrap">
-                      {testResult.emailDetails.bodyPreview?.replace(/<[^>]*>/g, '').trim()}
-                    </pre>
+                    <span className="font-medium">Email Preview:</span>
+                    {testResult.emailDetails.hasFooter && (
+                      <span className="ml-2 text-xs text-green-600 dark:text-green-400">(includes footer)</span>
+                    )}
+                    <div 
+                      className="mt-1 p-3 bg-white dark:bg-gray-900 rounded border text-sm max-h-64 overflow-y-auto"
+                      dangerouslySetInnerHTML={{ 
+                        __html: testResult.emailDetails.bodyHtml || testResult.emailDetails.bodyPreview 
+                      }}
+                    />
                   </div>
                 </div>
               </div>

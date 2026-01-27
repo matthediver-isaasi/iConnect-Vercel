@@ -3,6 +3,48 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import crypto from 'crypto';
 
+// Helper to fetch email footer for preview
+async function getEmailFooterForPreview(tenantId) {
+  try {
+    if (!supabase) return null;
+
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'email_footer_html')
+      .single();
+
+    if (error || !data) return null;
+
+    let footer = data.setting_value;
+
+    // Replace social placeholders
+    const { data: socialData } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'social_icons_config')
+      .single();
+
+    if (socialData?.setting_value) {
+      try {
+        const socialConfig = JSON.parse(socialData.setting_value);
+        if (socialConfig.linkedin?.url) footer = footer.replace(/\{\{linkedin_url\}\}/g, socialConfig.linkedin.url);
+        if (socialConfig.twitter?.url) footer = footer.replace(/\{\{twitter_url\}\}/g, socialConfig.twitter.url);
+        if (socialConfig.facebook?.url) footer = footer.replace(/\{\{facebook_url\}\}/g, socialConfig.facebook.url);
+        if (socialConfig.instagram?.url) footer = footer.replace(/\{\{instagram_url\}\}/g, socialConfig.instagram.url);
+        if (socialConfig.youtube?.url) footer = footer.replace(/\{\{youtube_url\}\}/g, socialConfig.youtube.url);
+      } catch (e) {
+        console.error('[test-fire-timeout] Error parsing social config:', e);
+      }
+    }
+
+    return footer;
+  } catch (err) {
+    console.error('[test-fire-timeout] Error fetching footer:', err);
+    return null;
+  }
+}
+
 function generateToken(contractId, round, secret) {
   const data = `${contractId}:${round}`;
   return crypto.createHmac('sha256', secret).update(data).digest('hex');
@@ -263,13 +305,19 @@ export default async function handler(req, res) {
     const senderEmail = tenant?.sender_email || tenant?.contact_email || 'noreply@iconn.app';
     const senderName = tenant?.sender_name || tenant?.name || 'Contracts';
 
+    // Fetch email footer for preview
+    const emailFooter = await getEmailFooterForPreview(tenantId);
+    const fullEmailBody = emailFooter ? emailBody + emailFooter : emailBody;
+
     result.emailDetails = {
       to: applicantEmail,
       from: `${senderName} <${senderEmail}>`,
       subject: emailSubject,
+      bodyHtml: fullEmailBody,
       bodyPreview: emailBody.substring(0, 500) + (emailBody.length > 500 ? '...' : ''),
       templateUsed: { id: emailTemplate.id, name: emailTemplate.name },
-      alternativeSignerLink
+      alternativeSignerLink,
+      hasFooter: !!emailFooter
     };
 
     if (dryRun) {
