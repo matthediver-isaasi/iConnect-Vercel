@@ -27,66 +27,69 @@ export default async function handler(req, res) {
     const todayStr = now.toISOString().split('T')[0];
     const scheduledEvents = [];
 
-    // Get the form submission to find contract_instance_id
-    const { data: formSubmission, error: fsError } = await supabase
-      .from('form_submission')
-      .select('id, contract_instance_id')
-      .eq('id', form_submission_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    // Fetch ALL contract instances linked to this form submission
+    // Contracts are linked via form_submission_id on contract_instance table
+    const { data: contractInstances, error: contractsError } = await supabase
+      .from('contract_instance')
+      .select('id')
+      .eq('form_submission_id', form_submission_id)
+      .eq('tenant_id', tenantId);
 
-    if (fsError) {
-      console.error('[submission-schedule] Form submission error:', fsError);
-      return res.status(404).json({ error: 'Form submission not found' });
+    if (contractsError) {
+      console.error('[submission-schedule] Contract instances query error:', contractsError);
     }
 
-    console.log('[submission-schedule] Form submission found:', {
-      submissionId: formSubmission.id,
-      contractInstanceId: formSubmission.contract_instance_id
+    console.log('[submission-schedule] Found contract instances:', {
+      formSubmissionId: form_submission_id,
+      contractCount: contractInstances?.length || 0,
+      contractIds: (contractInstances || []).map(c => c.id)
     });
 
-    // Fetch contract-related scheduled events if there's a contract instance
-    if (formSubmission.contract_instance_id) {
-      console.log('[submission-schedule] Has contract instance, fetching schedule...');
-      const { events: contractSchedule, metadata } = await getContractSchedule(
-        supabase, 
-        tenantId, 
-        formSubmission.contract_instance_id, 
-        now, 
-        todayStr
-      );
-      console.log('[submission-schedule] Contract schedule events:', contractSchedule.length, 'metadata:', metadata);
-      scheduledEvents.push(...contractSchedule);
-      
-      // If no contract events but we expected some, add an info event
-      if (contractSchedule.length === 0 && metadata) {
-        if (metadata.noRemindersConfigured) {
-          scheduledEvents.push({
-            type: 'info',
-            name: 'No Reminders Configured',
-            status: 'info',
-            status_reason: 'No contract reminders are configured in the form settings',
-            scheduled_date: null
-          });
-        }
-        if (metadata.noSigners) {
-          scheduledEvents.push({
-            type: 'info', 
-            name: 'No Signers',
-            status: 'info',
-            status_reason: 'No signers are configured for this contract',
-            scheduled_date: null
-          });
+    // Fetch contract-related scheduled events for ALL contracts
+    if (contractInstances && contractInstances.length > 0) {
+      for (const contractInstance of contractInstances) {
+        console.log('[submission-schedule] Processing contract instance:', contractInstance.id);
+        const { events: contractSchedule, metadata } = await getContractSchedule(
+          supabase, 
+          tenantId, 
+          contractInstance.id, 
+          now, 
+          todayStr
+        );
+        console.log('[submission-schedule] Contract schedule events:', contractSchedule.length, 'metadata:', metadata);
+        scheduledEvents.push(...contractSchedule);
+        
+        // If no contract events but we expected some, add an info event for this specific contract
+        if (contractSchedule.length === 0 && metadata) {
+          if (metadata.noRemindersConfigured) {
+            scheduledEvents.push({
+              type: 'info',
+              name: 'No Reminders Configured',
+              status: 'info',
+              status_reason: `No contract reminders configured for contract ${contractInstance.id}`,
+              scheduled_date: null,
+              contract: { id: contractInstance.id }
+            });
+          }
+          if (metadata.noSigners) {
+            scheduledEvents.push({
+              type: 'info', 
+              name: 'No Signers',
+              status: 'info',
+              status_reason: `No signers configured for contract ${contractInstance.id}`,
+              scheduled_date: null,
+              contract: { id: contractInstance.id }
+            });
+          }
         }
       }
     } else {
-      console.log('[submission-schedule] No contract instance linked to submission');
-      // Check if there's a form with contract settings that we could show projected schedule from
+      console.log('[submission-schedule] No contract instances linked to submission');
       scheduledEvents.push({
         type: 'info',
         name: 'No Contract Created',
         status: 'info',
-        status_reason: 'A contract has not been created for this submission yet',
+        status_reason: 'No contracts have been created for this submission yet',
         scheduled_date: null
       });
     }
