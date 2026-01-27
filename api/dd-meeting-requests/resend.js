@@ -83,7 +83,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Agent has no booking slug configured' });
     }
 
-    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentBookingSlug)}?meeting=${encodeURIComponent(template.slug)}`;
+    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentBookingSlug)}?meeting=${encodeURIComponent(template.slug)}&dd_request=${encodeURIComponent(meetingRequestId)}`;
     const agentName = [meetingRequest.agent?.first_name, meetingRequest.agent?.last_name].filter(Boolean).join(' ') || 'Team Member';
     const recipientName = meetingRequest.recipient_first_name || 'there';
 
