@@ -108,7 +108,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
     
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id, created_organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -118,7 +118,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       return results;
     }
     
-    console.log('[DD Contract Send] Form submission found, form_id:', formSubmission.form_id);
+    console.log('[DD Contract Send] Form submission found, form_id:', formSubmission.form_id, 'org_id:', formSubmission.organization_id);
     console.log('[DD Contract Send] Submission has data keys:', Object.keys(formSubmission.submission_data || {}).length);
     
     if (!formId) {
@@ -341,9 +341,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       const sentSignerEmails = [];
 
       // Fetch organization name for [[organization.name]] placeholder
-      // Use organization_id OR created_organization_id (for forms where org is created during submission)
-      const resolvedOrgId = formSubmission.organization_id || formSubmission.created_organization_id;
-      const organizationName = await getOrganizationName(resolvedOrgId);
+      const organizationName = await getOrganizationName(formSubmission.organization_id);
       
       // Fetch tenant name for [[tenant.name]] placeholder
       const { data: tenantData } = await supabase
@@ -526,7 +524,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     // Get form submission data
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id, created_organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -845,7 +843,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     // Get form submission data first to determine form_id
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id, created_organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -1127,7 +1125,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     // Get form submission data
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, submission_data, organization_id, created_organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();

@@ -1,0 +1,79 @@
+2026-01-27 21:36:26.050 [info] [Public Form Submission] === ENDPOINT CALLED ===
+2026-01-27 21:36:26.051 [info] [Public Form Submission] form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857 form_name: SO Long form
+2026-01-27 21:36:26.614 [info] [Public Form Submission] Submission created successfully: e7013046-4a4c-4c5f-84ff-e3092e9d4f4f
+2026-01-27 21:36:26.614 [info] [Public Form Submission] Checking DD enabled: true form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-01-27 21:36:26.614 [info] [Public Form Submission] Creating due diligence record for submission: e7013046-4a4c-4c5f-84ff-e3092e9d4f4f
+2026-01-27 21:36:26.614 [info] [Public Form Submission] Looking up DD config for form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857 tenant_id: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-27 21:36:26.766 [info] [Public Form Submission] DD config found: true workflow_stages count: 7
+2026-01-27 21:36:26.767 [info] [Public Form Submission] Initial stage: new is_initial flag: true label: New
+2026-01-27 21:36:26.910 [info] [Public Form Submission] Due diligence record created: 93a706a1-a10e-43ba-adc2-cc08fce019b0
+2026-01-27 21:36:26.910 [info] [Public Form Submission] === STAGE ACTIONS DEBUG ===
+2026-01-27 21:36:26.910 [info] [Public Form Submission] Form ID: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-01-27 21:36:26.910 [info] [Public Form Submission] Form Name: undefined
+2026-01-27 21:36:26.910 [info] [Public Form Submission] Initial stage ID: new
+2026-01-27 21:36:26.910 [info] [Public Form Submission] Has inline actions: true
+2026-01-27 21:36:26.910 [info] [Public Form Submission] send_contracts fields: ["field_1768830421540","field_1768830446102"]
+2026-01-27 21:36:26.910 [info] [Public Form Submission] Full stage config: {"id":"new","color":"#f97316","label":"New","order":0,"allow_swap":true,"is_initial":true,"stage_actions":{"send_contracts":["field_1768830421540","field_1768830446102"]},"include_in_housekeeping":true}
+2026-01-27 21:36:26.911 [info] [Public Form Submission] Executing stage actions for initial stage: new
+2026-01-27 21:36:26.911 [info] [DD Stage Actions] executeStageActions called: {
+  stageId: 'new',
+  ddSubmissionId: '93a706a1-a10e-43ba-adc2-cc08fce019b0',
+  formSubmissionId: 'e7013046-4a4c-4c5f-84ff-e3092e9d4f4f',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'system_init'
+}
+2026-01-27 21:36:26.911 [info] [DD Stage Actions] Querying DD config for form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857 tenant_id: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-27 21:36:27.055 [info] [DD Stage Actions] Found DD config with 7 stages
+2026-01-27 21:36:27.055 [info] [DD Stage Actions] Found stage: new
+2026-01-27 21:36:27.056 [info] [DD Stage Actions] Stage has 2 send_contracts actions: [ 'field_1768830421540', 'field_1768830446102' ]
+2026-01-27 21:36:27.056 [info] [DD Stage Actions] Executing contract sending for contact fields: [ 'field_1768830421540', 'field_1768830446102' ]
+2026-01-27 21:36:27.057 [info] [DD Contract Send] === CONTRACT SENDING ACTIONS START ===
+2026-01-27 21:36:27.058 [info] [DD Contract Send] Contact field IDs to process: ["field_1768830421540","field_1768830446102"]
+2026-01-27 21:36:27.058 [info] [DD Contract Send] DD submission ID: 93a706a1-a10e-43ba-adc2-cc08fce019b0
+2026-01-27 21:36:27.058 [info] [DD Contract Send] Form submission ID: e7013046-4a4c-4c5f-84ff-e3092e9d4f4f
+2026-01-27 21:36:27.058 [info] [DD Contract Send] Tenant ID: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-27 21:36:27.058 [info] [DD Contract Send] Triggered by: system_init
+2026-01-27 21:36:27.058 [info] [DD Contract Send] Initial form ID from ddSubmission: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-01-27 21:36:27.214 [error] [DD Contract Send] Could not find form submission: {
+  code: '42703',
+  details: null,
+  hint: null,
+  message: 'column form_submission.created_organization_id does not exist'
+}
+2026-01-27 21:36:27.215 [info] [DD Stage Actions] Contract sending results: 0 contracts processed
+2026-01-27 21:36:27.215 [info] [DD Meeting Request] ========== START executeMeetingRequestActions ==========
+2026-01-27 21:36:27.215 [info] [DD Meeting Request] Params: {
+  stageId: 'new',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'system_init',
+  selectedAgentId: undefined
+}
+2026-01-27 21:36:27.215 [info] [DD Meeting Request] ddSubmission ID: 93a706a1-a10e-43ba-adc2-cc08fce019b0
+2026-01-27 21:36:27.215 [info] [DD Meeting Request] form_submission_id: e7013046-4a4c-4c5f-84ff-e3092e9d4f4f
+2026-01-27 21:36:27.215 [info] [DD Meeting Request] Querying stage_meeting_request for stageId: new tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-27 21:36:27.368 [info] [DD Meeting Request] No meeting request configs found for this stage. Returning empty results.
+2026-01-27 21:36:27.369 [info] [DD Email Action] ========== START executeEmailTemplateActions ==========
+2026-01-27 21:36:27.369 [info] [DD Email Action] customMessage from options: undefined
+2026-01-27 21:36:27.369 [info] [DD Email Action] Params: {
+  stageId: 'new',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'system_init'
+}
+2026-01-27 21:36:27.369 [info] [DD Email Action] ddSubmission ID: 93a706a1-a10e-43ba-adc2-cc08fce019b0
+2026-01-27 21:36:27.369 [info] [DD Email Action] form_submission_id: e7013046-4a4c-4c5f-84ff-e3092e9d4f4f
+2026-01-27 21:36:27.505 [error] [DD Email Action] Could not find form submission: {
+  code: '42703',
+  details: null,
+  hint: null,
+  message: 'column form_submission.created_organization_id does not exist'
+}
+2026-01-27 21:36:27.505 [info] [DD Member Action] ========== START executeMemberCreationActions ==========
+2026-01-27 21:36:27.506 [info] [DD Member Action] Params: {
+  stageId: 'new',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'system_init'
+}
+2026-01-27 21:36:27.506 [info] [DD Member Action] ddSubmission ID: 93a706a1-a10e-43ba-adc2-cc08fce019b0
+2026-01-27 21:36:27.639 [info] [DD Member Action] No member action configs found for this stage.
+2026-01-27 21:36:27.786 [info] [DD Stage Actions] Completed all stage actions, total results: 0
+2026-01-27 21:36:27.786 [info] [Public Form Submission] No stage action results returned
