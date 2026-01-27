@@ -38,7 +38,9 @@ export default function SubmissionStatsBar() {
   const allowedRoles = stats.allowed_roles || [];
   const userRoleId = memberInfo?.role_id;
   
-  if (allowedRoles.length > 0 && (!userRoleId || !allowedRoles.includes(userRoleId))) {
+  // Only show the stats bar if roles are configured AND user's role is in the allowed list
+  // If no roles are configured, the bar is hidden from everyone
+  if (allowedRoles.length === 0 || !userRoleId || !allowedRoles.includes(userRoleId)) {
     return null;
   }
 
