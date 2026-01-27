@@ -335,9 +335,10 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   });
 
   // Fetch custom field definition for custom_field type (uses public endpoint)
+  // Pass formId to ensure correct tenant resolution for embedded forms
   const { data: customFieldDef, isLoading: customFieldLoading } = useQuery({
-    queryKey: ['public-custom-field', field.custom_field_id],
-    queryFn: async () => await publicClient.getCustomField(field.custom_field_id) || null,
+    queryKey: ['public-custom-field', field.custom_field_id, formId],
+    queryFn: async () => await publicClient.getCustomField(field.custom_field_id, formId) || null,
     enabled: field.type === 'custom_field' && !!field.custom_field_id,
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });

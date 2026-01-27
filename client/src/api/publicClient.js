@@ -393,9 +393,13 @@ class PublicClient {
   }
   
   // Custom Field
-  async getCustomField(id) {
+  // formId is optional but recommended for embedded forms to ensure correct tenant resolution
+  async getCustomField(id, formId = null) {
     if (!id) return null;
-    return this._fetch(`/api/public/custom-field/${id}`);
+    const url = formId 
+      ? `/api/public/custom-field/${id}?form_id=${formId}`
+      : `/api/public/custom-field/${id}`;
+    return this._fetch(url);
   }
   
   // Role Capacity

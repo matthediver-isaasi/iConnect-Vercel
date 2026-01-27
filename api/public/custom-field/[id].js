@@ -14,19 +14,37 @@ export default async function handler(req, res) {
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const { id, tenant: tenantParam } = req.query;
+  const { id, tenant: tenantParam, form_id: formId } = req.query;
 
   try {
     // Resolve tenant for proper data isolation
     let tenantId = null;
     
-    // First try: centralized tenant resolver (subdomain and custom domain)
-    const tenant = await resolveTenantFromRequest(req);
-    if (tenant) {
-      tenantId = tenant.id;
+    // Priority 1: Resolve tenant from form_id (essential for embedded forms on external sites)
+    // This ensures custom fields are looked up using the form's tenant context,
+    // not the hostname which may be different for embedded forms
+    if (formId) {
+      const { data: form } = await supabase
+        .from('form')
+        .select('tenant_id')
+        .eq('id', formId)
+        .single();
+      
+      if (form?.tenant_id) {
+        tenantId = form.tenant_id;
+        console.log('[Public Custom Field] Resolved tenant from form_id:', tenantId);
+      }
     }
     
-    // Second try: explicit tenant query parameter (for embedded forms, local dev)
+    // Priority 2: Centralized tenant resolver (subdomain and custom domain)
+    if (!tenantId) {
+      const tenant = await resolveTenantFromRequest(req);
+      if (tenant) {
+        tenantId = tenant.id;
+      }
+    }
+    
+    // Priority 3: Explicit tenant query parameter (for local dev, legacy support)
     if (!tenantId && tenantParam) {
       const { data: tenantBySlug } = await supabase
         .from('tenant')
