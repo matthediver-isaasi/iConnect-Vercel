@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
-  const selectedCountry = countries.find(c => c.code === value);
+  const selectedCountry = countries.find(c => c.name === value);
   
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -53,14 +53,14 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
                   key={country.code}
                   value={country.name}
                   onSelect={() => {
-                    onChange(country.code);
+                    onChange(country.name);
                     setOpen(false);
                   }}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === country.code ? "opacity-100" : "opacity-0"
+                      value === country.name ? "opacity-100" : "opacity-0"
                     )}
                   />
                   {country.name}
@@ -76,12 +76,12 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
 
 function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
-  const selectedCountries = countries.filter(c => value.includes(c.code));
+  const selectedCountries = countries.filter(c => value.includes(c.name));
   
-  const toggleCountry = (code) => {
-    const newValue = value.includes(code)
-      ? value.filter(c => c !== code)
-      : [...value, code];
+  const toggleCountry = (name) => {
+    const newValue = value.includes(name)
+      ? value.filter(c => c !== name)
+      : [...value, name];
     onChange(newValue);
   };
   
@@ -120,12 +120,12 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
                 <CommandItem
                   key={country.code}
                   value={country.name}
-                  onSelect={() => toggleCountry(country.code)}
+                  onSelect={() => toggleCountry(country.name)}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value.includes(country.code) ? "opacity-100" : "opacity-0"
+                      value.includes(country.name) ? "opacity-100" : "opacity-0"
                     )}
                   />
                   {country.name}
@@ -1262,12 +1262,14 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         const availableCountries = field.all_countries !== false 
           ? COUNTRIES 
           : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
-        const selectedCountry = availableCountries.find(c => c.code === (value || field.default_country));
+        const defaultCountryName = field.default_country 
+          ? (COUNTRIES.find(c => c.code === field.default_country)?.name || '') 
+          : '';
         
         return (
           <CountryCombobox
             countries={availableCountries}
-            value={value || field.default_country || ''}
+            value={value || defaultCountryName}
             onChange={onChange}
             disabled={isFieldDisabled}
             placeholder="Select a country..."
@@ -1279,11 +1281,15 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         const availableCountriesMulti = field.all_countries !== false 
           ? COUNTRIES 
           : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+        const defaultCountriesNames = (field.default_countries || [])
+          .map(code => COUNTRIES.find(c => c.code === code)?.name)
+          .filter(Boolean);
+        const countriesValue = Array.isArray(value) && value.length > 0 ? value : defaultCountriesNames;
         
         return (
           <MultiCountryCombobox
             countries={availableCountriesMulti}
-            value={Array.isArray(value) ? value : []}
+            value={countriesValue}
             onChange={onChange}
             disabled={isFieldDisabled}
             placeholder="Select countries..."
