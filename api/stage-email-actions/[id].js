@@ -60,7 +60,8 @@ export default async function handler(req, res) {
         cc_emails,
         prompt_custom_message,
         sort_order,
-        is_active 
+        is_active,
+        form_id
       } = req.body;
 
       const updateData = {};
@@ -71,6 +72,7 @@ export default async function handler(req, res) {
       if (prompt_custom_message !== undefined) updateData.prompt_custom_message = prompt_custom_message || false;
       if (sort_order !== undefined) updateData.sort_order = sort_order;
       if (is_active !== undefined) updateData.is_active = is_active;
+      if (form_id !== undefined) updateData.form_id = form_id || null;
 
       const { data, error } = await supabase
         .from('stage_email_action')

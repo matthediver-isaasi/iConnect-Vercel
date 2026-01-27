@@ -184,9 +184,9 @@ export default function DueDiligenceConfigPage() {
   const organizationCustomFields = (memberFieldsData || []).filter(f => f.entity_scope === 'organization' && f.is_active !== false);
 
   const { data: stageEmailActionsData, refetch: refetchStageEmailActions } = useQuery({
-    queryKey: ['stage-email-actions'],
+    queryKey: ['stage-email-actions', formId],
     queryFn: async () => {
-      const response = await fetch('/api/stage-email-actions', { credentials: 'include' });
+      const response = await fetch(`/api/stage-email-actions?formId=${formId}`, { credentials: 'include' });
       if (!response.ok) return [];
       const data = await response.json();
       return data.email_actions || [];
@@ -262,7 +262,8 @@ export default function DueDiligenceConfigPage() {
           recipient_email_field: recipientEmailField,
           recipient_name_field: recipientNameField,
           cc_emails: ccEmails,
-          prompt_custom_message: promptCustomMessage
+          prompt_custom_message: promptCustomMessage,
+          form_id: formId
         })
       });
       if (!response.ok) throw new Error('Failed to add email action');
@@ -298,7 +299,8 @@ export default function DueDiligenceConfigPage() {
           recipient_email_field: recipientEmailField,
           recipient_name_field: recipientNameField,
           cc_emails: ccEmails,
-          prompt_custom_message: promptCustomMessage
+          prompt_custom_message: promptCustomMessage,
+          form_id: formId
         })
       });
       if (!response.ok) throw new Error('Failed to update email action');

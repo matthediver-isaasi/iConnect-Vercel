@@ -797,38 +797,13 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
   console.log('[DD Email Action] form_submission_id:', ddSubmission?.form_submission_id);
   
   try {
-    // Fetch email action configs for this stage
-    console.log('[DD Email Action] Querying stage_email_action for stageId:', stageId, 'tenantId:', tenantId);
-    const { data: emailActions, error: eaError } = await supabase
-      .from('stage_email_action')
-      .select(`
-        *,
-        email_template:email_template_id (
-          id, name, subject, body, from_email, reply_to
-        )
-      `)
-      .eq('due_diligence_stage_id', stageId)
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true });
-
-    if (eaError) {
-      console.log('[DD Email Action] Query error:', eaError);
-      return results;
-    }
-    if (!emailActions || emailActions.length === 0) {
-      console.log('[DD Email Action] No email action configs found for this stage. Returning empty results.');
-      return results;
-    }
-    console.log('[DD Email Action] Found', emailActions.length, 'email action config(s):', emailActions.map(ea => ({ id: ea.id, template_id: ea.email_template_id, template_name: ea.email_template?.name })));
-
     const formSubmissionId = ddSubmission.form_submission_id;
     if (!formSubmissionId) {
       console.log('[DD Email Action] No form submission ID, skipping email actions');
       return results;
     }
 
-    // Get form submission data
+    // Get form submission data first to determine form_id
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
       .select('form_id, submission_data, organization_id, created_organization_id')
@@ -840,6 +815,59 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
       console.error('[DD Email Action] Could not find form submission:', subError);
       return results;
     }
+
+    const formId = formSubmission.form_id;
+    console.log('[DD Email Action] Querying stage_email_action for stageId:', stageId, 'tenantId:', tenantId, 'formId:', formId);
+    
+    // Fetch email action configs for this stage AND form
+    // First try to find form-specific actions, then fall back to global actions (form_id is null)
+    let { data: emailActions, error: eaError } = await supabase
+      .from('stage_email_action')
+      .select(`
+        *,
+        email_template:email_template_id (
+          id, name, subject, body, from_email, reply_to
+        )
+      `)
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('form_id', formId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (eaError) {
+      console.log('[DD Email Action] Query error:', eaError);
+      return results;
+    }
+    
+    // If no form-specific actions found, check for global actions (form_id is null)
+    if (!emailActions || emailActions.length === 0) {
+      console.log('[DD Email Action] No form-specific email actions found, checking for global actions (form_id is null)');
+      const { data: globalActions, error: globalError } = await supabase
+        .from('stage_email_action')
+        .select(`
+          *,
+          email_template:email_template_id (
+            id, name, subject, body, from_email, reply_to
+          )
+        `)
+        .eq('due_diligence_stage_id', stageId)
+        .eq('tenant_id', tenantId)
+        .is('form_id', null)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      
+      if (!globalError && globalActions && globalActions.length > 0) {
+        console.log('[DD Email Action] Found', globalActions.length, 'global email action config(s) - WARNING: These may have incorrect field mappings for this form');
+        emailActions = globalActions;
+      }
+    }
+    
+    if (!emailActions || emailActions.length === 0) {
+      console.log('[DD Email Action] No email action configs found for this stage/form. Returning empty results.');
+      return results;
+    }
+    console.log('[DD Email Action] Found', emailActions.length, 'email action config(s):', emailActions.map(ea => ({ id: ea.id, form_id: ea.form_id, template_id: ea.email_template_id, template_name: ea.email_template?.name })));
 
     for (const ea of emailActions) {
       const template = ea.email_template;
