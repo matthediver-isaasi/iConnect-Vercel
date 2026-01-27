@@ -2198,11 +2198,15 @@ export default function FormViewPage() {
   const goToNextPage = () => {
     if (validateCurrentPage()) {
       setCurrentPageIndex(prev => Math.min(prev + 1, pages.length - 1));
+      // Scroll to top of page for better UX
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
   
   const goToPreviousPage = () => {
     setCurrentPageIndex(prev => Math.max(prev - 1, 0));
+    // Scroll to top of page for better UX
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   
   const isFirstPage = currentPageIndex === 0;
