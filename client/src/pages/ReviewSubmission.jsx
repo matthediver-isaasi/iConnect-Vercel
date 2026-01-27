@@ -1763,12 +1763,16 @@ export default function ReviewSubmissionPage() {
   const goToNextPage = () => {
     if (!isLastPage) {
       setCurrentPageIndex(prev => prev + 1);
+      // Scroll to top of page for better UX
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const goToPreviousPage = () => {
     if (!isFirstPage) {
       setCurrentPageIndex(prev => prev - 1);
+      // Scroll to top of page for better UX
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
