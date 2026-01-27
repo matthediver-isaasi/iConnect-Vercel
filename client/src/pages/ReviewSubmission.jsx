@@ -821,7 +821,22 @@ function ScheduleTab({ formSubmissionId }) {
               {event.recipient && (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Mail className="w-3.5 h-3.5" />
-                  <span>{event.recipient.name || event.recipient.email}</span>
+                  <div className="flex flex-col">
+                    {event.recipient.title && (
+                      <span className="text-xs font-medium text-foreground">{event.recipient.title}</span>
+                    )}
+                    <span>
+                      {event.recipient.name && event.recipient.email && event.recipient.name !== event.recipient.email
+                        ? `${event.recipient.name} (${event.recipient.email})`
+                        : event.recipient.name || event.recipient.email}
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              {event.contact_title && !event.recipient && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <span className="text-xs">Contact: {event.contact_title}</span>
                 </div>
               )}
               

@@ -140,7 +140,7 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
     return { events, metadata };
   }
 
-  // Fetch the form for contract settings
+  // Fetch the contract form for contract settings
   const { data: form, error: formError } = await supabase
     .from('form')
     .select('id, name, contract_settings')
@@ -150,6 +150,34 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
   if (formError || !form) {
     console.log('[submission-schedule] No form found:', { formId: instance.form_id, formError });
     return { events, metadata };
+  }
+
+  // Fetch the contact field label from the source form (application form)
+  // The source_contact_field_id points to a field in the application form
+  let contactFieldLabel = null;
+  if (instance.source_contact_field_id && instance.form_submission_id) {
+    // Get the form submission to find the source form
+    const { data: formSubmission } = await supabase
+      .from('form_submission')
+      .select('form_id')
+      .eq('id', instance.form_submission_id)
+      .single();
+    
+    if (formSubmission?.form_id) {
+      const { data: sourceForm } = await supabase
+        .from('form')
+        .select('fields')
+        .eq('id', formSubmission.form_id)
+        .single();
+      
+      if (sourceForm?.fields) {
+        const contactField = sourceForm.fields.find(f => 
+          f.id === instance.source_contact_field_id || 
+          f.name === instance.source_contact_field_id
+        );
+        contactFieldLabel = contactField?.label || contactField?.name || null;
+      }
+    }
   }
 
   const contractSettings = form.contract_settings || {};
@@ -200,7 +228,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
           status_reason: 'Contract has not been sent yet',
           recipient: {
             name: signerName,
-            email: signer.email
+            email: signer.email,
+            title: contactFieldLabel
           },
           contract: {
             id: instance.id,
@@ -379,7 +408,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
         status_reason: statusReason,
         recipient: {
           name: signerName,
-          email: signer.email
+          email: signer.email,
+          title: contactFieldLabel
         },
         contract: {
           id: instance.id,
@@ -414,7 +444,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
         status_reason: sentLog ? null : 'Signer has signed the contract',
         recipient: {
           name: signerName,
-          email: signer.email
+          email: signer.email,
+          title: contactFieldLabel
         },
         contract: {
           id: instance.id,
@@ -474,7 +505,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
       contract: {
         id: instance.id,
         name: form.name
-      }
+      },
+      contact_title: contactFieldLabel
     });
   } else if (!contractSettings.timeout_email_template_id && !contractComplete) {
     // No timeout template configured
@@ -488,7 +520,8 @@ async function getContractSchedule(supabase, tenantId, contractInstanceId, now, 
       contract: {
         id: instance.id,
         name: form.name
-      }
+      },
+      contact_title: contactFieldLabel
     });
   }
 
