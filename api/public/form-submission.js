@@ -419,17 +419,24 @@ export default async function handler(req, res) {
         console.log('[Public Form Submission] Creating due diligence record for submission:', submission.id);
         
         // Get the form's DD config for initial workflow status
-        const { data: ddConfig } = await supabase
+        console.log('[Public Form Submission] Looking up DD config for form_id:', form_id, 'tenant_id:', tenantData.id);
+        const { data: ddConfig, error: ddConfigError } = await supabase
           .from('form_due_diligence_config')
           .select('workflow_stages')
           .eq('form_id', form_id)
           .eq('tenant_id', tenantData.id)
           .single();
         
+        if (ddConfigError) {
+          console.log('[Public Form Submission] DD config lookup error:', ddConfigError.code, ddConfigError.message);
+        }
+        console.log('[Public Form Submission] DD config found:', !!ddConfig, 'workflow_stages count:', ddConfig?.workflow_stages?.length || 0);
+        
         // Find initial stage
         const workflowStages = ddConfig?.workflow_stages || [];
         const initialStage = workflowStages.find(s => s.is_initial) || workflowStages[0];
         const initialStatus = initialStage?.id || 'new';
+        console.log('[Public Form Submission] Initial stage:', initialStatus, 'is_initial flag:', initialStage?.is_initial, 'label:', initialStage?.label);
         
         // Create the DD submission record
         const ddRecord = {
@@ -468,9 +475,14 @@ export default async function handler(req, res) {
           // and checks for both inline actions (send_contracts) and database-stored actions (stage_email_action, etc.)
           if (initialStage) {
             const hasInlineActions = initialStage.actions || initialStage.stage_actions;
-            console.log('[Public Form Submission] Initial stage:', initialStage.id, 
-              'has inline actions:', !!hasInlineActions,
-              'send_contracts:', JSON.stringify(initialStage.stage_actions?.send_contracts || initialStage.actions?.send_contracts || []));
+            const sendContractsFields = initialStage.stage_actions?.send_contracts || initialStage.actions?.send_contracts || [];
+            console.log('[Public Form Submission] === STAGE ACTIONS DEBUG ===');
+            console.log('[Public Form Submission] Form ID:', form.id);
+            console.log('[Public Form Submission] Form Name:', form.name);
+            console.log('[Public Form Submission] Initial stage ID:', initialStage.id);
+            console.log('[Public Form Submission] Has inline actions:', !!hasInlineActions);
+            console.log('[Public Form Submission] send_contracts fields:', JSON.stringify(sendContractsFields));
+            console.log('[Public Form Submission] Full stage config:', JSON.stringify(initialStage));
             
             try {
               const ddSubmissionData = {

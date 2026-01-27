@@ -82,20 +82,29 @@ function extractContactFromFieldValue(fieldValue) {
 }
 
 export async function executeContractSendingActions(contactFieldIds, ddSubmission, tenantId, triggeredBy) {
+  console.log('[DD Contract Send] === CONTRACT SENDING ACTIONS START ===');
+  console.log('[DD Contract Send] Contact field IDs to process:', JSON.stringify(contactFieldIds));
+  console.log('[DD Contract Send] DD submission ID:', ddSubmission?.id);
+  console.log('[DD Contract Send] Form submission ID:', ddSubmission?.form_submission_id);
+  console.log('[DD Contract Send] Tenant ID:', tenantId);
+  console.log('[DD Contract Send] Triggered by:', triggeredBy);
+  
   const results = [];
   
   if (!contactFieldIds || contactFieldIds.length === 0) {
+    console.log('[DD Contract Send] No contact field IDs provided, returning empty results');
     return results;
   }
 
   const formSubmissionId = ddSubmission.form_submission_id;
   if (!formSubmissionId) {
-    console.log('[DD Stage Actions] No form submission ID, skipping contract sending');
+    console.log('[DD Contract Send] No form submission ID, skipping contract sending');
     return results;
   }
 
   try {
     const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
+    console.log('[DD Contract Send] Initial form ID from ddSubmission:', formId);
     
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
@@ -105,9 +114,12 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       .single();
     
     if (subError || !formSubmission) {
-      console.error('[DD Stage Actions] Could not find form submission:', subError);
+      console.error('[DD Contract Send] Could not find form submission:', subError);
       return results;
     }
+    
+    console.log('[DD Contract Send] Form submission found, form_id:', formSubmission.form_id);
+    console.log('[DD Contract Send] Submission has data keys:', Object.keys(formSubmission.submission_data || {}).length);
     
     if (!formId) {
       ddSubmission.form_id = formSubmission.form_id;
@@ -115,14 +127,16 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
 
     const { data: sourceForm, error: formError } = await supabase
       .from('form')
-      .select('id, fields')
+      .select('id, fields, name')
       .eq('id', formSubmission.form_id || ddSubmission.form_id)
       .single();
 
     if (formError || !sourceForm) {
-      console.error('[DD Stage Actions] Could not find source form:', formError);
+      console.error('[DD Contract Send] Could not find source form:', formError);
       return results;
     }
+    
+    console.log('[DD Contract Send] Source form found:', sourceForm.name, 'with', (sourceForm.fields || []).length, 'fields');
 
     const { data: tenant } = await supabase
       .from('tenant')
@@ -144,9 +158,13 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
     }
 
     for (const fieldId of contactFieldIds) {
+      console.log('[DD Contract Send] --- Processing field:', fieldId);
       const field = (sourceForm.fields || []).find(f => f.id === fieldId || f.name === fieldId);
       
+      console.log('[DD Contract Send] Field lookup result:', field ? `Found: ${field.label} (type: ${field.type}, contract_form_id: ${field.contract_form_id})` : 'NOT FOUND');
+      
       if (!field || field.type !== 'contact' || !field.contract_form_id) {
+        console.log('[DD Contract Send] Field skipped - field exists:', !!field, 'type:', field?.type, 'contract_form_id:', field?.contract_form_id);
         results.push({
           action: 'send_contract',
           field_id: fieldId,
@@ -159,11 +177,14 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       let contractInstance = contractInstances?.find(
         ci => ci.source_contact_field_id === fieldId && ci.form_id === field.contract_form_id
       );
+      
+      console.log('[DD Contract Send] Existing contract instance for this field:', contractInstance?.id || 'None');
 
       if (!contractInstance) {
         const candidateInstances = (contractInstances || []).filter(
           ci => ci.form_id === field.contract_form_id && !ci.sent_at && !ci.source_contact_field_id
         );
+        console.log('[DD Contract Send] Candidate unsent instances:', candidateInstances.length);
         if (candidateInstances.length === 1) {
           contractInstance = candidateInstances[0];
         } else if (candidateInstances.length > 1) {
@@ -179,13 +200,19 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       }
 
       if (!contractInstance) {
+        console.log('[DD Contract Send] No existing contract instance, creating new one');
         const formValues = formSubmission.submission_data || {};
         const fieldKey = field.name || field.id;
         const fieldValue = formValues[fieldKey] || formValues[field.id];
         
+        console.log('[DD Contract Send] Looking for signer data in field key:', fieldKey, 'or', field.id);
+        console.log('[DD Contract Send] Field value found:', JSON.stringify(fieldValue));
+        
         const signerData = extractContactFromFieldValue(fieldValue);
+        console.log('[DD Contract Send] Extracted signer data:', JSON.stringify(signerData));
         
         if (!signerData) {
+          console.log('[DD Contract Send] No signer data extracted, skipping');
           results.push({
             action: 'send_contract',
             field_id: fieldId,
@@ -233,10 +260,12 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           continue;
         }
         
-        console.log(`[DD Stage Actions] Created contract instance ${newInstance.id} for field ${fieldId}`);
+        console.log(`[DD Contract Send] Created contract instance ${newInstance.id} for field ${fieldId}, signer email: ${signerData?.email}`);
         contractInstance = newInstance;
       }
 
+      console.log('[DD Contract Send] Contract instance to process:', contractInstance.id, 'status:', contractInstance.status, 'sent_at:', contractInstance.sent_at);
+      
       if (contractInstance.sent_at) {
         results.push({
           action: 'send_contract',
@@ -268,8 +297,10 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       }
 
       const initialTemplateId = contractForm.contract_settings?.initial_email_template_id;
+      console.log('[DD Contract Send] Contract form:', contractForm.name, 'initial_email_template_id:', initialTemplateId);
       
       if (!initialTemplateId) {
+        console.log('[DD Contract Send] No initial email template configured, skipping');
         results.push({
           action: 'send_contract',
           field_id: fieldId,
@@ -289,6 +320,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         .single();
 
       if (templateError || !emailTemplate) {
+        console.log('[DD Contract Send] Email template not found:', initialTemplateId, 'error:', templateError?.message);
         results.push({
           action: 'send_contract',
           field_id: fieldId,
@@ -299,8 +331,11 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         });
         continue;
       }
+      
+      console.log('[DD Contract Send] Email template found:', emailTemplate.name);
 
       const signers = contractInstance.signers || [];
+      console.log('[DD Contract Send] Signers to process:', signers.length, 'emails:', signers.map(s => s.email).join(', '));
       let sentCount = 0;
       let failedCount = 0;
       const sentSignerEmails = [];
@@ -432,7 +467,8 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       }
     }
   } catch (error) {
-    console.error('[DD Stage Actions] Error executing contract sending:', error);
+    console.error('[DD Contract Send] ERROR executing contract sending:', error);
+    console.error('[DD Contract Send] Error stack:', error.stack);
     results.push({
       action: 'send_contract',
       status: 'error',
@@ -440,6 +476,9 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
     });
   }
 
+  console.log('[DD Contract Send] === CONTRACT SENDING ACTIONS END ===');
+  console.log('[DD Contract Send] Total results:', results.length);
+  console.log('[DD Contract Send] Results summary:', JSON.stringify(results));
   return results;
 }
 
