@@ -25,7 +25,8 @@ import { cn } from "@/lib/utils";
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
-  const selectedCountry = countries.find(c => c.name === value);
+  // Support both country codes (legacy) and country names for backwards compatibility
+  const selectedCountry = countries.find(c => c.name === value || c.code === value);
   
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -60,7 +61,7 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === country.name ? "opacity-100" : "opacity-0"
+                      (value === country.name || value === country.code) ? "opacity-100" : "opacity-0"
                     )}
                   />
                   {country.name}
@@ -76,13 +77,25 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
 
 function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
-  const selectedCountries = countries.filter(c => value.includes(c.name));
+  // Support both country codes (legacy) and country names for backwards compatibility
+  const selectedCountries = countries.filter(c => value.includes(c.name) || value.includes(c.code));
   
   const toggleCountry = (name) => {
-    const newValue = value.includes(name)
-      ? value.filter(c => c !== name)
-      : [...value, name];
-    onChange(newValue);
+    // Find the country to get its code for legacy data removal
+    const country = countries.find(c => c.name === name);
+    const code = country?.code;
+    
+    // Check if the country is currently selected (by name or code)
+    const isSelected = value.includes(name) || (code && value.includes(code));
+    
+    if (isSelected) {
+      // Remove both name and code to handle legacy data
+      const newValue = value.filter(c => c !== name && c !== code);
+      onChange(newValue);
+    } else {
+      // Add by name (new format)
+      onChange([...value, name]);
+    }
   };
   
   return (
@@ -125,7 +138,7 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value.includes(country.name) ? "opacity-100" : "opacity-0"
+                      (value.includes(country.name) || value.includes(country.code)) ? "opacity-100" : "opacity-0"
                     )}
                   />
                   {country.name}
