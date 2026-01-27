@@ -405,7 +405,9 @@ export default async function handler(req, res) {
 
     // Fetch email footer for preview
     const emailFooter = await getEmailFooterForPreview(tenantId);
-    const fullEmailBody = emailFooter ? emailBody + emailFooter : emailBody;
+    // Convert newlines to <br> for HTML preview
+    const emailBodyHtml = emailBody.replace(/\n/g, '<br>');
+    const fullEmailBody = emailFooter ? emailBodyHtml + emailFooter : emailBodyHtml;
 
     result.emailDetails = {
       to: signer.email,

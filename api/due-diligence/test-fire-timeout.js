@@ -176,7 +176,9 @@ async function buildEmailDetails(params) {
 
   // Fetch email footer for preview
   const emailFooter = await getEmailFooterForPreview(tenantId);
-  const fullEmailBody = emailFooter ? emailBody + emailFooter : emailBody;
+  // Convert newlines to <br> for HTML preview
+  const emailBodyHtml = emailBody.replace(/\n/g, '<br>');
+  const fullEmailBody = emailFooter ? emailBodyHtml + emailFooter : emailBodyHtml;
 
   return {
     to: applicantEmail,
