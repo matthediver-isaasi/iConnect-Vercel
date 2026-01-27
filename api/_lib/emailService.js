@@ -11,11 +11,11 @@ const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${MAILGUN
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 
 let mailgunClient = null;
-let cachedEmailFooter = null;
-let footerLastFetched = 0;
 const FOOTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 const tenantEmailConfigCache = new Map();
+const tenantFooterCache = new Map(); // Per-tenant footer cache
+const tenantSocialConfigCache = new Map(); // Per-tenant social config cache
 const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function getTenantEmailConfig(tenantId) {
@@ -62,10 +62,13 @@ async function getTenantEmailConfig(tenantId) {
   }
 }
 
-async function getEmailFooter() {
+async function getEmailFooter(tenantId = null) {
+  const cacheKey = tenantId || 'global';
   const now = Date.now();
-  if (cachedEmailFooter !== null && (now - footerLastFetched) < FOOTER_CACHE_TTL) {
-    return cachedEmailFooter;
+  const cached = tenantFooterCache.get(cacheKey);
+  
+  if (cached && (now - cached.timestamp) < FOOTER_CACHE_TTL) {
+    return cached.footer;
   }
 
   try {
@@ -74,42 +77,70 @@ async function getEmailFooter() {
       return null;
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('system_settings')
       .select('setting_value')
-      .eq('setting_key', 'email_footer_html')
-      .single();
+      .eq('setting_key', 'email_footer_html');
+    
+    // Filter by tenant_id if provided
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error || !data) {
-      console.log('[Email Service] No email footer configured');
-      cachedEmailFooter = null;
+      console.log(`[Email Service] No email footer configured for tenant: ${tenantId || 'global'}`);
+      tenantFooterCache.set(cacheKey, { footer: null, timestamp: now });
+      return null;
     } else {
-      cachedEmailFooter = data.setting_value;
-      console.log('[Email Service] Email footer loaded successfully');
+      console.log(`[Email Service] Email footer loaded for tenant: ${tenantId || 'global'}`);
+      tenantFooterCache.set(cacheKey, { footer: data.setting_value, timestamp: now });
+      return data.setting_value;
     }
-    footerLastFetched = now;
-    return cachedEmailFooter;
   } catch (err) {
     console.error('[Email Service] Error fetching email footer:', err);
     return null;
   }
 }
 
-async function replaceSocialPlaceholdersInFooter(footer) {
+async function replaceSocialPlaceholdersInFooter(footer, tenantId = null) {
   if (!footer) return footer;
   
   try {
     if (!supabase) return footer;
 
-    const { data } = await supabase
-      .from('system_settings')
-      .select('setting_value')
-      .eq('setting_key', 'social_icons_config')
-      .single();
+    const cacheKey = tenantId || 'global';
+    const now = Date.now();
+    const cached = tenantSocialConfigCache.get(cacheKey);
+    
+    let socialConfig = null;
+    
+    if (cached && (now - cached.timestamp) < TENANT_CACHE_TTL) {
+      socialConfig = cached.config;
+    } else {
+      let query = supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'social_icons_config');
+      
+      // Filter by tenant_id if provided
+      if (tenantId) {
+        query = query.eq('tenant_id', tenantId);
+      }
 
-    if (!data?.setting_value) return footer;
+      const { data } = await query.single();
 
-    const socialConfig = JSON.parse(data.setting_value);
+      if (data?.setting_value) {
+        socialConfig = JSON.parse(data.setting_value);
+        tenantSocialConfigCache.set(cacheKey, { config: socialConfig, timestamp: now });
+      } else {
+        tenantSocialConfigCache.set(cacheKey, { config: null, timestamp: now });
+      }
+    }
+
+    if (!socialConfig) return footer;
+
     let result = footer;
     
     // Replace social media URL placeholders
@@ -191,11 +222,11 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   try {
     let finalHtml = html || '';
     if (!skipFooter) {
-      const footer = await getEmailFooter();
+      const footer = await getEmailFooter(tenantId);
       if (footer) {
-        const processedFooter = await replaceSocialPlaceholdersInFooter(footer);
+        const processedFooter = await replaceSocialPlaceholdersInFooter(footer, tenantId);
         finalHtml = finalHtml + processedFooter;
-        console.log('[Email Service] Email footer appended');
+        console.log(`[Email Service] Email footer appended for tenant: ${tenantId || 'global'}`);
       }
     }
 

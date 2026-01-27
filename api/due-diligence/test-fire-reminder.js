@@ -2,26 +2,35 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
-// Helper to fetch email footer for preview
+// Helper to fetch email footer for preview (tenant-scoped)
 async function getEmailFooterForPreview(tenantId) {
   try {
     if (!supabase) return null;
+    if (!tenantId) {
+      console.log('[test-fire-reminder] No tenantId provided for footer lookup');
+      return null;
+    }
 
     const { data, error } = await supabase
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'email_footer_html')
+      .eq('tenant_id', tenantId)
       .single();
 
-    if (error || !data) return null;
+    if (error || !data) {
+      console.log(`[test-fire-reminder] No email footer for tenant: ${tenantId}`);
+      return null;
+    }
 
     let footer = data.setting_value;
 
-    // Replace social placeholders
+    // Replace social placeholders (also tenant-scoped)
     const { data: socialData } = await supabase
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'social_icons_config')
+      .eq('tenant_id', tenantId)
       .single();
 
     if (socialData?.setting_value) {
