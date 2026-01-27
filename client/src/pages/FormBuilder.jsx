@@ -4581,7 +4581,7 @@ export default function FormBuilderPage() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="_none">-- None --</SelectItem>
-                                      {sourceFormFields.filter(f => f.type === 'email' || f.type === 'text').map(field => (
+                                      {sourceFormFields.filter(f => f.type !== 'instructions').map(field => (
                                         <SelectItem key={field.id} value={field.id}>
                                           {field.label || field.id}
                                         </SelectItem>
