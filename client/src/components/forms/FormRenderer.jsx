@@ -25,11 +25,20 @@ import { cn } from "@/lib/utils";
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   // Support both country codes (legacy) and country names for backwards compatibility
   const selectedCountry = countries.find(c => c.name === value || c.code === value);
   
+  // Filter countries based on search query while maintaining alphabetical order
+  const filteredCountries = searchQuery
+    ? countries.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : countries;
+  
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(isOpen) => {
+      setOpen(isOpen);
+      if (!isOpen) setSearchQuery(""); // Reset search when closing
+    }}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -44,12 +53,16 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Search countries..." />
+        <Command shouldFilter={false}>
+          <CommandInput 
+            placeholder="Search countries..." 
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>
-              {countries.map((country) => (
+              {filteredCountries.map((country) => (
                 <CommandItem
                   key={country.code}
                   value={country.name}
@@ -77,8 +90,14 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
 
 function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   // Support both country codes (legacy) and country names for backwards compatibility
   const selectedCountries = countries.filter(c => value.includes(c.name) || value.includes(c.code));
+  
+  // Filter countries based on search query while maintaining alphabetical order
+  const filteredCountries = searchQuery
+    ? countries.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : countries;
   
   const toggleCountry = (name) => {
     // Find the country to get its code for legacy data removal
@@ -99,7 +118,10 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   };
   
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(isOpen) => {
+      setOpen(isOpen);
+      if (!isOpen) setSearchQuery(""); // Reset search when closing
+    }}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -124,12 +146,16 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Search countries..." />
+        <Command shouldFilter={false}>
+          <CommandInput 
+            placeholder="Search countries..." 
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+          />
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>
-              {countries.map((country) => (
+              {filteredCountries.map((country) => (
                 <CommandItem
                   key={country.code}
                   value={country.name}
