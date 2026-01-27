@@ -1,24 +1,29 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return res.status(503).json({ error: 'Supabase not configured' });
+  if (!supabase) {
+    return res.status(200).json({ message: '' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
+    // Resolve tenant from request (subdomain, header, etc.)
+    const tenant = await resolveTenantFromRequest(req);
+    
+    if (!tenant) {
+      // No tenant found - return empty message
+      return res.json({ message: '' });
+    }
+
     const { data, error } = await supabase
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'form_default_consent_message')
+      .eq('tenant_id', tenant.id)
       .single();
 
     if (error && error.code !== 'PGRST116') {
