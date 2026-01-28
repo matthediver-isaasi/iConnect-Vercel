@@ -82,10 +82,7 @@ export default async function handler(req, res) {
         currentYearQuarterlyData: [],
         currentYearWeeklyData: [],
         allTimeData: [],
-        totalNewThisYear: 0,
-        totalNewThisMonth: 0,
-        totalNewThisWeek: 0,
-        totalAllTime: 0,
+        totalMembers: 0,
         lastUpdated: now.toISOString(),
         error: `Field "${fieldName}" not found`
       });
@@ -93,7 +90,7 @@ export default async function handler(req, res) {
 
     const { data: organizations, error: orgError } = await supabase
       .from('organization')
-      .select('id, name, created_at')
+      .select('id, name')
       .eq('tenant_id', tenantId);
 
     if (orgError) {
@@ -115,10 +112,7 @@ export default async function handler(req, res) {
         currentYearQuarterlyData: [],
         currentYearWeeklyData: [],
         allTimeData: [],
-        totalNewThisYear: 0,
-        totalNewThisMonth: 0,
-        totalNewThisWeek: 0,
-        totalAllTime: 0,
+        totalMembers: 0,
         lastUpdated: now.toISOString()
       });
     }
@@ -150,6 +144,16 @@ export default async function handler(req, res) {
       orgValueMap[pv.organization_id] = normalizedValue;
     });
 
+    const { data: members, error: memberError } = await supabase
+      .from('member')
+      .select('id, organization_id, created_at')
+      .in('organization_id', orgIds);
+
+    if (memberError) {
+      console.error('Error fetching members:', memberError);
+      return res.status(500).json({ error: 'Failed to fetch members' });
+    }
+
     const normalizeValue = (val) => {
       if (val === null || val === undefined || val === '') return ['Unspecified'];
       if (Array.isArray(val)) {
@@ -161,30 +165,27 @@ export default async function handler(req, res) {
       return strVal ? [strVal] : ['Unspecified'];
     };
 
+    const typeCounts = {};
     const yearlyData = {};
     const monthlyData = {};
     const weeklyData = {};
-    const thisYearCounts = {};
-    const thisMonthCounts = {};
-    const thisWeekCounts = {};
-    const allTimeCounts = {};
 
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-    (organizations || []).forEach(org => {
-      const rawValue = orgValueMap[org.id];
+    (members || []).forEach(member => {
+      const rawValue = orgValueMap[member.organization_id];
       const values = normalizeValue(rawValue);
 
-      if (org.created_at) {
-        const createdDate = new Date(org.created_at);
-        const year = createdDate.getFullYear();
-        const month = createdDate.getMonth() + 1;
+      values.forEach(typeValue => {
+        if (!typeCounts[typeValue]) {
+          typeCounts[typeValue] = 0;
+        }
+        typeCounts[typeValue]++;
 
-        values.forEach(typeValue => {
-          if (!allTimeCounts[typeValue]) {
-            allTimeCounts[typeValue] = 0;
-          }
-          allTimeCounts[typeValue]++;
+        if (member.created_at) {
+          const createdDate = new Date(member.created_at);
+          const year = createdDate.getFullYear();
+          const month = createdDate.getMonth() + 1;
 
           if (!yearlyData[typeValue]) {
             yearlyData[typeValue] = {};
@@ -195,11 +196,6 @@ export default async function handler(req, res) {
           yearlyData[typeValue][year]++;
 
           if (year === currentYear) {
-            if (!thisYearCounts[typeValue]) {
-              thisYearCounts[typeValue] = 0;
-            }
-            thisYearCounts[typeValue]++;
-
             if (!monthlyData[typeValue]) {
               monthlyData[typeValue] = {};
             }
@@ -208,20 +204,8 @@ export default async function handler(req, res) {
             }
             monthlyData[typeValue][month]++;
 
-            if (month === currentMonth) {
-              if (!thisMonthCounts[typeValue]) {
-                thisMonthCounts[typeValue] = 0;
-              }
-              thisMonthCounts[typeValue]++;
-            }
-
-            const orgWeekStart = getWeekStart(createdDate);
-            if (orgWeekStart.getTime() === currentWeekStart.getTime()) {
-              if (!thisWeekCounts[typeValue]) {
-                thisWeekCounts[typeValue] = 0;
-              }
-              thisWeekCounts[typeValue]++;
-
+            const memberWeekStart = getWeekStart(createdDate);
+            if (memberWeekStart.getTime() === currentWeekStart.getTime()) {
               const dayOfWeek = createdDate.getDay();
               const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
               const dayName = dayNames[dayIndex];
@@ -235,22 +219,18 @@ export default async function handler(req, res) {
               weeklyData[typeValue][dayName]++;
             }
           }
-        });
-      }
+        }
+      });
     });
 
-    const allCategories = new Set([...Object.keys(allTimeCounts)]);
-    const categories = Array.from(allCategories).filter(k => k !== 'Unspecified').sort();
-    if (allCategories.has('Unspecified')) {
+    const categories = Object.keys(typeCounts).filter(k => k !== 'Unspecified').sort();
+    if (typeCounts['Unspecified']) {
       categories.push('Unspecified');
     }
 
     const summaryCards = categories.map(category => ({
       name: category,
-      thisYear: thisYearCounts[category] || 0,
-      thisMonth: thisMonthCounts[category] || 0,
-      thisWeek: thisWeekCounts[category] || 0,
-      allTime: allTimeCounts[category] || 0
+      total: typeCounts[category] || 0
     }));
 
     const allYears = new Set();
@@ -301,13 +281,8 @@ export default async function handler(req, res) {
 
     const allTimeData = [{ period: 'All Time' }];
     categories.forEach(category => {
-      allTimeData[0][category] = allTimeCounts[category] || 0;
+      allTimeData[0][category] = typeCounts[category] || 0;
     });
-
-    const totalNewThisYear = Object.values(thisYearCounts).reduce((sum, count) => sum + count, 0);
-    const totalNewThisMonth = Object.values(thisMonthCounts).reduce((sum, count) => sum + count, 0);
-    const totalNewThisWeek = Object.values(thisWeekCounts).reduce((sum, count) => sum + count, 0);
-    const totalAllTime = Object.values(allTimeCounts).reduce((sum, count) => sum + count, 0);
 
     return res.status(200).json({
       fieldName,
@@ -320,15 +295,12 @@ export default async function handler(req, res) {
       currentYearQuarterlyData: quarterlyData,
       currentYearWeeklyData,
       allTimeData,
-      totalNewThisYear,
-      totalNewThisMonth,
-      totalNewThisWeek,
-      totalAllTime,
+      totalMembers: members?.length || 0,
       lastUpdated: now.toISOString()
     });
 
   } catch (error) {
-    console.error('Error in new-org-stats:', error);
+    console.error('Error in member-org-type-stats:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

@@ -54,7 +54,8 @@ const DEFAULT_REPORT_CARDS = [
   { id: 'activity', title: 'Activity', visible: true, order: 1 },
   { id: 'article-views', title: 'Article Views', visible: true, order: 2 },
   { id: 'org-types', title: 'Organization Types', visible: true, order: 3 },
-  { id: 'new-orgs', title: 'New Organizations', visible: true, order: 4 }
+  { id: 'new-orgs', title: 'New Organizations', visible: true, order: 4 },
+  { id: 'members-by-org-type', title: 'Members by Org Type', visible: true, order: 5 }
 ];
 
 const ORG_TYPE_COLORS = [
@@ -214,6 +215,18 @@ const DEMO_ORG_TYPE_DATA = {
     { quarter: 'Q3', ESO: 1, SO: 0, Partner: 1 },
     { quarter: 'Q4', ESO: 0, SO: 0, Partner: 0 }
   ],
+  currentYearWeeklyData: [
+    { day: 'Mon', ESO: 2, SO: 1, Partner: 0 },
+    { day: 'Tue', ESO: 1, SO: 0, Partner: 1 },
+    { day: 'Wed', ESO: 0, SO: 1, Partner: 0 },
+    { day: 'Thu', ESO: 1, SO: 0, Partner: 0 },
+    { day: 'Fri', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Sat', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Sun', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  allTimeData: [
+    { period: 'All Time', ESO: 127, SO: 89, Partner: 45 }
+  ],
   totalOrganizations: 261
 };
 
@@ -224,9 +237,9 @@ const DEMO_NEW_ORGS_DATA = {
   ],
   categories: ['ESO', 'SO', 'Partner'],
   summaryCards: [
-    { name: 'ESO', thisYear: 28, thisMonth: 3 },
-    { name: 'SO', thisYear: 19, thisMonth: 2 },
-    { name: 'Partner', thisYear: 10, thisMonth: 1 }
+    { name: 'ESO', thisYear: 28, thisMonth: 3, thisWeek: 1, allTime: 127 },
+    { name: 'SO', thisYear: 19, thisMonth: 2, thisWeek: 0, allTime: 89 },
+    { name: 'Partner', thisYear: 10, thisMonth: 1, thisWeek: 1, allTime: 45 }
   ],
   yearlyChartData: [
     { year: '2021', ESO: 23, SO: 18, Partner: 8 },
@@ -255,8 +268,75 @@ const DEMO_NEW_ORGS_DATA = {
     { quarter: 'Q3', ESO: 1, SO: 0, Partner: 1 },
     { quarter: 'Q4', ESO: 0, SO: 0, Partner: 0 }
   ],
+  currentYearWeeklyData: [
+    { day: 'Mon', ESO: 1, SO: 0, Partner: 0 },
+    { day: 'Tue', ESO: 0, SO: 0, Partner: 1 },
+    { day: 'Wed', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Thu', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Fri', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Sat', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Sun', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  allTimeData: [
+    { period: 'All Time', ESO: 127, SO: 89, Partner: 45 }
+  ],
   totalNewThisYear: 57,
-  totalNewThisMonth: 6
+  totalNewThisMonth: 6,
+  totalNewThisWeek: 2,
+  totalAllTime: 261
+};
+
+const DEMO_MEMBER_ORG_TYPE_DATA = {
+  fieldName: 'org_type',
+  availableFields: [
+    { name: 'org_type', label: 'Organization Type', fieldType: 'select', id: 'demo-field-1' }
+  ],
+  categories: ['ESO', 'SO', 'Partner'],
+  summaryCards: [
+    { name: 'ESO', total: 892 },
+    { name: 'SO', total: 534 },
+    { name: 'Partner', total: 178 }
+  ],
+  yearlyChartData: [
+    { year: '2021', ESO: 156, SO: 89, Partner: 34 },
+    { year: '2022', ESO: 234, SO: 145, Partner: 56 },
+    { year: '2023', ESO: 312, SO: 178, Partner: 52 },
+    { year: '2024', ESO: 190, SO: 122, Partner: 36 }
+  ],
+  currentYear: 2024,
+  currentYearMonthlyData: [
+    { month: 'Jan', ESO: 45, SO: 28, Partner: 12 },
+    { month: 'Feb', ESO: 38, SO: 24, Partner: 8 },
+    { month: 'Mar', ESO: 52, SO: 32, Partner: 10 },
+    { month: 'Apr', ESO: 28, SO: 18, Partner: 4 },
+    { month: 'May', ESO: 18, SO: 12, Partner: 2 },
+    { month: 'Jun', ESO: 9, SO: 8, Partner: 0 },
+    { month: 'Jul', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Aug', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Sep', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Oct', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Nov', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Dec', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  currentYearQuarterlyData: [
+    { quarter: 'Q1', ESO: 135, SO: 84, Partner: 30 },
+    { quarter: 'Q2', ESO: 55, SO: 38, Partner: 6 },
+    { quarter: 'Q3', ESO: 0, SO: 0, Partner: 0 },
+    { quarter: 'Q4', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  currentYearWeeklyData: [
+    { day: 'Mon', ESO: 8, SO: 5, Partner: 2 },
+    { day: 'Tue', ESO: 6, SO: 4, Partner: 1 },
+    { day: 'Wed', ESO: 4, SO: 3, Partner: 1 },
+    { day: 'Thu', ESO: 5, SO: 2, Partner: 0 },
+    { day: 'Fri', ESO: 3, SO: 1, Partner: 0 },
+    { day: 'Sat', ESO: 0, SO: 0, Partner: 0 },
+    { day: 'Sun', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  allTimeData: [
+    { period: 'All Time', ESO: 892, SO: 534, Partner: 178 }
+  ],
+  totalMembers: 1604
 };
 
 function MembersReportCard({ period, onPeriodChange, demoMode }) {
@@ -793,6 +873,8 @@ function OrgTypeReportCard({
   const rawYearlyChartData = stats?.yearlyChartData || [];
   const rawCurrentYearMonthlyData = stats?.currentYearMonthlyData || [];
   const rawCurrentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
+  const rawCurrentYearWeeklyData = stats?.currentYearWeeklyData || [];
+  const rawAllTimeData = stats?.allTimeData || [];
   const availableFields = stats?.availableFields || [];
   const currentYear = stats?.currentYear || new Date().getFullYear();
 
@@ -803,7 +885,9 @@ function OrgTypeReportCard({
         summaryCards: rawSummaryCards,
         yearlyChartData: rawYearlyChartData,
         currentYearMonthlyData: rawCurrentYearMonthlyData,
-        currentYearQuarterlyData: rawCurrentYearQuarterlyData
+        currentYearQuarterlyData: rawCurrentYearQuarterlyData,
+        currentYearWeeklyData: rawCurrentYearWeeklyData,
+        allTimeData: rawAllTimeData
       };
     }
 
@@ -830,11 +914,13 @@ function OrgTypeReportCard({
       summaryCards: aggregatedSummaryCards,
       yearlyChartData: aggregateChartData(rawYearlyChartData, 'year'),
       currentYearMonthlyData: aggregateChartData(rawCurrentYearMonthlyData, 'month'),
-      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter')
+      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter'),
+      currentYearWeeklyData: aggregateChartData(rawCurrentYearWeeklyData, 'day'),
+      allTimeData: aggregateChartData(rawAllTimeData, 'period')
     };
-  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, aggregation, aggregationLabel]);
+  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, rawCurrentYearWeeklyData, rawAllTimeData, aggregation, aggregationLabel]);
 
-  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData } = applyAggregation;
+  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData, currentYearWeeklyData, allTimeData } = applyAggregation;
 
   const toggleAggregation = (category) => {
     if (aggregation.includes(category)) {
@@ -864,8 +950,17 @@ function OrgTypeReportCard({
     );
   }
 
-  const currentYearData = viewMode === 'monthly' ? currentYearMonthlyData : currentYearQuarterlyData;
-  const xAxisKey = viewMode === 'monthly' ? 'month' : 'quarter';
+  const getChartDataAndKey = () => {
+    switch (viewMode) {
+      case 'weekly': return { data: currentYearWeeklyData, key: 'day' };
+      case 'monthly': return { data: currentYearMonthlyData, key: 'month' };
+      case 'quarterly': return { data: currentYearQuarterlyData, key: 'quarter' };
+      case 'yearly': return { data: yearlyChartData, key: 'year' };
+      case 'all': return { data: allTimeData, key: 'period' };
+      default: return { data: currentYearMonthlyData, key: 'month' };
+    }
+  };
+  const { data: currentChartData, key: xAxisKey } = getChartDataAndKey();
 
   return (
     <div className="space-y-6">
@@ -892,8 +987,11 @@ function OrgTypeReportCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="weekly">Weekly</SelectItem>
               <SelectItem value="monthly">Monthly</SelectItem>
               <SelectItem value="quarterly">Quarterly</SelectItem>
+              <SelectItem value="yearly">Yearly</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
             </SelectContent>
           </Select>
           <Select value={chartType} onValueChange={onChartTypeChange}>
@@ -1006,71 +1104,15 @@ function OrgTypeReportCard({
         </Card>
       </div>
 
-      {yearlyChartData.length > 0 && (
-        <div className="space-y-4" data-testid="container-yearly-chart">
-          <h4 className="text-sm font-medium text-muted-foreground">Historical Trend (By Year)</h4>
+      {currentChartData.length > 0 && (
+        <div className="space-y-4" data-testid="container-org-type-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">
+            Organizations by Type ({viewMode === 'weekly' ? 'This Week' : viewMode === 'monthly' ? 'Monthly' : viewMode === 'quarterly' ? 'Quarterly' : viewMode === 'yearly' ? 'By Year' : 'All Time'})
+          </h4>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               {chartType === 'line' ? (
-                <LineChart data={yearlyChartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Legend />
-                  {categories.map((category, index) => (
-                    <Line
-                      key={category}
-                      type="monotone"
-                      dataKey={category}
-                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 4 }}
-                      name={category}
-                    />
-                  ))}
-                </LineChart>
-              ) : (
-                <BarChart data={yearlyChartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Legend />
-                  {categories.map((category, index) => (
-                    <Bar
-                      key={category}
-                      dataKey={category}
-                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
-                      name={category}
-                    />
-                  ))}
-                </BarChart>
-              )}
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {currentYearData.length > 0 && (
-        <div className="space-y-4" data-testid="container-current-year-chart">
-          <h4 className="text-sm font-medium text-muted-foreground">{currentYear} Breakdown ({viewMode === 'monthly' ? 'Monthly' : 'Quarterly'})</h4>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              {chartType === 'line' ? (
-                <LineChart data={currentYearData}>
+                <LineChart data={currentChartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
                   <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
@@ -1095,7 +1137,7 @@ function OrgTypeReportCard({
                   ))}
                 </LineChart>
               ) : (
-                <BarChart data={currentYearData}>
+                <BarChart data={currentChartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
                   <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
@@ -1155,6 +1197,8 @@ function NewOrgsReportCard({
   const rawYearlyChartData = stats?.yearlyChartData || [];
   const rawCurrentYearMonthlyData = stats?.currentYearMonthlyData || [];
   const rawCurrentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
+  const rawCurrentYearWeeklyData = stats?.currentYearWeeklyData || [];
+  const rawAllTimeData = stats?.allTimeData || [];
   const availableFields = stats?.availableFields || [];
   const currentYear = stats?.currentYear || new Date().getFullYear();
 
@@ -1165,7 +1209,9 @@ function NewOrgsReportCard({
         summaryCards: rawSummaryCards,
         yearlyChartData: rawYearlyChartData,
         currentYearMonthlyData: rawCurrentYearMonthlyData,
-        currentYearQuarterlyData: rawCurrentYearQuarterlyData
+        currentYearQuarterlyData: rawCurrentYearQuarterlyData,
+        currentYearWeeklyData: rawCurrentYearWeeklyData,
+        allTimeData: rawAllTimeData
       };
     }
 
@@ -1177,7 +1223,13 @@ function NewOrgsReportCard({
     const aggregatedThisMonth = rawSummaryCards
       .filter(card => aggregation.includes(card.name))
       .reduce((sum, card) => sum + (card.thisMonth || 0), 0);
-    const aggregatedSummaryCards = [...rawSummaryCards, { name: aggregationLabel, thisYear: aggregatedThisYear, thisMonth: aggregatedThisMonth }];
+    const aggregatedThisWeek = rawSummaryCards
+      .filter(card => aggregation.includes(card.name))
+      .reduce((sum, card) => sum + (card.thisWeek || 0), 0);
+    const aggregatedAllTime = rawSummaryCards
+      .filter(card => aggregation.includes(card.name))
+      .reduce((sum, card) => sum + (card.allTime || 0), 0);
+    const aggregatedSummaryCards = [...rawSummaryCards, { name: aggregationLabel, thisYear: aggregatedThisYear, thisMonth: aggregatedThisMonth, thisWeek: aggregatedThisWeek, allTime: aggregatedAllTime }];
 
     const aggregateChartData = (data, keyField) => {
       return data.map(row => {
@@ -1195,11 +1247,13 @@ function NewOrgsReportCard({
       summaryCards: aggregatedSummaryCards,
       yearlyChartData: aggregateChartData(rawYearlyChartData, 'year'),
       currentYearMonthlyData: aggregateChartData(rawCurrentYearMonthlyData, 'month'),
-      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter')
+      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter'),
+      currentYearWeeklyData: aggregateChartData(rawCurrentYearWeeklyData, 'day'),
+      allTimeData: aggregateChartData(rawAllTimeData, 'period')
     };
-  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, aggregation, aggregationLabel]);
+  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, rawCurrentYearWeeklyData, rawAllTimeData, aggregation, aggregationLabel]);
 
-  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData } = applyAggregation;
+  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData, currentYearWeeklyData, allTimeData } = applyAggregation;
 
   const toggleAggregation = (category) => {
     if (aggregation.includes(category)) {
@@ -1229,8 +1283,17 @@ function NewOrgsReportCard({
     );
   }
 
-  const currentYearData = viewMode === 'monthly' ? currentYearMonthlyData : currentYearQuarterlyData;
-  const xAxisKey = viewMode === 'monthly' ? 'month' : 'quarter';
+  const getChartDataAndKey = () => {
+    switch (viewMode) {
+      case 'weekly': return { data: currentYearWeeklyData, key: 'day' };
+      case 'monthly': return { data: currentYearMonthlyData, key: 'month' };
+      case 'quarterly': return { data: currentYearQuarterlyData, key: 'quarter' };
+      case 'yearly': return { data: yearlyChartData, key: 'year' };
+      case 'all': return { data: allTimeData, key: 'period' };
+      default: return { data: currentYearMonthlyData, key: 'month' };
+    }
+  };
+  const { data: currentChartData, key: xAxisKey } = getChartDataAndKey();
 
   return (
     <div className="space-y-6">
@@ -1257,8 +1320,11 @@ function NewOrgsReportCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="weekly">Weekly</SelectItem>
               <SelectItem value="monthly">Monthly</SelectItem>
               <SelectItem value="quarterly">Quarterly</SelectItem>
+              <SelectItem value="yearly">Yearly</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
             </SelectContent>
           </Select>
           <Select value={chartType} onValueChange={onChartTypeChange}>
@@ -1373,71 +1439,15 @@ function NewOrgsReportCard({
         </Card>
       </div>
 
-      {yearlyChartData.length > 0 && (
-        <div className="space-y-4" data-testid="container-new-orgs-yearly-chart">
-          <h4 className="text-sm font-medium text-muted-foreground">New Organizations (By Year)</h4>
+      {currentChartData.length > 0 && (
+        <div className="space-y-4" data-testid="container-new-orgs-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">
+            New Organizations ({viewMode === 'weekly' ? 'This Week' : viewMode === 'monthly' ? 'Monthly' : viewMode === 'quarterly' ? 'Quarterly' : viewMode === 'yearly' ? 'By Year' : 'All Time'})
+          </h4>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               {chartType === 'line' ? (
-                <LineChart data={yearlyChartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Legend />
-                  {categories.map((category, index) => (
-                    <Line
-                      key={category}
-                      type="monotone"
-                      dataKey={category}
-                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 4 }}
-                      name={category}
-                    />
-                  ))}
-                </LineChart>
-              ) : (
-                <BarChart data={yearlyChartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Legend />
-                  {categories.map((category, index) => (
-                    <Bar
-                      key={category}
-                      dataKey={category}
-                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
-                      name={category}
-                    />
-                  ))}
-                </BarChart>
-              )}
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {currentYearData.length > 0 && (
-        <div className="space-y-4" data-testid="container-new-orgs-current-year-chart">
-          <h4 className="text-sm font-medium text-muted-foreground">{currentYear} New Organizations ({viewMode === 'monthly' ? 'Monthly' : 'Quarterly'})</h4>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              {chartType === 'line' ? (
-                <LineChart data={currentYearData}>
+                <LineChart data={currentChartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
                   <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
@@ -1462,7 +1472,332 @@ function NewOrgsReportCard({
                   ))}
                 </LineChart>
               ) : (
-                <BarChart data={currentYearData}>
+                <BarChart data={currentChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Bar
+                      key={category}
+                      dataKey={category}
+                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      name={category}
+                    />
+                  ))}
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MemberOrgTypeReportCard({ 
+  selectedField, 
+  onFieldChange, 
+  viewMode, 
+  onViewModeChange, 
+  chartType = 'bar',
+  onChartTypeChange,
+  demoMode,
+  aggregation = [],
+  onAggregationChange,
+  aggregationLabel = 'Total Schools',
+  onAggregationLabelChange
+}) {
+  const [aggregationOpen, setAggregationOpen] = useState(false);
+  
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/member-org-type-stats', selectedField],
+    queryFn: () => apiRequest('GET', `/api/reports/member-org-type-stats?fieldName=${encodeURIComponent(selectedField)}`),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
+  });
+
+  const stats = demoMode ? DEMO_MEMBER_ORG_TYPE_DATA : apiStats;
+
+  const rawCategories = stats?.categories || [];
+  const rawSummaryCards = stats?.summaryCards || [];
+  const rawYearlyChartData = stats?.yearlyChartData || [];
+  const rawCurrentYearMonthlyData = stats?.currentYearMonthlyData || [];
+  const rawCurrentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
+  const rawCurrentYearWeeklyData = stats?.currentYearWeeklyData || [];
+  const rawAllTimeData = stats?.allTimeData || [];
+  const availableFields = stats?.availableFields || [];
+  const currentYear = stats?.currentYear || new Date().getFullYear();
+
+  const applyAggregation = useMemo(() => {
+    if (aggregation.length < 2) {
+      return {
+        categories: rawCategories,
+        summaryCards: rawSummaryCards,
+        yearlyChartData: rawYearlyChartData,
+        currentYearMonthlyData: rawCurrentYearMonthlyData,
+        currentYearQuarterlyData: rawCurrentYearQuarterlyData,
+        currentYearWeeklyData: rawCurrentYearWeeklyData,
+        allTimeData: rawAllTimeData
+      };
+    }
+
+    const aggregatedCategories = [...rawCategories, aggregationLabel];
+
+    const aggregatedTotal = rawSummaryCards
+      .filter(card => aggregation.includes(card.name))
+      .reduce((sum, card) => sum + card.total, 0);
+    const aggregatedSummaryCards = [...rawSummaryCards, { name: aggregationLabel, total: aggregatedTotal }];
+
+    const aggregateChartData = (data, keyField) => {
+      return data.map(row => {
+        const newRow = { [keyField]: row[keyField] };
+        rawCategories.forEach(cat => {
+          newRow[cat] = row[cat] || 0;
+        });
+        newRow[aggregationLabel] = aggregation.reduce((sum, cat) => sum + (row[cat] || 0), 0);
+        return newRow;
+      });
+    };
+
+    return {
+      categories: aggregatedCategories,
+      summaryCards: aggregatedSummaryCards,
+      yearlyChartData: aggregateChartData(rawYearlyChartData, 'year'),
+      currentYearMonthlyData: aggregateChartData(rawCurrentYearMonthlyData, 'month'),
+      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter'),
+      currentYearWeeklyData: aggregateChartData(rawCurrentYearWeeklyData, 'day'),
+      allTimeData: aggregateChartData(rawAllTimeData, 'period')
+    };
+  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, rawCurrentYearWeeklyData, rawAllTimeData, aggregation, aggregationLabel]);
+
+  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData, currentYearWeeklyData, allTimeData } = applyAggregation;
+
+  const toggleAggregation = (category) => {
+    if (aggregation.includes(category)) {
+      onAggregationChange(aggregation.filter(c => c !== category));
+    } else {
+      onAggregationChange([...aggregation, category]);
+    }
+  };
+
+  if (!demoMode && isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-member-org-type-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!demoMode && error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-member-org-type-error">
+        <p className="text-muted-foreground" data-testid="text-member-org-type-error-message">Failed to load member statistics</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-member-org-type-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const getChartDataAndKey = () => {
+    switch (viewMode) {
+      case 'weekly': return { data: currentYearWeeklyData, key: 'day' };
+      case 'monthly': return { data: currentYearMonthlyData, key: 'month' };
+      case 'quarterly': return { data: currentYearQuarterlyData, key: 'quarter' };
+      case 'yearly': return { data: yearlyChartData, key: 'year' };
+      case 'all': return { data: allTimeData, key: 'period' };
+      default: return { data: currentYearMonthlyData, key: 'month' };
+    }
+  };
+  const { data: currentChartData, key: xAxisKey } = getChartDataAndKey();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={selectedField} onValueChange={onFieldChange}>
+            <SelectTrigger className="w-48" data-testid="select-member-org-type-field">
+              <SelectValue placeholder="Select field..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableFields.length > 0 ? (
+                availableFields.map(field => (
+                  <SelectItem key={field.name} value={field.name} data-testid={`select-member-org-type-field-${field.name}`}>
+                    {field.label}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="org_type">Organization Type</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          <Select value={viewMode} onValueChange={onViewModeChange}>
+            <SelectTrigger className="w-32" data-testid="select-member-org-type-view-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="weekly">Weekly</SelectItem>
+              <SelectItem value="monthly">Monthly</SelectItem>
+              <SelectItem value="quarterly">Quarterly</SelectItem>
+              <SelectItem value="yearly">Yearly</SelectItem>
+              <SelectItem value="all">All Time</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={chartType} onValueChange={onChartTypeChange}>
+            <SelectTrigger className="w-28" data-testid="select-member-org-type-chart-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bar">Bar Chart</SelectItem>
+              <SelectItem value="line">Line Chart</SelectItem>
+            </SelectContent>
+          </Select>
+          <Popover open={aggregationOpen} onOpenChange={setAggregationOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="button-member-org-type-aggregation-settings">
+                <Building2 className="w-4 h-4 mr-2" />
+                Aggregate
+                {aggregation.length >= 2 && (
+                  <Badge variant="secondary" className="ml-2">{aggregation.length}</Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start" data-testid="popover-member-org-type-aggregation">
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-medium mb-1">Combine Categories</h4>
+                  <p className="text-xs text-muted-foreground">Select 2+ categories to aggregate into a single group</p>
+                </div>
+                <div className="space-y-2">
+                  {rawCategories.map(category => (
+                    <div key={category} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`member-org-type-agg-${category}`}
+                        checked={aggregation.includes(category)}
+                        onCheckedChange={() => toggleAggregation(category)}
+                        data-testid={`checkbox-member-org-type-aggregate-${category}`}
+                      />
+                      <Label htmlFor={`member-org-type-agg-${category}`} className="text-sm cursor-pointer">
+                        {category}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {aggregation.length >= 2 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <Label htmlFor="member-org-type-agg-label" className="text-sm">Group Label</Label>
+                      <Input
+                        id="member-org-type-agg-label"
+                        value={aggregationLabel}
+                        onChange={(e) => onAggregationLabelChange(e.target.value)}
+                        placeholder="e.g., Total Schools"
+                        data-testid="input-member-org-type-aggregation-label"
+                      />
+                    </div>
+                  </>
+                )}
+                {aggregation.length >= 2 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => onAggregationChange([])}
+                    data-testid="button-member-org-type-clear-aggregation"
+                  >
+                    Clear Aggregation
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-member-org-type"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="container-member-org-type-summary">
+        {summaryCards.map((card, index) => (
+          <Card 
+            key={card.name} 
+            className={`p-4 ${aggregation.length >= 2 && card.name === aggregationLabel ? 'ring-2 ring-primary/50' : ''}`}
+            data-testid={`card-member-org-type-${card.name}`}
+          >
+            <div className="flex items-start gap-3">
+              <div 
+                className="w-1 h-12 rounded-full shrink-0" 
+                style={{ backgroundColor: ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length] }}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">{card.name}</p>
+                <p className="text-2xl font-bold">{(card.total || 0).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">members</p>
+              </div>
+            </div>
+          </Card>
+        ))}
+        <Card className="p-4 bg-muted/50" data-testid="card-member-org-type-total">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground">Total Members</p>
+            <p className="text-2xl font-bold">{stats?.totalMembers?.toLocaleString() || 0}</p>
+          </div>
+        </Card>
+      </div>
+
+      {currentChartData.length > 0 && (
+        <div className="space-y-4" data-testid="container-member-org-type-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">
+            Members by Type ({viewMode === 'weekly' ? 'This Week' : viewMode === 'monthly' ? 'Monthly' : viewMode === 'quarterly' ? 'Quarterly' : viewMode === 'yearly' ? 'By Year' : 'All Time'})
+          </h4>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              {chartType === 'line' ? (
+                <LineChart data={currentChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Line
+                      key={category}
+                      type="monotone"
+                      dataKey={category}
+                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      name={category}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart data={currentChartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
                   <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
@@ -1510,6 +1845,11 @@ export default function ReportsDashboard() {
   const [newOrgsChartType, setNewOrgsChartType] = useState('bar');
   const [newOrgsAggregation, setNewOrgsAggregation] = useState([]);
   const [newOrgsAggregationLabel, setNewOrgsAggregationLabel] = useState('Total Schools');
+  const [memberOrgTypeField, setMemberOrgTypeField] = useState('org_type');
+  const [memberOrgTypeViewMode, setMemberOrgTypeViewMode] = useState('monthly');
+  const [memberOrgTypeChartType, setMemberOrgTypeChartType] = useState('bar');
+  const [memberOrgTypeAggregation, setMemberOrgTypeAggregation] = useState([]);
+  const [memberOrgTypeAggregationLabel, setMemberOrgTypeAggregationLabel] = useState('Total Schools');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
 
@@ -1668,6 +2008,22 @@ export default function ReportsDashboard() {
             onAggregationLabelChange={setNewOrgsAggregationLabel}
           />
         );
+      case 'members-by-org-type':
+        return (
+          <MemberOrgTypeReportCard
+            selectedField={memberOrgTypeField}
+            onFieldChange={setMemberOrgTypeField}
+            viewMode={memberOrgTypeViewMode}
+            onViewModeChange={setMemberOrgTypeViewMode}
+            chartType={memberOrgTypeChartType}
+            onChartTypeChange={setMemberOrgTypeChartType}
+            demoMode={demoMode}
+            aggregation={memberOrgTypeAggregation}
+            onAggregationChange={setMemberOrgTypeAggregation}
+            aggregationLabel={memberOrgTypeAggregationLabel}
+            onAggregationLabelChange={setMemberOrgTypeAggregationLabel}
+          />
+        );
       default:
         return null;
     }
@@ -1685,6 +2041,8 @@ export default function ReportsDashboard() {
         return <Building2 className="w-5 h-5" />;
       case 'new-orgs':
         return <TrendingUp className="w-5 h-5" />;
+      case 'members-by-org-type':
+        return <Users className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }

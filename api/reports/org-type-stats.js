@@ -20,6 +20,23 @@ function extractPrimitiveValue(val) {
   return val;
 }
 
+function getWeekStart(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getWeekNumber(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -39,6 +56,8 @@ export default async function handler(req, res) {
     const { fieldName = 'org_type' } = req.query;
     const now = new Date();
     const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentWeekStart = getWeekStart(now);
 
     const { data: customFields, error: cfError } = await supabase
       .from('organization_custom_field')
@@ -69,6 +88,8 @@ export default async function handler(req, res) {
         currentYear,
         currentYearMonthlyData: [],
         currentYearQuarterlyData: [],
+        currentYearWeeklyData: [],
+        allTimeData: [],
         totalOrganizations: 0,
         lastUpdated: now.toISOString(),
         error: `Field "${fieldName}" not found`
@@ -97,6 +118,8 @@ export default async function handler(req, res) {
         currentYear,
         currentYearMonthlyData: [],
         currentYearQuarterlyData: [],
+        currentYearWeeklyData: [],
+        allTimeData: [],
         totalOrganizations: 0,
         lastUpdated: now.toISOString()
       });
@@ -143,6 +166,9 @@ export default async function handler(req, res) {
     const typeCounts = {};
     const yearlyData = {};
     const monthlyData = {};
+    const weeklyData = {};
+
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     (organizations || []).forEach(org => {
       const rawValue = orgValueMap[org.id];
@@ -175,6 +201,21 @@ export default async function handler(req, res) {
               monthlyData[typeValue][month] = 0;
             }
             monthlyData[typeValue][month]++;
+
+            const orgWeekStart = getWeekStart(createdDate);
+            if (orgWeekStart.getTime() === currentWeekStart.getTime()) {
+              const dayOfWeek = createdDate.getDay();
+              const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+              const dayName = dayNames[dayIndex];
+              
+              if (!weeklyData[typeValue]) {
+                weeklyData[typeValue] = {};
+              }
+              if (!weeklyData[typeValue][dayName]) {
+                weeklyData[typeValue][dayName] = 0;
+              }
+              weeklyData[typeValue][dayName]++;
+            }
           }
         }
       });
@@ -228,6 +269,19 @@ export default async function handler(req, res) {
       }
     });
 
+    const currentYearWeeklyData = dayNames.map(dayName => {
+      const dataPoint = { day: dayName };
+      categories.forEach(category => {
+        dataPoint[category] = weeklyData[category]?.[dayName] || 0;
+      });
+      return dataPoint;
+    });
+
+    const allTimeData = [{ period: 'All Time' }];
+    categories.forEach(category => {
+      allTimeData[0][category] = typeCounts[category] || 0;
+    });
+
     return res.status(200).json({
       fieldName,
       availableFields,
@@ -237,6 +291,8 @@ export default async function handler(req, res) {
       currentYear,
       currentYearMonthlyData,
       currentYearQuarterlyData: quarterlyData,
+      currentYearWeeklyData,
+      allTimeData,
       totalOrganizations: organizations?.length || 0,
       lastUpdated: now.toISOString()
     });
