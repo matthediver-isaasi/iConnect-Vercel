@@ -83,6 +83,32 @@ export default async function handler(req, res) {
     const allStages = Array.from(allStagesMap.values())
       .sort((a, b) => a.order - b.order);
     
+    // Create label-to-id mapping for normalizing workflow_status values
+    // Some submissions may have stored the label instead of the id
+    const labelToIdMap = new Map();
+    allStages.forEach(stage => {
+      // Map label (case-insensitive) to stage id
+      labelToIdMap.set(stage.label.toLowerCase(), stage.id);
+      // Also map id to itself for direct matches
+      labelToIdMap.set(stage.id.toLowerCase(), stage.id);
+    });
+    
+    // Helper function to normalize a workflow_status to the canonical stage id
+    const normalizeStatus = (status) => {
+      if (!status) return null;
+      // First check direct match by id
+      if (allStagesMap.has(status)) {
+        return status;
+      }
+      // Check case-insensitive match
+      const normalizedId = labelToIdMap.get(status.toLowerCase());
+      if (normalizedId) {
+        return normalizedId;
+      }
+      // No match found - return original for unknown stage handling
+      return status;
+    };
+    
     if (!defaultInitialStageId && allStages.length > 0) {
       defaultInitialStageId = allStages[0].id;
     }
@@ -132,16 +158,21 @@ export default async function handler(req, res) {
 
     const totalApplications = relevantSubmissions.length;
 
+    // First pass: discover any truly unknown stages (after normalization)
     relevantSubmissions.forEach(submission => {
-      const status = submission.workflow_status || defaultInitialStageId;
-      if (!allStagesMap.has(status)) {
-        allStagesMap.set(status, {
-          id: status,
-          label: status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' '),
+      const rawStatus = submission.workflow_status;
+      const normalizedStatus = normalizeStatus(rawStatus) || defaultInitialStageId;
+      
+      if (!allStagesMap.has(normalizedStatus)) {
+        allStagesMap.set(normalizedStatus, {
+          id: normalizedStatus,
+          label: normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1).replace(/_/g, ' '),
           color: '#6b7280',
           order: allStagesMap.size,
           is_initial: false
         });
+        // Update labelToIdMap for the new stage
+        labelToIdMap.set(normalizedStatus.toLowerCase(), normalizedStatus);
       }
     });
 
@@ -154,7 +185,8 @@ export default async function handler(req, res) {
     });
 
     relevantSubmissions.forEach(submission => {
-      const status = submission.workflow_status || defaultInitialStageId;
+      const rawStatus = submission.workflow_status;
+      const status = normalizeStatus(rawStatus) || defaultInitialStageId;
       stageCounts[status] = (stageCounts[status] || 0) + 1;
     });
 
@@ -175,7 +207,7 @@ export default async function handler(req, res) {
 
     relevantSubmissions.forEach(submission => {
       const historyLog = submission.history_log || [];
-      const currentStatus = submission.workflow_status || defaultInitialStageId;
+      const currentStatus = normalizeStatus(submission.workflow_status) || defaultInitialStageId;
       const reachedStages = new Set([currentStatus]);
       
       reachedStages.add(defaultInitialStageId);
@@ -183,10 +215,12 @@ export default async function handler(req, res) {
       historyLog.forEach(entry => {
         if (entry.event_type === 'status_change' || entry.event_type === 'workflow_status_change') {
           if (entry.details?.new_status) {
-            reachedStages.add(entry.details.new_status);
+            const normalized = normalizeStatus(entry.details.new_status) || entry.details.new_status;
+            reachedStages.add(normalized);
           }
           if (entry.details?.old_status) {
-            reachedStages.add(entry.details.old_status);
+            const normalized = normalizeStatus(entry.details.old_status) || entry.details.old_status;
+            reachedStages.add(normalized);
           }
         }
       });
@@ -255,14 +289,14 @@ export default async function handler(req, res) {
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       
       const createdAt = new Date(submission.created_at);
-      const currentStatus = submission.workflow_status || defaultInitialStageId;
+      const currentStatus = normalizeStatus(submission.workflow_status) || defaultInitialStageId;
       let stageEnterTimes = {};
       stageEnterTimes[defaultInitialStageId] = createdAt;
       
       statusChanges.forEach(entry => {
         const timestamp = new Date(entry.timestamp);
-        const oldStatus = entry.details?.old_status;
-        const newStatus = entry.details?.new_status;
+        const oldStatus = normalizeStatus(entry.details?.old_status) || entry.details?.old_status;
+        const newStatus = normalizeStatus(entry.details?.new_status) || entry.details?.new_status;
         
         if (oldStatus && stageEnterTimes[oldStatus]) {
           const duration = timestamp - stageEnterTimes[oldStatus];
@@ -396,7 +430,7 @@ export default async function handler(req, res) {
       });
       
       filteredSubmissions.forEach(submission => {
-        const status = submission.workflow_status || defaultInitialStageId;
+        const status = normalizeStatus(submission.workflow_status) || defaultInitialStageId;
         periodStageCounts[status] = (periodStageCounts[status] || 0) + 1;
       });
       
