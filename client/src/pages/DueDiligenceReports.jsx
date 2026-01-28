@@ -26,7 +26,10 @@ import {
   ArrowRight,
   AlertTriangle,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Calendar,
+  Users,
+  Target
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -47,7 +50,8 @@ const STORAGE_KEY_PREFIX = 'dd_reports_dashboard_';
 
 const DEFAULT_REPORT_CARDS = [
   { id: 'application-funnel', title: 'Application Funnel', visible: true, order: 0 },
-  { id: 'verification', title: 'Verification', visible: true, order: 1 }
+  { id: 'verification', title: 'Verification', visible: true, order: 1 },
+  { id: 'due-diligence', title: 'Due Diligence Meetings', visible: true, order: 2 }
 ];
 
 const PERIOD_OPTIONS = [
@@ -124,6 +128,39 @@ const DEMO_VERIFICATION_DATA = {
     { range: '3-5 days', count: 22, percentage: 39 },
     { range: '6-10 days', count: 12, percentage: 22 },
     { range: '11+ days', count: 4, percentage: 7 }
+  ]
+};
+
+const DEMO_DD_REPORT_DATA = {
+  scheduledMeetings: 112,
+  completedMeetings: 89,
+  completionRate: 79,
+  averageSchedulingDays: 8.5,
+  averageSchedulingHours: 204,
+  pendingOutcomes: 37,
+  outcomes: {
+    held: { count: 52, percentage: 58 },
+    approved: { count: 28, percentage: 32 },
+    rejected: { count: 9, percentage: 10 }
+  },
+  outcomesByPeriod: {
+    week: { scheduled: 14, completed: 11, completionRate: 79, change: 22, changeDirection: 'up' },
+    month: { scheduled: 48, completed: 38, completionRate: 79, change: 15, changeDirection: 'up' },
+    quarter: { scheduled: 89, completed: 72, completionRate: 81, change: 8, changeDirection: 'up' },
+    year: { scheduled: 112, completed: 89, completionRate: 79, change: 24, changeDirection: 'up' },
+    all: { scheduled: 112, completed: 89, completionRate: 79, change: null, changeDirection: null }
+  },
+  scoreDistribution: [
+    { range: '0-25', label: 'Low', color: '#EF4444', count: 8, percentage: 9 },
+    { range: '26-50', label: 'Medium-Low', color: '#F59E0B', count: 18, percentage: 20 },
+    { range: '51-75', label: 'Medium-High', color: '#84CC16', count: 32, percentage: 36 },
+    { range: '76-100', label: 'High', color: '#22C55E', count: 31, percentage: 35 }
+  ],
+  schedulingTimeBreakdown: [
+    { range: '0-5 days', count: 24, percentage: 27 },
+    { range: '6-10 days', count: 38, percentage: 43 },
+    { range: '11-15 days', count: 18, percentage: 20 },
+    { range: '16+ days', count: 9, percentage: 10 }
   ]
 };
 
@@ -633,6 +670,257 @@ function VerificationReportCard({ period, onPeriodChange, demoMode }) {
   );
 }
 
+function DueDiligenceReportCard({ period, onPeriodChange, demoMode }) {
+  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/due-diligence-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/due-diligence-stats'),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
+  });
+
+  const effectiveStats = demoMode ? DEMO_DD_REPORT_DATA : stats;
+  const periodData = effectiveStats?.outcomesByPeriod?.[period];
+  const changePercent = periodData?.change;
+  const hasValidComparison = changePercent !== null && changePercent !== undefined && period !== 'all';
+  const isPositive = periodData?.changeDirection === 'up';
+
+  if (!demoMode && isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-dd-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!demoMode && error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-dd-error">
+        <p className="text-muted-foreground" data-testid="text-dd-error-message">Failed to load due diligence data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-dd-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const scheduledMeetings = effectiveStats?.scheduledMeetings || 0;
+  const completedMeetings = effectiveStats?.completedMeetings || 0;
+  const completionRate = effectiveStats?.completionRate || 0;
+  const averageSchedulingDays = effectiveStats?.averageSchedulingDays || 0;
+  const pendingOutcomes = effectiveStats?.pendingOutcomes || 0;
+  const outcomes = effectiveStats?.outcomes || {};
+  const scoreDistribution = effectiveStats?.scoreDistribution || [];
+  const schedulingTimeBreakdown = effectiveStats?.schedulingTimeBreakdown || [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Select value={period} onValueChange={onPeriodChange}>
+          <SelectTrigger className="w-40" data-testid="select-dd-period">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map(opt => (
+              <SelectItem key={opt.value} value={opt.value} data-testid={`select-dd-period-${opt.value}`}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-dd"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4" data-testid="container-dd-stats-grid">
+        <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Calendar className="w-5 h-5 text-blue-600" />
+            <span className="text-sm font-medium text-blue-700 dark:text-blue-400">Scheduled</span>
+          </div>
+          <p className="text-3xl font-bold text-blue-700 dark:text-blue-300" data-testid="text-scheduled-meetings">{scheduledMeetings.toLocaleString()}</p>
+          <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1">Total meetings scheduled</p>
+        </div>
+        
+        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">Completed</span>
+          </div>
+          <p className="text-3xl font-bold text-green-700 dark:text-green-300" data-testid="text-completed-meetings">{completedMeetings.toLocaleString()}</p>
+          <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1">DD Meet Attended</p>
+        </div>
+        
+        <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Target className="w-5 h-5 text-purple-600" />
+            <span className="text-sm font-medium text-purple-700 dark:text-purple-400">Completion Rate</span>
+          </div>
+          <p className="text-3xl font-bold text-purple-700 dark:text-purple-300" data-testid="text-completion-rate">{completionRate}%</p>
+          <p className="text-xs text-purple-600/70 dark:text-purple-400/70 mt-1">Scheduled to attended</p>
+        </div>
+        
+        <div className="p-4 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock className="w-5 h-5 text-orange-600" />
+            <span className="text-sm font-medium text-orange-700 dark:text-orange-400">Avg. Scheduling</span>
+          </div>
+          <p className="text-3xl font-bold text-orange-700 dark:text-orange-300" data-testid="text-avg-scheduling">
+            {averageSchedulingDays.toFixed(1)} <span className="text-lg font-normal">days</span>
+          </p>
+          <p className="text-xs text-orange-600/70 dark:text-orange-400/70 mt-1">To attend meeting</p>
+        </div>
+      </div>
+
+      {hasValidComparison && periodData && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-dd-period-comparison">
+          <div className={`p-2 rounded-full ${isPositive ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+            {isPositive ? (
+              <TrendingUp className="w-5 h-5 text-green-600" />
+            ) : (
+              <TrendingDown className="w-5 h-5 text-red-600" />
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium" data-testid="text-dd-period-comparison">
+              <span className={isPositive ? 'text-green-600' : 'text-red-600'}>
+                {isPositive ? '+' : ''}{changePercent}%
+              </span>
+              {' '}completion rate vs previous {period}
+            </p>
+            <p className="text-xs text-muted-foreground" data-testid="text-dd-period-details">
+              {periodData.completed} completed of {periodData.scheduled} scheduled ({periodData.completionRate}%)
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-4" data-testid="container-outcomes">
+          <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Meeting Outcomes
+          </h4>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800" data-testid="row-outcome-held">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-amber-500" />
+                <span className="font-medium">Held</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" data-testid="badge-outcome-held">{outcomes.held?.count || 0}</Badge>
+                <span className="text-sm text-muted-foreground w-12 text-right">{outcomes.held?.percentage || 0}%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" data-testid="row-outcome-approved">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-green-500" />
+                <span className="font-medium">Approved</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" data-testid="badge-outcome-approved">{outcomes.approved?.count || 0}</Badge>
+                <span className="text-sm text-muted-foreground w-12 text-right">{outcomes.approved?.percentage || 0}%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" data-testid="row-outcome-rejected">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <span className="font-medium">Rejected</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" data-testid="badge-outcome-rejected">{outcomes.rejected?.count || 0}</Badge>
+                <span className="text-sm text-muted-foreground w-12 text-right">{outcomes.rejected?.percentage || 0}%</span>
+              </div>
+            </div>
+            {pendingOutcomes > 0 && (
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border" data-testid="row-outcome-pending">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-gray-400" />
+                  <span className="font-medium text-muted-foreground">Pending Decision</span>
+                </div>
+                <Badge variant="outline" data-testid="badge-outcome-pending">{pendingOutcomes}</Badge>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {scoreDistribution.length > 0 && (
+          <div className="space-y-4" data-testid="container-score-distribution">
+            <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Target className="w-4 h-4" />
+              Score Distribution
+            </h4>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={scoreDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis 
+                    dataKey="label" 
+                    tick={{ fontSize: 11 }}
+                    className="text-muted-foreground"
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 11 }}
+                    className="text-muted-foreground"
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                    formatter={(value, name, props) => [value, `Score ${props.payload.range}`]}
+                  />
+                  <Bar dataKey="count" name="Applicants">
+                    {scoreDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {schedulingTimeBreakdown.length > 0 && (
+        <div className="space-y-4" data-testid="container-scheduling-breakdown">
+          <h4 className="text-sm font-medium text-muted-foreground">Time to Meeting Attendance</h4>
+          <div className="space-y-3">
+            {schedulingTimeBreakdown.map((item, idx) => (
+              <div key={item.range} className="space-y-1" data-testid={`row-scheduling-${idx}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{item.range}</span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" data-testid={`badge-scheduling-count-${idx}`}>
+                      {item.count}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground w-12 text-right">
+                      {item.percentage}%
+                    </span>
+                  </div>
+                </div>
+                <Progress value={item.percentage} className="h-2" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DueDiligenceReports() {
   const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
@@ -749,6 +1037,14 @@ export default function DueDiligenceReports() {
             demoMode={demoMode}
           />
         );
+      case 'due-diligence':
+        return (
+          <DueDiligenceReportCard
+            period={funnelPeriod}
+            onPeriodChange={setFunnelPeriod}
+            demoMode={demoMode}
+          />
+        );
       default:
         return null;
     }
@@ -760,6 +1056,8 @@ export default function DueDiligenceReports() {
         return <Filter className="w-5 h-5" />;
       case 'verification':
         return <CheckCircle2 className="w-5 h-5" />;
+      case 'due-diligence':
+        return <Calendar className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }
