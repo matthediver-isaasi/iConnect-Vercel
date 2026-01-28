@@ -69,20 +69,165 @@ const PERIOD_OPTIONS = [
   { value: 'all', label: 'All Time' }
 ];
 
-function MembersReportCard({ period, onPeriodChange }) {
-  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+const DEMO_MEMBERS_DATA = {
+  totalMembers: 1247,
+  activeMembers: 892,
+  periodStats: {
+    week: { current: 23, previous: 18, change: 28, changeDirection: 'up', isAllTime: false },
+    month: { current: 87, previous: 72, change: 21, changeDirection: 'up', isAllTime: false },
+    quarter: { current: 234, previous: 198, change: 18, changeDirection: 'up', isAllTime: false },
+    year: { current: 567, previous: 423, change: 34, changeDirection: 'up', isAllTime: false },
+    all: { current: 1247, previous: null, change: null, changeDirection: null, isAllTime: true }
+  },
+  acquisitionByPeriod: {
+    week: [
+      { label: 'Mon', count: 3 }, { label: 'Tue', count: 5 }, { label: 'Wed', count: 4 },
+      { label: 'Thu', count: 6 }, { label: 'Fri', count: 3 }, { label: 'Sat', count: 1 }, { label: 'Sun', count: 1 }
+    ],
+    month: [
+      { label: 'Week 1', count: 18 }, { label: 'Week 2', count: 24 },
+      { label: 'Week 3', count: 21 }, { label: 'Week 4', count: 24 }
+    ],
+    quarter: [
+      { label: 'Jan', count: 67 }, { label: 'Feb', count: 78 }, { label: 'Mar', count: 89 }
+    ],
+    year: [
+      { label: 'Q1', count: 134 }, { label: 'Q2', count: 156 },
+      { label: 'Q3', count: 142 }, { label: 'Q4', count: 135 }
+    ],
+    all: [
+      { label: '2021', count: 234 }, { label: '2022', count: 312 },
+      { label: '2023', count: 389 }, { label: '2024', count: 312 }
+    ]
+  }
+};
+
+const DEMO_ACTIVITY_DATA = {
+  totalLogins: 4523,
+  uniqueUsers: 847,
+  averageSessionMinutes: 12,
+  todayLogins: 156,
+  periodStats: {
+    week: { current: 892, previous: 756, change: 18, changeDirection: 'up', isAllTime: false },
+    month: { current: 3456, previous: 2987, change: 16, changeDirection: 'up', isAllTime: false },
+    quarter: { current: 9234, previous: 8456, change: 9, changeDirection: 'up', isAllTime: false },
+    year: { current: 34567, previous: 28934, change: 19, changeDirection: 'up', isAllTime: false },
+    all: { current: 78234, previous: null, change: null, changeDirection: null, isAllTime: true }
+  },
+  activityByPeriod: {
+    week: [
+      { label: 'Mon', count: 134 }, { label: 'Tue', count: 156 }, { label: 'Wed', count: 178 },
+      { label: 'Thu', count: 145 }, { label: 'Fri', count: 123 }, { label: 'Sat', count: 78 }, { label: 'Sun', count: 78 }
+    ],
+    month: [
+      { label: 'Week 1', count: 789 }, { label: 'Week 2', count: 892 },
+      { label: 'Week 3', count: 867 }, { label: 'Week 4', count: 908 }
+    ],
+    quarter: [
+      { label: 'Jan', count: 2890 }, { label: 'Feb', count: 3123 }, { label: 'Mar', count: 3221 }
+    ],
+    year: [
+      { label: 'Q1', count: 8234 }, { label: 'Q2', count: 9123 },
+      { label: 'Q3', count: 8567 }, { label: 'Q4', count: 8643 }
+    ],
+    all: [
+      { label: '2021', count: 18234 }, { label: '2022', count: 23456 },
+      { label: '2023', count: 28934 }, { label: '2024', count: 7610 }
+    ]
+  }
+};
+
+const DEMO_ARTICLE_VIEWS_DATA = {
+  totalViews: 12847,
+  uniqueArticles: 234,
+  uniqueViewers: 567,
+  viewsToday: 89,
+  periodStats: {
+    week: { current: 456, previous: 389, change: 17, changeDirection: 'up', isAllTime: false },
+    month: { current: 1823, previous: 1567, change: 16, changeDirection: 'up', isAllTime: false },
+    quarter: { current: 4567, previous: 3987, change: 15, changeDirection: 'up', isAllTime: false },
+    year: { current: 12847, previous: 9876, change: 30, changeDirection: 'up', isAllTime: false },
+    all: { current: 12847, previous: null, change: null, changeDirection: null, isAllTime: true }
+  },
+  viewsByPeriod: {
+    week: [
+      { label: 'Mon', count: 67 }, { label: 'Tue', count: 78 }, { label: 'Wed', count: 89 },
+      { label: 'Thu', count: 72 }, { label: 'Fri', count: 65 }, { label: 'Sat', count: 43 }, { label: 'Sun', count: 42 }
+    ],
+    month: [
+      { label: 'Week 1', count: 423 }, { label: 'Week 2', count: 478 },
+      { label: 'Week 3', count: 456 }, { label: 'Week 4', count: 466 }
+    ],
+    quarter: [
+      { label: 'Jan', count: 1456 }, { label: 'Feb', count: 1567 }, { label: 'Mar', count: 1544 }
+    ],
+    year: [
+      { label: 'Q1', count: 2890 }, { label: 'Q2', count: 3234 },
+      { label: 'Q3', count: 3456 }, { label: 'Q4', count: 3267 }
+    ],
+    all: [
+      { label: '2022', count: 3456 }, { label: '2023', count: 4567 }, { label: '2024', count: 4824 }
+    ]
+  }
+};
+
+const DEMO_ORG_TYPE_DATA = {
+  fieldName: 'org_type',
+  availableFields: [
+    { name: 'org_type', label: 'Organization Type', fieldType: 'select', id: 'demo-field-1' }
+  ],
+  categories: ['ESO', 'SO', 'Partner'],
+  summaryCards: [
+    { name: 'ESO', total: 127 },
+    { name: 'SO', total: 89 },
+    { name: 'Partner', total: 45 }
+  ],
+  yearlyChartData: [
+    { year: '2021', ESO: 23, SO: 18, Partner: 8 },
+    { year: '2022', ESO: 34, SO: 24, Partner: 12 },
+    { year: '2023', ESO: 42, SO: 28, Partner: 15 },
+    { year: '2024', ESO: 28, SO: 19, Partner: 10 }
+  ],
+  currentYear: 2024,
+  currentYearMonthlyData: [
+    { month: 'Jan', ESO: 8, SO: 5, Partner: 3 },
+    { month: 'Feb', ESO: 6, SO: 4, Partner: 2 },
+    { month: 'Mar', ESO: 7, SO: 6, Partner: 2 },
+    { month: 'Apr', ESO: 3, SO: 2, Partner: 1 },
+    { month: 'May', ESO: 2, SO: 1, Partner: 1 },
+    { month: 'Jun', ESO: 1, SO: 1, Partner: 0 },
+    { month: 'Jul', ESO: 1, SO: 0, Partner: 1 },
+    { month: 'Aug', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Sep', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Oct', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Nov', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Dec', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  currentYearQuarterlyData: [
+    { quarter: 'Q1', ESO: 21, SO: 15, Partner: 7 },
+    { quarter: 'Q2', ESO: 6, SO: 4, Partner: 2 },
+    { quarter: 'Q3', ESO: 1, SO: 0, Partner: 1 },
+    { quarter: 'Q4', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  totalOrganizations: 261
+};
+
+function MembersReportCard({ period, onPeriodChange, demoMode }) {
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/reports/member-stats'],
     queryFn: () => apiRequest('GET', '/api/reports/member-stats'),
     staleTime: 60000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
   });
 
+  const stats = demoMode ? DEMO_MEMBERS_DATA : apiStats;
   const periodData = stats?.periodStats?.[period];
   const changePercent = periodData?.change;
   const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
   const isPositive = periodData?.changeDirection === 'up';
 
-  if (isLoading) {
+  if (!demoMode && isLoading) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="container-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -90,7 +235,7 @@ function MembersReportCard({ period, onPeriodChange }) {
     );
   }
 
-  if (error) {
+  if (!demoMode && error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-error">
         <p className="text-muted-foreground" data-testid="text-error-message">Failed to load member statistics</p>
@@ -117,15 +262,17 @@ function MembersReportCard({ period, onPeriodChange }) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-stats"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-stats"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4" data-testid="container-stats-grid">
@@ -212,20 +359,22 @@ function MembersReportCard({ period, onPeriodChange }) {
   );
 }
 
-function ActivityReportCard({ period, onPeriodChange }) {
-  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+function ActivityReportCard({ period, onPeriodChange, demoMode }) {
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/reports/activity-stats'],
     queryFn: () => apiRequest('GET', '/api/reports/activity-stats'),
     staleTime: 60000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
   });
 
+  const stats = demoMode ? DEMO_ACTIVITY_DATA : apiStats;
   const periodData = stats?.periodStats?.[period];
   const changePercent = periodData?.change;
   const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
   const isPositive = periodData?.changeDirection === 'up';
 
-  if (isLoading) {
+  if (!demoMode && isLoading) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="container-activity-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -233,7 +382,7 @@ function ActivityReportCard({ period, onPeriodChange }) {
     );
   }
 
-  if (error) {
+  if (!demoMode && error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-activity-error">
         <p className="text-muted-foreground" data-testid="text-activity-error-message">Failed to load activity statistics</p>
@@ -260,15 +409,17 @@ function ActivityReportCard({ period, onPeriodChange }) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-activity"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-activity"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="container-activity-stats-grid">
@@ -377,20 +528,22 @@ function ActivityReportCard({ period, onPeriodChange }) {
   );
 }
 
-function ArticleViewsReportCard({ period, onPeriodChange }) {
-  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+function ArticleViewsReportCard({ period, onPeriodChange, demoMode }) {
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/reports/article-views-stats'],
     queryFn: () => apiRequest('GET', '/api/reports/article-views-stats'),
     staleTime: 60000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
   });
 
+  const stats = demoMode ? DEMO_ARTICLE_VIEWS_DATA : apiStats;
   const periodData = stats?.periodStats?.[period];
   const changePercent = periodData?.change;
   const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
   const isPositive = periodData?.changeDirection === 'up';
 
-  if (isLoading) {
+  if (!demoMode && isLoading) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="container-article-views-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -398,7 +551,7 @@ function ArticleViewsReportCard({ period, onPeriodChange }) {
     );
   }
 
-  if (error) {
+  if (!demoMode && error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-article-views-error">
         <p className="text-muted-foreground" data-testid="text-article-views-error-message">Failed to load article view statistics</p>
@@ -425,15 +578,17 @@ function ArticleViewsReportCard({ period, onPeriodChange }) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-article-views"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-article-views"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="container-article-views-stats-grid">
@@ -561,15 +716,18 @@ function ArticleViewsReportCard({ period, onPeriodChange }) {
   );
 }
 
-function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeChange }) {
-  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeChange, demoMode }) {
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/reports/org-type-stats', selectedField],
     queryFn: () => apiRequest('GET', `/api/reports/org-type-stats?fieldName=${encodeURIComponent(selectedField)}`),
     staleTime: 60000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
   });
 
-  if (isLoading) {
+  const stats = demoMode ? DEMO_ORG_TYPE_DATA : apiStats;
+
+  if (!demoMode && isLoading) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="container-org-type-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -577,7 +735,7 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
     );
   }
 
-  if (error) {
+  if (!demoMode && error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-org-type-error">
         <p className="text-muted-foreground" data-testid="text-org-type-error-message">Failed to load organization statistics</p>
@@ -630,15 +788,17 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
             </SelectContent>
           </Select>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-org-type"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-org-type"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="container-org-type-summary">
@@ -744,6 +904,7 @@ export default function ReportsDashboard() {
   const [orgTypeField, setOrgTypeField] = useState('org_type');
   const [orgTypeViewMode, setOrgTypeViewMode] = useState('monthly');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
 
   const storageKey = useMemo(() => 
     `${STORAGE_KEY_PREFIX}${tenantSlug || 'default'}_${memberInfo?.id || 'guest'}`,
@@ -849,6 +1010,7 @@ export default function ReportsDashboard() {
           <MembersReportCard
             period={membersPeriod}
             onPeriodChange={setMembersPeriod}
+            demoMode={demoMode}
           />
         );
       case 'activity':
@@ -856,6 +1018,7 @@ export default function ReportsDashboard() {
           <ActivityReportCard
             period={activityPeriod}
             onPeriodChange={setActivityPeriod}
+            demoMode={demoMode}
           />
         );
       case 'article-views':
@@ -863,6 +1026,7 @@ export default function ReportsDashboard() {
           <ArticleViewsReportCard
             period={articleViewsPeriod}
             onPeriodChange={setArticleViewsPeriod}
+            demoMode={demoMode}
           />
         );
       case 'org-types':
@@ -872,6 +1036,7 @@ export default function ReportsDashboard() {
             onFieldChange={setOrgTypeField}
             viewMode={orgTypeViewMode}
             onViewModeChange={setOrgTypeViewMode}
+            demoMode={demoMode}
           />
         );
       default:
@@ -916,13 +1081,25 @@ export default function ReportsDashboard() {
             </div>
           </div>
 
-          <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" data-testid="button-dashboard-settings">
-                <Settings2 className="w-4 h-4 mr-2" />
-                Customize
-              </Button>
-            </PopoverTrigger>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="demo-mode"
+                checked={demoMode}
+                onCheckedChange={setDemoMode}
+                data-testid="switch-demo-mode"
+              />
+              <Label htmlFor="demo-mode" className="text-sm cursor-pointer">
+                Demo Data
+              </Label>
+            </div>
+            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" data-testid="button-dashboard-settings">
+                  <Settings2 className="w-4 h-4 mr-2" />
+                  Customize
+                </Button>
+              </PopoverTrigger>
             <PopoverContent className="w-80" align="end" data-testid="popover-dashboard-settings">
               <div className="space-y-4">
                 <div>
@@ -956,6 +1133,7 @@ export default function ReportsDashboard() {
               </div>
             </PopoverContent>
           </Popover>
+          </div>
         </div>
 
         {visibleCards.length === 0 ? (
