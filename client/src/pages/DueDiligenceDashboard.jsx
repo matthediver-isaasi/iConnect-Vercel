@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings, GripVertical, Trash2, ArrowRightLeft, ArrowRight, Check, X, FileSignature } from "lucide-react";
+import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, CheckCircle2, Clock, Loader2, Settings, GripVertical, Trash2, ArrowRightLeft, ArrowRight, Check, X, FileSignature, Calendar, Gavel } from "lucide-react";
 import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
@@ -79,6 +79,129 @@ const DEFAULT_RISK_LEVELS = [
   { name: "high", color: "#f97316" },
   { name: "critical", color: "#ef4444" }
 ];
+
+const DEMO_SYNOPSIS_DATA = {
+  funnel: { totalApplications: 847, conversionRate: 54 },
+  verification: { totalVerified: 142, avgTurnaround: 4.2 },
+  ddMeetings: { completed: 89, completionRate: 79 },
+  decisions: { total: 98, approvalRate: 29 }
+};
+
+function SynopsisCardsRow({ demoMode = false }) {
+  const { data: funnelStats, isLoading: funnelLoading } = useQuery({
+    queryKey: ['/api/reports/application-funnel-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/application-funnel-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const { data: verificationStats, isLoading: verificationLoading } = useQuery({
+    queryKey: ['/api/reports/verification-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/verification-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const { data: ddStats, isLoading: ddLoading } = useQuery({
+    queryKey: ['/api/reports/due-diligence-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/due-diligence-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const { data: decisionsStats, isLoading: decisionsLoading } = useQuery({
+    queryKey: ['/api/reports/decisions-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/decisions-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const funnel = demoMode ? DEMO_SYNOPSIS_DATA.funnel : funnelStats;
+  const verification = demoMode ? DEMO_SYNOPSIS_DATA.verification : verificationStats;
+  const dd = demoMode ? DEMO_SYNOPSIS_DATA.ddMeetings : ddStats;
+  const decisions = demoMode ? DEMO_SYNOPSIS_DATA.decisions : decisionsStats;
+
+  const funnelConversion = funnel?.conversionRate || (funnel?.conversionRates?.length > 0 
+    ? funnel.conversionRates[funnel.conversionRates.length - 1]?.rate || 0
+    : 0);
+
+  const cards = [
+    {
+      id: 'application-funnel',
+      title: 'Applications',
+      icon: Filter,
+      value: funnelLoading ? '—' : (funnel?.totalApplications?.toLocaleString() || '0'),
+      subValue: funnelLoading ? 'Loading...' : `${funnelConversion}% to final stage`,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+      borderColor: 'border-blue-200 dark:border-blue-800'
+    },
+    {
+      id: 'verification',
+      title: 'Verified',
+      icon: CheckCircle2,
+      value: verificationLoading ? '—' : (verification?.totalVerified?.toLocaleString() || '0'),
+      subValue: verificationLoading ? 'Loading...' : `${verification?.avgTurnaround?.toFixed?.(1) || verification?.averageTurnaroundDays?.toFixed?.(1) || 0} days avg`,
+      color: 'text-green-600',
+      bgColor: 'bg-green-50 dark:bg-green-900/20',
+      borderColor: 'border-green-200 dark:border-green-800'
+    },
+    {
+      id: 'due-diligence',
+      title: 'DD Meetings',
+      icon: Calendar,
+      value: ddLoading ? '—' : (dd?.completed?.toLocaleString?.() || dd?.completedMeetings?.toLocaleString() || '0'),
+      subValue: ddLoading ? 'Loading...' : `${dd?.completionRate || 0}% completed`,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+      borderColor: 'border-purple-200 dark:border-purple-800'
+    },
+    {
+      id: 'decisions',
+      title: 'Decisions',
+      icon: Gavel,
+      value: decisionsLoading ? '—' : (decisions?.total?.toLocaleString?.() || decisions?.totalDecisions?.toLocaleString() || '0'),
+      subValue: decisionsLoading ? 'Loading...' : `${decisions?.approvalRate || decisions?.approved?.percentage || 0}% approved`,
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+      borderColor: 'border-amber-200 dark:border-amber-800'
+    }
+  ];
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" data-testid="container-synopsis-cards">
+      {cards.map(card => {
+        const Icon = card.icon;
+        return (
+          <Card 
+            key={card.id}
+            className={`${card.bgColor} ${card.borderColor}`}
+            data-testid={`synopsis-card-${card.id}`}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-1 flex-1 min-w-0">
+                  <p className={`text-xs font-medium ${card.color}`} data-testid={`synopsis-title-${card.id}`}>
+                    {card.title}
+                  </p>
+                  <p className="text-2xl font-bold truncate" data-testid={`synopsis-value-${card.id}`}>
+                    {card.value}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate" data-testid={`synopsis-subvalue-${card.id}`}>
+                    {card.subValue}
+                  </p>
+                </div>
+                <div className={`p-2 rounded-lg ${card.bgColor}`}>
+                  <Icon className={`w-5 h-5 ${card.color}`} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
 
 function StatCard({ title, value, icon: Icon, color, subtitle }) {
   return (
@@ -557,6 +680,8 @@ export default function DueDiligenceDashboardPage() {
           </Button>
         </div>
       </div>
+
+      <SynopsisCardsRow />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
