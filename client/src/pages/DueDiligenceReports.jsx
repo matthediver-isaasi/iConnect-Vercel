@@ -55,20 +55,60 @@ const PERIOD_OPTIONS = [
   { value: 'all', label: 'All Time' }
 ];
 
-function ApplicationFunnelReportCard({ period, onPeriodChange }) {
+const DEMO_DATA = {
+  totalApplications: 847,
+  stageBreakdown: [
+    { id: 'new', label: 'New Application', color: '#3B82F6', count: 312, percentage: 37 },
+    { id: 'review', label: 'Under Review', color: '#F59E0B', count: 198, percentage: 23 },
+    { id: 'interview', label: 'Interview Scheduled', color: '#8B5CF6', count: 142, percentage: 17 },
+    { id: 'due-diligence', label: 'Due Diligence', color: '#EC4899', count: 89, percentage: 11 },
+    { id: 'approved', label: 'Approved', color: '#10B981', count: 67, percentage: 8 },
+    { id: 'rejected', label: 'Rejected', color: '#EF4444', count: 39, percentage: 4 }
+  ],
+  conversionRates: [
+    { fromStageId: 'new', toStageId: 'review', fromStage: 'New Application', toStage: 'Under Review', fromCount: 312, toCount: 198, rate: 63 },
+    { fromStageId: 'review', toStageId: 'interview', fromStage: 'Under Review', toStage: 'Interview Scheduled', fromCount: 198, toCount: 142, rate: 72 },
+    { fromStageId: 'interview', toStageId: 'due-diligence', fromStage: 'Interview Scheduled', toStage: 'Due Diligence', fromCount: 142, toCount: 89, rate: 63 },
+    { fromStageId: 'due-diligence', toStageId: 'approved', fromStage: 'Due Diligence', toStage: 'Approved', fromCount: 89, toCount: 67, rate: 75 }
+  ],
+  dropOffAnalysis: [
+    { stageId: 'new', stageLabel: 'New Application', entered: 312, exited: 198, currentlyAt: 114, dropOffRate: 37 },
+    { stageId: 'review', stageLabel: 'Under Review', entered: 198, exited: 142, currentlyAt: 56, dropOffRate: 28 },
+    { stageId: 'interview', stageLabel: 'Interview Scheduled', entered: 142, exited: 89, currentlyAt: 53, dropOffRate: 37 },
+    { stageId: 'due-diligence', stageLabel: 'Due Diligence', entered: 89, exited: 67, currentlyAt: 22, dropOffRate: 25 },
+    { stageId: 'approved', stageLabel: 'Approved', entered: 67, exited: 0, currentlyAt: 67, dropOffRate: 0 }
+  ],
+  averageTimePerStage: [
+    { stageId: 'new', stageLabel: 'New Application', color: '#3B82F6', averageDays: 3, averageHours: 72, sampleSize: 198 },
+    { stageId: 'review', stageLabel: 'Under Review', color: '#F59E0B', averageDays: 7, averageHours: 168, sampleSize: 142 },
+    { stageId: 'interview', stageLabel: 'Interview Scheduled', color: '#8B5CF6', averageDays: 5, averageHours: 120, sampleSize: 89 },
+    { stageId: 'due-diligence', stageLabel: 'Due Diligence', color: '#EC4899', averageDays: 14, averageHours: 336, sampleSize: 67 }
+  ],
+  periodStats: {
+    week: { current: 47, previous: 38, change: 24, changeDirection: 'up', isAllTime: false },
+    month: { current: 189, previous: 156, change: 21, changeDirection: 'up', isAllTime: false },
+    quarter: { current: 512, previous: 478, change: 7, changeDirection: 'up', isAllTime: false },
+    year: { current: 847, previous: 623, change: 36, changeDirection: 'up', isAllTime: false },
+    all: { current: 847, previous: null, change: null, changeDirection: null, isAllTime: true }
+  }
+};
+
+function ApplicationFunnelReportCard({ period, onPeriodChange, demoMode }) {
   const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/reports/application-funnel-stats'],
     queryFn: () => apiRequest('GET', '/api/reports/application-funnel-stats'),
     staleTime: 60000,
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
   });
 
-  const periodData = stats?.periodStats?.[period];
+  const effectiveStats = demoMode ? DEMO_DATA : stats;
+  const periodData = effectiveStats?.periodStats?.[period];
   const changePercent = periodData?.change;
   const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
   const isPositive = periodData?.changeDirection === 'up';
 
-  if (isLoading) {
+  if (!demoMode && isLoading) {
     return (
       <div className="flex items-center justify-center h-64" data-testid="container-funnel-loading">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -76,7 +116,7 @@ function ApplicationFunnelReportCard({ period, onPeriodChange }) {
     );
   }
 
-  if (error) {
+  if (!demoMode && error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-funnel-error">
         <p className="text-muted-foreground" data-testid="text-funnel-error-message">Failed to load application funnel data</p>
@@ -88,11 +128,11 @@ function ApplicationFunnelReportCard({ period, onPeriodChange }) {
     );
   }
 
-  const stageBreakdown = stats?.stageBreakdown || [];
-  const conversionRates = stats?.conversionRates || [];
-  const dropOffAnalysis = stats?.dropOffAnalysis || [];
-  const averageTimePerStage = stats?.averageTimePerStage || [];
-  const totalApplications = stats?.totalApplications || 0;
+  const stageBreakdown = effectiveStats?.stageBreakdown || [];
+  const conversionRates = effectiveStats?.conversionRates || [];
+  const dropOffAnalysis = effectiveStats?.dropOffAnalysis || [];
+  const averageTimePerStage = effectiveStats?.averageTimePerStage || [];
+  const totalApplications = effectiveStats?.totalApplications || 0;
 
   return (
     <div className="space-y-6">
@@ -109,15 +149,17 @@ function ApplicationFunnelReportCard({ period, onPeriodChange }) {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-funnel"
-        >
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
-        </Button>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-funnel"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="container-funnel-stats-grid">
@@ -372,6 +414,7 @@ export default function DueDiligenceReports() {
   const [reportCards, setReportCards] = useState(DEFAULT_REPORT_CARDS);
   const [funnelPeriod, setFunnelPeriod] = useState('month');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
 
   const storageKey = useMemo(() => 
     `${STORAGE_KEY_PREFIX}${tenantSlug || 'default'}_${memberInfo?.id || 'guest'}`,
@@ -410,6 +453,7 @@ export default function DueDiligenceReports() {
             setReportCards(mergedCards);
           }
           if (parsed.funnelPeriod) setFunnelPeriod(parsed.funnelPeriod);
+          if (parsed.demoMode !== undefined) setDemoMode(parsed.demoMode);
         }
       } catch (e) {
         console.error('Error loading dashboard preferences:', e);
@@ -422,13 +466,14 @@ export default function DueDiligenceReports() {
       try {
         localStorage.setItem(storageKey, JSON.stringify({
           reportCards,
-          funnelPeriod
+          funnelPeriod,
+          demoMode
         }));
       } catch (e) {
         console.error('Error saving dashboard preferences:', e);
       }
     }
-  }, [reportCards, funnelPeriod, storageKey, memberInfo?.id, tenantSlug]);
+  }, [reportCards, funnelPeriod, demoMode, storageKey, memberInfo?.id, tenantSlug]);
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
@@ -467,6 +512,7 @@ export default function DueDiligenceReports() {
           <ApplicationFunnelReportCard
             period={funnelPeriod}
             onPeriodChange={setFunnelPeriod}
+            demoMode={demoMode}
           />
         );
       default:
@@ -494,7 +540,7 @@ export default function DueDiligenceReports() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
               <LayoutDashboard className="w-6 h-6 text-primary" />
@@ -504,6 +550,28 @@ export default function DueDiligenceReports() {
               <p className="text-sm text-muted-foreground">Application funnel analytics and insights</p>
             </div>
           </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50 border" data-testid="container-demo-toggle">
+              <Switch
+                id="demo-mode"
+                checked={demoMode}
+                onCheckedChange={setDemoMode}
+                data-testid="switch-demo-mode"
+              />
+              <Label 
+                htmlFor="demo-mode" 
+                className="text-sm cursor-pointer"
+                data-testid="label-demo-mode"
+              >
+                Demo Data
+              </Label>
+              {demoMode && (
+                <Badge variant="secondary" className="text-xs" data-testid="badge-demo-active">
+                  Preview
+                </Badge>
+              )}
+            </div>
 
           <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
             <PopoverTrigger asChild>
@@ -540,6 +608,7 @@ export default function DueDiligenceReports() {
               </div>
             </PopoverContent>
           </Popover>
+          </div>
         </div>
 
         {visibleCards.length === 0 ? (
