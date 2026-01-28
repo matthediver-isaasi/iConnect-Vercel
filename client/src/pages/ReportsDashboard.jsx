@@ -52,7 +52,14 @@ const DEFAULT_REPORT_CARDS = [
   { id: 'org-types', title: 'Organization Types', visible: true, order: 3 }
 ];
 
-const ORG_TYPE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const ORG_TYPE_COLORS = [
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--primary))'
+];
 
 const PERIOD_OPTIONS = [
   { value: 'week', label: 'This Week' },
@@ -639,12 +646,17 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
           <Card 
             key={card.name} 
             className="p-4"
-            style={{ borderLeftColor: ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length], borderLeftWidth: '4px' }}
             data-testid={`card-org-type-${card.name}`}
           >
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">{card.name}</p>
-              <p className="text-3xl font-bold">{card.total.toLocaleString()}</p>
+            <div className="flex items-start gap-3">
+              <div 
+                className="w-1 h-12 rounded-full shrink-0" 
+                style={{ backgroundColor: ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length] }}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">{card.name}</p>
+                <p className="text-3xl font-bold">{card.total.toLocaleString()}</p>
+              </div>
             </div>
           </Card>
         ))}

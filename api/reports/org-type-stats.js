@@ -51,38 +51,49 @@ export default async function handler(req, res) {
     const yearlyData = {};
     const monthlyData = {};
 
+    const normalizeValue = (val) => {
+      if (val === null || val === undefined || val === '') return 'Unspecified';
+      if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
+      if (typeof val === 'object') return 'Unspecified';
+      return String(val).trim() || 'Unspecified';
+    };
+
     organizations?.forEach(org => {
       const customFieldsData = org.custom_fields || {};
-      const typeValue = customFieldsData[fieldName] || 'Unspecified';
+      const rawValue = customFieldsData[fieldName];
+      const normalizedValues = normalizeValue(rawValue);
+      const values = Array.isArray(normalizedValues) ? normalizedValues : [normalizedValues];
       
-      if (!typeCounts[typeValue]) {
-        typeCounts[typeValue] = 0;
-      }
-      typeCounts[typeValue]++;
-
-      if (org.created_at) {
-        const createdDate = new Date(org.created_at);
-        const year = createdDate.getFullYear();
-        const month = createdDate.getMonth() + 1;
-
-        if (!yearlyData[typeValue]) {
-          yearlyData[typeValue] = {};
+      values.forEach(typeValue => {
+        if (!typeCounts[typeValue]) {
+          typeCounts[typeValue] = 0;
         }
-        if (!yearlyData[typeValue][year]) {
-          yearlyData[typeValue][year] = 0;
-        }
-        yearlyData[typeValue][year]++;
+        typeCounts[typeValue]++;
 
-        if (year === currentYear) {
-          if (!monthlyData[typeValue]) {
-            monthlyData[typeValue] = {};
+        if (org.created_at) {
+          const createdDate = new Date(org.created_at);
+          const year = createdDate.getFullYear();
+          const month = createdDate.getMonth() + 1;
+
+          if (!yearlyData[typeValue]) {
+            yearlyData[typeValue] = {};
           }
-          if (!monthlyData[typeValue][month]) {
-            monthlyData[typeValue][month] = 0;
+          if (!yearlyData[typeValue][year]) {
+            yearlyData[typeValue][year] = 0;
           }
-          monthlyData[typeValue][month]++;
+          yearlyData[typeValue][year]++;
+
+          if (year === currentYear) {
+            if (!monthlyData[typeValue]) {
+              monthlyData[typeValue] = {};
+            }
+            if (!monthlyData[typeValue][month]) {
+              monthlyData[typeValue][month] = 0;
+            }
+            monthlyData[typeValue][month]++;
+          }
         }
-      }
+      });
     });
 
     const categories = Object.keys(typeCounts).filter(k => k !== 'Unspecified').sort();
