@@ -59,30 +59,6 @@ export default async function handler(req, res) {
       stageConfigMap[config.form_id] = stages;
     });
 
-    const allStagesMap = new Map();
-    let defaultInitialStageId = null;
-    
-    ddConfigs.forEach(config => {
-      const stages = config.workflow_stages || [];
-      stages.forEach((stage, idx) => {
-        if (!allStagesMap.has(stage.id)) {
-          allStagesMap.set(stage.id, {
-            id: stage.id,
-            label: stage.label,
-            color: stage.color,
-            order: stage.order ?? idx,
-            is_initial: stage.is_initial
-          });
-        }
-        if (stage.is_initial && !defaultInitialStageId) {
-          defaultInitialStageId = stage.id;
-        }
-      });
-    });
-
-    const allStages = Array.from(allStagesMap.values())
-      .sort((a, b) => a.order - b.order);
-    
     // Helper to create a canonical key for matching: lowercase, trim, normalize separators/whitespace
     const canonicalizeKey = (str) => {
       if (!str) return '';
@@ -92,31 +68,65 @@ export default async function handler(req, res) {
         .replace(/[-_\s]+/g, ' ')  // Normalize all separators to single space
         .replace(/\s+/g, ' ');      // Collapse multiple spaces
     };
+
+    // Use canonicalized LABEL as the key to merge stages across forms
+    // This ensures "Held" from Form A and "Held" from Form B become one entry
+    const allStagesMap = new Map(); // canonicalizedLabel -> stage object
+    const stageIdToCanonicalKey = new Map(); // stageId -> canonicalizedLabel (for normalizing workflow_status)
+    let defaultInitialStageId = null;
     
-    // Create label-to-id mapping for normalizing workflow_status values
-    // Some submissions may have stored the label instead of the id
-    const labelToIdMap = new Map();
-    allStages.forEach(stage => {
-      // Map canonicalized label to stage id
-      labelToIdMap.set(canonicalizeKey(stage.label), stage.id);
-      // Also map canonicalized id to itself for direct matches
-      labelToIdMap.set(canonicalizeKey(stage.id), stage.id);
+    ddConfigs.forEach(config => {
+      const stages = config.workflow_stages || [];
+      stages.forEach((stage, idx) => {
+        const canonicalKey = canonicalizeKey(stage.label);
+        
+        // Map this stage's ID to the canonical key
+        stageIdToCanonicalKey.set(stage.id, canonicalKey);
+        // Also map the canonicalized ID itself
+        stageIdToCanonicalKey.set(canonicalizeKey(stage.id), canonicalKey);
+        // And map the label
+        stageIdToCanonicalKey.set(canonicalizeKey(stage.label), canonicalKey);
+        
+        if (!allStagesMap.has(canonicalKey)) {
+          allStagesMap.set(canonicalKey, {
+            id: canonicalKey, // Use canonical key as the unified ID
+            label: stage.label,
+            color: stage.color,
+            order: stage.order ?? idx,
+            is_initial: stage.is_initial
+          });
+        }
+        if (stage.is_initial && !defaultInitialStageId) {
+          defaultInitialStageId = canonicalKey;
+        }
+      });
     });
+
+    const allStages = Array.from(allStagesMap.values())
+      .sort((a, b) => a.order - b.order);
     
     // Helper function to normalize a workflow_status to the canonical stage id
     const normalizeStatus = (status) => {
       if (!status) return null;
-      // First check direct match by id (exact)
-      if (allStagesMap.has(status)) {
-        return status;
+      
+      // Check if this exact status ID maps to a canonical key
+      if (stageIdToCanonicalKey.has(status)) {
+        return stageIdToCanonicalKey.get(status);
       }
-      // Check canonicalized match (handles label-vs-id, case, whitespace, separators)
-      const normalizedId = labelToIdMap.get(canonicalizeKey(status));
-      if (normalizedId) {
-        return normalizedId;
+      
+      // Try canonicalized version
+      const canonicalizedStatus = canonicalizeKey(status);
+      if (stageIdToCanonicalKey.has(canonicalizedStatus)) {
+        return stageIdToCanonicalKey.get(canonicalizedStatus);
       }
-      // No match found - return original for unknown stage handling
-      return status;
+      
+      // Check if it directly matches a canonical key in allStagesMap
+      if (allStagesMap.has(canonicalizedStatus)) {
+        return canonicalizedStatus;
+      }
+      
+      // No match found - return canonicalized version for unknown stage handling
+      return canonicalizedStatus;
     };
     
     if (!defaultInitialStageId && allStages.length > 0) {
@@ -174,15 +184,19 @@ export default async function handler(req, res) {
       const normalizedStatus = normalizeStatus(rawStatus) || defaultInitialStageId;
       
       if (!allStagesMap.has(normalizedStatus)) {
+        // Create a readable label from the normalized status
+        const readableLabel = normalizedStatus.charAt(0).toUpperCase() + 
+          normalizedStatus.slice(1).replace(/[-_]/g, ' ');
+        
         allStagesMap.set(normalizedStatus, {
           id: normalizedStatus,
-          label: normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1).replace(/_/g, ' '),
+          label: readableLabel,
           color: '#6b7280',
           order: allStagesMap.size,
           is_initial: false
         });
-        // Update labelToIdMap for the new stage using canonicalized key
-        labelToIdMap.set(canonicalizeKey(normalizedStatus), normalizedStatus);
+        // Update stageIdToCanonicalKey for the new stage
+        stageIdToCanonicalKey.set(normalizedStatus, normalizedStatus);
       }
     });
 
