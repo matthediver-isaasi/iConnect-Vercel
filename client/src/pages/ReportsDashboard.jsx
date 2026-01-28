@@ -23,16 +23,20 @@ import {
   LayoutDashboard,
   Activity,
   FileText,
-  BookOpen
+  BookOpen,
+  Building2
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer
 } from "recharts";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -44,8 +48,11 @@ const STORAGE_KEY_PREFIX = 'reports_dashboard_';
 const DEFAULT_REPORT_CARDS = [
   { id: 'members', title: 'Members', visible: true, order: 0 },
   { id: 'activity', title: 'Activity', visible: true, order: 1 },
-  { id: 'article-views', title: 'Article Views', visible: true, order: 2 }
+  { id: 'article-views', title: 'Article Views', visible: true, order: 2 },
+  { id: 'org-types', title: 'Organization Types', visible: true, order: 3 }
 ];
+
+const ORG_TYPE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const PERIOD_OPTIONS = [
   { value: 'week', label: 'This Week' },
@@ -547,6 +554,173 @@ function ArticleViewsReportCard({ period, onPeriodChange }) {
   );
 }
 
+function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeChange }) {
+  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/org-type-stats', selectedField],
+    queryFn: () => apiRequest('GET', `/api/reports/org-type-stats?fieldName=${encodeURIComponent(selectedField)}`),
+    staleTime: 60000,
+    refetchOnWindowFocus: false
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-org-type-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-org-type-error">
+        <p className="text-muted-foreground" data-testid="text-org-type-error-message">Failed to load organization statistics</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-org-type-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const categories = stats?.categories || [];
+  const summaryCards = stats?.summaryCards || [];
+  const yearlyChartData = stats?.yearlyChartData || [];
+  const currentYearMonthlyData = stats?.currentYearMonthlyData || [];
+  const currentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
+  const availableFields = stats?.availableFields || [];
+  const currentYear = stats?.currentYear || new Date().getFullYear();
+
+  const currentYearData = viewMode === 'monthly' ? currentYearMonthlyData : currentYearQuarterlyData;
+  const xAxisKey = viewMode === 'monthly' ? 'month' : 'quarter';
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Select value={selectedField} onValueChange={onFieldChange}>
+            <SelectTrigger className="w-48" data-testid="select-org-field">
+              <SelectValue placeholder="Select field..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableFields.length > 0 ? (
+                availableFields.map(field => (
+                  <SelectItem key={field.name} value={field.name} data-testid={`select-org-field-${field.name}`}>
+                    {field.label}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="org_type">Organization Type</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          <Select value={viewMode} onValueChange={onViewModeChange}>
+            <SelectTrigger className="w-32" data-testid="select-org-view-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="monthly">Monthly</SelectItem>
+              <SelectItem value="quarterly">Quarterly</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="button-refresh-org-type"
+        >
+          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="container-org-type-summary">
+        {summaryCards.map((card, index) => (
+          <Card 
+            key={card.name} 
+            className="p-4"
+            style={{ borderLeftColor: ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length], borderLeftWidth: '4px' }}
+            data-testid={`card-org-type-${card.name}`}
+          >
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">{card.name}</p>
+              <p className="text-3xl font-bold">{card.total.toLocaleString()}</p>
+            </div>
+          </Card>
+        ))}
+        <Card className="p-4 bg-muted/50" data-testid="card-org-total">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground">Total Organizations</p>
+            <p className="text-3xl font-bold">{stats?.totalOrganizations?.toLocaleString() || 0}</p>
+          </div>
+        </Card>
+      </div>
+
+      {yearlyChartData.length > 0 && (
+        <div className="space-y-4" data-testid="container-yearly-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">Historical Trend (By Year)</h4>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={yearlyChartData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Legend />
+                {categories.map((category, index) => (
+                  <Bar
+                    key={category}
+                    dataKey={category}
+                    fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                    name={category}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {currentYearData.length > 0 && (
+        <div className="space-y-4" data-testid="container-current-year-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">{currentYear} Breakdown ({viewMode === 'monthly' ? 'Monthly' : 'Quarterly'})</h4>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={currentYearData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Legend />
+                {categories.map((category, index) => (
+                  <Bar
+                    key={category}
+                    dataKey={category}
+                    fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                    name={category}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReportsDashboard() {
   const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
@@ -555,6 +729,8 @@ export default function ReportsDashboard() {
   const [membersPeriod, setMembersPeriod] = useState('month');
   const [activityPeriod, setActivityPeriod] = useState('month');
   const [articleViewsPeriod, setArticleViewsPeriod] = useState('month');
+  const [orgTypeField, setOrgTypeField] = useState('org_type');
+  const [orgTypeViewMode, setOrgTypeViewMode] = useState('monthly');
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const storageKey = useMemo(() => 
@@ -598,6 +774,8 @@ export default function ReportsDashboard() {
           if (parsed.membersPeriod) setMembersPeriod(parsed.membersPeriod);
           if (parsed.activityPeriod) setActivityPeriod(parsed.activityPeriod);
           if (parsed.articleViewsPeriod) setArticleViewsPeriod(parsed.articleViewsPeriod);
+          if (parsed.orgTypeField) setOrgTypeField(parsed.orgTypeField);
+          if (parsed.orgTypeViewMode) setOrgTypeViewMode(parsed.orgTypeViewMode);
         }
       } catch (e) {
         console.error('Error loading dashboard preferences:', e);
@@ -612,13 +790,15 @@ export default function ReportsDashboard() {
           reportCards,
           membersPeriod,
           activityPeriod,
-          articleViewsPeriod
+          articleViewsPeriod,
+          orgTypeField,
+          orgTypeViewMode
         }));
       } catch (e) {
         console.error('Error saving dashboard preferences:', e);
       }
     }
-  }, [reportCards, membersPeriod, activityPeriod, articleViewsPeriod, storageKey, memberInfo?.id, tenantSlug]);
+  }, [reportCards, membersPeriod, activityPeriod, articleViewsPeriod, orgTypeField, orgTypeViewMode, storageKey, memberInfo?.id, tenantSlug]);
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
@@ -673,6 +853,15 @@ export default function ReportsDashboard() {
             onPeriodChange={setArticleViewsPeriod}
           />
         );
+      case 'org-types':
+        return (
+          <OrgTypeReportCard
+            selectedField={orgTypeField}
+            onFieldChange={setOrgTypeField}
+            viewMode={orgTypeViewMode}
+            onViewModeChange={setOrgTypeViewMode}
+          />
+        );
       default:
         return null;
     }
@@ -686,6 +875,8 @@ export default function ReportsDashboard() {
         return <Activity className="w-5 h-5" />;
       case 'article-views':
         return <FileText className="w-5 h-5" />;
+      case 'org-types':
+        return <Building2 className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }
