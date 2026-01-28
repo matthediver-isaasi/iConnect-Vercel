@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -220,6 +220,134 @@ const DEMO_DECISIONS_DATA = {
     onHold: 8.2
   }
 };
+
+function SynopsisCardsRow({ demoMode, onCardClick }) {
+  const funnelData = demoMode ? DEMO_FUNNEL_DATA : null;
+  const verificationData = demoMode ? DEMO_VERIFICATION_DATA : null;
+  const ddData = demoMode ? DEMO_DD_REPORT_DATA : null;
+  const decisionsData = demoMode ? DEMO_DECISIONS_DATA : null;
+
+  const { data: funnelStats, isLoading: funnelLoading } = useQuery({
+    queryKey: ['/api/reports/application-funnel-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/application-funnel-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const { data: verificationStats, isLoading: verificationLoading } = useQuery({
+    queryKey: ['/api/reports/verification-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/verification-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const { data: ddStats, isLoading: ddLoading } = useQuery({
+    queryKey: ['/api/reports/due-diligence-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/due-diligence-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const { data: decisionsStats, isLoading: decisionsLoading } = useQuery({
+    queryKey: ['/api/reports/decisions-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/decisions-stats'),
+    staleTime: 60000,
+    enabled: !demoMode
+  });
+
+  const funnel = demoMode ? funnelData : funnelStats;
+  const verification = demoMode ? verificationData : verificationStats;
+  const dd = demoMode ? ddData : ddStats;
+  const decisions = demoMode ? decisionsData : decisionsStats;
+
+  const isAnyLoading = !demoMode && (funnelLoading || verificationLoading || ddLoading || decisionsLoading);
+
+  const funnelConversion = funnel?.conversionRates?.length > 0 
+    ? funnel.conversionRates[funnel.conversionRates.length - 1]?.rate || 0
+    : 0;
+
+  const cards = [
+    {
+      id: 'application-funnel',
+      title: 'Applications',
+      icon: Filter,
+      value: funnelLoading ? '—' : (funnel?.totalApplications?.toLocaleString() || '0'),
+      subValue: funnelLoading ? 'Loading...' : `${funnelConversion}% to final stage`,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+      borderColor: 'border-blue-200 dark:border-blue-800',
+      loading: funnelLoading
+    },
+    {
+      id: 'verification',
+      title: 'Verified',
+      icon: CheckCircle2,
+      value: verificationLoading ? '—' : (verification?.totalVerified?.toLocaleString() || '0'),
+      subValue: verificationLoading ? 'Loading...' : `${verification?.averageTurnaroundDays?.toFixed(1) || 0} days avg`,
+      color: 'text-green-600',
+      bgColor: 'bg-green-50 dark:bg-green-900/20',
+      borderColor: 'border-green-200 dark:border-green-800',
+      loading: verificationLoading
+    },
+    {
+      id: 'due-diligence',
+      title: 'DD Meetings',
+      icon: Calendar,
+      value: ddLoading ? '—' : (dd?.completedMeetings?.toLocaleString() || '0'),
+      subValue: ddLoading ? 'Loading...' : `${dd?.completionRate || 0}% completed`,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+      borderColor: 'border-purple-200 dark:border-purple-800',
+      loading: ddLoading
+    },
+    {
+      id: 'decisions',
+      title: 'Decisions',
+      icon: Gavel,
+      value: decisionsLoading ? '—' : (decisions?.totalDecisions?.toLocaleString() || '0'),
+      subValue: decisionsLoading ? 'Loading...' : `${decisions?.approved?.percentage || 0}% approved`,
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+      borderColor: 'border-amber-200 dark:border-amber-800',
+      loading: decisionsLoading
+    }
+  ];
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" data-testid="container-synopsis-cards">
+      {cards.map(card => {
+        const Icon = card.icon;
+        return (
+          <Card 
+            key={card.id}
+            className={`cursor-pointer transition-all hover:shadow-md ${card.bgColor} ${card.borderColor}`}
+            onClick={() => onCardClick(card.id)}
+            data-testid={`synopsis-card-${card.id}`}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-1 flex-1 min-w-0">
+                  <p className={`text-xs font-medium ${card.color}`} data-testid={`synopsis-title-${card.id}`}>
+                    {card.title}
+                  </p>
+                  <p className="text-2xl font-bold truncate" data-testid={`synopsis-value-${card.id}`}>
+                    {card.value}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate" data-testid={`synopsis-subvalue-${card.id}`}>
+                    {card.subValue}
+                  </p>
+                </div>
+                <div className={`p-2 rounded-lg ${card.bgColor}`}>
+                  <Icon className={`w-5 h-5 ${card.color}`} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
 
 function ApplicationFunnelReportCard({ period, onPeriodChange, demoMode }) {
   const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
@@ -1197,6 +1325,13 @@ export default function DueDiligenceReports() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
 
+  const handleSynopsisCardClick = useCallback((cardId) => {
+    const element = document.querySelector(`[data-testid="card-report-${cardId}"]`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
   const storageKey = useMemo(() => 
     `${STORAGE_KEY_PREFIX}${tenantSlug || 'default'}_${memberInfo?.id || 'guest'}`,
     [tenantSlug, memberInfo?.id]
@@ -1421,6 +1556,8 @@ export default function DueDiligenceReports() {
           </Popover>
           </div>
         </div>
+
+        <SynopsisCardsRow demoMode={demoMode} onCardClick={handleSynopsisCardClick} />
 
         {visibleCards.length === 0 ? (
           <Card data-testid="card-no-reports">
