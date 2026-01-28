@@ -287,6 +287,7 @@ import PlatformSetup from "./platform/PlatformSetup";
 import DueDiligenceDashboard from "./DueDiligenceDashboard";
 import DueDiligenceConfig from "./DueDiligenceConfig";
 import ReviewSubmission from "./ReviewSubmission";
+import DueDiligenceReports from "./DueDiligenceReports";
 
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
@@ -780,6 +781,7 @@ function PagesContent() {
                 <Route path="/DueDiligenceDashboard" element={<DueDiligenceDashboard />} />
                 <Route path="/DueDiligenceConfig" element={<DueDiligenceConfig />} />
                 <Route path="/ReviewSubmission" element={<ReviewSubmission />} />
+                <Route path="/DueDiligenceReports" element={<DueDiligenceReports />} />
                 
                 <Route path="/NewsEditor" element={<NewsEditor />} />
                 
