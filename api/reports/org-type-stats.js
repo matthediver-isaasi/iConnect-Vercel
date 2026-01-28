@@ -1,6 +1,25 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
+function extractPrimitiveValue(val) {
+  if (val === null || val === undefined) return val;
+  
+  if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
+    return val.value;
+  }
+  
+  if (Array.isArray(val)) {
+    return val.map(item => {
+      if (typeof item === 'object' && item !== null && item.value !== undefined) {
+        return item.value;
+      }
+      return item;
+    });
+  }
+  
+  return val;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -21,21 +40,10 @@ export default async function handler(req, res) {
     const now = new Date();
     const currentYear = now.getFullYear();
 
-    const { data: organizations, error: orgError } = await supabase
-      .from('organization')
-      .select('id, custom_fields, created_at')
-      .eq('tenant_id', tenantId);
-
-    if (orgError) {
-      console.error('Error fetching organizations:', orgError);
-      return res.status(500).json({ error: 'Failed to fetch organizations' });
-    }
-
     const { data: customFields, error: cfError } = await supabase
-      .from('custom_field')
+      .from('organization_custom_field')
       .select('id, name, label, field_type')
-      .eq('tenant_id', tenantId)
-      .eq('entity_type', 'organization');
+      .eq('tenant_id', tenantId);
 
     if (cfError) {
       console.error('Error fetching custom fields:', cfError);
@@ -44,26 +52,102 @@ export default async function handler(req, res) {
     const availableFields = customFields?.map(cf => ({
       name: cf.name,
       label: cf.label || cf.name,
-      fieldType: cf.field_type
+      fieldType: cf.field_type,
+      id: cf.id
     })) || [];
+
+    const targetField = customFields?.find(cf => cf.name === fieldName);
+    const targetFieldId = targetField?.id;
+
+    if (!targetFieldId) {
+      return res.status(200).json({
+        fieldName,
+        availableFields,
+        categories: [],
+        summaryCards: [],
+        yearlyChartData: [],
+        currentYear,
+        currentYearMonthlyData: [],
+        currentYearQuarterlyData: [],
+        totalOrganizations: 0,
+        lastUpdated: now.toISOString(),
+        error: `Field "${fieldName}" not found`
+      });
+    }
+
+    const { data: organizations, error: orgError } = await supabase
+      .from('organization')
+      .select('id, name, created_at')
+      .eq('tenant_id', tenantId);
+
+    if (orgError) {
+      console.error('Error fetching organizations:', orgError);
+      return res.status(500).json({ error: 'Failed to fetch organizations' });
+    }
+
+    const orgIds = (organizations || []).map(org => org.id);
+
+    if (orgIds.length === 0) {
+      return res.status(200).json({
+        fieldName,
+        availableFields,
+        categories: [],
+        summaryCards: [],
+        yearlyChartData: [],
+        currentYear,
+        currentYearMonthlyData: [],
+        currentYearQuarterlyData: [],
+        totalOrganizations: 0,
+        lastUpdated: now.toISOString()
+      });
+    }
+
+    const { data: prefValues, error: prefError } = await supabase
+      .from('organization_preference_value')
+      .select('organization_id, value')
+      .eq('field_id', targetFieldId)
+      .in('organization_id', orgIds);
+
+    if (prefError) {
+      console.error('Error fetching preference values:', prefError);
+      return res.status(500).json({ error: 'Failed to fetch custom field values' });
+    }
+
+    const orgValueMap = {};
+    (prefValues || []).forEach(pv => {
+      let normalizedValue = pv.value;
+      if (typeof pv.value === 'string') {
+        const trimmed = pv.value.trim();
+        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+          try {
+            normalizedValue = JSON.parse(trimmed);
+          } catch {
+          }
+        }
+      }
+      normalizedValue = extractPrimitiveValue(normalizedValue);
+      orgValueMap[pv.organization_id] = normalizedValue;
+    });
+
+    const normalizeValue = (val) => {
+      if (val === null || val === undefined || val === '') return ['Unspecified'];
+      if (Array.isArray(val)) {
+        const values = val.map(v => String(v).trim()).filter(Boolean);
+        return values.length > 0 ? values : ['Unspecified'];
+      }
+      if (typeof val === 'object') return ['Unspecified'];
+      const strVal = String(val).trim();
+      return strVal ? [strVal] : ['Unspecified'];
+    };
 
     const typeCounts = {};
     const yearlyData = {};
     const monthlyData = {};
 
-    const normalizeValue = (val) => {
-      if (val === null || val === undefined || val === '') return 'Unspecified';
-      if (Array.isArray(val)) return val.map(v => String(v).trim()).filter(Boolean);
-      if (typeof val === 'object') return 'Unspecified';
-      return String(val).trim() || 'Unspecified';
-    };
+    (organizations || []).forEach(org => {
+      const rawValue = orgValueMap[org.id];
+      const values = normalizeValue(rawValue);
 
-    organizations?.forEach(org => {
-      const customFieldsData = org.custom_fields || {};
-      const rawValue = customFieldsData[fieldName];
-      const normalizedValues = normalizeValue(rawValue);
-      const values = Array.isArray(normalizedValues) ? normalizedValues : [normalizedValues];
-      
       values.forEach(typeValue => {
         if (!typeCounts[typeValue]) {
           typeCounts[typeValue] = 0;
