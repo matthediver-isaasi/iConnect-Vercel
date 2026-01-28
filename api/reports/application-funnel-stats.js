@@ -87,14 +87,26 @@ export default async function handler(req, res) {
         // And map the label
         stageIdToCanonicalKey.set(canonicalizeKey(stage.label), canonicalKey);
         
+        const stageOrder = stage.order ?? idx;
+        
         if (!allStagesMap.has(canonicalKey)) {
           allStagesMap.set(canonicalKey, {
             id: canonicalKey, // Use canonical key as the unified ID
             label: stage.label,
             color: stage.color,
-            order: stage.order ?? idx,
+            order: stageOrder,
             is_initial: stage.is_initial
           });
+        } else {
+          // Stage exists - use minimum order for deterministic ordering
+          const existing = allStagesMap.get(canonicalKey);
+          if (stageOrder < existing.order) {
+            existing.order = stageOrder;
+          }
+          // Merge is_initial flag
+          if (stage.is_initial) {
+            existing.is_initial = true;
+          }
         }
         if (stage.is_initial && !defaultInitialStageId) {
           defaultInitialStageId = canonicalKey;
@@ -179,25 +191,38 @@ export default async function handler(req, res) {
     const totalApplications = relevantSubmissions.length;
 
     // First pass: discover any truly unknown stages (after normalization)
+    // Use a set to track already-processed canonical keys to avoid duplicates
+    const processedUnknown = new Set();
+    
     relevantSubmissions.forEach(submission => {
       const rawStatus = submission.workflow_status;
+      if (!rawStatus) return;
+      
       const normalizedStatus = normalizeStatus(rawStatus) || defaultInitialStageId;
       
-      if (!allStagesMap.has(normalizedStatus)) {
-        // Create a readable label from the normalized status
-        const readableLabel = normalizedStatus.charAt(0).toUpperCase() + 
-          normalizedStatus.slice(1).replace(/[-_]/g, ' ');
-        
-        allStagesMap.set(normalizedStatus, {
-          id: normalizedStatus,
-          label: readableLabel,
-          color: '#6b7280',
-          order: allStagesMap.size,
-          is_initial: false
-        });
-        // Update stageIdToCanonicalKey for the new stage
-        stageIdToCanonicalKey.set(normalizedStatus, normalizedStatus);
+      // Skip if we've already processed this canonical key
+      if (allStagesMap.has(normalizedStatus) || processedUnknown.has(normalizedStatus)) {
+        return;
       }
+      
+      processedUnknown.add(normalizedStatus);
+      
+      // Create a readable label from the normalized status
+      const readableLabel = normalizedStatus.charAt(0).toUpperCase() + 
+        normalizedStatus.slice(1).replace(/[-_]/g, ' ');
+      
+      allStagesMap.set(normalizedStatus, {
+        id: normalizedStatus,
+        label: readableLabel,
+        color: '#6b7280',
+        order: 1000 + allStagesMap.size, // Unknown stages go at the end
+        is_initial: false
+      });
+      
+      // Update stageIdToCanonicalKey for the new stage and its variants
+      stageIdToCanonicalKey.set(normalizedStatus, normalizedStatus);
+      stageIdToCanonicalKey.set(rawStatus, normalizedStatus);
+      stageIdToCanonicalKey.set(canonicalizeKey(rawStatus), normalizedStatus);
     });
 
     const finalAllStages = Array.from(allStagesMap.values())
