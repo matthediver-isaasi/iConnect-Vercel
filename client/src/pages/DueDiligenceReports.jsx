@@ -29,7 +29,11 @@ import {
   AlertCircle,
   Calendar,
   Users,
-  Target
+  Target,
+  Gavel,
+  ThumbsUp,
+  ThumbsDown,
+  Pause
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -51,7 +55,8 @@ const STORAGE_KEY_PREFIX = 'dd_reports_dashboard_';
 const DEFAULT_REPORT_CARDS = [
   { id: 'application-funnel', title: 'Application Funnel', visible: true, order: 0 },
   { id: 'verification', title: 'Verification', visible: true, order: 1 },
-  { id: 'due-diligence', title: 'Due Diligence Meetings', visible: true, order: 2 }
+  { id: 'due-diligence', title: 'Due Diligence Meetings', visible: true, order: 2 },
+  { id: 'decisions', title: 'Decisions', visible: true, order: 3 }
 ];
 
 const PERIOD_OPTIONS = [
@@ -162,6 +167,58 @@ const DEMO_DD_REPORT_DATA = {
     { range: '11-15 days', count: 18, percentage: 20 },
     { range: '16+ days', count: 9, percentage: 10 }
   ]
+};
+
+const DEMO_DECISIONS_DATA = {
+  totalDecisions: 98,
+  approved: { count: 28, percentage: 29 },
+  declined: { count: 18, percentage: 18 },
+  onHold: { count: 52, percentage: 53 },
+  decisionsByPeriod: {
+    week: { 
+      approved: { current: 4, previous: 3, change: 33, changeDirection: 'up' },
+      declined: { current: 2, previous: 3, change: 33, changeDirection: 'down' },
+      onHold: { current: 6, previous: 5, change: 20, changeDirection: 'up' },
+      total: { current: 12, previous: 11, change: 9, changeDirection: 'up' }
+    },
+    month: { 
+      approved: { current: 12, previous: 10, change: 20, changeDirection: 'up' },
+      declined: { current: 7, previous: 8, change: 13, changeDirection: 'down' },
+      onHold: { current: 22, previous: 18, change: 22, changeDirection: 'up' },
+      total: { current: 41, previous: 36, change: 14, changeDirection: 'up' }
+    },
+    quarter: { 
+      approved: { current: 22, previous: 18, change: 22, changeDirection: 'up' },
+      declined: { current: 14, previous: 16, change: 13, changeDirection: 'down' },
+      onHold: { current: 42, previous: 38, change: 11, changeDirection: 'up' },
+      total: { current: 78, previous: 72, change: 8, changeDirection: 'up' }
+    },
+    year: { 
+      approved: { current: 28, previous: 21, change: 33, changeDirection: 'up' },
+      declined: { current: 18, previous: 22, change: 18, changeDirection: 'down' },
+      onHold: { current: 52, previous: 45, change: 16, changeDirection: 'up' },
+      total: { current: 98, previous: 88, change: 11, changeDirection: 'up' }
+    },
+    all: { 
+      approved: { current: 28, previous: null, change: null, changeDirection: null },
+      declined: { current: 18, previous: null, change: null, changeDirection: null },
+      onHold: { current: 52, previous: null, change: null, changeDirection: null },
+      total: { current: 98, previous: null, change: null, changeDirection: null }
+    }
+  },
+  monthlyTrend: [
+    { month: 'Aug', approved: 2, declined: 1, onHold: 4 },
+    { month: 'Sep', approved: 3, declined: 2, onHold: 5 },
+    { month: 'Oct', approved: 4, declined: 3, onHold: 6 },
+    { month: 'Nov', approved: 5, declined: 4, onHold: 8 },
+    { month: 'Dec', approved: 6, declined: 3, onHold: 12 },
+    { month: 'Jan', approved: 8, declined: 5, onHold: 17 }
+  ],
+  averageTimeToDecision: {
+    approved: 18.5,
+    declined: 12.3,
+    onHold: 8.2
+  }
 };
 
 function ApplicationFunnelReportCard({ period, onPeriodChange, demoMode }) {
@@ -921,6 +978,216 @@ function DueDiligenceReportCard({ period, onPeriodChange, demoMode }) {
   );
 }
 
+function DecisionsReportCard({ period, onPeriodChange, demoMode }) {
+  const { data: stats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/decisions-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/decisions-stats'),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
+  });
+
+  const effectiveStats = demoMode ? DEMO_DECISIONS_DATA : stats;
+  const periodData = effectiveStats?.decisionsByPeriod?.[period];
+  const hasValidComparison = period !== 'all' && periodData?.total?.change !== null;
+
+  if (!demoMode && isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-decisions-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!demoMode && error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-decisions-error">
+        <p className="text-muted-foreground" data-testid="text-decisions-error-message">Failed to load decisions data</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-decisions-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const totalDecisions = effectiveStats?.totalDecisions || 0;
+  const approved = effectiveStats?.approved || { count: 0, percentage: 0 };
+  const declined = effectiveStats?.declined || { count: 0, percentage: 0 };
+  const onHold = effectiveStats?.onHold || { count: 0, percentage: 0 };
+  const monthlyTrend = effectiveStats?.monthlyTrend || [];
+  const averageTimeToDecision = effectiveStats?.averageTimeToDecision || {};
+
+  const renderTrendBadge = (data) => {
+    if (!data || data.change === null) return null;
+    const isUp = data.changeDirection === 'up';
+    return (
+      <div className={`flex items-center gap-1 text-xs ${isUp ? 'text-green-600' : 'text-red-600'}`}>
+        {isUp ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+        <span>{data.change}%</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Select value={period} onValueChange={onPeriodChange}>
+          <SelectTrigger className="w-40" data-testid="select-decisions-period">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map(opt => (
+              <SelectItem key={opt.value} value={opt.value} data-testid={`select-decisions-period-${opt.value}`}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-decisions"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4" data-testid="container-decisions-stats-grid">
+        <div className="p-4 rounded-lg bg-muted/50 border">
+          <div className="flex items-center gap-2 mb-2">
+            <Gavel className="w-5 h-5 text-muted-foreground" />
+            <span className="text-sm font-medium text-muted-foreground">Total Decisions</span>
+          </div>
+          <p className="text-3xl font-bold" data-testid="text-total-decisions">{totalDecisions.toLocaleString()}</p>
+          {hasValidComparison && periodData?.total && (
+            <div className="mt-1">{renderTrendBadge(periodData.total)}</div>
+          )}
+        </div>
+        
+        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+          <div className="flex items-center gap-2 mb-2">
+            <ThumbsUp className="w-5 h-5 text-green-600" />
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">Approved</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="text-3xl font-bold text-green-700 dark:text-green-300" data-testid="text-approved-count">{approved.count}</p>
+            <span className="text-sm text-green-600/70 dark:text-green-400/70">({approved.percentage}%)</span>
+          </div>
+          {hasValidComparison && periodData?.approved && (
+            <div className="mt-1">{renderTrendBadge(periodData.approved)}</div>
+          )}
+        </div>
+        
+        <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+          <div className="flex items-center gap-2 mb-2">
+            <ThumbsDown className="w-5 h-5 text-red-600" />
+            <span className="text-sm font-medium text-red-700 dark:text-red-400">Declined</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="text-3xl font-bold text-red-700 dark:text-red-300" data-testid="text-declined-count">{declined.count}</p>
+            <span className="text-sm text-red-600/70 dark:text-red-400/70">({declined.percentage}%)</span>
+          </div>
+          {hasValidComparison && periodData?.declined && (
+            <div className="mt-1">{renderTrendBadge(periodData.declined)}</div>
+          )}
+        </div>
+        
+        <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+          <div className="flex items-center gap-2 mb-2">
+            <Pause className="w-5 h-5 text-amber-600" />
+            <span className="text-sm font-medium text-amber-700 dark:text-amber-400">On Hold</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="text-3xl font-bold text-amber-700 dark:text-amber-300" data-testid="text-onhold-count">{onHold.count}</p>
+            <span className="text-sm text-amber-600/70 dark:text-amber-400/70">({onHold.percentage}%)</span>
+          </div>
+          {hasValidComparison && periodData?.onHold && (
+            <div className="mt-1">{renderTrendBadge(periodData.onHold)}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {monthlyTrend.length > 0 && (
+          <div className="space-y-4" data-testid="container-decisions-trend">
+            <h4 className="text-sm font-medium text-muted-foreground">Monthly Trend</h4>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyTrend}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis 
+                    dataKey="month" 
+                    tick={{ fontSize: 11 }}
+                    className="text-muted-foreground"
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 11 }}
+                    className="text-muted-foreground"
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar dataKey="approved" name="Approved" fill="#22C55E" stackId="a" />
+                  <Bar dataKey="declined" name="Declined" fill="#EF4444" stackId="a" />
+                  <Bar dataKey="onHold" name="On Hold" fill="#F59E0B" stackId="a" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {Object.keys(averageTimeToDecision).length > 0 && (
+          <div className="space-y-4" data-testid="container-time-to-decision">
+            <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Average Time to Decision
+            </h4>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" data-testid="row-time-approved">
+                <div className="flex items-center gap-2">
+                  <ThumbsUp className="w-4 h-4 text-green-600" />
+                  <span className="font-medium">Approved</span>
+                </div>
+                <Badge variant="secondary" data-testid="badge-time-approved">
+                  {averageTimeToDecision.approved?.toFixed(1) || 0} days
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" data-testid="row-time-declined">
+                <div className="flex items-center gap-2">
+                  <ThumbsDown className="w-4 h-4 text-red-600" />
+                  <span className="font-medium">Declined</span>
+                </div>
+                <Badge variant="secondary" data-testid="badge-time-declined">
+                  {averageTimeToDecision.declined?.toFixed(1) || 0} days
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800" data-testid="row-time-onhold">
+                <div className="flex items-center gap-2">
+                  <Pause className="w-4 h-4 text-amber-600" />
+                  <span className="font-medium">On Hold</span>
+                </div>
+                <Badge variant="secondary" data-testid="badge-time-onhold">
+                  {averageTimeToDecision.onHold?.toFixed(1) || 0} days
+                </Badge>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DueDiligenceReports() {
   const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
@@ -1045,6 +1312,14 @@ export default function DueDiligenceReports() {
             demoMode={demoMode}
           />
         );
+      case 'decisions':
+        return (
+          <DecisionsReportCard
+            period={funnelPeriod}
+            onPeriodChange={setFunnelPeriod}
+            demoMode={demoMode}
+          />
+        );
       default:
         return null;
     }
@@ -1058,6 +1333,8 @@ export default function DueDiligenceReports() {
         return <CheckCircle2 className="w-5 h-5" />;
       case 'due-diligence':
         return <Calendar className="w-5 h-5" />;
+      case 'decisions':
+        return <Gavel className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }
