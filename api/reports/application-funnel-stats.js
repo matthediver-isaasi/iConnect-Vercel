@@ -83,25 +83,35 @@ export default async function handler(req, res) {
     const allStages = Array.from(allStagesMap.values())
       .sort((a, b) => a.order - b.order);
     
+    // Helper to create a canonical key for matching: lowercase, trim, normalize separators/whitespace
+    const canonicalizeKey = (str) => {
+      if (!str) return '';
+      return str
+        .toLowerCase()
+        .trim()
+        .replace(/[-_\s]+/g, ' ')  // Normalize all separators to single space
+        .replace(/\s+/g, ' ');      // Collapse multiple spaces
+    };
+    
     // Create label-to-id mapping for normalizing workflow_status values
     // Some submissions may have stored the label instead of the id
     const labelToIdMap = new Map();
     allStages.forEach(stage => {
-      // Map label (case-insensitive) to stage id
-      labelToIdMap.set(stage.label.toLowerCase(), stage.id);
-      // Also map id to itself for direct matches
-      labelToIdMap.set(stage.id.toLowerCase(), stage.id);
+      // Map canonicalized label to stage id
+      labelToIdMap.set(canonicalizeKey(stage.label), stage.id);
+      // Also map canonicalized id to itself for direct matches
+      labelToIdMap.set(canonicalizeKey(stage.id), stage.id);
     });
     
     // Helper function to normalize a workflow_status to the canonical stage id
     const normalizeStatus = (status) => {
       if (!status) return null;
-      // First check direct match by id
+      // First check direct match by id (exact)
       if (allStagesMap.has(status)) {
         return status;
       }
-      // Check case-insensitive match
-      const normalizedId = labelToIdMap.get(status.toLowerCase());
+      // Check canonicalized match (handles label-vs-id, case, whitespace, separators)
+      const normalizedId = labelToIdMap.get(canonicalizeKey(status));
       if (normalizedId) {
         return normalizedId;
       }
@@ -171,8 +181,8 @@ export default async function handler(req, res) {
           order: allStagesMap.size,
           is_initial: false
         });
-        // Update labelToIdMap for the new stage
-        labelToIdMap.set(normalizedStatus.toLowerCase(), normalizedStatus);
+        // Update labelToIdMap for the new stage using canonicalized key
+        labelToIdMap.set(canonicalizeKey(normalizedStatus), normalizedStatus);
       }
     });
 
