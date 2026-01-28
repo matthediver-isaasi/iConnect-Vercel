@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   Users,
   GripVertical,
@@ -716,7 +718,19 @@ function ArticleViewsReportCard({ period, onPeriodChange, demoMode }) {
   );
 }
 
-function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeChange, demoMode }) {
+function OrgTypeReportCard({ 
+  selectedField, 
+  onFieldChange, 
+  viewMode, 
+  onViewModeChange, 
+  demoMode,
+  aggregation = [],
+  onAggregationChange,
+  aggregationLabel = 'Total Schools',
+  onAggregationLabelChange
+}) {
+  const [aggregationOpen, setAggregationOpen] = useState(false);
+  
   const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['/api/reports/org-type-stats', selectedField],
     queryFn: () => apiRequest('GET', `/api/reports/org-type-stats?fieldName=${encodeURIComponent(selectedField)}`),
@@ -726,6 +740,67 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
   });
 
   const stats = demoMode ? DEMO_ORG_TYPE_DATA : apiStats;
+
+  const rawCategories = stats?.categories || [];
+  const rawSummaryCards = stats?.summaryCards || [];
+  const rawYearlyChartData = stats?.yearlyChartData || [];
+  const rawCurrentYearMonthlyData = stats?.currentYearMonthlyData || [];
+  const rawCurrentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
+  const availableFields = stats?.availableFields || [];
+  const currentYear = stats?.currentYear || new Date().getFullYear();
+
+  const applyAggregation = useMemo(() => {
+    if (aggregation.length < 2) {
+      return {
+        categories: rawCategories,
+        summaryCards: rawSummaryCards,
+        yearlyChartData: rawYearlyChartData,
+        currentYearMonthlyData: rawCurrentYearMonthlyData,
+        currentYearQuarterlyData: rawCurrentYearQuarterlyData
+      };
+    }
+
+    const aggregatedCategories = rawCategories.filter(cat => !aggregation.includes(cat));
+    aggregatedCategories.push(aggregationLabel);
+
+    const aggregatedSummaryCards = rawSummaryCards.filter(card => !aggregation.includes(card.name));
+    const aggregatedTotal = rawSummaryCards
+      .filter(card => aggregation.includes(card.name))
+      .reduce((sum, card) => sum + card.total, 0);
+    aggregatedSummaryCards.push({ name: aggregationLabel, total: aggregatedTotal });
+
+    const aggregateChartData = (data, keyField) => {
+      return data.map(row => {
+        const newRow = { [keyField]: row[keyField] };
+        rawCategories.forEach(cat => {
+          if (aggregation.includes(cat)) {
+            newRow[aggregationLabel] = (newRow[aggregationLabel] || 0) + (row[cat] || 0);
+          } else {
+            newRow[cat] = row[cat] || 0;
+          }
+        });
+        return newRow;
+      });
+    };
+
+    return {
+      categories: aggregatedCategories,
+      summaryCards: aggregatedSummaryCards,
+      yearlyChartData: aggregateChartData(rawYearlyChartData, 'year'),
+      currentYearMonthlyData: aggregateChartData(rawCurrentYearMonthlyData, 'month'),
+      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter')
+    };
+  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, aggregation, aggregationLabel]);
+
+  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData } = applyAggregation;
+
+  const toggleAggregation = (category) => {
+    if (aggregation.includes(category)) {
+      onAggregationChange(aggregation.filter(c => c !== category));
+    } else {
+      onAggregationChange([...aggregation, category]);
+    }
+  };
 
   if (!demoMode && isLoading) {
     return (
@@ -747,21 +822,13 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
     );
   }
 
-  const categories = stats?.categories || [];
-  const summaryCards = stats?.summaryCards || [];
-  const yearlyChartData = stats?.yearlyChartData || [];
-  const currentYearMonthlyData = stats?.currentYearMonthlyData || [];
-  const currentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
-  const availableFields = stats?.availableFields || [];
-  const currentYear = stats?.currentYear || new Date().getFullYear();
-
   const currentYearData = viewMode === 'monthly' ? currentYearMonthlyData : currentYearQuarterlyData;
   const xAxisKey = viewMode === 'monthly' ? 'month' : 'quarter';
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Select value={selectedField} onValueChange={onFieldChange}>
             <SelectTrigger className="w-48" data-testid="select-org-field">
               <SelectValue placeholder="Select field..." />
@@ -787,6 +854,66 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
               <SelectItem value="quarterly">Quarterly</SelectItem>
             </SelectContent>
           </Select>
+          <Popover open={aggregationOpen} onOpenChange={setAggregationOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="button-aggregation-settings">
+                <Building2 className="w-4 h-4 mr-2" />
+                Aggregate
+                {aggregation.length >= 2 && (
+                  <Badge variant="secondary" className="ml-2">{aggregation.length}</Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start" data-testid="popover-aggregation">
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-medium mb-1">Combine Categories</h4>
+                  <p className="text-xs text-muted-foreground">Select 2+ categories to aggregate into a single group</p>
+                </div>
+                <div className="space-y-2">
+                  {rawCategories.map(category => (
+                    <div key={category} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`agg-${category}`}
+                        checked={aggregation.includes(category)}
+                        onCheckedChange={() => toggleAggregation(category)}
+                        data-testid={`checkbox-aggregate-${category}`}
+                      />
+                      <Label htmlFor={`agg-${category}`} className="text-sm cursor-pointer">
+                        {category}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {aggregation.length >= 2 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <Label htmlFor="agg-label" className="text-sm">Group Label</Label>
+                      <Input
+                        id="agg-label"
+                        value={aggregationLabel}
+                        onChange={(e) => onAggregationLabelChange(e.target.value)}
+                        placeholder="e.g., Total Schools"
+                        data-testid="input-aggregation-label"
+                      />
+                    </div>
+                  </>
+                )}
+                {aggregation.length >= 2 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => onAggregationChange([])}
+                    data-testid="button-clear-aggregation"
+                  >
+                    Clear Aggregation
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
         {!demoMode && (
           <Button
@@ -805,7 +932,7 @@ function OrgTypeReportCard({ selectedField, onFieldChange, viewMode, onViewModeC
         {summaryCards.map((card, index) => (
           <Card 
             key={card.name} 
-            className="p-4"
+            className={`p-4 ${aggregation.length >= 2 && card.name === aggregationLabel ? 'ring-2 ring-primary/50' : ''}`}
             data-testid={`card-org-type-${card.name}`}
           >
             <div className="flex items-start gap-3">
@@ -903,6 +1030,8 @@ export default function ReportsDashboard() {
   const [articleViewsPeriod, setArticleViewsPeriod] = useState('month');
   const [orgTypeField, setOrgTypeField] = useState('org_type');
   const [orgTypeViewMode, setOrgTypeViewMode] = useState('monthly');
+  const [orgTypeAggregation, setOrgTypeAggregation] = useState([]);
+  const [orgTypeAggregationLabel, setOrgTypeAggregationLabel] = useState('Total Schools');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
 
@@ -1037,6 +1166,10 @@ export default function ReportsDashboard() {
             viewMode={orgTypeViewMode}
             onViewModeChange={setOrgTypeViewMode}
             demoMode={demoMode}
+            aggregation={orgTypeAggregation}
+            onAggregationChange={setOrgTypeAggregation}
+            aggregationLabel={orgTypeAggregationLabel}
+            onAggregationLabelChange={setOrgTypeAggregationLabel}
           />
         );
       default:
