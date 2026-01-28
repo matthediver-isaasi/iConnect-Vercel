@@ -53,7 +53,8 @@ const DEFAULT_REPORT_CARDS = [
   { id: 'members', title: 'Members', visible: true, order: 0 },
   { id: 'activity', title: 'Activity', visible: true, order: 1 },
   { id: 'article-views', title: 'Article Views', visible: true, order: 2 },
-  { id: 'org-types', title: 'Organization Types', visible: true, order: 3 }
+  { id: 'org-types', title: 'Organization Types', visible: true, order: 3 },
+  { id: 'new-orgs', title: 'New Organizations', visible: true, order: 4 }
 ];
 
 const ORG_TYPE_COLORS = [
@@ -214,6 +215,48 @@ const DEMO_ORG_TYPE_DATA = {
     { quarter: 'Q4', ESO: 0, SO: 0, Partner: 0 }
   ],
   totalOrganizations: 261
+};
+
+const DEMO_NEW_ORGS_DATA = {
+  fieldName: 'org_type',
+  availableFields: [
+    { name: 'org_type', label: 'Organization Type', fieldType: 'select', id: 'demo-field-1' }
+  ],
+  categories: ['ESO', 'SO', 'Partner'],
+  summaryCards: [
+    { name: 'ESO', thisYear: 28, thisMonth: 3 },
+    { name: 'SO', thisYear: 19, thisMonth: 2 },
+    { name: 'Partner', thisYear: 10, thisMonth: 1 }
+  ],
+  yearlyChartData: [
+    { year: '2021', ESO: 23, SO: 18, Partner: 8 },
+    { year: '2022', ESO: 34, SO: 24, Partner: 12 },
+    { year: '2023', ESO: 42, SO: 28, Partner: 15 },
+    { year: '2024', ESO: 28, SO: 19, Partner: 10 }
+  ],
+  currentYear: 2024,
+  currentYearMonthlyData: [
+    { month: 'Jan', ESO: 8, SO: 5, Partner: 3 },
+    { month: 'Feb', ESO: 6, SO: 4, Partner: 2 },
+    { month: 'Mar', ESO: 7, SO: 6, Partner: 2 },
+    { month: 'Apr', ESO: 3, SO: 2, Partner: 1 },
+    { month: 'May', ESO: 2, SO: 1, Partner: 1 },
+    { month: 'Jun', ESO: 1, SO: 1, Partner: 0 },
+    { month: 'Jul', ESO: 1, SO: 0, Partner: 1 },
+    { month: 'Aug', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Sep', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Oct', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Nov', ESO: 0, SO: 0, Partner: 0 },
+    { month: 'Dec', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  currentYearQuarterlyData: [
+    { quarter: 'Q1', ESO: 21, SO: 15, Partner: 7 },
+    { quarter: 'Q2', ESO: 6, SO: 4, Partner: 2 },
+    { quarter: 'Q3', ESO: 1, SO: 0, Partner: 1 },
+    { quarter: 'Q4', ESO: 0, SO: 0, Partner: 0 }
+  ],
+  totalNewThisYear: 57,
+  totalNewThisMonth: 6
 };
 
 function MembersReportCard({ period, onPeriodChange, demoMode }) {
@@ -1082,6 +1125,373 @@ function OrgTypeReportCard({
   );
 }
 
+function NewOrgsReportCard({ 
+  selectedField, 
+  onFieldChange, 
+  viewMode, 
+  onViewModeChange, 
+  chartType = 'bar',
+  onChartTypeChange,
+  demoMode,
+  aggregation = [],
+  onAggregationChange,
+  aggregationLabel = 'Total Schools',
+  onAggregationLabelChange
+}) {
+  const [aggregationOpen, setAggregationOpen] = useState(false);
+  
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/new-org-stats', selectedField],
+    queryFn: () => apiRequest('GET', `/api/reports/new-org-stats?fieldName=${encodeURIComponent(selectedField)}`),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
+  });
+
+  const stats = demoMode ? DEMO_NEW_ORGS_DATA : apiStats;
+
+  const rawCategories = stats?.categories || [];
+  const rawSummaryCards = stats?.summaryCards || [];
+  const rawYearlyChartData = stats?.yearlyChartData || [];
+  const rawCurrentYearMonthlyData = stats?.currentYearMonthlyData || [];
+  const rawCurrentYearQuarterlyData = stats?.currentYearQuarterlyData || [];
+  const availableFields = stats?.availableFields || [];
+  const currentYear = stats?.currentYear || new Date().getFullYear();
+
+  const applyAggregation = useMemo(() => {
+    if (aggregation.length < 2) {
+      return {
+        categories: rawCategories,
+        summaryCards: rawSummaryCards,
+        yearlyChartData: rawYearlyChartData,
+        currentYearMonthlyData: rawCurrentYearMonthlyData,
+        currentYearQuarterlyData: rawCurrentYearQuarterlyData
+      };
+    }
+
+    const aggregatedCategories = [...rawCategories, aggregationLabel];
+
+    const aggregatedThisYear = rawSummaryCards
+      .filter(card => aggregation.includes(card.name))
+      .reduce((sum, card) => sum + (card.thisYear || 0), 0);
+    const aggregatedThisMonth = rawSummaryCards
+      .filter(card => aggregation.includes(card.name))
+      .reduce((sum, card) => sum + (card.thisMonth || 0), 0);
+    const aggregatedSummaryCards = [...rawSummaryCards, { name: aggregationLabel, thisYear: aggregatedThisYear, thisMonth: aggregatedThisMonth }];
+
+    const aggregateChartData = (data, keyField) => {
+      return data.map(row => {
+        const newRow = { [keyField]: row[keyField] };
+        rawCategories.forEach(cat => {
+          newRow[cat] = row[cat] || 0;
+        });
+        newRow[aggregationLabel] = aggregation.reduce((sum, cat) => sum + (row[cat] || 0), 0);
+        return newRow;
+      });
+    };
+
+    return {
+      categories: aggregatedCategories,
+      summaryCards: aggregatedSummaryCards,
+      yearlyChartData: aggregateChartData(rawYearlyChartData, 'year'),
+      currentYearMonthlyData: aggregateChartData(rawCurrentYearMonthlyData, 'month'),
+      currentYearQuarterlyData: aggregateChartData(rawCurrentYearQuarterlyData, 'quarter')
+    };
+  }, [rawCategories, rawSummaryCards, rawYearlyChartData, rawCurrentYearMonthlyData, rawCurrentYearQuarterlyData, aggregation, aggregationLabel]);
+
+  const { categories, summaryCards, yearlyChartData, currentYearMonthlyData, currentYearQuarterlyData } = applyAggregation;
+
+  const toggleAggregation = (category) => {
+    if (aggregation.includes(category)) {
+      onAggregationChange(aggregation.filter(c => c !== category));
+    } else {
+      onAggregationChange([...aggregation, category]);
+    }
+  };
+
+  if (!demoMode && isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-new-orgs-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!demoMode && error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-new-orgs-error">
+        <p className="text-muted-foreground" data-testid="text-new-orgs-error-message">Failed to load new organization statistics</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-new-orgs-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const currentYearData = viewMode === 'monthly' ? currentYearMonthlyData : currentYearQuarterlyData;
+  const xAxisKey = viewMode === 'monthly' ? 'month' : 'quarter';
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={selectedField} onValueChange={onFieldChange}>
+            <SelectTrigger className="w-48" data-testid="select-new-orgs-field">
+              <SelectValue placeholder="Select field..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableFields.length > 0 ? (
+                availableFields.map(field => (
+                  <SelectItem key={field.name} value={field.name} data-testid={`select-new-orgs-field-${field.name}`}>
+                    {field.label}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="org_type">Organization Type</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          <Select value={viewMode} onValueChange={onViewModeChange}>
+            <SelectTrigger className="w-32" data-testid="select-new-orgs-view-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="monthly">Monthly</SelectItem>
+              <SelectItem value="quarterly">Quarterly</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={chartType} onValueChange={onChartTypeChange}>
+            <SelectTrigger className="w-28" data-testid="select-new-orgs-chart-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bar">Bar Chart</SelectItem>
+              <SelectItem value="line">Line Chart</SelectItem>
+            </SelectContent>
+          </Select>
+          <Popover open={aggregationOpen} onOpenChange={setAggregationOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="button-new-orgs-aggregation-settings">
+                <Building2 className="w-4 h-4 mr-2" />
+                Aggregate
+                {aggregation.length >= 2 && (
+                  <Badge variant="secondary" className="ml-2">{aggregation.length}</Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start" data-testid="popover-new-orgs-aggregation">
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-medium mb-1">Combine Categories</h4>
+                  <p className="text-xs text-muted-foreground">Select 2+ categories to aggregate into a single group</p>
+                </div>
+                <div className="space-y-2">
+                  {rawCategories.map(category => (
+                    <div key={category} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`new-orgs-agg-${category}`}
+                        checked={aggregation.includes(category)}
+                        onCheckedChange={() => toggleAggregation(category)}
+                        data-testid={`checkbox-new-orgs-aggregate-${category}`}
+                      />
+                      <Label htmlFor={`new-orgs-agg-${category}`} className="text-sm cursor-pointer">
+                        {category}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                {aggregation.length >= 2 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <Label htmlFor="new-orgs-agg-label" className="text-sm">Group Label</Label>
+                      <Input
+                        id="new-orgs-agg-label"
+                        value={aggregationLabel}
+                        onChange={(e) => onAggregationLabelChange(e.target.value)}
+                        placeholder="e.g., Total Schools"
+                        data-testid="input-new-orgs-aggregation-label"
+                      />
+                    </div>
+                  </>
+                )}
+                {aggregation.length >= 2 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => onAggregationChange([])}
+                    data-testid="button-new-orgs-clear-aggregation"
+                  >
+                    Clear Aggregation
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-new-orgs"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="container-new-orgs-summary">
+        {summaryCards.map((card, index) => (
+          <Card 
+            key={card.name} 
+            className={`p-4 ${aggregation.length >= 2 && card.name === aggregationLabel ? 'ring-2 ring-primary/50' : ''}`}
+            data-testid={`card-new-orgs-${card.name}`}
+          >
+            <div className="flex items-start gap-3">
+              <div 
+                className="w-1 h-12 rounded-full shrink-0" 
+                style={{ backgroundColor: ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length] }}
+              />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">{card.name}</p>
+                <p className="text-2xl font-bold">{(card.thisYear || 0).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">This month: {(card.thisMonth || 0).toLocaleString()}</p>
+              </div>
+            </div>
+          </Card>
+        ))}
+        <Card className="p-4 bg-muted/50" data-testid="card-new-orgs-total">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-muted-foreground">Total New This Year</p>
+            <p className="text-2xl font-bold">{stats?.totalNewThisYear?.toLocaleString() || 0}</p>
+            <p className="text-xs text-muted-foreground">This month: {stats?.totalNewThisMonth?.toLocaleString() || 0}</p>
+          </div>
+        </Card>
+      </div>
+
+      {yearlyChartData.length > 0 && (
+        <div className="space-y-4" data-testid="container-new-orgs-yearly-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">New Organizations (By Year)</h4>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              {chartType === 'line' ? (
+                <LineChart data={yearlyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Line
+                      key={category}
+                      type="monotone"
+                      dataKey={category}
+                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      name={category}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart data={yearlyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Bar
+                      key={category}
+                      dataKey={category}
+                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      name={category}
+                    />
+                  ))}
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {currentYearData.length > 0 && (
+        <div className="space-y-4" data-testid="container-new-orgs-current-year-chart">
+          <h4 className="text-sm font-medium text-muted-foreground">{currentYear} New Organizations ({viewMode === 'monthly' ? 'Monthly' : 'Quarterly'})</h4>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              {chartType === 'line' ? (
+                <LineChart data={currentYearData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Line
+                      key={category}
+                      type="monotone"
+                      dataKey={category}
+                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      name={category}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart data={currentYearData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Bar
+                      key={category}
+                      dataKey={category}
+                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      name={category}
+                    />
+                  ))}
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReportsDashboard() {
   const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
@@ -1095,6 +1505,11 @@ export default function ReportsDashboard() {
   const [orgTypeChartType, setOrgTypeChartType] = useState('bar');
   const [orgTypeAggregation, setOrgTypeAggregation] = useState([]);
   const [orgTypeAggregationLabel, setOrgTypeAggregationLabel] = useState('Total Schools');
+  const [newOrgsField, setNewOrgsField] = useState('org_type');
+  const [newOrgsViewMode, setNewOrgsViewMode] = useState('monthly');
+  const [newOrgsChartType, setNewOrgsChartType] = useState('bar');
+  const [newOrgsAggregation, setNewOrgsAggregation] = useState([]);
+  const [newOrgsAggregationLabel, setNewOrgsAggregationLabel] = useState('Total Schools');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
 
@@ -1237,6 +1652,22 @@ export default function ReportsDashboard() {
             onAggregationLabelChange={setOrgTypeAggregationLabel}
           />
         );
+      case 'new-orgs':
+        return (
+          <NewOrgsReportCard
+            selectedField={newOrgsField}
+            onFieldChange={setNewOrgsField}
+            viewMode={newOrgsViewMode}
+            onViewModeChange={setNewOrgsViewMode}
+            chartType={newOrgsChartType}
+            onChartTypeChange={setNewOrgsChartType}
+            demoMode={demoMode}
+            aggregation={newOrgsAggregation}
+            onAggregationChange={setNewOrgsAggregation}
+            aggregationLabel={newOrgsAggregationLabel}
+            onAggregationLabelChange={setNewOrgsAggregationLabel}
+          />
+        );
       default:
         return null;
     }
@@ -1252,6 +1683,8 @@ export default function ReportsDashboard() {
         return <FileText className="w-5 h-5" />;
       case 'org-types':
         return <Building2 className="w-5 h-5" />;
+      case 'new-orgs':
+        return <TrendingUp className="w-5 h-5" />;
       default:
         return <BarChart3 className="w-5 h-5" />;
     }
