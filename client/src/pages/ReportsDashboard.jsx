@@ -34,6 +34,8 @@ import {
   Area,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -723,6 +725,8 @@ function OrgTypeReportCard({
   onFieldChange, 
   viewMode, 
   onViewModeChange, 
+  chartType = 'bar',
+  onChartTypeChange,
   demoMode,
   aggregation = [],
   onAggregationChange,
@@ -760,25 +764,20 @@ function OrgTypeReportCard({
       };
     }
 
-    const aggregatedCategories = rawCategories.filter(cat => !aggregation.includes(cat));
-    aggregatedCategories.push(aggregationLabel);
+    const aggregatedCategories = [...rawCategories, aggregationLabel];
 
-    const aggregatedSummaryCards = rawSummaryCards.filter(card => !aggregation.includes(card.name));
     const aggregatedTotal = rawSummaryCards
       .filter(card => aggregation.includes(card.name))
       .reduce((sum, card) => sum + card.total, 0);
-    aggregatedSummaryCards.push({ name: aggregationLabel, total: aggregatedTotal });
+    const aggregatedSummaryCards = [...rawSummaryCards, { name: aggregationLabel, total: aggregatedTotal }];
 
     const aggregateChartData = (data, keyField) => {
       return data.map(row => {
         const newRow = { [keyField]: row[keyField] };
         rawCategories.forEach(cat => {
-          if (aggregation.includes(cat)) {
-            newRow[aggregationLabel] = (newRow[aggregationLabel] || 0) + (row[cat] || 0);
-          } else {
-            newRow[cat] = row[cat] || 0;
-          }
+          newRow[cat] = row[cat] || 0;
         });
+        newRow[aggregationLabel] = aggregation.reduce((sum, cat) => sum + (row[cat] || 0), 0);
         return newRow;
       });
     };
@@ -852,6 +851,15 @@ function OrgTypeReportCard({
             <SelectContent>
               <SelectItem value="monthly">Monthly</SelectItem>
               <SelectItem value="quarterly">Quarterly</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={chartType} onValueChange={onChartTypeChange}>
+            <SelectTrigger className="w-28" data-testid="select-org-chart-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="bar">Bar Chart</SelectItem>
+              <SelectItem value="line">Line Chart</SelectItem>
             </SelectContent>
           </Select>
           <Popover open={aggregationOpen} onOpenChange={setAggregationOpen}>
@@ -960,27 +968,54 @@ function OrgTypeReportCard({
           <h4 className="text-sm font-medium text-muted-foreground">Historical Trend (By Year)</h4>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={yearlyChartData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }}
-                />
-                <Legend />
-                {categories.map((category, index) => (
-                  <Bar
-                    key={category}
-                    dataKey={category}
-                    fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
-                    name={category}
+              {chartType === 'line' ? (
+                <LineChart data={yearlyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
                   />
-                ))}
-              </BarChart>
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Line
+                      key={category}
+                      type="monotone"
+                      dataKey={category}
+                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      name={category}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart data={yearlyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="year" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Bar
+                      key={category}
+                      dataKey={category}
+                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      name={category}
+                    />
+                  ))}
+                </BarChart>
+              )}
             </ResponsiveContainer>
           </div>
         </div>
@@ -991,27 +1026,54 @@ function OrgTypeReportCard({
           <h4 className="text-sm font-medium text-muted-foreground">{currentYear} Breakdown ({viewMode === 'monthly' ? 'Monthly' : 'Quarterly'})</h4>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={currentYearData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
-                <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }}
-                />
-                <Legend />
-                {categories.map((category, index) => (
-                  <Bar
-                    key={category}
-                    dataKey={category}
-                    fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
-                    name={category}
+              {chartType === 'line' ? (
+                <LineChart data={currentYearData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
                   />
-                ))}
-              </BarChart>
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Line
+                      key={category}
+                      type="monotone"
+                      dataKey={category}
+                      stroke={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      name={category}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart data={currentYearData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey={xAxisKey} tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                  <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Legend />
+                  {categories.map((category, index) => (
+                    <Bar
+                      key={category}
+                      dataKey={category}
+                      fill={ORG_TYPE_COLORS[index % ORG_TYPE_COLORS.length]}
+                      name={category}
+                    />
+                  ))}
+                </BarChart>
+              )}
             </ResponsiveContainer>
           </div>
         </div>
@@ -1030,6 +1092,7 @@ export default function ReportsDashboard() {
   const [articleViewsPeriod, setArticleViewsPeriod] = useState('month');
   const [orgTypeField, setOrgTypeField] = useState('org_type');
   const [orgTypeViewMode, setOrgTypeViewMode] = useState('monthly');
+  const [orgTypeChartType, setOrgTypeChartType] = useState('bar');
   const [orgTypeAggregation, setOrgTypeAggregation] = useState([]);
   const [orgTypeAggregationLabel, setOrgTypeAggregationLabel] = useState('Total Schools');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1165,6 +1228,8 @@ export default function ReportsDashboard() {
             onFieldChange={setOrgTypeField}
             viewMode={orgTypeViewMode}
             onViewModeChange={setOrgTypeViewMode}
+            chartType={orgTypeChartType}
+            onChartTypeChange={setOrgTypeChartType}
             demoMode={demoMode}
             aggregation={orgTypeAggregation}
             onAggregationChange={setOrgTypeAggregation}
