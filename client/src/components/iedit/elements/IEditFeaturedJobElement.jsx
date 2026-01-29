@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { ArrowRight, MapPin, Building2, Clock, Briefcase, Calendar, Banknote } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format, differenceInDays } from "date-fns";
@@ -117,16 +118,19 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   const effectiveSubheadingFontSizeMobile = subheadingTypographyStyle?.font_size_mobile || mobile_subheading_font_size;
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['featured-jobs-element', specific_job_id],
+    queryKey: ['public-featured-jobs-element', specific_job_id],
     queryFn: async () => {
+      // Use public endpoint for unauthenticated access on public pages
+      const allJobs = await publicClient.listJobPostings() || [];
+      
       if (specific_job_id) {
-        const job = await base44.entities.JobPosting.get(specific_job_id);
+        const job = allJobs.find(j => j.id === specific_job_id);
         return job ? [job] : [];
       }
-      const allJobs = await base44.entities.JobPosting.filter({ status: 'active' });
+      
       const now = new Date();
       const activeJobs = allJobs
-        .filter(job => !job.closing_date || new Date(job.closing_date) > now)
+        .filter(job => job.status === 'active' && (!job.closing_date || new Date(job.closing_date) > now))
         .sort((a, b) => {
           if (a.featured && !b.featured) return -1;
           if (!a.featured && b.featured) return 1;

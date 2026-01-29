@@ -734,9 +734,11 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   };
 
   const { data: organizations = [], isLoading } = useQuery({
-    queryKey: ['organizations-element'],
+    queryKey: ['public-organizations-element'],
     queryFn: async () => {
-      return await base44.entities.Organization.list('name');
+      // Use public endpoint for unauthenticated access on public pages
+      const orgs = await publicClient.listOrganizations() || [];
+      return orgs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
     refetchOnMount: true
@@ -780,6 +782,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   });
 
   // Fetch organization custom fields to find application_status
+  // Only runs for authenticated users - skipped on public pages
   const { data: orgCustomFields = [] } = useQuery({
     queryKey: ['org-custom-fields-for-directory-element'],
     queryFn: async () => {
@@ -789,17 +792,12 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
         });
         return fields || [];
       } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({
-            filter: { is_active: true }
-          });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
-        } catch {
-          return [];
-        }
+        return [];
       }
     },
-    staleTime: 5 * 60 * 1000
+    staleTime: 5 * 60 * 1000,
+    enabled: !!memberInfo, // Only fetch when authenticated
+    retry: false
   });
 
   // Find the application_status field
@@ -808,9 +806,10 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   }, [orgCustomFields]);
 
   // Fetch organization preference values for filtering
+  // Only runs for authenticated users - skipped on public pages
   const { data: allOrgPreferenceValues = [] } = useQuery({
     queryKey: ['all-org-preference-values-for-directory-element'],
-    enabled: !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0),
+    enabled: !!memberInfo && !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0),
     queryFn: async () => {
       try {
         const values = await base44.entities.OrganizationPreferenceValue.list() || [];
@@ -819,7 +818,8 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
         return [];
       }
     },
-    staleTime: 60 * 1000
+    staleTime: 60 * 1000,
+    retry: false
   });
 
   // Build a lookup map: organization_id -> { field_id -> value }
@@ -869,10 +869,15 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const { data: members = [] } = useQuery({
     queryKey: ['members-for-org-directory-element'],
     queryFn: async () => {
-      return await base44.entities.Member.listAll();
+      try {
+        return await base44.entities.Member.listAll();
+      } catch {
+        return [];
+      }
     },
-    enabled: showMemberCount,
-    staleTime: 2 * 60 * 1000 // Cache for 2 minutes to prevent refetch flickering
+    enabled: !!memberInfo && showMemberCount, // Only fetch when authenticated
+    staleTime: 2 * 60 * 1000,
+    retry: false
   });
 
   const organizationMemberCounts = useMemo(() => {
