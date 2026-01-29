@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -89,6 +89,15 @@ export default function MemberDetailView({
   const { isAdmin, memberInfo } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  // Force navigation to happen asynchronously to avoid being blocked by render cycles
+  const handleNavigateToMembers = useCallback(() => {
+    // Use setTimeout to break out of any blocking render cycle
+    setTimeout(() => {
+      navigate('/members');
+    }, 0);
+  }, [navigate]);
 
   // Subscribe to realtime changes for member and preference values
   // Only enable when both entity ID and tenant ID are available to ensure tenant scoping
@@ -816,13 +825,9 @@ export default function MemberDetailView({
                 <ArrowLeft className="w-5 h-5" />
               </Button>
             ) : (
-              <a 
-                href="/members" 
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
-                data-testid="button-back-to-members"
-              >
+              <Button variant="ghost" size="icon" onClick={handleNavigateToMembers} data-testid="button-back-to-members">
                 <ArrowLeft className="w-5 h-5" />
-              </a>
+              </Button>
             )}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12">
