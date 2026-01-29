@@ -57,7 +57,6 @@ export default async function handler(req, res) {
         id,
         title,
         description,
-        short_description,
         location,
         employment_type,
         salary_range,

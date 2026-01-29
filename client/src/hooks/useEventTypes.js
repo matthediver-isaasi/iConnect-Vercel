@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 
 export function useEventTypes() {
   const { data: settings = [], isLoading } = useQuery({
-    queryKey: ['event-types-settings'],
+    queryKey: ['public-event-types-settings'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await publicClient.listSystemSettings();
       return allSettings.find(s => s.setting_key === 'event_types');
     },
     staleTime: 30000,

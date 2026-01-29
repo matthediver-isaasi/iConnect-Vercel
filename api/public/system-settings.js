@@ -44,6 +44,8 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'org_directory_show_title',
   'org_directory_allowed_application_statuses',
   'wall_of_fame_photo_size',
+  'date_display_format',
+  'event_types',
 ];
 
 export default async function handler(req, res) {

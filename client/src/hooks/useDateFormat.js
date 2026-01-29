@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { format } from "date-fns";
 
 const DATE_FORMAT_OPTIONS = [
@@ -16,8 +16,8 @@ const DEFAULT_DATE_FORMAT = 'dd MMM yyyy';
 
 export function useDateFormat() {
   const { data: systemSettings = [] } = useQuery({
-    queryKey: ['system-settings-date-format'],
-    queryFn: () => base44.entities.SystemSettings.list(),
+    queryKey: ['public-system-settings-date-format'],
+    queryFn: () => publicClient.listSystemSettings(),
     staleTime: 60000,
   });
 
