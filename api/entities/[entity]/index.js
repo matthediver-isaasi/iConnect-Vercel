@@ -263,7 +263,7 @@ export default async function handler(req, res) {
           
           // Special handling for entities that filter through blog_post (article_id -> blog_post.tenant_id)
           // These tables don't have tenant_id directly, so we filter by article_id in tenant's blog posts
-          const entitiesFilteredByArticle = ['ArticleReaction', 'ArticleView'];
+          const entitiesFilteredByArticle = ['ArticleReaction', 'ArticleView', 'ArticleComment'];
           if (entitiesFilteredByArticle.includes(entity) && tenantCtx.tenantId) {
             // First get all blog post IDs for this tenant, then filter by those
             const { data: tenantPosts, error: postsError } = await supabase
@@ -329,7 +329,8 @@ export default async function handler(req, res) {
               'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
               'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
               'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-              'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle'
+              'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle',
+              'ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
