@@ -53,24 +53,7 @@ export default async function handler(req, res) {
 
     const { data: buttonStyles, error } = await supabase
       .from('button_style')
-      .select(`
-        id,
-        name,
-        is_active,
-        background_color,
-        text_color,
-        border_color,
-        border_width,
-        border_radius,
-        hover_background_color,
-        hover_text_color,
-        hover_border_color,
-        font_family,
-        font_weight,
-        letter_spacing,
-        padding_x,
-        padding_y
-      `)
+      .select('*')
       .eq('tenant_id', tenant.id)
       .eq('is_active', true)
       .order('name', { ascending: true });
