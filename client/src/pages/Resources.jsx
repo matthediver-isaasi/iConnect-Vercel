@@ -219,7 +219,7 @@ export default function ResourcesPage() {
   });
 
   // Fetch resource author settings for social icons configuration (authenticated only)
-  const { data: resourceSettings } = useQuery({
+  const { data: authResourceSettings } = useQuery({
     queryKey: ['resourceAuthorSettings'],
     queryFn: async () => {
       const settings = await base44.entities.ResourceAuthorSettings.list();
@@ -228,6 +228,19 @@ export default function ResourcesPage() {
     enabled: isAuthenticated,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Fetch resource author settings for public/guest users
+  const { data: publicResourceSettings } = useQuery({
+    queryKey: ['public-resource-author-settings'],
+    queryFn: async () => {
+      return publicClient.getResourceAuthorSettings();
+    },
+    enabled: authResolved && !isAuthenticated,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Combine settings based on auth state
+  const resourceSettings = isAuthenticated ? authResourceSettings : publicResourceSettings;
 
   // Get enabled social icons from settings, default to all enabled
   const enabledSocialIcons = resourceSettings?.enabled_social_icons || ['x', 'linkedin', 'email'];
@@ -474,26 +487,6 @@ export default function ResourcesPage() {
                   Explore helpful resources curated for you
                 </p>
               </div>
-              <Button
-                onClick={() => {
-                  // Only invalidate the query that's currently active based on authentication state
-                  if (isAuthenticated) {
-                    queryClient.invalidateQueries({ queryKey: ['authenticated-resources'] });
-                    queryClient.invalidateQueries({ queryKey: ['authenticated-resource-categories'] });
-                  } else {
-                    queryClient.invalidateQueries({ queryKey: ['public-resources'] });
-                    queryClient.invalidateQueries({ queryKey: ['public-resource-categories'] });
-                  }
-                  toast.success('Refreshing resources...');
-                }}
-                variant="outline"
-                className="gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Force Refresh
-              </Button>
             </div>
           </div>
         )}

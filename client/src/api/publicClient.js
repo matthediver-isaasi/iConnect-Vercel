@@ -459,6 +459,11 @@ class PublicClient {
       : '/api/public/wall-of-fame?type=people';
     return this._fetch(url);
   }
+  
+  // Resource Author Settings (display settings for resources page)
+  async getResourceAuthorSettings() {
+    return this._fetch('/api/public/resource-author-settings');
+  }
 }
 
 // Export singleton instance
