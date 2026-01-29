@@ -57,17 +57,26 @@ export default async function handler(req, res) {
         id,
         title,
         description,
+        company_name,
+        company_logo_url,
         location,
         salary_range,
-        image_url,
-        deadline,
-        organization_id,
-        created_at,
-        status
+        job_type,
+        hours,
+        application_method,
+        application_value,
+        contact_email,
+        posted_by_organization_id,
+        posted_by_organization_name,
+        status,
+        closing_date,
+        expiry_date,
+        featured,
+        created_date
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
-      .order('created_at', { ascending: false });
+      .order('created_date', { ascending: false });
 
     if (error) {
       console.error('[Public JobPostings] Query error:', error);
