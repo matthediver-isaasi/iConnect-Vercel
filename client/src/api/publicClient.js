@@ -229,7 +229,7 @@ class PublicClient {
   // Pages (IEdit CMS pages)
   async getPage(slug) {
     if (!slug) return null;
-    return this._fetch(`/api/public/page?slug=${encodeURIComponent(slug)}`);
+    return this._fetch(`/api/public/page/${encodeURIComponent(slug)}`);
   }
   
   // Roles (for ticket pricing display)
