@@ -247,6 +247,7 @@ export default async function handler(req, res) {
         organizationId: member.organization_id,
         tenantId: member.organization?.tenant_id,
         roleId: member.role_id,
+        identityId: member.identity_id || null,
         userType: 'member'
       };
       

@@ -433,13 +433,14 @@ export default async function handler(req, res) {
 
     // Create PostgreSQL-backed session with tenant context
     // Include all required fields to match portal-sso session format
+    // Prefer member.identity_id (direct link) over identity?.id (email lookup)
     await createSession(res, {
       memberId: member.id,
       memberEmail: member.email,
       organizationId: member.organization_id || null,
       tenantId: sessionTenantId || null,
       roleId: member.role_id || null,
-      identityId: identity?.id || null,
+      identityId: member.identity_id || identity?.id || null,
       userType: 'member'
     }, { req });
 

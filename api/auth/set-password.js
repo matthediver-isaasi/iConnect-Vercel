@@ -404,13 +404,14 @@ export default async function handler(req, res) {
     }
 
     // Create PostgreSQL-backed session (same format as login.js and portal-sso.js)
+    // Prefer fullMember.identity_id (direct link) over identity?.id (email lookup)
     await createSession(res, {
       memberId: member.id,
       memberEmail: email.toLowerCase(),
       organizationId: fullMember?.organization_id || null,
       tenantId: sessionTenantId || null,
       roleId: fullMember?.role_id || null,
-      identityId: identity?.id || null,
+      identityId: fullMember?.identity_id || identity?.id || null,
       userType: 'member'
     }, { req });
 
