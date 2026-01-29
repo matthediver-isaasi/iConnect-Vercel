@@ -51,6 +51,7 @@ import { createPageUrl, isDeletedMember } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useLocation } from "react-router-dom";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -98,6 +99,7 @@ export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
   const lastLoadedSlugRef = useRef(undefined);
   
@@ -156,6 +158,15 @@ export default function MembersListPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+
+  // Clear selectedMember when navigating away from /members
+  // This fixes the issue where sidebar navigation changes URL but page doesn't re-render
+  useEffect(() => {
+    if (location.pathname.toLowerCase() !== '/members') {
+      setSelectedMember(null);
+      setPendingMemberId(null);
+    }
+  }, [location.pathname]);
 
   // Fetch specific member directly when we have an ID in URL (avoids loading all members)
   const { data: directMember, isLoading: directMemberLoading } = useQuery({
