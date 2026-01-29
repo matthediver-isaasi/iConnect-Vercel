@@ -260,7 +260,63 @@ export default async function handler(req, res) {
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           // Tenant-scoped entities filter by tenant_id (or organization_id during migration)
           console.log(`[Entity GET] Tenant-scoped entity ${entity}, tenantCtx.tenantId:`, tenantCtx.tenantId, 'isTenantAdmin:', isTenantAdmin);
-          if (tenantCtx.tenantId) {
+          
+          // Special handling for entities that filter through blog_post (article_id -> blog_post.tenant_id)
+          // These tables don't have tenant_id directly, so we filter by article_id in tenant's blog posts
+          const entitiesFilteredByArticle = ['ArticleReaction', 'ArticleView'];
+          if (entitiesFilteredByArticle.includes(entity) && tenantCtx.tenantId) {
+            // First get all blog post IDs for this tenant, then filter by those
+            const { data: tenantPosts, error: postsError } = await supabase
+              .from('blog_post')
+              .select('id')
+              .eq('tenant_id', tenantCtx.tenantId);
+            
+            if (postsError) {
+              console.error(`Error fetching tenant blog posts for ${entity}:`, postsError);
+              return res.status(500).json({ error: 'Failed to fetch tenant articles' });
+            }
+            
+            const articleIds = (tenantPosts || []).map(p => p.id);
+            if (articleIds.length === 0) {
+              // No articles for this tenant, return empty array
+              return res.json([]);
+            }
+            
+            query = query.in('article_id', articleIds);
+          } else if (entity === 'CommentReaction' && tenantCtx.tenantId) {
+            // CommentReaction filters through comment_id -> article_comment -> blog_post -> tenant_id
+            const { data: tenantPosts, error: postsError2 } = await supabase
+              .from('blog_post')
+              .select('id')
+              .eq('tenant_id', tenantCtx.tenantId);
+            
+            if (postsError2) {
+              console.error('Error fetching tenant blog posts for CommentReaction:', postsError2);
+              return res.status(500).json({ error: 'Failed to fetch tenant articles' });
+            }
+            
+            const articleIds = (tenantPosts || []).map(p => p.id);
+            if (articleIds.length === 0) {
+              return res.json([]);
+            }
+            
+            const { data: tenantComments, error: commentsError } = await supabase
+              .from('article_comment')
+              .select('id')
+              .in('article_id', articleIds);
+            
+            if (commentsError) {
+              console.error('Error fetching tenant comments for CommentReaction:', commentsError);
+              return res.status(500).json({ error: 'Failed to fetch tenant comments' });
+            }
+            
+            const commentIds = (tenantComments || []).map(c => c.id);
+            if (commentIds.length === 0) {
+              return res.json([]);
+            }
+            
+            query = query.in('comment_id', commentIds);
+          } else if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
           } else if (isTenantAdmin) {
             // SECURITY: Tenant admins MUST have tenantId set - reject query if missing

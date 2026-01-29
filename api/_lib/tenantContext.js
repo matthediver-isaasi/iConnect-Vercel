@@ -157,7 +157,7 @@ export const entityTenantScope = {
   'ArticleComment': TENANT_SCOPE.ORGANIZATION,
   'ArticleReaction': TENANT_SCOPE.TENANT,
   'ArticleView': TENANT_SCOPE.TENANT,
-  'CommentReaction': TENANT_SCOPE.ORGANIZATION,
+  'CommentReaction': TENANT_SCOPE.TENANT,
   
   // MEMBER - Scoped to the authenticated member
   'MemberPreferenceValue': TENANT_SCOPE.MEMBER,
