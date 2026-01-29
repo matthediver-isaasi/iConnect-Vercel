@@ -816,11 +816,13 @@ export default function MemberDetailView({
                 <ArrowLeft className="w-5 h-5" />
               </Button>
             ) : (
-              <Button variant="ghost" size="icon" asChild data-testid="button-back-to-members">
-                <Link to="/members">
-                  <ArrowLeft className="w-5 h-5" />
-                </Link>
-              </Button>
+              <Link 
+                to="/members" 
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 w-10"
+                data-testid="button-back-to-members"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Link>
             )}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12">
