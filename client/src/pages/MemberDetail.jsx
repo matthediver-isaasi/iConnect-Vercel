@@ -85,12 +85,19 @@ export default function MemberDetail() {
         <button onClick={handleTestRouterNav} className="underline bg-green-600 px-2">navigate()</button>
         <Link to="/members" className="underline">Link</Link>
       </div>
-      <MemberDetailView
+      {/* DEBUG: Temporarily removed MemberDetailView to test if navigation works without it */}
+      <div className="p-8">
+        <h1 className="text-2xl font-bold">Member Detail (Debug Mode)</h1>
+        <p>Member ID: {id}</p>
+        <p>Member Name: {member?.first_name} {member?.last_name}</p>
+        <p className="mt-4 text-red-600">MemberDetailView is temporarily disabled to test navigation.</p>
+      </div>
+      {/* <MemberDetailView
         member={member}
         memberCustomFields={memberCustomFields}
         organizations={organizations}
         roles={roles}
-      />
+      /> */}
     </div>
   );
 }
