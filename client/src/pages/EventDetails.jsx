@@ -259,6 +259,7 @@ export default function EventDetailsPage() {
   });
 
   // Query for webinars to match URLs to webinar IDs
+  // Only runs for authenticated users - skipped on public pages
   const { data: webinars = [] } = useQuery({
     queryKey: ['/api/zoom/webinars'],
     queryFn: async () => {
@@ -269,10 +270,12 @@ export default function EventDetailsPage() {
       } catch {
         return [];
       }
-    }
+    },
+    enabled: !!memberInfo // Only fetch when authenticated
   });
 
   // Query for meetings to match URLs to meeting IDs
+  // Only runs for authenticated users - skipped on public pages
   const { data: meetings = [] } = useQuery({
     queryKey: ['/api/zoom/meetings'],
     queryFn: async () => {
@@ -283,7 +286,8 @@ export default function EventDetailsPage() {
       } catch {
         return [];
       }
-    }
+    },
+    enabled: !!memberInfo // Only fetch when authenticated
   });
 
   // Determine if this is an online event and if join link should be shown

@@ -117,6 +117,7 @@ export default function EventsPage({
   });
 
   // Query for webinars to match URLs to webinar IDs
+  // Only runs for authenticated users - skipped on public pages
   const { data: webinars = [] } = useQuery({
     queryKey: ['/api/zoom/webinars'],
     queryFn: async () => {
@@ -127,10 +128,12 @@ export default function EventsPage({
       } catch {
         return [];
       }
-    }
+    },
+    enabled: !!memberInfo // Only fetch when authenticated
   });
 
   // Query for categories that apply to Events content type - return full categories with subcategories
+  // Only runs for authenticated users - skipped on public pages
   const { data: eventCategories = [] } = useQuery({
     queryKey: ['event-filter-categories'],
     queryFn: async () => {
@@ -154,7 +157,8 @@ export default function EventsPage({
         console.error('[Events] Error loading filter categories:', error);
         return [];
       }
-    }
+    },
+    enabled: !!memberInfo // Only fetch when authenticated
   });
 
   if (eventsError) {
