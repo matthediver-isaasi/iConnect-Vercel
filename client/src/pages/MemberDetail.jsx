@@ -1,9 +1,10 @@
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Loader2 } from "lucide-react";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { Button } from "@/components/ui/button";
 
 export default function MemberDetail() {
   const { id } = useParams();
@@ -66,11 +67,20 @@ export default function MemberDetail() {
   }
 
   return (
-    <MemberDetailView
-      member={member}
-      memberCustomFields={memberCustomFields}
-      organizations={organizations}
-      roles={roles}
-    />
+    <div>
+      {/* DEBUG: Test navigation links at page level */}
+      <div className="fixed top-0 right-0 z-[9999] bg-red-500 text-white p-2 flex gap-2">
+        <Link to="/members" className="underline">Link to /members</Link>
+        <Button asChild size="sm" variant="secondary">
+          <Link to="/Events">Go Events</Link>
+        </Button>
+      </div>
+      <MemberDetailView
+        member={member}
+        memberCustomFields={memberCustomFields}
+        organizations={organizations}
+        roles={roles}
+      />
+    </div>
   );
 }
