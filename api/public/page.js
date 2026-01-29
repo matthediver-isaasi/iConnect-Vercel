@@ -61,31 +61,18 @@ export default async function handler(req, res) {
 
     const { data: page, error: pageError } = await supabase
       .from('i_edit_page')
-      .select(`
-        id,
-        slug,
-        title,
-        meta_title,
-        meta_description,
-        status,
-        require_authentication,
-        layout_type
-      `)
+      .select('*')
       .eq('tenant_id', tenant.id)
       .eq('slug', pageSlug)
       .eq('status', 'published')
       .in('layout_type', ['public', 'hybrid'])
       .single();
 
-    console.log('[Public Page] Page lookup result:', { page, pageError, tenantId: tenant.id, pageSlug });
+    console.log('[Public Page] Page lookup result:', { page: page ? { id: page.id, slug: page.slug } : null, pageError, tenantId: tenant.id, pageSlug });
 
     if (pageError || !page) {
       console.log('[Public Page] Page not found:', { pageSlug, tenantId: tenant.id, error: pageError?.message });
       return res.status(404).json({ error: 'Page not found' });
-    }
-
-    if (page.require_authentication) {
-      return res.status(403).json({ error: 'Page requires authentication' });
     }
 
     const { data: elements, error: elementsError } = await supabase
