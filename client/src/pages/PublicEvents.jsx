@@ -8,6 +8,7 @@ import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
 import { publicClient } from "@/api/publicClient";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -130,6 +131,7 @@ export default function PublicEventsPage() {
                         src={event.image_url} 
                         alt={event.title}
                         className="w-full h-full object-cover"
+                        style={getFocalPointStyle(event.image_focal_point)}
                       />
                     </div>
                   )}

@@ -47,6 +47,7 @@ import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -157,6 +158,7 @@ export default function EditEvent() {
     end_date: "",
     location: "",
     image_url: "",
+    image_focal_point: null,
     available_seats: "",
     zoom_webinar_id: null,
     zoom_meeting_id: null
@@ -582,6 +584,7 @@ export default function EditEvent() {
         end_date: isTbcEvent ? "" : (event.end_date || ""),
         location: event.location || "",
         image_url: event.image_url || "",
+        image_focal_point: event.image_focal_point || null,
         // Only show available_seats if it's a positive number (limited seats), otherwise treat as unlimited
         available_seats: event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0
           ? String(event.available_seats) 
@@ -888,6 +891,7 @@ export default function EditEvent() {
       end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
+      image_focal_point: formData.image_focal_point || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
       is_unlimited_registration: unlimitedSeats,
       // Per-event seat visibility (only meaningful when global setting is ON)
@@ -2260,6 +2264,14 @@ export default function EditEvent() {
                 value={formData.image_url}
                 onChange={(url) => handleInputChange('image_url', url)}
               />
+              
+              {formData.image_url && (
+                <FocalPointPicker
+                  imageUrl={formData.image_url}
+                  focalPoint={formData.image_focal_point}
+                  onChange={(point) => handleInputChange('image_focal_point', point)}
+                />
+              )}
             </CardContent>
           </Card>
 

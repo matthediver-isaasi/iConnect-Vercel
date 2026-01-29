@@ -14,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -184,6 +185,7 @@ export default function EmbedEventPage() {
                 src={event.image_url} 
                 alt={event.title}
                 className="w-full h-full object-cover"
+                style={getFocalPointStyle(event.image_focal_point)}
                 data-testid="event-image"
               />
               {isTBC && (

@@ -49,6 +49,20 @@
       "image_url": {
         "type": "string"
       },
+      "image_focal_point": {
+        "type": "object",
+        "description": "Focal point coordinates for the event image (percentages). Used for smart cropping.",
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "Horizontal focal point percentage (0-100)"
+          },
+          "y": {
+            "type": "number", 
+            "description": "Vertical focal point percentage (0-100)"
+          }
+        }
+      },
       "last_synced": {
         "type": "string",
         "format": "date-time",

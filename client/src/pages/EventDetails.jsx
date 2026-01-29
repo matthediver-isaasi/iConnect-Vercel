@@ -26,6 +26,7 @@ import PaymentOptions from "../components/booking/PaymentOptions";
 import ColleagueSelector from "../components/booking/ColleagueSelector";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
@@ -1134,6 +1135,7 @@ export default function EventDetailsPage() {
                   src={event.image_url}
                   alt={event.title}
                   className="w-full h-64 object-cover"
+                  style={getFocalPointStyle(event.image_focal_point)}
                 />
               </div>
             )}

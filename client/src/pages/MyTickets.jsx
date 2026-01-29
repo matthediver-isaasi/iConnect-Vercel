@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN = "agcasevents";
@@ -382,6 +383,7 @@ export default function MyTicketsPage({ hasBanner }) {
                           src={event.image_url}
                           alt={event.title}
                           className={`w-24 h-24 object-cover rounded-lg shrink-0 ${isCancelled ? 'grayscale' : ''}`}
+                          style={getFocalPointStyle(event.image_focal_point)}
                         />
                       )}
                     </div>

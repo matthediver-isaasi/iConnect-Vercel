@@ -9,6 +9,7 @@ import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
+import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -522,6 +523,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 src={event.image_url} 
                 alt={event.title}
                 className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                style={getFocalPointStyle(event.image_focal_point)}
               />
             </div>
           ) : (
