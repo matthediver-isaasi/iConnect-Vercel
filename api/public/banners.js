@@ -1,6 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
 
+function getTenantSlugFromHost(host) {
+  if (!host) return null;
+  const hostname = host.split(':')[0];
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    return parts[0];
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -15,9 +33,28 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
+    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    const tenantSlug = req.query.tenant || getTenantSlugFromHost(host);
+
+    if (!tenantSlug) {
+      return res.status(400).json({ error: 'Tenant not specified' });
+    }
+
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenant')
+      .select('id, name')
+      .eq('slug', tenantSlug)
+      .eq('status', 'active')
+      .single();
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
     const { data, error } = await supabase
       .from('page_banner')
       .select('*')
+      .eq('tenant_id', tenant.id)
       .eq('is_active', true)
       .order('display_order', { ascending: true });
 
