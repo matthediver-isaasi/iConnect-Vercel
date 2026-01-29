@@ -91,14 +91,12 @@ export default function MemberDetailView({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  // Force navigation to happen asynchronously to avoid being blocked by render cycles
+  // WORKAROUND: Use window.location.href for navigation
+  // React Router navigation is blocked by something in this component causing re-renders
+  // Using native browser navigation as a workaround until root cause is identified
   const handleNavigateToMembers = useCallback(() => {
-    // Use startTransition to mark navigation as interruptible
-    // This prevents heavy re-renders from blocking React Router navigation
-    startTransition(() => {
-      navigate('/members');
-    });
-  }, [navigate]);
+    window.location.href = '/members';
+  }, []);
 
   // DISABLED: Realtime subscriptions were causing render storms that blocked navigation
   // These subscriptions constantly invalidate query caches, causing cascading re-renders
