@@ -69,8 +69,10 @@ export const entityTenantScope = {
   'TypographyStyle': TENANT_SCOPE.GLOBAL,
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
-  'ButtonStyle': TENANT_SCOPE.GLOBAL,
   'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant
+  
+  // TENANT - Button styles are per-tenant for custom branding
+  'ButtonStyle': TENANT_SCOPE.TENANT,
   
   // TENANT - Tour configuration is per-tenant
   'TourGroup': TENANT_SCOPE.TENANT,

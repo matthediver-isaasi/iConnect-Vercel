@@ -273,7 +273,7 @@ export default async function handler(req, res) {
               'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
               'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
               'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-              'EmailTemplate', 'Workflow', 'WorkflowLog'
+              'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -417,7 +417,7 @@ export default async function handler(req, res) {
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-            'EmailTemplate', 'Workflow', 'WorkflowLog'
+            'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided
