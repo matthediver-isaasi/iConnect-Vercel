@@ -597,7 +597,7 @@ function PagesContent() {
         <>
             <ScrollToTop />
             <Layout currentPageName={currentPage}>
-                <Routes key={location.key}>            
+                <Routes key={`${location.pathname}${location.search}`}>            
                 
                     <Route path="/" element={<HomePageRedirect />} />
                 
