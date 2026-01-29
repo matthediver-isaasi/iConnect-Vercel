@@ -56,7 +56,7 @@ export default function NewsPage() {
       if (memberInfo) {
         allSettings = await base44.entities.SystemSettings.list();
       } else {
-        allSettings = await publicClient.getSystemSettings();
+        allSettings = await publicClient.listSystemSettings();
       }
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'news_cards_per_row');
       const showImageSetting = allSettings.find(s => s.setting_key === 'news_show_image');
