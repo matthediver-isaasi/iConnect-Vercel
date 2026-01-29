@@ -1,6 +1,5 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { flushSync } from "react-dom";
 import { base44 } from "@/api/base44Client";
 import { Loader2 } from "lucide-react";
 import MemberDetailView from "@/components/MemberDetailView";
@@ -8,8 +7,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function MemberDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
-  const { isAccessReady, memberInfo } = useMemberAccess();
+  const { isAccessReady } = useMemberAccess();
 
   const { data: member, isLoading: memberLoading } = useQuery({
     queryKey: ['member-detail', id],
@@ -59,15 +57,6 @@ export default function MemberDetail() {
     }
   });
 
-  const handleBack = () => {
-    console.log('[MemberDetail] handleBack called, navigating to /members');
-    // Use flushSync to force synchronous navigation update
-    // This prevents React's concurrent batching from delaying the navigation
-    flushSync(() => {
-      navigate('/members');
-    });
-  };
-
   if (memberLoading || !member) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -79,7 +68,6 @@ export default function MemberDetail() {
   return (
     <MemberDetailView
       member={member}
-      onBack={handleBack}
       memberCustomFields={memberCustomFields}
       organizations={organizations}
       roles={roles}

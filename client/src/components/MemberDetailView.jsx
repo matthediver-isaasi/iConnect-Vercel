@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -810,9 +811,17 @@ export default function MemberDetailView({
       <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back-to-members">
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
+            {isNew ? (
+              <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back-to-members">
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="icon" asChild data-testid="button-back-to-members">
+                <Link to="/members">
+                  <ArrowLeft className="w-5 h-5" />
+                </Link>
+              </Button>
+            )}
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12">
                 {isNew ? (
