@@ -46,7 +46,7 @@ export default async function handler(req, res) {
         login_enabled,
         show_in_directory,
         created_on,
-        profile_photo,
+        profile_photo_url,
         organization!inner (id, name, tenant_id)
       `, { count: 'exact' });
 
@@ -87,7 +87,8 @@ export default async function handler(req, res) {
 
     const filteredMembers = (members || []).filter(m => m.organization !== null).map(m => ({
       ...m,
-      disabled: m.login_enabled === false
+      disabled: m.login_enabled === false,
+      profile_photo: m.profile_photo_url
     }));
 
     const totalPages = Math.ceil((count || 0) / limitNum);
