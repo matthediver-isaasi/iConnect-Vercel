@@ -28,8 +28,9 @@ export default function AGCASButton({
     if (buttonStyleId && !useGradientStyle) {
       const fetchStyle = async () => {
         try {
-          const { base44 } = await import("@/api/base44Client");
-          const styles = await base44.entities.ButtonStyle.list() || [];
+          // Use public endpoint for button styles - works for both auth and unauth users
+          const { publicClient } = await import("@/api/publicClient");
+          const styles = await publicClient.listButtonStyles() || [];
           const style = styles.find(s => s.id === buttonStyleId);
           setButtonStyle(style);
         } catch (error) {
