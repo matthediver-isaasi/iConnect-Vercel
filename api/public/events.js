@@ -62,7 +62,8 @@ export default async function handler(req, res) {
         location,
         image_url,
         pricing_config,
-        status
+        status,
+        available_seats
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'published')
@@ -95,6 +96,7 @@ export default async function handler(req, res) {
         location: event.location,
         image_url: event.image_url,
         status: event.status,
+        available_seats: event.available_seats,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });
