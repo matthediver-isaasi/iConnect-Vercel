@@ -98,7 +98,20 @@ async function main() {
   const destClient = new Client({ connectionString: DEST_DATABASE_URL, ssl: SSL_CONFIG });
 
   try {
+    // Show connection info (masked) for debugging
+    const maskUrl = (url) => {
+      try {
+        const parsed = new URL(url);
+        return `${parsed.protocol}//${parsed.username}:****@${parsed.host}${parsed.pathname}`;
+      } catch {
+        return '(invalid URL format)';
+      }
+    };
+    
     console.log('Connecting to databases...');
+    console.log(`  Source: ${maskUrl(SOURCE_DATABASE_URL)}`);
+    console.log(`  Dest: ${maskUrl(DEST_DATABASE_URL)}`);
+    
     await sourceClient.connect();
     console.log('  Connected to source database');
     await destClient.connect();
