@@ -146,7 +146,7 @@ export default function MyOrganisationPage() {
     queryKey: ['org-field-order-settings'],
     queryFn: async () => {
       const settings = await base44.entities.SystemSettings.list({
-        filter: { key: 'organization_field_order' }
+        filter: { setting_key: 'organization_field_order' }
       });
       if (settings && settings.length > 0) {
         try {
