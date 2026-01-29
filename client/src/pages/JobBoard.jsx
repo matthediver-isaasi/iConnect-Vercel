@@ -159,19 +159,21 @@ export default function JobBoardPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 overflow-x-hidden">
       <div className="max-w-7xl mx-auto w-full">
         {/* Header - hidden when custom banner is present */}
-        {!hasBanner && (
+        {!hasBanner && belowFirstElementBanners.length === 0 && (
           <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Job Board</h1>
               <p className="text-slate-600">Find your next career opportunity</p>
             </div>
-            <Button 
-              onClick={() => window.location.href = createPageUrl('PostJob')}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Post a Job
-            </Button>
+            {isAuthenticated && (
+              <Button 
+                onClick={() => window.location.href = createPageUrl('PostJob')}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Post a Job
+              </Button>
+            )}
           </div>
         )}
         
