@@ -43,6 +43,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'org_directory_show_name_tooltip',
   'org_directory_show_title',
   'org_directory_allowed_application_statuses',
+  'wall_of_fame_photo_size',
 ];
 
 export default async function handler(req, res) {

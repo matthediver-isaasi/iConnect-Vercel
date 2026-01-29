@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -96,9 +97,10 @@ export default function WallOfFameDisplay({
   });
 
   const { data: photoSizeSetting } = useQuery({
-    queryKey: ['wall-of-fame-photo-size'],
+    queryKey: ['public-wall-of-fame-photo-size'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list() || [];
+      // Use public endpoint for unauthenticated access on public pages
+      const allSettings = await publicClient.listSystemSettings() || [];
       const setting = allSettings.find(s => s.setting_key === 'wall_of_fame_photo_size');
       return setting?.setting_value || 'medium';
     }

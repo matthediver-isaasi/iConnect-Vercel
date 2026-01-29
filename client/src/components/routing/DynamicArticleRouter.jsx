@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { publicClient } from '@/api/publicClient';
 
 function slugify(text) {
   if (!text) return '';
@@ -17,10 +17,11 @@ export function useDynamicArticleRouting() {
   const [routeInfo, setRouteInfo] = useState(null);
 
   const { data: articleSettings } = useQuery({
-    queryKey: ['article-url-settings'],
+    queryKey: ['public-article-url-settings'],
     queryFn: async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list() || [];
+        // Use public endpoint for unauthenticated access on public pages
+        const allSettings = await publicClient.listSystemSettings() || [];
         const setting = allSettings.find(s => s.setting_key === 'article_display_name');
         return setting?.setting_value || 'Articles';
       } catch (error) {
