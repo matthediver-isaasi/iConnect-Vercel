@@ -56,7 +56,7 @@ export default async function handler(req, res) {
     if (type === 'sections') {
       const { data: sections, error } = await supabase
         .from('wall_of_fame_section')
-        .select('id, name, description, is_active, display_order, created_at')
+        .select('id, name, description, is_active, display_order')
         .eq('tenant_id', tenant.id)
         .eq('is_active', true)
         .order('display_order', { ascending: true });
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
       
       let query = supabase
         .from('wall_of_fame_category')
-        .select('id, name, description, section_id, is_active, display_order, created_at')
+        .select('id, name, description, section_id, is_active, display_order')
         .eq('tenant_id', tenant.id)
         .eq('is_active', true)
         .order('display_order', { ascending: true });
@@ -111,8 +111,7 @@ export default async function handler(req, res) {
           linkedin_url,
           category_id,
           is_active,
-          display_order,
-          created_at
+          display_order
         `)
         .eq('tenant_id', tenant.id)
         .eq('is_active', true)
