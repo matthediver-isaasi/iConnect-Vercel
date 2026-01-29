@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ const stripHtml = (html) => {
 };
 
 export default function JobBoardPage() {
-  const { hasBanner } = useLayoutContext();
+  const { hasBanner, memberInfo, sessionValidated } = useLayoutContext();
   const belowFirstElementBanners = useBelowFirstElementBanners();
   const [searchQuery, setSearchQuery] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
@@ -29,13 +30,20 @@ export default function JobBoardPage() {
   const [hoursFilter, setHoursFilter] = useState("all");
   const [sortBy, setSortBy] = useState("posted-newest");
 
+  const isAuthenticated = !!memberInfo && !!sessionValidated;
+
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['public-jobs'],
+    queryKey: ['public-jobs', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allJobs = await base44.entities.JobPosting.filter({ status: 'active' });
+      let allJobs;
+      if (isAuthenticated) {
+        allJobs = await base44.entities.JobPosting.filter({ status: 'active' });
+      } else {
+        allJobs = await publicClient.listJobPostings();
+      }
       // Filter out expired jobs (based on closing_date)
       const now = new Date();
-      return allJobs.filter(job => {
+      return (allJobs || []).filter(job => {
         if (!job.closing_date) return true; // Keep jobs without closing date
         return new Date(job.closing_date) > now;
       });
@@ -46,9 +54,14 @@ export default function JobBoardPage() {
 
   // Fetch job type options from settings
   const { data: jobTypeSettings = [] } = useQuery({
-    queryKey: ['job-type-settings'],
+    queryKey: ['job-type-settings', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      let allSettings;
+      if (isAuthenticated) {
+        allSettings = await base44.entities.SystemSettings.list();
+      } else {
+        allSettings = await publicClient.listSystemSettings();
+      }
       const setting = allSettings.find(s => s.setting_key === 'job_types');
       if (setting) {
         try {
@@ -65,9 +78,14 @@ export default function JobBoardPage() {
 
   // Fetch hours options from settings
   const { data: hoursSettings = [] } = useQuery({
-    queryKey: ['hours-settings'],
+    queryKey: ['hours-settings', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      let allSettings;
+      if (isAuthenticated) {
+        allSettings = await base44.entities.SystemSettings.list();
+      } else {
+        allSettings = await publicClient.listSystemSettings();
+      }
       const setting = allSettings.find(s => s.setting_key === 'job_hours');
       if (setting) {
         try {

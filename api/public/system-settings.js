@@ -46,6 +46,8 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'wall_of_fame_photo_size',
   'date_display_format',
   'event_types',
+  'job_types',
+  'job_hours',
 ];
 
 export default async function handler(req, res) {
