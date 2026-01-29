@@ -156,7 +156,7 @@ export const entityTenantScope = {
   'Booking': TENANT_SCOPE.ORGANIZATION, // Linked through member's organization
   'ArticleComment': TENANT_SCOPE.ORGANIZATION,
   'ArticleReaction': TENANT_SCOPE.ORGANIZATION,
-  'ArticleView': TENANT_SCOPE.ORGANIZATION,
+  'ArticleView': TENANT_SCOPE.TENANT,
   'CommentReaction': TENANT_SCOPE.ORGANIZATION,
   
   // MEMBER - Scoped to the authenticated member
