@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, startTransition } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -93,10 +93,11 @@ export default function MemberDetailView({
 
   // Force navigation to happen asynchronously to avoid being blocked by render cycles
   const handleNavigateToMembers = useCallback(() => {
-    // Use setTimeout to break out of any blocking render cycle
-    setTimeout(() => {
+    // Use startTransition to mark navigation as interruptible
+    // This prevents heavy re-renders from blocking React Router navigation
+    startTransition(() => {
       navigate('/members');
-    }, 0);
+    });
   }, [navigate]);
 
   // DISABLED: Realtime subscriptions were causing render storms that blocked navigation
