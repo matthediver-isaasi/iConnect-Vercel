@@ -61,6 +61,7 @@ export default async function handler(req, res) {
         end_date,
         location,
         image_url,
+        image_focal_point,
         pricing_config,
         status,
         available_seats
@@ -95,6 +96,7 @@ export default async function handler(req, res) {
         end_date: event.end_date,
         location: event.location,
         image_url: event.image_url,
+        image_focal_point: event.image_focal_point,
         status: event.status,
         available_seats: event.available_seats,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
