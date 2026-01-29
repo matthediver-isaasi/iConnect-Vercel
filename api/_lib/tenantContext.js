@@ -155,7 +155,7 @@ export const entityTenantScope = {
   'OrganizationPreferenceValue': TENANT_SCOPE.ORGANIZATION,
   'Booking': TENANT_SCOPE.ORGANIZATION, // Linked through member's organization
   'ArticleComment': TENANT_SCOPE.ORGANIZATION,
-  'ArticleReaction': TENANT_SCOPE.ORGANIZATION,
+  'ArticleReaction': TENANT_SCOPE.TENANT,
   'ArticleView': TENANT_SCOPE.TENANT,
   'CommentReaction': TENANT_SCOPE.ORGANIZATION,
   
