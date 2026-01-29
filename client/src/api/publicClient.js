@@ -440,6 +440,25 @@ class PublicClient {
       body: JSON.stringify(data)
     });
   }
+  
+  // Wall of Fame
+  async listWallOfFameSections() {
+    return this._fetch('/api/public/wall-of-fame?type=sections');
+  }
+  
+  async listWallOfFameCategories(sectionId = null) {
+    const url = sectionId 
+      ? `/api/public/wall-of-fame?type=categories&section_id=${sectionId}`
+      : '/api/public/wall-of-fame?type=categories';
+    return this._fetch(url);
+  }
+  
+  async listWallOfFamePeople(categoryId = null) {
+    const url = categoryId 
+      ? `/api/public/wall-of-fame?type=people&category_id=${categoryId}`
+      : '/api/public/wall-of-fame?type=people';
+    return this._fetch(url);
+  }
 }
 
 // Export singleton instance

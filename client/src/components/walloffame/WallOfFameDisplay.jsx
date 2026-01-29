@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -60,19 +59,19 @@ export default function WallOfFameDisplay({
   const [flippedPerson, setFlippedPerson] = useState(null);
 
   const { data: section, isLoading: sectionLoading } = useQuery({
-    queryKey: ['wall-of-fame-section', sectionId],
+    queryKey: ['public-wall-of-fame-section', sectionId],
     queryFn: async () => {
-      const sections = await base44.entities.WallOfFameSection.list() || [];
+      const sections = await publicClient.listWallOfFameSections() || [];
       return sections.find(s => s.id === sectionId);
     },
     enabled: !!sectionId,
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['wall-of-fame-categories', sectionId],
+    queryKey: ['public-wall-of-fame-categories', sectionId],
     queryFn: async () => {
-      const cats = await base44.entities.WallOfFameCategory.list() || [];
-      return cats.filter(c => c.section_id === sectionId && c.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      const cats = await publicClient.listWallOfFameCategories(sectionId) || [];
+      return cats.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     enabled: !!sectionId,
   });
@@ -88,10 +87,10 @@ export default function WallOfFameDisplay({
   const showBackButton = categories.length > 1;
 
   const { data: people = [], isLoading: peopleLoading } = useQuery({
-    queryKey: ['wall-of-fame-people', selectedCategory?.id],
+    queryKey: ['public-wall-of-fame-people', selectedCategory?.id],
     queryFn: async () => {
-      const allPeople = await base44.entities.WallOfFamePerson.list() || [];
-      return allPeople.filter(p => p.category_id === selectedCategory.id && p.is_active).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+      const allPeople = await publicClient.listWallOfFamePeople(selectedCategory?.id) || [];
+      return allPeople.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     enabled: !!selectedCategory,
   });
