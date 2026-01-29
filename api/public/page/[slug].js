@@ -1,6 +1,24 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 
+async function resolveTenantFromSlug(tenantSlug) {
+  if (!tenantSlug || !supabase) return null;
+  
+  const { data, error } = await supabase
+    .from('tenant')
+    .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, settings')
+    .eq('slug', tenantSlug)
+    .eq('status', 'active')
+    .single();
+  
+  if (error || !data) {
+    console.log('[Public Page Slug] Tenant slug lookup failed:', { tenantSlug, error: error?.message });
+    return null;
+  }
+  
+  return data;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -10,16 +28,23 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const { slug } = req.query;
+  const { slug, tenant: tenantParam } = req.query;
   
   if (!slug) {
     return res.status(400).json({ error: 'Page slug required' });
   }
 
   try {
-    console.log('[Public Page Slug] Request for slug:', slug);
+    console.log('[Public Page Slug] Request for slug:', slug, 'tenantParam:', tenantParam);
     
-    const tenant = await resolveTenantFromRequest(req);
+    // Try hostname-based resolution first, then fall back to query parameter
+    let tenant = await resolveTenantFromRequest(req);
+    
+    if (!tenant && tenantParam) {
+      console.log('[Public Page Slug] Hostname resolution failed, trying query param:', tenantParam);
+      tenant = await resolveTenantFromSlug(tenantParam);
+    }
+    
     console.log('[Public Page Slug] Tenant resolved:', tenant ? { id: tenant.id, slug: tenant.slug } : null);
     
     if (!tenant) {
