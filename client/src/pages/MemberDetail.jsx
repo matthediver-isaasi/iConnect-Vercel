@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { flushSync } from "react-dom";
 import { base44 } from "@/api/base44Client";
 import { Loader2 } from "lucide-react";
 import MemberDetailView from "@/components/MemberDetailView";
@@ -59,7 +60,12 @@ export default function MemberDetail() {
   });
 
   const handleBack = () => {
-    navigate('/members');
+    console.log('[MemberDetail] handleBack called, navigating to /members');
+    // Use flushSync to force synchronous navigation update
+    // This prevents React's concurrent batching from delaying the navigation
+    flushSync(() => {
+      navigate('/members');
+    });
   };
 
   if (memberLoading || !member) {
