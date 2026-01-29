@@ -1,12 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export function useSpeakerModuleName() {
+  const { memberInfo, sessionValidated } = useLayoutContext();
+  const isAuthenticated = !!memberInfo && !!sessionValidated;
+
   const { data: moduleNameSetting, isLoading } = useQuery({
-    queryKey: ['speaker-module-name'],
+    queryKey: ['speaker-module-name', isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'speaker_module_name');
+      if (isAuthenticated) {
+        const allSettings = await base44.entities.SystemSettings.list();
+        return allSettings.find(s => s.setting_key === 'speaker_module_name');
+      } else {
+        const allSettings = await publicClient.listSystemSettings();
+        return allSettings.find(s => s.setting_key === 'speaker_module_name');
+      }
     },
     staleTime: 60000,
   });
