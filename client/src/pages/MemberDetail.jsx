@@ -2,9 +2,20 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect } from "react";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
+import { format } from "date-fns";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import { toast } from "sonner";
@@ -52,6 +63,15 @@ export default function MemberDetail() {
     engagementAwards: 0
   });
   const [isSavingBalances, setIsSavingBalances] = useState(false);
+  
+  // Notes state
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [noteSearchTerm, setNoteSearchTerm] = useState('');
+  const [notesPage, setNotesPage] = useState(1);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingNoteContent, setEditingNoteContent] = useState('');
+  const [noteToDelete, setNoteToDelete] = useState(null);
+  const notesPerPage = 10;
 
   // Data queries
   const { data: member, isLoading: memberLoading } = useQuery({
@@ -123,6 +143,82 @@ export default function MemberDetail() {
       } catch {
         return [];
       }
+    }
+  });
+
+  // Notes query
+  const { data: memberNotes = [], isLoading: notesLoading } = useQuery({
+    queryKey: ['member-notes', id],
+    enabled: !!id && activeTab === 'notes',
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/members/${id}/notes`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch notes');
+      return res.json();
+    }
+  });
+
+  // Notes mutations
+  const createNoteMutation = useMutation({
+    mutationFn: async ({ content }) => {
+      const res = await fetch(`/api/admin/members/${id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content })
+      });
+      if (!res.ok) throw new Error('Failed to create note');
+      return res.json();
+    },
+    onSuccess: () => {
+      setNewNoteContent('');
+      queryClient.invalidateQueries({ queryKey: ['member-notes', id] });
+      toast.success('Note added');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to create note');
+    }
+  });
+
+  const updateNoteMutation = useMutation({
+    mutationFn: async ({ noteId, content }) => {
+      const res = await fetch(`/api/admin/member-notes/${noteId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content })
+      });
+      if (!res.ok) throw new Error('Failed to update note');
+      return res.json();
+    },
+    onSuccess: () => {
+      setEditingNoteId(null);
+      setEditingNoteContent('');
+      queryClient.invalidateQueries({ queryKey: ['member-notes', id] });
+      toast.success('Note updated');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update note');
+    }
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId) => {
+      const res = await fetch(`/api/admin/member-notes/${noteId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to delete note');
+      return res.json();
+    },
+    onSuccess: () => {
+      setNoteToDelete(null);
+      queryClient.invalidateQueries({ queryKey: ['member-notes', id] });
+      toast.success('Note deleted');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to delete note');
     }
   });
 
@@ -369,6 +465,10 @@ export default function MemberDetail() {
           <TabsTrigger value="balances" className="gap-1" data-testid="tab-member-balances">
             <Trophy className="w-4 h-4" />
             Balances
+          </TabsTrigger>
+          <TabsTrigger value="notes" className="gap-1" data-testid="tab-member-notes">
+            <StickyNote className="w-4 h-4" />
+            Notes
           </TabsTrigger>
         </TabsList>
 
@@ -1044,7 +1144,240 @@ export default function MemberDetail() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Notes Tab */}
+        <TabsContent value="notes" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <StickyNote className="w-5 h-5 text-blue-600" />
+                Member Notes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <Textarea
+                  placeholder="Add a note..."
+                  value={newNoteContent}
+                  onChange={(e) => setNewNoteContent(e.target.value)}
+                  className="min-h-[100px]"
+                  data-testid="input-new-member-note"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    onClick={() => createNoteMutation.mutate({ content: newNoteContent })}
+                    disabled={!newNoteContent.trim() || createNoteMutation.isPending}
+                    data-testid="button-add-member-note"
+                  >
+                    {createNoteMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-2" />
+                    )}
+                    Add Note
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search notes by content or creator..."
+                  value={noteSearchTerm}
+                  onChange={(e) => {
+                    setNoteSearchTerm(e.target.value);
+                    setNotesPage(1);
+                  }}
+                  className="pl-10"
+                  data-testid="input-search-member-notes"
+                />
+              </div>
+
+              {(() => {
+                const searchLower = noteSearchTerm.toLowerCase();
+                const filteredNotes = memberNotes.filter(note => 
+                  note.content?.toLowerCase().includes(searchLower) ||
+                  note.author_name?.toLowerCase().includes(searchLower)
+                );
+                const totalPages = Math.max(1, Math.ceil(filteredNotes.length / notesPerPage));
+                const clampedPage = Math.min(notesPage, totalPages);
+                if (clampedPage !== notesPage && filteredNotes.length > 0) {
+                  setTimeout(() => setNotesPage(clampedPage), 0);
+                }
+                const paginatedNotes = filteredNotes.slice(
+                  (clampedPage - 1) * notesPerPage,
+                  clampedPage * notesPerPage
+                );
+
+                if (notesLoading) {
+                  return (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                    </div>
+                  );
+                }
+
+                if (memberNotes.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-slate-500">
+                      <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                      <p>No notes yet</p>
+                      <p className="text-sm text-slate-400 mt-1">Add a note above to get started</p>
+                    </div>
+                  );
+                }
+
+                if (filteredNotes.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-slate-500">
+                      <Search className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                      <p>No notes match your search</p>
+                      <p className="text-sm text-slate-400 mt-1">Try a different search term</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="space-y-4">
+                      {paginatedNotes.map(note => (
+                        <div key={note.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-3" data-testid={`member-note-${note.id}`}>
+                          {editingNoteId === note.id ? (
+                            <div className="space-y-3">
+                              <Textarea
+                                value={editingNoteContent}
+                                onChange={(e) => setEditingNoteContent(e.target.value)}
+                                className="min-h-[80px]"
+                                data-testid={`input-edit-member-note-${note.id}`}
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingNoteId(null);
+                                    setEditingNoteContent('');
+                                  }}
+                                  data-testid={`button-cancel-edit-member-note-${note.id}`}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => updateNoteMutation.mutate({ noteId: note.id, content: editingNoteContent })}
+                                  disabled={!editingNoteContent.trim() || updateNoteMutation.isPending}
+                                  data-testid={`button-save-member-note-${note.id}`}
+                                >
+                                  {updateNoteMutation.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    'Save'
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{note.content}</p>
+                              <div className="flex items-center justify-between text-sm">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                  <User className="w-3 h-3" />
+                                  <span>{note.author_name}</span>
+                                  <span className="text-slate-300">|</span>
+                                  <span>{note.created_at ? format(new Date(note.created_at), 'dd MMM yyyy, HH:mm') : ''}</span>
+                                  {note.updated_at && note.updated_at !== note.created_at && (
+                                    <span className="italic text-slate-400">(edited)</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setEditingNoteId(note.id);
+                                      setEditingNoteContent(note.content);
+                                    }}
+                                    data-testid={`button-edit-member-note-${note.id}`}
+                                  >
+                                    <Pencil className="w-4 h-4 text-slate-400 hover:text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setNoteToDelete(note.id)}
+                                    disabled={deleteNoteMutation.isPending}
+                                    data-testid={`button-delete-member-note-${note.id}`}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-4">
+                        <p className="text-sm text-slate-500">
+                          Showing {(clampedPage - 1) * notesPerPage + 1} - {Math.min(clampedPage * notesPerPage, filteredNotes.length)} of {filteredNotes.length} notes
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setNotesPage(p => Math.max(1, p - 1))}
+                            disabled={clampedPage === 1}
+                            data-testid="button-member-notes-prev-page"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <span className="text-sm text-slate-600">
+                            Page {clampedPage} of {totalPages}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setNotesPage(p => Math.min(totalPages, p + 1))}
+                            disabled={clampedPage === totalPages}
+                            data-testid="button-member-notes-next-page"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Delete Note Confirmation Dialog */}
+      <AlertDialog open={!!noteToDelete} onOpenChange={() => setNoteToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Note</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this note? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteNoteMutation.mutate(noteToDelete)}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
