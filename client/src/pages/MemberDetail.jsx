@@ -2,7 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect } from "react";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -44,6 +44,14 @@ export default function MemberDetail() {
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [isSavingCategories, setIsSavingCategories] = useState(false);
+  const [openingBalances, setOpeningBalances] = useState({
+    eventsAttended: 0,
+    articlesPublished: 0,
+    jobsPosted: 0,
+    awards: 0,
+    engagementAwards: 0
+  });
+  const [isSavingBalances, setIsSavingBalances] = useState(false);
 
   // Data queries
   const { data: member, isLoading: memberLoading } = useQuery({
@@ -147,6 +155,20 @@ export default function MemberDetail() {
     }
   }, [memberCategorySelections]);
 
+  // Sync opening balances from member data
+  useEffect(() => {
+    if (member?.opening_balances) {
+      const ob = member.opening_balances;
+      setOpeningBalances({
+        eventsAttended: ob.eventsAttended || 0,
+        articlesPublished: ob.articlesPublished || 0,
+        jobsPosted: ob.jobsPosted || 0,
+        awards: ob.awards || 0,
+        engagementAwards: ob.engagementAwards || 0
+      });
+    }
+  }, [member?.opening_balances]);
+
   // Mutation
   const updateMutation = useMutation({
     mutationFn: (data) => base44.entities.Member.update(id, data),
@@ -209,6 +231,22 @@ export default function MemberDetail() {
       toast.error('Failed to save category preferences');
     } finally {
       setIsSavingCategories(false);
+    }
+  };
+
+  const handleSaveOpeningBalances = async () => {
+    if (!member?.id) return;
+    setIsSavingBalances(true);
+    try {
+      await base44.entities.Member.update(member.id, {
+        opening_balances: openingBalances
+      });
+      toast.success('Opening balances saved');
+      queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
+    } catch (error) {
+      toast.error('Failed to save opening balances');
+    } finally {
+      setIsSavingBalances(false);
     }
   };
 
@@ -327,6 +365,10 @@ export default function MemberDetail() {
           <TabsTrigger value="categories" className="gap-1" data-testid="tab-member-categories">
             <FolderTree className="w-4 h-4" />
             Categories
+          </TabsTrigger>
+          <TabsTrigger value="balances" className="gap-1" data-testid="tab-member-balances">
+            <Trophy className="w-4 h-4" />
+            Balances
           </TabsTrigger>
         </TabsList>
 
@@ -890,6 +932,115 @@ export default function MemberDetail() {
                   </div>
                 );
               })()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Balances Tab */}
+        <TabsContent value="balances" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-600" />
+                Engagement Opening Balances
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-slate-600 mb-6">
+                Set opening balances for engagement metrics. These values will be added to the calculated totals in the Team Engagement Report.
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="balance-events">Events Attended</Label>
+                  <Input
+                    id="balance-events"
+                    type="number"
+                    min="0"
+                    value={openingBalances.eventsAttended}
+                    onChange={(e) => setOpeningBalances(prev => ({ 
+                      ...prev, 
+                      eventsAttended: parseInt(e.target.value) || 0 
+                    }))}
+                    data-testid="input-balance-events"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="balance-articles">Articles Published</Label>
+                  <Input
+                    id="balance-articles"
+                    type="number"
+                    min="0"
+                    value={openingBalances.articlesPublished}
+                    onChange={(e) => setOpeningBalances(prev => ({ 
+                      ...prev, 
+                      articlesPublished: parseInt(e.target.value) || 0 
+                    }))}
+                    data-testid="input-balance-articles"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="balance-jobs">Jobs Posted</Label>
+                  <Input
+                    id="balance-jobs"
+                    type="number"
+                    min="0"
+                    value={openingBalances.jobsPosted}
+                    onChange={(e) => setOpeningBalances(prev => ({ 
+                      ...prev, 
+                      jobsPosted: parseInt(e.target.value) || 0 
+                    }))}
+                    data-testid="input-balance-jobs"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="balance-awards">Awards (Online + Offline)</Label>
+                  <Input
+                    id="balance-awards"
+                    type="number"
+                    min="0"
+                    value={openingBalances.awards}
+                    onChange={(e) => setOpeningBalances(prev => ({ 
+                      ...prev, 
+                      awards: parseInt(e.target.value) || 0 
+                    }))}
+                    data-testid="input-balance-awards"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="balance-engagement">Engagement Awards</Label>
+                  <Input
+                    id="balance-engagement"
+                    type="number"
+                    min="0"
+                    value={openingBalances.engagementAwards}
+                    onChange={(e) => setOpeningBalances(prev => ({ 
+                      ...prev, 
+                      engagementAwards: parseInt(e.target.value) || 0 
+                    }))}
+                    data-testid="input-balance-engagement"
+                  />
+                </div>
+              </div>
+              
+              <div className="mt-6 pt-4 border-t border-slate-200">
+                <Button 
+                  onClick={handleSaveOpeningBalances}
+                  disabled={isSavingBalances}
+                  data-testid="button-save-balances"
+                >
+                  {isSavingBalances ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-1" />
+                  )}
+                  Save Opening Balances
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
