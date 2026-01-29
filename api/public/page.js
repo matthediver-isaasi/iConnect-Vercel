@@ -33,22 +33,29 @@ export default async function handler(req, res) {
     const tenantSlug = req.query.tenant || getTenantSlugFromHost(host);
     const pageSlug = req.query.slug;
 
+    console.log('[Public Page] Request params:', { tenantSlug, pageSlug, host });
+
     if (!tenantSlug) {
+      console.log('[Public Page] No tenant specified');
       return res.status(400).json({ error: 'Tenant not specified' });
     }
 
     if (!pageSlug) {
+      console.log('[Public Page] No page slug specified');
       return res.status(400).json({ error: 'Page slug required' });
     }
 
     const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
-      .select('id, name')
+      .select('id, name, slug')
       .eq('slug', tenantSlug)
       .eq('status', 'active')
       .single();
 
+    console.log('[Public Page] Tenant lookup result:', { tenant, tenantError });
+
     if (tenantError || !tenant) {
+      console.log('[Public Page] Tenant not found for slug:', tenantSlug);
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
@@ -67,9 +74,13 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenant.id)
       .eq('slug', pageSlug)
       .eq('status', 'published')
+      .in('layout_type', ['public', 'hybrid'])
       .single();
 
+    console.log('[Public Page] Page lookup result:', { page, pageError, tenantId: tenant.id, pageSlug });
+
     if (pageError || !page) {
+      console.log('[Public Page] Page not found:', { pageSlug, tenantId: tenant.id, error: pageError?.message });
       return res.status(404).json({ error: 'Page not found' });
     }
 
