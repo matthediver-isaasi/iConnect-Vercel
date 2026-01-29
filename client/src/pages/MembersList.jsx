@@ -1104,36 +1104,44 @@ export default function MembersListPage() {
             )}
           </div>
 
-          {(totalPages > 1 || pagination.total > 0) && (
-            <div className="bg-white border-t border-slate-200 px-6 py-4">
+          {!membersLoading && (
+            <div className="bg-white border-t border-slate-200 px-6 py-4 flex-shrink-0">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-slate-500">
                   {membersFetching && <Loader2 className="w-3 h-3 inline-block mr-1 animate-spin" />}
-                  Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, pagination.total)} of {pagination.total} members
-                  {totalPages > 1 && ` (Page ${currentPage} of ${totalPages})`}
+                  {pagination.total > 0 ? (
+                    <>
+                      Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, pagination.total)} of {pagination.total} members
+                      {totalPages > 1 && ` (Page ${currentPage} of ${totalPages})`}
+                    </>
+                  ) : (
+                    'No members found'
+                  )}
                 </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1 || membersFetching}
-                    data-testid="button-member-prev-page"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages || membersFetching}
-                    data-testid="button-member-next-page"
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1 || membersFetching}
+                      data-testid="button-member-prev-page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages || membersFetching}
+                      data-testid="button-member-next-page"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}
