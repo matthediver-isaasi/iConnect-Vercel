@@ -127,6 +127,45 @@ const { data: zoomMeetings } = useQuery({
 2. **Forgetting to add settings to whitelist** - New public settings must be added to `PUBLIC_SETTINGS_WHITELIST`
 3. **Not gating authenticated queries** - Use `enabled: !!memberInfo` for queries that should only run when logged in
 
+## Complex Page Pattern (Navigation Blocking Prevention)
+
+Complex pages with multiple tabs and many queries can block React Router navigation if all data loads simultaneously on mount. This was discovered when rebuilding MemberDetail.jsx.
+
+### Problem
+
+When a page has many queries, effects, and mutations all loading at once, it can block the React event loop and prevent navigation (sidebar clicks, back button) from responding.
+
+### Solution: Lazy Load Tab Content
+
+Gate queries with `enabled` to only fetch data when the tab is active:
+
+```javascript
+// GOOD: Only loads when tab is active
+const { data: bookings } = useQuery({
+  queryKey: ['member-bookings', id],
+  enabled: !!id && activeTab === 'activity',  // <-- Key pattern
+  queryFn: () => fetchBookings(id)
+});
+
+// BAD: Loads on page mount regardless of which tab is visible
+const { data: bookings } = useQuery({
+  queryKey: ['member-bookings', id],
+  enabled: !!id,
+  queryFn: () => fetchBookings(id)
+});
+```
+
+### Best Practices for Complex Pages
+
+1. **Use tab-based query gating** - Add `activeTab === 'tabname'` to `enabled` for tab-specific queries
+2. **Keep state scoped to tabs** - Each tab manages its own state where possible
+3. **Avoid loading everything on mount** - Split data loading across tabs/sections
+4. **Test navigation after each major addition** - Add features incrementally and verify navigation works
+
+### Reference Implementation
+
+`client/src/pages/MemberDetail.jsx` demonstrates this pattern with 7 tabs (Overview, Activity, Roles, Categories, Balances, Notes, Communications), each with its own conditionally-loaded queries.
+
 ## Session Validation Security Pattern
 Hybrid pages use a `sessionValidated` flag to prevent unauthenticated users from accessing member-only data due to stale localStorage.
 
