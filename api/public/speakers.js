@@ -56,17 +56,16 @@ export default async function handler(req, res) {
       .from('speaker')
       .select(`
         id,
-        name,
-        title,
-        bio,
-        image_url,
-        organization,
-        linkedin_url,
-        website_url
+        full_name,
+        job_title,
+        biography,
+        profile_photo_url,
+        organization
       `)
-      .eq('tenant_id', tenant.id);
+      .eq('tenant_id', tenant.id)
+      .eq('is_active', true);
 
-    // Filter by specific IDs if provided
+    // Filter by specific IDs if provided - tenant_id filter above ensures multi-tenant safety
     if (ids) {
       const idArray = ids.split(',').map(id => id.trim()).filter(id => id);
       if (idArray.length > 0) {
@@ -74,7 +73,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const { data: speakers, error } = await query.order('name', { ascending: true });
+    const { data: speakers, error } = await query.order('full_name', { ascending: true });
 
     if (error) {
       console.error('[Public Speakers] Query error:', error);
