@@ -350,6 +350,10 @@ class PublicClient {
   }
   
   // Forms
+  async listForms() {
+    return this._fetch('/api/public/forms');
+  }
+  
   async getForm(slug) {
     if (!slug) return null;
     return this._fetch(`/api/public/form/${encodeURIComponent(slug)}`);

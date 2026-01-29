@@ -274,11 +274,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   };
 
   const { data: form, isLoading } = useQuery({
-    queryKey: ['form-embed', formSlug],
+    queryKey: ['form-embed', formSlug, !!memberInfo],
     queryFn: async () => {
       if (!formSlug) return null;
-      const allForms = await base44.entities.Form.list() || [];
-      return allForms.find(f => f.slug === formSlug && f.is_active);
+      if (memberInfo) {
+        const allForms = await base44.entities.Form.list() || [];
+        return allForms.find(f => f.slug === formSlug && f.is_active);
+      } else {
+        return publicClient.getForm(formSlug);
+      }
     },
     enabled: !!formSlug
   });
@@ -418,26 +422,29 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Prefill: Fetch member entity when form has prefill_source = 'member'
+  // Only enabled for authenticated users to prevent 401 errors on public pages
   const { data: prefillMember } = useQuery({
     queryKey: ['prefill-member-embed', prefillMemberId],
     queryFn: async () => {
       const allMembers = await base44.entities.Member.listAll();
       return allMembers.find(m => m.id === prefillMemberId);
     },
-    enabled: !!prefillMemberId && form?.prefill_source === 'member'
+    enabled: !!memberInfo && !!prefillMemberId && form?.prefill_source === 'member'
   });
 
   // Prefill: Fetch organization entity when form has prefill_source = 'organization'
+  // Only enabled for authenticated users to prevent 401 errors on public pages
   const { data: prefillOrg } = useQuery({
     queryKey: ['prefill-org-embed', prefillOrgId],
     queryFn: async () => {
       const allOrgs = await base44.entities.Organization.listAll();
       return allOrgs.find(o => o.id === prefillOrgId);
     },
-    enabled: !!prefillOrgId && form?.prefill_source === 'organization'
+    enabled: !!memberInfo && !!prefillOrgId && form?.prefill_source === 'organization'
   });
 
   // Prefill: Fetch custom field values for prefill entity
+  // Only enabled for authenticated users to prevent 401 errors on public pages
   const { data: prefillCustomFieldValues = [] } = useQuery({
     queryKey: ['prefill-custom-values-embed', form?.prefill_source, prefillMemberId, prefillOrgId],
     queryFn: async () => {
@@ -454,7 +461,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       }
       return [];
     },
-    enabled: form?.prefill_source && form.prefill_source !== 'none' && 
+    enabled: !!memberInfo && form?.prefill_source && form.prefill_source !== 'none' && 
       ((form.prefill_source === 'member' && !!prefillMemberId) || 
        (form.prefill_source === 'organization' && !!prefillOrgId))
   });
@@ -1134,7 +1141,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
-      return base44.entities.FormSubmission.create(data);
+      if (memberInfo) {
+        return base44.entities.FormSubmission.create(data);
+      } else {
+        return publicClient.submitForm(data);
+      }
     },
     onSuccess: async (submissionResult) => {
       // Track created member/org IDs from process-application for email placeholders
