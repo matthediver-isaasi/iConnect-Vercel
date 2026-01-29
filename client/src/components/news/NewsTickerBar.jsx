@@ -3,17 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 
 export default function NewsTickerBar() {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Load ticker settings from SystemSettings via base44 client
+  // Load ticker settings from SystemSettings via public client (for unauthenticated access)
   const { data: settings = [] } = useQuery({
-    queryKey: ["news-ticker-settings"],
+    queryKey: ["public-news-ticker-settings"],
     queryFn: async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list() || [];
+        const allSettings = await publicClient.listSystemSettings() || [];
         return allSettings.filter(s => 
           s.setting_key === 'news_ticker_count' || 
           s.setting_key === 'news_ticker_cycle_seconds' ||
@@ -50,14 +50,14 @@ export default function NewsTickerBar() {
       )?.setting_value
     ) || 0;
 
-  // Load latest news posts via base44 client
+  // Load latest news posts via public client (for unauthenticated access)
   const { data: latestNews = [] } = useQuery({
-    queryKey: ["latest-news-ticker", tickerCount],
+    queryKey: ["public-latest-news-ticker", tickerCount],
     enabled: tickerEnabled,
     queryFn: async () => {
       try {
         const nowIso = new Date().toISOString();
-        const allNews = await base44.entities.NewsPost.list() || [];
+        const allNews = await publicClient.listNews() || [];
         
         // Filter for published news with published_date <= now
         const publishedNews = allNews

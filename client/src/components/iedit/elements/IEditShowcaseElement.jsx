@@ -57,11 +57,11 @@ const safeHexColor = (color, fallback = '#000000') => {
 };
 
 function CardSlotEditor({ index, card, onUpdate }) {
-  // Fetch article display name setting
+  // Fetch article display name setting (using public endpoint for unauthenticated access)
   const { data: articleDisplayName = 'Articles' } = useQuery({
-    queryKey: ['article-display-name'],
+    queryKey: ['public-article-display-name'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list() || [];
+      const allSettings = await publicClient.listSystemSettings() || [];
       const setting = allSettings.find(s => s.setting_key === 'article_display_name');
       return setting?.setting_value || 'Articles';
     }

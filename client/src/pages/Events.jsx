@@ -13,6 +13,7 @@ import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useEventsData } from "@/hooks/useEventsData";
@@ -92,17 +93,17 @@ export default function EventsPage({
     error: eventsError,
   } = useEventsData();
 
-  // Query for all system settings
+  // Query for all system settings (using public endpoint for unauthenticated access)
   const { data: systemSettings = [] } = useQuery({
-    queryKey: ['system-settings'],
-    queryFn: () => base44.entities.SystemSettings.list()
+    queryKey: ['public-system-settings'],
+    queryFn: () => publicClient.listSystemSettings()
   });
 
-  // Query for webinar join link visibility settings
+  // Query for webinar join link visibility settings (using public endpoint)
   const { data: joinLinkSettings } = useQuery({
-    queryKey: ['webinar-join-link-settings'],
+    queryKey: ['public-webinar-join-link-settings'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await publicClient.listSystemSettings();
       const setting = allSettings.find(s => s.setting_key === 'webinar_show_join_link');
       if (setting && setting.setting_value) {
         try {

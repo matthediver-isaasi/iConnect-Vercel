@@ -226,10 +226,10 @@ export default function EventDetailsPage() {
     enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
   });
 
-  // Query for all system settings
+  // Query for all system settings (using public endpoint for unauthenticated access)
   const { data: systemSettings = [] } = useQuery({
-    queryKey: ['system-settings'],
-    queryFn: () => base44.entities.SystemSettings.list()
+    queryKey: ['public-system-settings'],
+    queryFn: () => publicClient.listSystemSettings()
   });
 
   // Reset terms acceptance when event changes or terms content changes
@@ -241,11 +241,11 @@ export default function EventDetailsPage() {
     setTermsAccepted(false);
   }, [currentEventId, termsSettingValue]);
 
-  // Query for webinar join link visibility settings
+  // Query for webinar join link visibility settings (using public endpoint)
   const { data: joinLinkSettings } = useQuery({
-    queryKey: ['webinar-join-link-settings'],
+    queryKey: ['public-webinar-join-link-settings'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await publicClient.listSystemSettings();
       const setting = allSettings.find(s => s.setting_key === 'webinar_show_join_link');
       if (setting && setting.setting_value) {
         try {

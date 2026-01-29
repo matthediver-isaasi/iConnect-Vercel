@@ -34,6 +34,15 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'news_cards_per_row',
   'news_show_image',
   'news_show_author',
+  'webinar_show_join_link',
+  'news_ticker_count',
+  'news_ticker_cycle_seconds',
+  'news_ticker_enabled',
+  'news_ticker_bottom_margin',
+  'org_directory_excluded_orgs',
+  'org_directory_show_name_tooltip',
+  'org_directory_show_title',
+  'org_directory_allowed_application_statuses',
 ];
 
 export default async function handler(req, res) {
