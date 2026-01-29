@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { serialize } from 'cookie';
+import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSession } from '../_lib/session.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
@@ -41,18 +42,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    const sessionResult = await getSession(req);
+    const tenantContext = await getTenantContext(req);
     
-    if (!sessionResult || !sessionResult.data) {
+    if (!tenantContext || !tenantContext.isAuthenticated) {
       return res.status(401).json({ error: 'You must be logged in to connect Outlook' });
     }
 
-    const session = sessionResult.data;
-    if (!session.tenantId) {
+    if (!tenantContext.tenantId) {
       return res.status(401).json({ error: 'You must be logged in to connect Outlook' });
     }
 
-    const identityId = session.identityId || session.userId || session.memberId;
+    // Get identityId from various sources:
+    // - For tenant_user sessions: identityId is stored in the raw session data
+    // - For member sessions: memberId is the identity
+    let identityId = tenantContext.memberId;
+    
+    // For tenant_user sessions, get identityId from raw session data
+    if (tenantContext.tenantUserId) {
+      const sessionResult = await getSession(req);
+      if (sessionResult?.data?.identityId) {
+        identityId = sessionResult.data.identityId;
+      }
+    }
+    
     if (!identityId) {
       return res.status(401).json({ error: 'Could not determine user identity' });
     }
@@ -78,9 +90,9 @@ export default async function handler(req, res) {
     
     const statePayload = {
       nonce,
-      tenantId: session.tenantId,
+      tenantId: tenantContext.tenantId,
       identityId: identityId,
-      userType: session.userType,
+      userType: tenantContext.tenantUserId ? 'tenant_user' : 'member',
       returnTo: req.query.returnTo || '/settings',
       originHost: originHost,
       timestamp: Date.now()
