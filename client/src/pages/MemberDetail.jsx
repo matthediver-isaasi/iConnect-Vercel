@@ -2,8 +2,11 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Loader2 } from "lucide-react";
-import MemberDetailView from "@/components/MemberDetailView";
+import React, { Suspense, lazy } from "react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+
+// Lazy load MemberDetailView to isolate its render cycle
+const MemberDetailView = lazy(() => import("@/components/MemberDetailView"));
 
 export default function MemberDetail() {
   const { id } = useParams();
@@ -66,11 +69,14 @@ export default function MemberDetail() {
   }
 
   return (
-    <MemberDetailView
-      member={member}
-      memberCustomFields={memberCustomFields}
-      organizations={organizations}
-      roles={roles}
-    />
+    <Suspense fallback={<div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>}>
+      <MemberDetailView
+        key={id}
+        member={member}
+        memberCustomFields={memberCustomFields}
+        organizations={organizations}
+        roles={roles}
+      />
+    </Suspense>
   );
 }
