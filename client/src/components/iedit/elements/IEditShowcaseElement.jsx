@@ -67,22 +67,19 @@ function CardSlotEditor({ index, card, onUpdate }) {
     }
   });
 
-  // Fetch items based on content type
+  // Fetch items based on content type (using public endpoints for public pages)
   const { data: items = [] } = useQuery({
-    queryKey: ['showcase-items', card.contentType],
+    queryKey: ['public-showcase-items', card.contentType],
     queryFn: async () => {
       switch (card.contentType) {
         case 'news':
-          const news = await base44.entities.NewsPost.list('-published_date') || [];
-          return news.filter(n => n.status === 'published');
+          return await publicClient.listNews() || [];
         case 'resources':
-          return await base44.entities.Resource.list('-release_date') || [];
+          return await publicClient.listResources() || [];
         case 'articles':
-          const articles = await base44.entities.BlogPost.list('-published_date') || [];
-          return articles.filter(a => a.status === 'published');
+          return await publicClient.listArticles() || [];
         case 'jobs':
-          const jobs = await base44.entities.JobPosting.list('-created_at') || [];
-          return jobs.filter(j => j.status === 'active');
+          return await publicClient.listJobPostings() || [];
         default:
           return [];
       }
