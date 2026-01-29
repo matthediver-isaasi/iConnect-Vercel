@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         show_in_directory,
         created_on,
         profile_photo_url,
-        organization:organization_id (id, name, tenant_id)
+        organization!inner (id, name, tenant_id)
       `, { count: 'exact' });
 
     query = query.eq('organization.tenant_id', tenantId);
