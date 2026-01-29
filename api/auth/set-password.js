@@ -392,11 +392,26 @@ export default async function handler(req, res) {
       }
     }
 
-    // Create PostgreSQL-backed session (same as login.js)
+    // Get tenant_id for session (use existing tenantId or derive from organization)
+    let sessionTenantId = fullMember?.tenant_id || tenantId;
+    if (!sessionTenantId && fullMember?.organization_id) {
+      const { data: orgData } = await supabase
+        .from('organization')
+        .select('tenant_id')
+        .eq('id', fullMember.organization_id)
+        .single();
+      sessionTenantId = orgData?.tenant_id;
+    }
+
+    // Create PostgreSQL-backed session (same format as login.js and portal-sso.js)
     await createSession(res, {
       memberId: member.id,
-      memberEmail: email.toLowerCase()
-    });
+      memberEmail: email.toLowerCase(),
+      organizationId: fullMember?.organization_id || null,
+      tenantId: sessionTenantId || null,
+      roleId: fullMember?.role_id || null,
+      userType: 'member'
+    }, { req });
 
     console.log('[Auth] Password set for:', email);
     res.json({ success: true, member: fullMember });

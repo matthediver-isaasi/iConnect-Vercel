@@ -432,11 +432,15 @@ export default async function handler(req, res) {
     }
 
     // Create PostgreSQL-backed session with tenant context
+    // Include all required fields to match portal-sso session format
     await createSession(res, {
       memberId: member.id,
       memberEmail: member.email,
-      tenantId: sessionTenantId || null
-    });
+      organizationId: member.organization_id || null,
+      tenantId: sessionTenantId || null,
+      roleId: member.role_id || null,
+      userType: 'member'
+    }, { req });
 
     console.log('[Auth Login] Success for:', email);
     

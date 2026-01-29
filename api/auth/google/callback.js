@@ -222,9 +222,11 @@ export default async function handler(req, res) {
       userType: 'member',
       memberId: member.id,
       memberEmail: member.email,
+      organizationId: member.organization_id || null,
       tenantId: sessionTenantId || null,
+      roleId: member.role_id || null,
       identityId: identityId || null
-    }, { cookieDomain });
+    }, { cookieDomain, req });
 
     const existingCookies = res.getHeader('Set-Cookie');
     const allCookies = Array.isArray(existingCookies) 
