@@ -1,6 +1,7 @@
 
 import React, { useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,10 +11,13 @@ import AGCASButton from "@/components/ui/AGCASButton";
 import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
 import DOMPurify from 'dompurify';
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function JobDetailsPage() {
   const urlParams = new URLSearchParams(window.location.search);
   const jobId = urlParams.get('id');
+  const { memberInfo, sessionValidated } = useLayoutContext();
+  const isAuthenticated = !!memberInfo && !!sessionValidated;
 
   // Scroll to top when component mounts
   useEffect(() => {
@@ -21,10 +25,15 @@ export default function JobDetailsPage() {
   }, []);
 
   const { data: job, isLoading } = useQuery({
-    queryKey: ['job', jobId],
+    queryKey: ['job', jobId, isAuthenticated ? 'authenticated' : 'public'],
     queryFn: async () => {
-      const jobs = await base44.entities.JobPosting.list();
-      return jobs.find(j => j.id === jobId);
+      let jobs;
+      if (isAuthenticated) {
+        jobs = await base44.entities.JobPosting.list();
+      } else {
+        jobs = await publicClient.listJobPostings();
+      }
+      return (jobs || []).find(j => j.id === jobId);
     },
     enabled: !!jobId
   });
