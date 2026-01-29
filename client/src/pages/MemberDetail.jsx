@@ -2,8 +2,9 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect } from "react";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import { toast } from "sonner";
@@ -41,6 +42,8 @@ export default function MemberDetail() {
     show_in_directory: true
   });
   const [selectedRoleId, setSelectedRoleId] = useState(null);
+  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [isSavingCategories, setIsSavingCategories] = useState(false);
 
   // Data queries
   const { data: member, isLoading: memberLoading } = useQuery({
@@ -83,6 +86,38 @@ export default function MemberDetail() {
     queryFn: () => base44.entities.Event.list()
   });
 
+  // Categories tab queries
+  const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['resource-categories-for-member-detail'],
+    enabled: activeTab === 'categories',
+    queryFn: async () => {
+      try {
+        const categories = await base44.entities.ResourceCategory.list({
+          filter: { is_active: true }
+        });
+        return categories || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: memberCategorySelections = [], isLoading: selectionsLoading } = useQuery({
+    queryKey: ['member-resource-categories', id],
+    enabled: !!id && activeTab === 'categories',
+    queryFn: async () => {
+      try {
+        const response = await fetch(`/api/members/${id}/categories`, {
+          credentials: 'include'
+        });
+        if (!response.ok) return [];
+        return await response.json();
+      } catch {
+        return [];
+      }
+    }
+  });
+
   // Sync formData with member
   useEffect(() => {
     if (member?.id && !isEditing) {
@@ -101,6 +136,16 @@ export default function MemberDetail() {
       setSelectedRoleId(member.role_id || null);
     }
   }, [member, isEditing]);
+
+  // Sync category selections when data loads
+  useEffect(() => {
+    if (memberCategorySelections.length > 0) {
+      setSelectedSubcategories(memberCategorySelections.map(s => ({
+        category_id: s.category_id,
+        subcategory_name: s.subcategory_name || null
+      })));
+    }
+  }, [memberCategorySelections]);
 
   // Mutation
   const updateMutation = useMutation({
@@ -124,6 +169,48 @@ export default function MemberDetail() {
   };
   const getOrganization = () => organizations.find(o => o.id === member?.organization_id);
   const getRoleName = (roleId) => roles.find(r => r.id === roleId)?.name || roleId;
+
+  // Category helpers
+  const isSubcategorySelected = (categoryId, subcategoryName) => {
+    return selectedSubcategories.some(s => 
+      s.category_id === categoryId && s.subcategory_name === subcategoryName
+    );
+  };
+
+  const toggleSubcategory = (categoryId, subcategoryName) => {
+    setSelectedSubcategories(prev => {
+      const exists = prev.some(s => 
+        s.category_id === categoryId && s.subcategory_name === subcategoryName
+      );
+      if (exists) {
+        return prev.filter(s => 
+          !(s.category_id === categoryId && s.subcategory_name === subcategoryName)
+        );
+      } else {
+        return [...prev, { category_id: categoryId, subcategory_name: subcategoryName }];
+      }
+    });
+  };
+
+  const handleSaveCategories = async () => {
+    if (!member?.id) return;
+    setIsSavingCategories(true);
+    try {
+      const response = await fetch(`/api/members/${member.id}/categories`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ selections: selectedSubcategories })
+      });
+      if (!response.ok) throw new Error('Failed to save');
+      toast.success('Category preferences saved');
+      queryClient.invalidateQueries({ queryKey: ['member-resource-categories', id] });
+    } catch (error) {
+      toast.error('Failed to save category preferences');
+    } finally {
+      setIsSavingCategories(false);
+    }
+  };
 
   // Handlers
   const handleSave = () => {
@@ -236,6 +323,10 @@ export default function MemberDetail() {
           <TabsTrigger value="roles" className="gap-1" data-testid="tab-member-roles">
             <Shield className="w-4 h-4" />
             Roles
+          </TabsTrigger>
+          <TabsTrigger value="categories" className="gap-1" data-testid="tab-member-categories">
+            <FolderTree className="w-4 h-4" />
+            Categories
           </TabsTrigger>
         </TabsList>
 
@@ -627,6 +718,180 @@ export default function MemberDetail() {
               memberName={`${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email}
             />
           )}
+        </TabsContent>
+
+        {/* Categories Tab */}
+        <TabsContent value="categories" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FolderTree className="w-5 h-5 text-blue-600" />
+                Category Preferences
+              </CardTitle>
+              {member?.id && (
+                <Button 
+                  size="sm" 
+                  onClick={handleSaveCategories} 
+                  disabled={isSavingCategories || categoriesLoading || selectionsLoading}
+                  data-testid="button-save-categories"
+                >
+                  {isSavingCategories ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-1" />
+                  )}
+                  Save Categories
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {(categoriesLoading || selectionsLoading) ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="border border-slate-200 rounded-lg p-3 animate-pulse">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded" />
+                        <div className="h-4 bg-slate-200 rounded w-32" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : resourceCategories.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
+              ) : (() => {
+                const categoriesWithSubcats = resourceCategories.filter(c => 
+                  c.subcategories && Array.isArray(c.subcategories) && c.subcategories.length > 0
+                );
+                const flatCategories = resourceCategories.filter(c => 
+                  !c.subcategories || !Array.isArray(c.subcategories) || c.subcategories.length === 0
+                );
+                
+                return (
+                  <div className="space-y-6">
+                    <p className="text-sm text-slate-600">
+                      Select the categories that interest this member. These preferences help personalize content recommendations.
+                    </p>
+                    
+                    {flatCategories.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                          <FolderTree className="w-4 h-4 text-slate-500" />
+                          Categories
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {flatCategories.map(category => {
+                            const isSelected = isSubcategorySelected(category.id, null);
+                            return (
+                              <div 
+                                key={category.id} 
+                                className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                  isSelected 
+                                    ? 'border-blue-500 bg-blue-50' 
+                                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                }`}
+                                onClick={() => toggleSubcategory(category.id, null)}
+                                data-testid={`category-card-${category.id}`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <Checkbox
+                                    id={`cat-${category.id}`}
+                                    checked={isSelected}
+                                    onCheckedChange={() => toggleSubcategory(category.id, null)}
+                                    data-testid={`checkbox-category-${category.id}`}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <Label 
+                                      htmlFor={`cat-${category.id}`} 
+                                      className="font-medium text-sm cursor-pointer text-slate-900"
+                                    >
+                                      {category.name}
+                                    </Label>
+                                    {category.description && (
+                                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                        {category.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {categoriesWithSubcats.map(category => {
+                      const selectedCount = (category.subcategories || []).filter(subName => 
+                        isSubcategorySelected(category.id, subName)
+                      ).length;
+                      
+                      return (
+                        <div key={category.id} className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                              <FolderTree className="w-4 h-4 text-slate-500" />
+                              {category.name}
+                            </h3>
+                            {selectedCount > 0 && (
+                              <Badge variant="secondary" className="text-xs">
+                                {selectedCount} selected
+                              </Badge>
+                            )}
+                          </div>
+                          {category.description && (
+                            <p className="text-xs text-slate-500 -mt-1">{category.description}</p>
+                          )}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {(category.subcategories || []).map((subcatName, idx) => {
+                              const isSelected = isSubcategorySelected(category.id, subcatName);
+                              const uniqueKey = `${category.id}-${subcatName}`;
+                              return (
+                                <div 
+                                  key={uniqueKey} 
+                                  className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                    isSelected 
+                                      ? 'border-blue-500 bg-blue-50' 
+                                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                  }`}
+                                  onClick={() => toggleSubcategory(category.id, subcatName)}
+                                  data-testid={`subcategory-card-${category.id}-${idx}`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <Checkbox
+                                      id={`subcat-${uniqueKey}`}
+                                      checked={isSelected}
+                                      onCheckedChange={() => toggleSubcategory(category.id, subcatName)}
+                                      data-testid={`checkbox-subcategory-${category.id}-${idx}`}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <Label 
+                                        htmlFor={`subcat-${uniqueKey}`} 
+                                        className="font-medium text-sm cursor-pointer text-slate-900"
+                                      >
+                                        {subcatName}
+                                      </Label>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {selectedSubcategories.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                        <p className="text-sm text-slate-600">
+                          <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'item' : 'items'} selected
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
