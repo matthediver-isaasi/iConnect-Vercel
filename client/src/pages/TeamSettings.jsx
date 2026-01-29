@@ -385,7 +385,7 @@ export default function TeamSettingsPage() {
                   Team Sign Up Link
                 </CardTitle>
                 <CardDescription>
-                  Configure the sign up link that team members can share. Use <code className="bg-slate-100 px-1 rounded">[[organization_id]]</code> as a placeholder - it will be replaced with the actual organisation ID when displayed on the Team page.
+                  Configure the sign up link that team members can share. Use <code className="bg-slate-100 px-1 rounded">[[tenant_domain]]</code> for the current portal URL and <code className="bg-slate-100 px-1 rounded">[[organization_id]]</code> for the organisation ID.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -395,13 +395,13 @@ export default function TeamSettingsPage() {
                     <Input
                       id="signup-link-template"
                       type="text"
-                      placeholder="https://www.example.org/FormView?slug=join&organization_id=[[organization_id]]"
+                      placeholder="[[tenant_domain]]/FormView?slug=join&organization_id=[[organization_id]]"
                       value={signupLinkTemplate}
                       onChange={(e) => setSignupLinkTemplate(e.target.value)}
                       data-testid="input-signup-link-template"
                     />
                     <p className="text-xs text-slate-500">
-                      Example: https://www.graduatefutures.org/FormView?slug=individual-join&organization_id=[[organization_id]]
+                      Example: [[tenant_domain]]/FormView?slug=individual-join&organization_id=[[organization_id]]
                     </p>
                   </div>
                   <Button

@@ -51,10 +51,14 @@ export default function TeamPage({ hasBanner }) {
     }
   });
 
-  // Generate the actual signup link by replacing [[organization_id]] with the real org ID
+  // Generate the actual signup link by replacing placeholders with real values
   const signupLink = useMemo(() => {
     if (!signupLinkSetting?.setting_value || !memberInfo?.organization_id) return null;
-    return signupLinkSetting.setting_value.replace(/\[\[organization_id\]\]/g, memberInfo.organization_id);
+    // Get current tenant domain from browser location
+    const tenantDomain = window.location.origin;
+    return signupLinkSetting.setting_value
+      .replace(/\[\[organization_id\]\]/g, memberInfo.organization_id)
+      .replace(/\[\[tenant_domain\]\]/g, tenantDomain);
   }, [signupLinkSetting?.setting_value, memberInfo?.organization_id]);
 
   const handleCopySignupLink = async () => {
