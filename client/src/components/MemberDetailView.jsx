@@ -307,9 +307,10 @@ export default function MemberDetailView({
     }
   });
 
-  // Fetch role segmentation field setting
+  // Fetch role segmentation field setting - only needed for overview tab role selector
   const { data: segmentationFieldSetting } = useQuery({
     queryKey: ['role-segmentation-field-setting'],
+    enabled: !!member?.id && activeTab === 'overview',
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list() || [];
       return allSettings.find(s => s.setting_key === 'role_segmentation_field_id');
