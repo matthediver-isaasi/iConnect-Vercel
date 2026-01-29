@@ -544,7 +544,7 @@ export default function MemberDetailView({
         engagement_opening_balances: openingBalances
       });
       toast.success("Opening balances saved successfully");
-      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['member-direct', member.id] });
     } catch (error) {
       toast.error("Failed to save opening balances: " + (error.message || "Unknown error"));
@@ -559,7 +559,7 @@ export default function MemberDetailView({
     },
     onSuccess: (createdMember) => {
       toast.success("Member created successfully");
-      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       if (onCreated) {
         onCreated(createdMember);
       }
@@ -576,7 +576,7 @@ export default function MemberDetailView({
     onSuccess: () => {
       toast.success("Member updated successfully");
       setIsEditing(false);
-      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member.id] });
     },
     onError: (error) => {

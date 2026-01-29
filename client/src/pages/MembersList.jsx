@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,15 @@ import {
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
+
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -113,7 +123,7 @@ export default function MembersListPage() {
   });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(20);
+  const [itemsPerPage] = useState(50);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(DEFAULT_COLUMNS);
@@ -122,8 +132,12 @@ export default function MembersListPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [singleDeleteMember, setSingleDeleteMember] = useState(null);
   const [draggedColumn, setDraggedColumn] = useState(null);
+  const [sortField, setSortField] = useState('created_on');
+  const [sortDir, setSortDir] = useState('desc');
 
-  useRealtimeSubscription('member', [['members-crm-list']], { 
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  useRealtimeSubscription('member', [['members-paginated']], { 
     enabled: accessChecked, 
     tenantId: memberInfo?.tenant_id 
   });
@@ -154,13 +168,32 @@ export default function MembersListPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: members = [], isLoading: membersLoading } = useQuery({
-    queryKey: ['members-crm-list'],
+  const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
+    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, orgFilter, roleFilter, statusFilter, sortField, sortDir],
     enabled: accessChecked,
+    keepPreviousData: true,
     queryFn: async () => {
-      return await base44.entities.Member.listAll();
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+        search: debouncedSearch,
+        organizationId: orgFilter,
+        roleId: roleFilter,
+        status: statusFilter,
+        sortField,
+        sortDir
+      });
+      const response = await fetch(`/api/admin/members/paginated?${params}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch members');
+      return response.json();
     }
   });
+
+  const members = membersData?.members || [];
+  const pagination = membersData?.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 };
+  const totalPages = pagination.totalPages;
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-members'],
@@ -296,7 +329,7 @@ export default function MembersListPage() {
       return { deletedCount: memberIds.length };
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       setSelectedMembers([]);
       setShowDeleteDialog(false);
       setDeleteConfirmText('');
@@ -369,38 +402,7 @@ export default function MembersListPage() {
   const filteredMembers = useMemo(() => {
     let result = [...members];
     
-    // Filter out deleted/anonymized members
     result = result.filter(m => !isDeletedMember(m));
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(m => 
-        getMemberName(m).toLowerCase().includes(query) ||
-        m.email?.toLowerCase().includes(query) ||
-        m.mobile?.toLowerCase().includes(query) ||
-        m.job_title?.toLowerCase().includes(query)
-      );
-    }
-
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'disabled') {
-        result = result.filter(m => m.disabled === true);
-      } else {
-        result = result.filter(m => !m.disabled);
-      }
-    }
-
-    if (orgFilter !== 'all') {
-      result = result.filter(m => m.organization_id === orgFilter);
-    }
-
-    if (roleFilter !== 'all') {
-      result = result.filter(m => {
-        // Support both legacy 'roles' array and new 'role_id' single value
-        const memberRoles = m.roles || (m.role_id ? [m.role_id] : []);
-        return memberRoles.includes(roleFilter);
-      });
-    }
 
     Object.entries(coreFieldFilters).forEach(([field, filterValue]) => {
       if (filterValue && filterValue.trim()) {
@@ -439,14 +441,9 @@ export default function MembersListPage() {
     });
 
     return result;
-  }, [members, searchQuery, statusFilter, orgFilter, roleFilter, coreFieldFilters, customFieldFilters, memberValuesMap]);
+  }, [members, coreFieldFilters, customFieldFilters, memberValuesMap]);
 
-  const paginatedMembers = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredMembers.slice(start, start + itemsPerPage);
-  }, [filteredMembers, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(filteredMembers.length / itemsPerPage);
+  const paginatedMembers = filteredMembers;
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -1107,18 +1104,20 @@ export default function MembersListPage() {
             )}
           </div>
 
-          {totalPages > 1 && (
+          {(totalPages > 1 || pagination.total > 0) && (
             <div className="bg-white border-t border-slate-200 px-6 py-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-slate-500">
-                  Page {currentPage} of {totalPages}
+                  {membersFetching && <Loader2 className="w-3 h-3 inline-block mr-1 animate-spin" />}
+                  Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, pagination.total)} of {pagination.total} members
+                  {totalPages > 1 && ` (Page ${currentPage} of ${totalPages})`}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
+                    disabled={currentPage === 1 || membersFetching}
                     data-testid="button-member-prev-page"
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -1128,7 +1127,7 @@ export default function MembersListPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
+                    disabled={currentPage === totalPages || membersFetching}
                     data-testid="button-member-next-page"
                   >
                     Next

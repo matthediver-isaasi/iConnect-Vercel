@@ -359,7 +359,7 @@ export default function MemberDetail() {
     onSuccess: () => {
       toast.success("Member updated successfully");
       setIsEditing(false);
-      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
     },
     onError: (error) => {
