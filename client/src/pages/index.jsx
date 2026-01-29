@@ -147,6 +147,7 @@ import OrganisationDirectory from "./OrganisationDirectory";
 import OrganisationsList from "./OrganisationsList";
 
 import MembersList from "./MembersList";
+import MemberDetail from "./MemberDetail";
 
 import FloaterManagement from "./FloaterManagement";
 
@@ -760,6 +761,7 @@ function PagesContent() {
                 
                 <Route path="/organisations" element={<OrganisationsList />} />
                 
+                <Route path="/members/:id" element={<MemberDetail />} />
                 <Route path="/members" element={<MembersList />} />
                 
                 <Route path="/FloaterManagement" element={<FloaterManagement />} />

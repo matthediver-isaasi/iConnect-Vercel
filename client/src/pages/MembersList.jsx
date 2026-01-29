@@ -51,7 +51,7 @@ import { createPageUrl, isDeletedMember } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
-import { useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -99,7 +99,7 @@ export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
-  const location = useLocation();
+  const navigate = useNavigate();
   const [accessChecked, setAccessChecked] = useState(false);
   const lastLoadedSlugRef = useRef(undefined);
   
@@ -114,7 +114,6 @@ export default function MembersListPage() {
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
-  const [selectedMember, setSelectedMember] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(DEFAULT_COLUMNS);
@@ -123,10 +122,6 @@ export default function MembersListPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [singleDeleteMember, setSingleDeleteMember] = useState(null);
   const [draggedColumn, setDraggedColumn] = useState(null);
-  const [pendingMemberId, setPendingMemberId] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('id');
-  });
 
   useRealtimeSubscription('member', [['members-crm-list']], { 
     enabled: accessChecked, 
@@ -159,55 +154,13 @@ export default function MembersListPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  // Clear selectedMember when navigating away from /members
-  // This fixes the issue where sidebar navigation changes URL but page doesn't re-render
-  useEffect(() => {
-    if (location.pathname.toLowerCase() !== '/members') {
-      setSelectedMember(null);
-      setPendingMemberId(null);
-    }
-  }, [location.pathname]);
-
-  // Fetch specific member directly when we have an ID in URL (avoids loading all members)
-  const { data: directMember, isLoading: directMemberLoading } = useQuery({
-    queryKey: ['member-direct', pendingMemberId],
-    enabled: accessChecked && !!pendingMemberId && !selectedMember,
-    queryFn: async () => {
-      return await base44.entities.Member.get(pendingMemberId);
-    }
-  });
-
-  // Set selected member from direct fetch
-  useEffect(() => {
-    if (directMember && pendingMemberId && !selectedMember) {
-      setSelectedMember(directMember);
-      setPendingMemberId(null);
-      window.history.replaceState({}, '', '/members');
-    }
-  }, [directMember, pendingMemberId, selectedMember]);
-
-  // Only load all members when we don't have a pending member ID (or after it's resolved)
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members-crm-list'],
-    enabled: accessChecked && !pendingMemberId,
+    enabled: accessChecked,
     queryFn: async () => {
       return await base44.entities.Member.listAll();
     }
   });
-
-  // Sync selectedMember with latest data when members list updates (e.g., from realtime)
-  useEffect(() => {
-    if (selectedMember && !membersLoading) {
-      const updatedMember = members.find(m => m.id === selectedMember.id);
-      if (!updatedMember) {
-        // Member was deleted or no longer in list, clear selection
-        setSelectedMember(null);
-      } else if (updatedMember !== selectedMember) {
-        // Member object changed, sync with latest data
-        setSelectedMember(updatedMember);
-      }
-    }
-  }, [members, selectedMember, membersLoading]);
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-members'],
@@ -658,29 +611,8 @@ export default function MembersListPage() {
         isNew={true}
         onCreated={(createdMember) => {
           setIsCreatingNew(false);
-          setSelectedMember(createdMember);
+          navigate(`/members/${createdMember.id}`);
         }}
-      />
-    );
-  }
-
-  // Show loading state when fetching a specific member by ID
-  if (pendingMemberId && directMemberLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  if (selectedMember) {
-    return (
-      <MemberDetailView
-        member={selectedMember}
-        onBack={() => setSelectedMember(null)}
-        memberCustomFields={memberCustomFields}
-        organizations={organizations}
-        roles={roles}
       />
     );
   }
@@ -1078,7 +1010,7 @@ export default function MembersListPage() {
                       <TableRow 
                         key={member.id} 
                         className={`cursor-pointer hover:bg-slate-50 ${selectedMembers.includes(member.id) ? 'bg-blue-50' : ''}`}
-                        onClick={() => setSelectedMember(member)}
+                        onClick={() => navigate(`/members/${member.id}`)}
                         data-testid={`member-row-${member.id}`}
                       >
                         <TableCell onClick={(e) => e.stopPropagation()}>
@@ -1115,7 +1047,7 @@ export default function MembersListPage() {
                     <Card 
                       key={member.id} 
                       className="cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => setSelectedMember(member)}
+                      onClick={() => navigate(`/members/${member.id}`)}
                       data-testid={`member-card-${member.id}`}
                     >
                       <CardContent className="p-4">
