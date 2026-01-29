@@ -410,6 +410,7 @@ export default async function handler(req, res) {
       organizationId: fullMember?.organization_id || null,
       tenantId: sessionTenantId || null,
       roleId: fullMember?.role_id || null,
+      identityId: identity?.id || null,
       userType: 'member'
     }, { req });
 

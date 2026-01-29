@@ -439,6 +439,7 @@ export default async function handler(req, res) {
       organizationId: member.organization_id || null,
       tenantId: sessionTenantId || null,
       roleId: member.role_id || null,
+      identityId: identity?.id || null,
       userType: 'member'
     }, { req });
 
