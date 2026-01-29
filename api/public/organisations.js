@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { resolveTenantFromRequest } from './_lib/tenantResolver.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
