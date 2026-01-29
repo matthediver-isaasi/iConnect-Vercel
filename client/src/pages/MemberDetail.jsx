@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Loader2 } from "lucide-react";
@@ -9,6 +9,17 @@ import { Button } from "@/components/ui/button";
 export default function MemberDetail() {
   const { id } = useParams();
   const { isAccessReady } = useMemberAccess();
+  const navigate = useNavigate();
+
+  const handleTestNav = () => {
+    console.log('[MemberDetail] handleTestNav called');
+    window.location.href = '/members';
+  };
+
+  const handleTestRouterNav = () => {
+    console.log('[MemberDetail] handleTestRouterNav called');
+    navigate('/members');
+  };
 
   const { data: member, isLoading: memberLoading } = useQuery({
     queryKey: ['member-detail', id],
@@ -70,10 +81,9 @@ export default function MemberDetail() {
     <div>
       {/* DEBUG: Test navigation links at page level */}
       <div className="fixed top-0 right-0 z-[9999] bg-red-500 text-white p-2 flex gap-2">
-        <Link to="/members" className="underline">Link to /members</Link>
-        <Button asChild size="sm" variant="secondary">
-          <Link to="/Events">Go Events</Link>
-        </Button>
+        <button onClick={handleTestNav} className="underline bg-blue-600 px-2">window.location</button>
+        <button onClick={handleTestRouterNav} className="underline bg-green-600 px-2">navigate()</button>
+        <Link to="/members" className="underline">Link</Link>
       </div>
       <MemberDetailView
         member={member}
