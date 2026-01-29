@@ -467,6 +467,7 @@ const PAGES = {
     
     OrganisationsList: OrganisationsList,
     MembersList: MembersList,
+    MemberDetail: MemberDetail,
     
     FloaterManagement: FloaterManagement,
     
@@ -573,6 +574,13 @@ function _getCurrentPage(url) {
     if (url.endsWith('/')) {
         url = url.slice(0, -1);
     }
+    
+    // Handle parameterized routes like /members/:id
+    const urlParts = url.split('/').filter(Boolean);
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'members') {
+        return 'MemberDetail';
+    }
+    
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
         urlLastPart = urlLastPart.split('?')[0];
