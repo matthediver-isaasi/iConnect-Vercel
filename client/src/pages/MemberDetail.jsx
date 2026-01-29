@@ -2,7 +2,8 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect } from "react";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar } from "lucide-react";
+import MemberEmails from "@/components/MemberEmails";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import { toast } from "sonner";
@@ -58,6 +59,28 @@ export default function MemberDetail() {
     queryKey: ['roles-for-member-detail'],
     enabled: isAccessReady,
     queryFn: () => base44.entities.Role.list()
+  });
+
+  // Activity tab queries
+  const { data: memberBookings = [], isLoading: bookingsLoading } = useQuery({
+    queryKey: ['member-detail-bookings', id],
+    enabled: !!id && activeTab === 'activity',
+    queryFn: async () => {
+      try {
+        const bookings = await base44.entities.Booking.list({ filter: { member_id: id } });
+        return (bookings || []).sort((a, b) => 
+          new Date(b.created_date || 0) - new Date(a.created_date || 0)
+        ).slice(0, 20);
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: events = [] } = useQuery({
+    queryKey: ['events-for-member-detail'],
+    enabled: activeTab === 'activity' && memberBookings.length > 0,
+    queryFn: () => base44.entities.Event.list()
   });
 
   // Sync formData with member
@@ -205,6 +228,10 @@ export default function MemberDetail() {
           <TabsTrigger value="overview" className="gap-1" data-testid="tab-member-overview">
             <User className="w-4 h-4" />
             Overview
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="gap-1" data-testid="tab-member-activity">
+            <ClipboardList className="w-4 h-4" />
+            Activity
           </TabsTrigger>
           <TabsTrigger value="roles" className="gap-1" data-testid="tab-member-roles">
             <Shield className="w-4 h-4" />
@@ -533,6 +560,73 @@ export default function MemberDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Activity Tab */}
+        <TabsContent value="activity" className="space-y-6">
+          {member.created_on && (
+            <Card>
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                    <CalendarDays className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Member Since</p>
+                    <p className="font-medium text-sm" data-testid="text-member-created-date">
+                      {formatDate(member.created_on)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-blue-600" />
+                Recent Bookings
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {bookingsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : memberBookings.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No bookings found</p>
+              ) : (
+                <div className="space-y-3">
+                  {memberBookings.map(booking => {
+                    const event = events.find(e => e.id === booking.event_id);
+                    return (
+                      <div key={booking.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <Calendar className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">{event?.title || 'Unknown Event'}</p>
+                            <p className="text-xs text-slate-500">
+                              {formatDate(booking.created_date)}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="outline">{booking.status || 'confirmed'}</Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          {member.id && (
+            <MemberEmails 
+              memberId={member.id}
+              memberEmail={member.email}
+              memberName={`${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </div>
