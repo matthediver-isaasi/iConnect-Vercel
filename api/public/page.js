@@ -53,7 +53,7 @@ export default async function handler(req, res) {
     }
 
     const { data: page, error: pageError } = await supabase
-      .from('iedit_page')
+      .from('i_edit_page')
       .select(`
         id,
         slug,
@@ -78,7 +78,7 @@ export default async function handler(req, res) {
     }
 
     const { data: elements, error: elementsError } = await supabase
-      .from('iedit_page_element')
+      .from('i_edit_page_element')
       .select(`
         id,
         element_type,
