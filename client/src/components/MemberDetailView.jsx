@@ -72,7 +72,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
+// DISABLED: import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 
@@ -99,25 +99,26 @@ export default function MemberDetailView({
     }, 0);
   }, [navigate]);
 
-  // Subscribe to realtime changes for member and preference values
-  // Only enable when both entity ID and tenant ID are available to ensure tenant scoping
-  const realtimeEnabled = !!member?.id && !!memberInfo?.tenant_id;
-
-  useRealtimeSubscription('member', [
-    ['members-crm-list'],
-    ['member-direct', member?.id]
-  ], { 
-    enabled: realtimeEnabled, 
-    tenantId: memberInfo?.tenant_id 
-  });
-
-  useRealtimeSubscription('member_preference_value', [
-    ['member-detail-preference-values', member?.id],
-    ['all-member-preference-values-crm']
-  ], { 
-    enabled: realtimeEnabled && !!member?.id,
-    filter: member?.id ? `member_id=eq.${member.id}` : null
-  });
+  // DISABLED: Realtime subscriptions were causing render storms that blocked navigation
+  // These subscriptions constantly invalidate query caches, causing cascading re-renders
+  // that prevent React Router from processing navigation events.
+  // TODO: Re-enable with debouncing or more selective invalidation if realtime updates are needed
+  // 
+  // const realtimeEnabled = !!member?.id && !!memberInfo?.tenant_id;
+  // useRealtimeSubscription('member', [
+  //   ['members-crm-list'],
+  //   ['member-direct', member?.id]
+  // ], { 
+  //   enabled: realtimeEnabled, 
+  //   tenantId: memberInfo?.tenant_id 
+  // });
+  // useRealtimeSubscription('member_preference_value', [
+  //   ['member-detail-preference-values', member?.id],
+  //   ['all-member-preference-values-crm']
+  // ], { 
+  //   enabled: realtimeEnabled && !!member?.id,
+  //   filter: member?.id ? `member_id=eq.${member.id}` : null
+  // });
 
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
@@ -816,7 +817,7 @@ export default function MemberDetailView({
   const org = getOrganization();
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="bg-slate-50">
       <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
