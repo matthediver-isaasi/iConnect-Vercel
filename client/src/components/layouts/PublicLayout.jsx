@@ -348,12 +348,56 @@ export default function PublicLayout({ children, currentPageName }) {
               // Helper to get button style CSS
               const getButtonStyle = (styleName) => {
                 const style = buttonStyles[styleName] || {};
+                
+                // Handle both flat legacy format (style.background as string) and nested format (style.background as object)
+                const bgConfig = typeof style.background === 'object' ? style.background : null;
+                
+                let backgroundCss = {};
+                if (bgConfig) {
+                  // Nested format
+                  if (bgConfig.type === 'solid') {
+                    backgroundCss = { backgroundColor: bgConfig.solidColor || tenantPrimaryColor };
+                  } else if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
+                    // New format with gradientStops
+                    const angle = bgConfig.gradientAngle ?? 90;
+                    const stops = [...bgConfig.gradientStops]
+                      .sort((a, b) => a.position - b.position)
+                      .map(stop => `${stop.color} ${stop.position}%`)
+                      .join(', ');
+                    backgroundCss = { background: `linear-gradient(${angle}deg, ${stops})` };
+                  } else if (bgConfig.gradientStart && bgConfig.gradientEnd) {
+                    // Old nested format with gradientStart/gradientEnd
+                    const directionToAngle = {
+                      'to right': 90, 'to left': 270, 'to bottom': 180,
+                      'to top': 0, 'to bottom right': 135, 'to bottom left': 225
+                    };
+                    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
+                    backgroundCss = { background: `linear-gradient(${angle}deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)` };
+                  } else {
+                    backgroundCss = { backgroundColor: styleName === 'primary' ? tenantPrimaryColor : 'transparent' };
+                  }
+                } else if (typeof style.background === 'string' && style.background) {
+                  // Flat legacy format: background is a color string or gradient string
+                  if (style.background.includes('gradient')) {
+                    backgroundCss = { background: style.background };
+                  } else {
+                    backgroundCss = { backgroundColor: style.background };
+                  }
+                } else {
+                  backgroundCss = { backgroundColor: styleName === 'primary' ? tenantPrimaryColor : 'transparent' };
+                }
+                
+                // Handle both nested border object and flat borderColor/borderWidth/borderRadius
+                const borderColor = style.border?.color || style.borderColor || 'transparent';
+                const borderWidth = style.border?.width ?? style.borderWidth ?? 0;
+                const borderRadius = style.radius ?? style.borderRadius ?? 0;
+                
                 return {
-                  backgroundColor: style.background || (styleName === 'primary' ? tenantPrimaryColor : 'transparent'),
+                  ...backgroundCss,
                   color: style.textColor || '#ffffff',
-                  borderColor: style.borderColor || 'transparent',
-                  borderWidth: style.borderWidth || '0',
-                  borderRadius: style.borderRadius || '0',
+                  borderColor: borderColor,
+                  borderWidth: typeof borderWidth === 'number' ? `${borderWidth}px` : borderWidth,
+                  borderRadius: typeof borderRadius === 'number' ? `${borderRadius}px` : borderRadius,
                   borderStyle: 'solid'
                 };
               };

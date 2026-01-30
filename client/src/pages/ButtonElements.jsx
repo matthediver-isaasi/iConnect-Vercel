@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, Loader2, Eye, RotateCcw } from "lucide-react";
+import { Save, Loader2, Eye, RotateCcw, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -14,9 +14,11 @@ const DEFAULT_PRIMARY_STYLE = {
   background: {
     type: 'gradient',
     solidColor: '#5C0085',
-    gradientStart: '#5C0085',
-    gradientEnd: '#BA0087',
-    gradientDirection: 'to right'
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#5C0085', position: 0 },
+      { color: '#BA0087', position: 100 }
+    ]
   },
   border: {
     width: 0,
@@ -27,9 +29,11 @@ const DEFAULT_PRIMARY_STYLE = {
   hover: {
     type: 'gradient',
     solidColor: '#BA0087',
-    gradientStart: '#BA0087',
-    gradientEnd: '#EE00C3',
-    gradientDirection: 'to right'
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#BA0087', position: 0 },
+      { color: '#EE00C3', position: 100 }
+    ]
   },
   textColor: '#FFFFFF',
   hoverTextColor: '#FFFFFF'
@@ -39,9 +43,11 @@ const DEFAULT_SECONDARY_STYLE = {
   background: {
     type: 'solid',
     solidColor: 'transparent',
-    gradientStart: '#FFFFFF',
-    gradientEnd: '#F0F0F0',
-    gradientDirection: 'to right'
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#FFFFFF', position: 0 },
+      { color: '#F0F0F0', position: 100 }
+    ]
   },
   border: {
     width: 2,
@@ -52,12 +58,43 @@ const DEFAULT_SECONDARY_STYLE = {
   hover: {
     type: 'gradient',
     solidColor: '#5C0085',
-    gradientStart: '#5C0085',
-    gradientEnd: '#BA0087',
-    gradientDirection: 'to right'
+    gradientAngle: 90,
+    gradientStops: [
+      { color: '#5C0085', position: 0 },
+      { color: '#BA0087', position: 100 }
+    ]
   },
   textColor: '#000000',
   hoverTextColor: '#FFFFFF'
+};
+
+// Helper to convert old format to new format
+const migrateGradientConfig = (bgConfig) => {
+  if (!bgConfig) return bgConfig;
+  
+  // If already has new format, return as-is
+  if (bgConfig.gradientStops) return bgConfig;
+  
+  // Convert old format to new format
+  const directionToAngle = {
+    'to right': 90,
+    'to left': 270,
+    'to bottom': 180,
+    'to top': 0,
+    'to bottom right': 135,
+    'to bottom left': 225,
+    'to top right': 45,
+    'to top left': 315
+  };
+  
+  return {
+    ...bgConfig,
+    gradientAngle: directionToAngle[bgConfig.gradientDirection] || 90,
+    gradientStops: [
+      { color: bgConfig.gradientStart || '#5C0085', position: 0 },
+      { color: bgConfig.gradientEnd || '#BA0087', position: 100 }
+    ]
+  };
 };
 
 function ButtonStyleEditor({ style, onChange, title, description }) {
@@ -80,8 +117,31 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
     if (bgConfig.type === 'solid') {
       return { backgroundColor: bgConfig.solidColor };
     }
+    
+    // Handle new format with gradientStops
+    if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
+      const angle = bgConfig.gradientAngle ?? 90;
+      const stops = [...bgConfig.gradientStops]
+        .sort((a, b) => a.position - b.position)
+        .map(stop => `${stop.color} ${stop.position}%`)
+        .join(', ');
+      return {
+        background: `linear-gradient(${angle}deg, ${stops})`
+      };
+    }
+    
+    // Fallback for old format
+    const directionToAngle = {
+      'to right': 90,
+      'to left': 270,
+      'to bottom': 180,
+      'to top': 0,
+      'to bottom right': 135,
+      'to bottom left': 225
+    };
+    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
     return {
-      background: `linear-gradient(${bgConfig.gradientDirection}, ${bgConfig.gradientStart}, ${bgConfig.gradientEnd})`
+      background: `linear-gradient(${angle}deg, ${bgConfig.gradientStart || '#5C0085'} 0%, ${bgConfig.gradientEnd || '#BA0087'} 100%)`
     };
   };
 
@@ -211,56 +271,126 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
             ) : (
               <>
                 <div className="flex items-center gap-4">
-                  <Label className="min-w-24">Start Color:</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={style.background.gradientStart}
-                      onChange={(e) => updateStyle('background.gradientStart', e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
-                      data-testid={`colorpicker-${testIdPrefix}-gradient-start`}
-                    />
+                  <Label className="min-w-24">Angle:</Label>
+                  <div className="flex items-center gap-3 flex-1">
+                    <div 
+                      className="relative w-12 h-12 rounded-full border-2 border-slate-300 flex items-center justify-center cursor-pointer"
+                      style={{ background: 'conic-gradient(from 0deg, #e2e8f0, #94a3b8, #e2e8f0)' }}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left - rect.width / 2;
+                        const y = e.clientY - rect.top - rect.height / 2;
+                        let angle = Math.round(Math.atan2(y, x) * (180 / Math.PI) + 90);
+                        if (angle < 0) angle += 360;
+                        updateStyle('background.gradientAngle', angle);
+                      }}
+                      data-testid={`angle-wheel-${testIdPrefix}-bg`}
+                    >
+                      <div 
+                        className="absolute w-1 h-5 bg-slate-800 rounded origin-bottom"
+                        style={{ 
+                          transform: `rotate(${(style.background.gradientAngle || 90)}deg)`,
+                          bottom: '50%'
+                        }}
+                      />
+                    </div>
                     <Input
-                      value={style.background.gradientStart}
-                      onChange={(e) => updateStyle('background.gradientStart', e.target.value)}
-                      className="w-32"
-                      data-testid={`input-${testIdPrefix}-gradient-start`}
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={style.background.gradientAngle ?? 90}
+                      onChange={(e) => updateStyle('background.gradientAngle', parseInt(e.target.value, 10) || 0)}
+                      className="w-20"
+                      data-testid={`input-${testIdPrefix}-gradient-angle`}
                     />
+                    <span className="text-sm text-slate-500">degrees</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <Label className="min-w-24">End Color:</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={style.background.gradientEnd}
-                      onChange={(e) => updateStyle('background.gradientEnd', e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
-                      data-testid={`colorpicker-${testIdPrefix}-gradient-end`}
-                    />
-                    <Input
-                      value={style.background.gradientEnd}
-                      onChange={(e) => updateStyle('background.gradientEnd', e.target.value)}
-                      className="w-32"
-                      data-testid={`input-${testIdPrefix}-gradient-end`}
-                    />
+                
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Color Stops:</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const stops = style.background.gradientStops || [];
+                        const newPosition = stops.length > 0 
+                          ? Math.round((stops[stops.length - 1].position + 100) / 2)
+                          : 50;
+                        updateStyle('background.gradientStops', [
+                          ...stops,
+                          { color: '#888888', position: Math.min(newPosition, 99) }
+                        ].sort((a, b) => a.position - b.position));
+                      }}
+                      data-testid={`button-${testIdPrefix}-add-stop`}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Add Stop
+                    </Button>
                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <Label className="min-w-24">Direction:</Label>
-                  <select
-                    value={style.background.gradientDirection}
-                    onChange={(e) => updateStyle('background.gradientDirection', e.target.value)}
-                    className="border rounded px-3 py-2 text-sm"
-                    data-testid={`select-${testIdPrefix}-gradient-direction`}
-                  >
-                    <option value="to right">Left to Right</option>
-                    <option value="to left">Right to Left</option>
-                    <option value="to bottom">Top to Bottom</option>
-                    <option value="to top">Bottom to Top</option>
-                    <option value="to bottom right">Diagonal ↘</option>
-                    <option value="to bottom left">Diagonal ↙</option>
-                  </select>
+                  
+                  <div 
+                    className="h-6 rounded"
+                    style={getBackgroundStyle(style.background)}
+                    data-testid={`gradient-preview-${testIdPrefix}-bg`}
+                  />
+                  
+                  {(style.background.gradientStops || []).map((stop, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.background.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('background.gradientStops', newStops);
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer"
+                        data-testid={`colorpicker-${testIdPrefix}-stop-${index}`}
+                      />
+                      <Input
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.background.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('background.gradientStops', newStops);
+                        }}
+                        className="w-28"
+                        data-testid={`input-${testIdPrefix}-stop-color-${index}`}
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Slider
+                          value={[stop.position]}
+                          onValueChange={([val]) => {
+                            const newStops = [...(style.background.gradientStops || [])];
+                            newStops[index] = { ...newStops[index], position: val };
+                            updateStyle('background.gradientStops', newStops.sort((a, b) => a.position - b.position));
+                          }}
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                          data-testid={`slider-${testIdPrefix}-stop-${index}`}
+                        />
+                        <span className="text-sm text-slate-500 w-10">{stop.position}%</span>
+                      </div>
+                      {(style.background.gradientStops || []).length > 2 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const newStops = (style.background.gradientStops || []).filter((_, i) => i !== index);
+                            updateStyle('background.gradientStops', newStops);
+                          }}
+                          data-testid={`button-${testIdPrefix}-remove-stop-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </>
             )}
@@ -409,56 +539,126 @@ function ButtonStyleEditor({ style, onChange, title, description }) {
             ) : (
               <>
                 <div className="flex items-center gap-4">
-                  <Label className="min-w-24">Start Color:</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={style.hover.gradientStart}
-                      onChange={(e) => updateStyle('hover.gradientStart', e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
-                      data-testid={`colorpicker-${testIdPrefix}-hover-gradient-start`}
-                    />
+                  <Label className="min-w-24">Angle:</Label>
+                  <div className="flex items-center gap-3 flex-1">
+                    <div 
+                      className="relative w-12 h-12 rounded-full border-2 border-slate-300 flex items-center justify-center cursor-pointer"
+                      style={{ background: 'conic-gradient(from 0deg, #e2e8f0, #94a3b8, #e2e8f0)' }}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left - rect.width / 2;
+                        const y = e.clientY - rect.top - rect.height / 2;
+                        let angle = Math.round(Math.atan2(y, x) * (180 / Math.PI) + 90);
+                        if (angle < 0) angle += 360;
+                        updateStyle('hover.gradientAngle', angle);
+                      }}
+                      data-testid={`angle-wheel-${testIdPrefix}-hover`}
+                    >
+                      <div 
+                        className="absolute w-1 h-5 bg-slate-800 rounded origin-bottom"
+                        style={{ 
+                          transform: `rotate(${(style.hover.gradientAngle || 90)}deg)`,
+                          bottom: '50%'
+                        }}
+                      />
+                    </div>
                     <Input
-                      value={style.hover.gradientStart}
-                      onChange={(e) => updateStyle('hover.gradientStart', e.target.value)}
-                      className="w-32"
-                      data-testid={`input-${testIdPrefix}-hover-gradient-start`}
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={style.hover.gradientAngle ?? 90}
+                      onChange={(e) => updateStyle('hover.gradientAngle', parseInt(e.target.value, 10) || 0)}
+                      className="w-20"
+                      data-testid={`input-${testIdPrefix}-hover-gradient-angle`}
                     />
+                    <span className="text-sm text-slate-500">degrees</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <Label className="min-w-24">End Color:</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={style.hover.gradientEnd}
-                      onChange={(e) => updateStyle('hover.gradientEnd', e.target.value)}
-                      className="w-10 h-10 rounded cursor-pointer"
-                      data-testid={`colorpicker-${testIdPrefix}-hover-gradient-end`}
-                    />
-                    <Input
-                      value={style.hover.gradientEnd}
-                      onChange={(e) => updateStyle('hover.gradientEnd', e.target.value)}
-                      className="w-32"
-                      data-testid={`input-${testIdPrefix}-hover-gradient-end`}
-                    />
+                
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Color Stops:</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const stops = style.hover.gradientStops || [];
+                        const newPosition = stops.length > 0 
+                          ? Math.round((stops[stops.length - 1].position + 100) / 2)
+                          : 50;
+                        updateStyle('hover.gradientStops', [
+                          ...stops,
+                          { color: '#888888', position: Math.min(newPosition, 99) }
+                        ].sort((a, b) => a.position - b.position));
+                      }}
+                      data-testid={`button-${testIdPrefix}-hover-add-stop`}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Add Stop
+                    </Button>
                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <Label className="min-w-24">Direction:</Label>
-                  <select
-                    value={style.hover.gradientDirection}
-                    onChange={(e) => updateStyle('hover.gradientDirection', e.target.value)}
-                    className="border rounded px-3 py-2 text-sm"
-                    data-testid={`select-${testIdPrefix}-hover-gradient-direction`}
-                  >
-                    <option value="to right">Left to Right</option>
-                    <option value="to left">Right to Left</option>
-                    <option value="to bottom">Top to Bottom</option>
-                    <option value="to top">Bottom to Top</option>
-                    <option value="to bottom right">Diagonal ↘</option>
-                    <option value="to bottom left">Diagonal ↙</option>
-                  </select>
+                  
+                  <div 
+                    className="h-6 rounded"
+                    style={getBackgroundStyle(style.hover)}
+                    data-testid={`gradient-preview-${testIdPrefix}-hover`}
+                  />
+                  
+                  {(style.hover.gradientStops || []).map((stop, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.hover.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('hover.gradientStops', newStops);
+                        }}
+                        className="w-10 h-10 rounded cursor-pointer"
+                        data-testid={`colorpicker-${testIdPrefix}-hover-stop-${index}`}
+                      />
+                      <Input
+                        value={stop.color}
+                        onChange={(e) => {
+                          const newStops = [...(style.hover.gradientStops || [])];
+                          newStops[index] = { ...newStops[index], color: e.target.value };
+                          updateStyle('hover.gradientStops', newStops);
+                        }}
+                        className="w-28"
+                        data-testid={`input-${testIdPrefix}-hover-stop-color-${index}`}
+                      />
+                      <div className="flex items-center gap-2 flex-1">
+                        <Slider
+                          value={[stop.position]}
+                          onValueChange={([val]) => {
+                            const newStops = [...(style.hover.gradientStops || [])];
+                            newStops[index] = { ...newStops[index], position: val };
+                            updateStyle('hover.gradientStops', newStops.sort((a, b) => a.position - b.position));
+                          }}
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="flex-1"
+                          data-testid={`slider-${testIdPrefix}-hover-stop-${index}`}
+                        />
+                        <span className="text-sm text-slate-500 w-10">{stop.position}%</span>
+                      </div>
+                      {(style.hover.gradientStops || []).length > 2 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const newStops = (style.hover.gradientStops || []).filter((_, i) => i !== index);
+                            updateStyle('hover.gradientStops', newStops);
+                          }}
+                          data-testid={`button-${testIdPrefix}-hover-remove-stop-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </>
             )}
@@ -521,10 +721,22 @@ export default function ButtonElementsPage() {
           
           if (buttonStyles) {
             if (buttonStyles.primary) {
-              setPrimaryStyle({ ...DEFAULT_PRIMARY_STYLE, ...buttonStyles.primary });
+              const migratedPrimary = {
+                ...DEFAULT_PRIMARY_STYLE,
+                ...buttonStyles.primary,
+                background: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.background, ...buttonStyles.primary.background }),
+                hover: migrateGradientConfig({ ...DEFAULT_PRIMARY_STYLE.hover, ...buttonStyles.primary.hover })
+              };
+              setPrimaryStyle(migratedPrimary);
             }
             if (buttonStyles.secondary) {
-              setSecondaryStyle({ ...DEFAULT_SECONDARY_STYLE, ...buttonStyles.secondary });
+              const migratedSecondary = {
+                ...DEFAULT_SECONDARY_STYLE,
+                ...buttonStyles.secondary,
+                background: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.background, ...buttonStyles.secondary.background }),
+                hover: migrateGradientConfig({ ...DEFAULT_SECONDARY_STYLE.hover, ...buttonStyles.secondary.hover })
+              };
+              setSecondaryStyle(migratedSecondary);
             }
           }
         }
