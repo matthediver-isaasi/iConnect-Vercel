@@ -1032,7 +1032,7 @@ useEffect(() => {
   const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings"];
 
   // Pages that should use the bare layout (no new header/footer)
-  const bareLayoutPages = ["Login"];
+  const bareLayoutPages = [];
 
   // Note: hasAdminNavAccess() removed - admin navigation visibility is now determined
   // purely by whether any admin items remain after feature exclusion filtering.
