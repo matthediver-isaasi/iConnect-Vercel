@@ -90,3 +90,56 @@ A reusable migration solution transfers data from a legacy single-tenant Supabas
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending domains and email delivery.
+
+---
+
+# ⚠️ CRITICAL: Database Connection Instructions (DO NOT DELETE)
+
+This project uses Supabase PostgreSQL databases. **Direct psql commands DO NOT WORK on Replit** due to IPv6 connectivity issues.
+
+## Available Database Secrets
+
+| Secret | Database | Purpose |
+|--------|----------|---------|
+| `SOURCE_DATABASE_URL` | Legacy single-tenant Supabase | Original data source for migrations |
+| `DEST_DATABASE_URL` | New multi-tenant Supabase | Production destination database |
+| `SOURCE_SUPABASE_URL` | Legacy Supabase project URL | For storage access |
+| `SOURCE_SUPABASE_KEY` | Legacy Supabase service key | For storage access |
+| `DEST_SUPABASE_URL` | New Supabase project URL | For storage access |
+| `DEST_SUPABASE_KEY` | New Supabase service key | For storage access |
+
+## How to Query the Database
+
+**USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool**
+
+Create a script like `scripts/debug-query.mjs`:
+
+```javascript
+import { createClient } from '@supabase/supabase-js';
+
+// For destination (multi-tenant) database:
+const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY; // Service role key
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Example query
+const { data, error } = await supabase
+  .from('member')
+  .select('*')
+  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
+  .limit(10);
+
+console.log(data);
+```
+
+Run with: `node scripts/debug-query.mjs`
+
+## Important Notes
+
+- **Replit's built-in database tools won't work** - The execute_sql_tool and psql fail due to IPv6 routing issues
+- **Always use Supabase client** - Use `@supabase/supabase-js` for all database operations
+- **Tenant ID for migrations:** `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+- See `scripts/debug-tenant.mjs` for a working example of database queries
+
+---
