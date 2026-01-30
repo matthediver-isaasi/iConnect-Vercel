@@ -140,6 +140,63 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
 
+      // For JSONB fields (header_config, footer_config, branding_config, platform_branding),
+      // merge with existing data to prevent partial updates from overwriting other fields
+      if (updates.footer_config || updates.header_config || updates.branding_config || updates.platform_branding) {
+        const { data: existing, error: fetchError } = await supabase
+          .from('tenant')
+          .select('header_config, footer_config, branding_config, platform_branding')
+          .eq('id', tenantId)
+          .single();
+
+        if (fetchError) {
+          console.error('[Admin] Error fetching existing config:', fetchError);
+          return res.status(500).json({ error: 'Failed to fetch existing config' });
+        }
+
+        // Deep merge JSONB fields
+        if (updates.footer_config) {
+          updates.footer_config = {
+            ...(existing?.footer_config || {}),
+            ...updates.footer_config,
+            // Preserve nested objects (address, contact) if not explicitly updated
+            address: updates.footer_config.address !== undefined 
+              ? updates.footer_config.address 
+              : existing?.footer_config?.address,
+            contact: updates.footer_config.contact !== undefined
+              ? updates.footer_config.contact
+              : existing?.footer_config?.contact,
+            columnAlignments: updates.footer_config.columnAlignments !== undefined
+              ? updates.footer_config.columnAlignments
+              : existing?.footer_config?.columnAlignments,
+            gradientColors: updates.footer_config.gradientColors !== undefined
+              ? updates.footer_config.gradientColors
+              : existing?.footer_config?.gradientColors,
+          };
+        }
+
+        if (updates.header_config) {
+          updates.header_config = {
+            ...(existing?.header_config || {}),
+            ...updates.header_config,
+          };
+        }
+
+        if (updates.branding_config) {
+          updates.branding_config = {
+            ...(existing?.branding_config || {}),
+            ...updates.branding_config,
+          };
+        }
+
+        if (updates.platform_branding) {
+          updates.platform_branding = {
+            ...(existing?.platform_branding || {}),
+            ...updates.platform_branding,
+          };
+        }
+      }
+
       updates.updated_at = new Date().toISOString();
 
       const { data: tenant, error } = await supabase
