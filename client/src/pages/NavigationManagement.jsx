@@ -268,7 +268,7 @@ export default function NavigationManagementPage() {
 
   // Fetch tenant branding for footer columns setting
   const { data: tenantBranding } = useQuery({
-    queryKey: ['tenant-branding-for-nav'],
+    queryKey: ['tenant-branding'],
     queryFn: async () => {
       try {
         // Try authenticated admin endpoint first

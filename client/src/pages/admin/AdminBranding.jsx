@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +26,7 @@ import { useToast } from "@/components/ui/use-toast";
 
 export default function AdminBranding() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -252,6 +254,7 @@ export default function AdminBranding() {
       });
 
       if (response.ok) {
+        queryClient.invalidateQueries({ queryKey: ['tenant-branding'] });
         toast({
           title: "Branding saved",
           description: "Your branding settings have been updated."
