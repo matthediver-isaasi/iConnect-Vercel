@@ -61,6 +61,7 @@ export default async function handler(req, res) {
         open_in_new_tab,
         icon,
         link_type,
+        form_slug,
         display_type,
         button_style,
         highlight_style,
