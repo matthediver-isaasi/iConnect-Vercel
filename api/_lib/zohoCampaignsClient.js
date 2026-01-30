@@ -481,3 +481,25 @@ export async function hasZohoCredentialsConfigured(tenantId) {
 export function clearTenantZohoTokenCache(tenantId) {
   tokenCacheByTenant.delete(tenantId);
 }
+
+export async function getOrCreateWebhookSecret(tenantId) {
+  const credentials = await getTenantZohoCredentials(tenantId);
+  
+  if (credentials?.webhook_secret) {
+    return decrypt(credentials.webhook_secret) || credentials.webhook_secret;
+  }
+  
+  const newSecret = crypto.randomBytes(32).toString('hex');
+  await saveTenantZohoCredentials(tenantId, { webhook_secret: encrypt(newSecret) });
+  return newSecret;
+}
+
+export async function validateWebhookSecret(tenantId, providedSecret) {
+  if (!providedSecret) return false;
+  
+  const credentials = await getTenantZohoCredentials(tenantId);
+  if (!credentials?.webhook_secret) return false;
+  
+  const storedSecret = decrypt(credentials.webhook_secret) || credentials.webhook_secret;
+  return storedSecret === providedSecret;
+}

@@ -19,7 +19,9 @@ import {
   EyeOff,
   RefreshCw,
   Plug,
-  Mail
+  Mail,
+  Copy,
+  Check
 } from "lucide-react";
 import {
   Select,
@@ -61,6 +63,8 @@ export default function AdminIntegrations() {
   const [zohoConnected, setZohoConnected] = useState(false);
   const [hasZohoCredentials, setHasZohoCredentials] = useState(false);
   const [showZohoSecrets, setShowZohoSecrets] = useState(false);
+  const [webhookUrlCopied, setWebhookUrlCopied] = useState(false);
+  const [zohoWebhookUrl, setZohoWebhookUrl] = useState('');
 
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
@@ -100,9 +104,27 @@ export default function AdminIntegrations() {
       if (response.ok) {
         const data = await response.json();
         setZohoConnected(data.connected === true);
+        
+        if (data.connected) {
+          fetchZohoWebhookUrl();
+        }
       }
     } catch (err) {
       console.error('Failed to fetch Zoho status:', err);
+    }
+  };
+
+  const fetchZohoWebhookUrl = async () => {
+    try {
+      const response = await fetch('/api/zoho-campaigns/webhook-url', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.webhookUrl) {
+          setZohoWebhookUrl(data.webhookUrl);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch Zoho webhook URL:', err);
     }
   };
 
@@ -736,16 +758,65 @@ export default function AdminIntegrations() {
               </div>
 
               {hasZohoCredentials && zohoConnected && (
-                <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-green-400" />
-                    <div>
-                      <p className="text-sm font-medium text-green-400">Connected to Zoho Campaigns</p>
-                      <p className="text-xs text-slate-400">
-                        Go to Communications Management to map categories to Zoho lists and sync subscribers.
-                      </p>
+                <div className="space-y-4">
+                  <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-400" />
+                      <div>
+                        <p className="text-sm font-medium text-green-400">Connected to Zoho Campaigns</p>
+                        <p className="text-xs text-slate-400">
+                          Go to Communications Management to map categories to Zoho lists and sync subscribers.
+                        </p>
+                      </div>
                     </div>
                   </div>
+
+                  {zohoWebhookUrl && (
+                    <div className="rounded-lg bg-slate-700/50 p-4 border border-slate-600">
+                      <Label className="text-sm font-medium text-slate-300">Webhook URL for Unsubscribe Events</Label>
+                      <p className="text-xs text-slate-400 mt-1 mb-2">
+                        Configure this URL in Zoho Campaigns to receive unsubscribe notifications and keep member preferences in sync.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={zohoWebhookUrl}
+                          readOnly
+                          className="bg-slate-800 border-slate-600 text-slate-300 text-sm font-mono"
+                          data-testid="input-zoho-webhook-url"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          data-testid="button-copy-webhook-url"
+                          onClick={() => {
+                            navigator.clipboard.writeText(zohoWebhookUrl);
+                            setWebhookUrlCopied(true);
+                            setTimeout(() => setWebhookUrlCopied(false), 2000);
+                            toast({
+                              title: "Copied!",
+                              description: "Webhook URL copied to clipboard"
+                            });
+                          }}
+                        >
+                          {webhookUrlCopied ? (
+                            <Check className="h-4 w-4 text-green-400" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-amber-400 mt-2">
+                        Keep this URL secret. It contains an authentication token.
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        In Zoho Campaigns, go to Settings → Developer Space → Webhooks to add this URL for unsubscribe events.
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Note: Only "Do Not Mail" global unsubscribes will fully opt members out. List-specific unsubscribes require the list key in the webhook payload to update individual category preferences.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
