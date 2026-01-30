@@ -68,6 +68,21 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
+    // Fetch button styles for this tenant
+    const { data: buttonStylesData } = await supabase
+      .from('button_style')
+      .select('name, style_config')
+      .eq('tenant_id', tenantData.id)
+      .eq('is_active', true);
+
+    // Convert button styles array to object keyed by name
+    const buttonStyles = {};
+    if (buttonStylesData) {
+      buttonStylesData.forEach(bs => {
+        buttonStyles[bs.name] = bs.style_config || {};
+      });
+    }
+
     res.json({
       success: true,
       branding: {
@@ -83,7 +98,8 @@ export default async function handler(req, res) {
         headerConfig: tenantData.header_config || {},
         footerConfig: tenantData.footer_config || {},
         brandingConfig: tenantData.branding_config || {},
-        platformBranding: tenantData.platform_branding || { showPlatformBranding: true }
+        platformBranding: tenantData.platform_branding || { showPlatformBranding: true },
+        buttonStyles: buttonStyles
       }
     });
   } catch (error) {
