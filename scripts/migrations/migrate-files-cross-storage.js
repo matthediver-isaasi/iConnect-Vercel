@@ -98,7 +98,7 @@ Options:
 
 Supported Tables:
   file_repository, form_submission, system_settings, member, organization,
-  tenant, news, iedit_page, resource, event, job_posting, project_card,
+  tenant, news_post, i_edit_page, resource, event, job_posting, project_card,
   form_draft_submission, blog_post, page_banner, speaker, card_deck,
   navigation_item, i_edit_page_element, wall_of_fame
 
@@ -747,15 +747,15 @@ async function getNewsFiles(destClient, tenantId, sourceUrl) {
 }
 
 async function getIEditPageFiles(destClient, tenantId, sourceUrl) {
-  console.log('\nFetching iedit_page files...');
+  console.log('\nFetching i_edit_page files...');
   
   const { data, error } = await destClient
-    .from('iedit_page')
+    .from('i_edit_page')
     .select('id, title, elements')
     .eq('tenant_id', tenantId);
   
   if (error) {
-    console.error('Error fetching iedit_page:', error);
+    console.error('Error fetching i_edit_page:', error);
     return [];
   }
   
@@ -773,7 +773,7 @@ async function getIEditPageFiles(destClient, tenantId, sourceUrl) {
         if (parsed) {
           filesToMigrate.push({
             id: `iedit-${page.id}-${path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}`,
-            source: 'iedit_page',
+            source: 'i_edit_page',
             pageId: page.id,
             fieldPath: path,
             originalUrl: url,
@@ -788,7 +788,7 @@ async function getIEditPageFiles(destClient, tenantId, sourceUrl) {
     }
   }
   
-  console.log(`  Found ${filesToMigrate.length} files to migrate from iedit_page`);
+  console.log(`  Found ${filesToMigrate.length} files to migrate from i_edit_page`);
   return filesToMigrate;
 }
 
@@ -1511,9 +1511,9 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
         }
         break;
         
-      case 'iedit_page':
+      case 'i_edit_page':
         const { data: pageData } = await destClient
-          .from('iedit_page')
+          .from('i_edit_page')
           .select('elements')
           .eq('id', file.pageId)
           .single();
@@ -1526,7 +1526,7 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
           updateUrlInObject(elements, file.fieldPath, newUrl);
           
           await destClient
-            .from('iedit_page')
+            .from('i_edit_page')
             .update({ elements })
             .eq('id', file.pageId);
         }
@@ -1831,7 +1831,7 @@ async function main() {
     'organization': () => getOrganizationFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'tenant': () => getTenantBrandingFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'news_post': () => getNewsFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
-    'iedit_page': () => getIEditPageFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
+    'i_edit_page': () => getIEditPageFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'resource': () => getResourceFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'event': () => getEventFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'job_posting': () => getJobPostingFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
