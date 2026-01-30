@@ -881,7 +881,13 @@ export default function NavigationManagementPage() {
                   ? Array.from({ length: footerColumns }, (_, i) => i + 1)
                   : [parseInt(footerFilterColumn, 10)]
                 ).map(colNum => {
-                  const colItems = footerItems.filter(item => (item.footer_column || 1) === colNum);
+                  // Match public footer behavior: clamp items to valid column range
+                  // Items in columns beyond footerColumns appear in the last column
+                  const colItems = footerItems.filter(item => {
+                    const assignedCol = item.footer_column || 1;
+                    const targetCol = Math.min(Math.max(assignedCol, 1), footerColumns);
+                    return targetCol === colNum;
+                  });
                   return (
                     <Card key={colNum}>
                       <CardHeader className="pb-2">
