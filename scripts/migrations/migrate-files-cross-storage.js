@@ -689,7 +689,7 @@ async function getNewsFiles(destClient, tenantId, sourceUrl) {
   console.log('\nFetching news files...');
   
   const { data, error } = await destClient
-    .from('news')
+    .from('news_post')
     .select('id, title, featured_image, content')
     .eq('tenant_id', tenantId);
   
@@ -706,7 +706,7 @@ async function getNewsFiles(destClient, tenantId, sourceUrl) {
       if (parsed) {
         filesToMigrate.push({
           id: `news-${news.id}-featured`,
-          source: 'news',
+          source: 'news_post',
           newsId: news.id,
           field: 'featured_image',
           originalUrl: news.featured_image,
@@ -1488,16 +1488,16 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
           .eq('id', file.tenantId);
         break;
         
-      case 'news':
+      case 'news_post':
         await destClient
-          .from('news')
+          .from('news_post')
           .update({ [file.field]: newUrl })
           .eq('id', file.newsId);
         break;
         
       case 'news_content':
         const { data: newsItem } = await destClient
-          .from('news')
+          .from('news_post')
           .select('content')
           .eq('id', file.newsId)
           .single();
@@ -1505,7 +1505,7 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
         if (newsItem?.content) {
           const updatedNewsContent = newsItem.content.replace(file.originalUrl, newUrl);
           await destClient
-            .from('news')
+            .from('news_post')
             .update({ content: updatedNewsContent })
             .eq('id', file.newsId);
         }
@@ -1830,7 +1830,7 @@ async function main() {
     'member': () => getMemberFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'organization': () => getOrganizationFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'tenant': () => getTenantBrandingFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
-    'news': () => getNewsFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
+    'news_post': () => getNewsFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'iedit_page': () => getIEditPageFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'resource': () => getResourceFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'event': () => getEventFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
