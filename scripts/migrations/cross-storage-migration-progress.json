@@ -467,7 +467,17 @@
     "53c88e2e-10ea-4670-8d29-df805505434a",
     "8cba42c2-e2c4-4f47-bbd9-efcfcc41f799",
     "215d043c-aeef-4c5c-83fb-c6ee2d854ee5",
-    "388e6008-8f21-4339-bc09-c3d7ecfbcbde"
+    "388e6008-8f21-4339-bc09-c3d7ecfbcbde",
+    "blog-d6ef73be-9ad1-400a-9497-3ba0fa71b009-featured",
+    "blog-76f28379-4d47-4a70-92f1-b30290bb05b9-featured",
+    "blog-3df7bfe1-6e06-402f-af19-49826d5059a7-featured",
+    "blog-48a03e94-0302-4ce3-8946-7815e0947b28-featured",
+    "blog-35a278e9-ca07-47cc-a2df-216cc80e4ae4-featured",
+    "blog-5de2268a-6ea3-47bd-bcc1-73a587d11127-featured",
+    "blog-6b9c68d6-ecd5-4d80-a329-b885d20ce4fb-featured",
+    "blog-75b4a22a-41ec-4bc6-aed4-e7e56425088e-featured",
+    "blog-8129278f-7adb-40f8-85ab-aae7f25de5cd-featured",
+    "blog-0ca300ae-b9c6-48e3-aef0-ae0e6bad7dfb-featured"
   ],
   "failedFiles": [
     {
@@ -943,12 +953,22 @@
     "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1768995555204-5wd0ina-Advance_HE_May_2024.png": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1768995555204-5wd0ina-Advance_HE_May_2024.png",
     "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1768392899876-fg4sqw1-CBBC_international_employ_unpacked.png": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1768392899876-fg4sqw1-CBBC_international_employ_unpacked.png",
     "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1769002735384-0spe72v-Cultivating_the_foundations_for_group_career_guidance.png": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1769002735384-0spe72v-Cultivating_the_foundations_for_group_career_guidance.png",
-    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/ae2f5d40-e5ba-4063-b9b1-104f664964ea/388e6008-8f21-4339-bc09-c3d7ecfbcbde-16_-_Phoenix170SocialMobilityMarch2024.pdf": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F388e6008-8f21-4339-bc09-c3d7ecfbcbde-16_-_Phoenix170SocialMobilityMarch2024.pdf"
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/ae2f5d40-e5ba-4063-b9b1-104f664964ea/388e6008-8f21-4339-bc09-c3d7ecfbcbde-16_-_Phoenix170SocialMobilityMarch2024.pdf": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F388e6008-8f21-4339-bc09-c3d7ecfbcbde-16_-_Phoenix170SocialMobilityMarch2024.pdf",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1765979669731-1kdbi70-Outside.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1765979669731-1kdbi70-Outside.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1766155856540-rwx0c30-GFI_blog_small.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1766155856540-rwx0c30-GFI_blog_small.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1764689155729-dg1ikx0-Elle_MacMillan_-_professional_headshot.jpeg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1764689155729-dg1ikx0-Elle_MacMillan_-_professional_headshot.jpeg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1766152544484-rlo1qic-Careers_team.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1766152544484-rlo1qic-Careers_team.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1765200119004-6vyg9zz-Claire_Toogood_profile_image.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1765200119004-6vyg9zz-Claire_Toogood_profile_image.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1766153741064-3bch670-Academic_Alignment_copy.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1766153741064-3bch670-Academic_Alignment_copy.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1767603949226-435be14-Conference_outside_2.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1767603949226-435be14-Conference_outside_2.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1768476701149-iqxi5ts-s1A6A2240.JPG": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1768476701149-iqxi5ts-s1A6A2240.JPG",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1768841017309-7vyoqga-Aberystwyth.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1768841017309-7vyoqga-Aberystwyth.jpg",
+    "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1768841471636-10b5xpq-Aberystwyth.jpg": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1768841471636-10b5xpq-Aberystwyth.jpg"
   },
-  "lastRunAt": "2026-01-30T07:47:35.035Z",
+  "lastRunAt": "2026-01-30T07:58:05.884Z",
   "stats": {
-    "totalProcessed": 1,
-    "totalMigrated": 1,
+    "totalProcessed": 10,
+    "totalMigrated": 10,
     "totalFailed": 0,
     "totalSkipped": 0
   }

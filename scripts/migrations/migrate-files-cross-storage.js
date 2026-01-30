@@ -606,7 +606,7 @@ async function getOrganizationFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('organization')
-    .select('id, logo_url, banner_url')
+    .select('id, logo_url')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -617,7 +617,7 @@ async function getOrganizationFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const org of data || []) {
-    for (const field of ['logo_url', 'banner_url']) {
+    for (const field of ['logo_url']) {
       const url = org[field];
       if (url && isSourceStorageUrl(url, sourceUrl)) {
         const parsed = parseSupabaseStorageUrl(url);
