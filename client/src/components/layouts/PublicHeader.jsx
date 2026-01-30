@@ -48,6 +48,37 @@ const DEFAULT_GRADIENT_STOPS = [
 const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 
+// Helper to generate background CSS from a background config object
+const generateBackgroundCss = (bgConfig, fallbackColor = '#3b82f6') => {
+  if (!bgConfig) return fallbackColor;
+  
+  if (bgConfig.type === 'solid') {
+    return bgConfig.solidColor || fallbackColor;
+  }
+  
+  // New format with gradientStops array
+  if (bgConfig.gradientStops && bgConfig.gradientStops.length >= 2) {
+    const angle = bgConfig.gradientAngle ?? 90;
+    const stops = [...bgConfig.gradientStops]
+      .sort((a, b) => a.position - b.position)
+      .map(stop => `${stop.color} ${stop.position}%`)
+      .join(', ');
+    return `linear-gradient(${angle}deg, ${stops})`;
+  }
+  
+  // Old nested format with gradientStart/gradientEnd
+  if (bgConfig.gradientStart && bgConfig.gradientEnd) {
+    const directionToAngle = {
+      'to right': 90, 'to left': 270, 'to bottom': 180,
+      'to top': 0, 'to bottom right': 135, 'to bottom left': 225
+    };
+    const angle = directionToAngle[bgConfig.gradientDirection] || 90;
+    return `linear-gradient(${angle}deg, ${bgConfig.gradientStart} 0%, ${bgConfig.gradientEnd} 100%)`;
+  }
+  
+  return fallbackColor;
+};
+
 // Helper to generate CSS styles from button style config (returns both normal and hover)
 const getButtonStyles = (buttonStyleConfig) => {
   if (!buttonStyleConfig) return null;
@@ -59,30 +90,26 @@ const getButtonStyles = (buttonStyleConfig) => {
   const hoverTextColor = buttonStyleConfig.hoverTextColor || textColor;
   const hover = buttonStyleConfig.hover || {};
   
-  // Generate normal background
-  let background;
-  if (bg.type === 'gradient' && bg.gradientStart && bg.gradientEnd) {
-    const direction = bg.gradientDirection || 'to right';
-    background = `linear-gradient(${direction}, ${bg.gradientStart}, ${bg.gradientEnd})`;
-  } else {
-    background = bg.solidColor || '#3b82f6';
-  }
+  // Generate normal background using the unified helper
+  const background = generateBackgroundCss(bg, '#3b82f6');
   
-  // Generate hover background
+  // Generate hover background using the unified helper
   let hoverBackground;
-  if (hover.type === 'gradient' && hover.gradientStart && hover.gradientEnd) {
-    const direction = hover.gradientDirection || 'to right';
-    hoverBackground = `linear-gradient(${direction}, ${hover.gradientStart}, ${hover.gradientEnd})`;
-  } else if (hover.type === 'solid' && hover.solidColor) {
-    hoverBackground = hover.solidColor;
+  if (hover && (hover.type || hover.gradientStops || hover.gradientStart || hover.solidColor)) {
+    hoverBackground = generateBackgroundCss(hover, background);
   } else {
     hoverBackground = background; // fallback to same as normal
   }
   
+  // Handle border - support both nested and flat formats
+  const borderWidth = border.width ?? buttonStyleConfig.borderWidth ?? 0;
+  const borderStyle = border.style || buttonStyleConfig.borderStyle || 'solid';
+  const borderColor = border.color || buttonStyleConfig.borderColor || 'transparent';
+  
   const baseStyle = {
-    borderWidth: border.width ? `${border.width}px` : '0',
-    borderStyle: border.width ? (border.style || 'solid') : 'none',
-    borderColor: border.color || 'transparent',
+    borderWidth: borderWidth ? `${borderWidth}px` : '0',
+    borderStyle: borderWidth ? borderStyle : 'none',
+    borderColor: borderColor,
     borderRadius: `${radius}px`,
   };
   
