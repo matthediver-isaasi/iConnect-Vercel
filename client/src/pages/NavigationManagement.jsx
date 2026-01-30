@@ -284,11 +284,12 @@ export default function NavigationManagementPage() {
     },
     staleTime: 60 * 1000,
   });
-  const footerColumns = tenantBranding?.footer_config?.columns || 4;
-  const columnAlignments = tenantBranding?.footer_config?.columnAlignments || {};
+  const brandingData = tenantBranding?.branding;
+  const footerColumns = brandingData?.footer_config?.columns || 4;
+  const columnAlignments = brandingData?.footer_config?.columnAlignments || {};
 
   const handleColumnAlignmentChange = async (colNum, alignment) => {
-    if (!tenantBranding) {
+    if (!brandingData) {
       toast.error('Branding settings not loaded');
       return;
     }
@@ -302,9 +303,10 @@ export default function NavigationManagementPage() {
       const response = await fetch('/api/admin/tenant-branding', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           footer_config: {
-            ...tenantBranding?.footer_config,
+            ...brandingData?.footer_config,
             columnAlignments: updatedAlignments
           }
         })
