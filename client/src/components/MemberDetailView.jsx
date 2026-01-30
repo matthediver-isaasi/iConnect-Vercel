@@ -837,7 +837,7 @@ export default function MemberDetailView({
                   </AvatarFallback>
                 ) : (
                   <>
-                    <AvatarImage src={member?.profile_photo} />
+                    <AvatarImage src={member?.profile_photo_url} />
                     <AvatarFallback className="bg-blue-100 text-blue-700">
                       {getInitials(getMemberName(member))}
                     </AvatarFallback>
