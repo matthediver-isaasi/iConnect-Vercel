@@ -7,7 +7,7 @@ import {
   isZohoCampaignsConnected 
 } from '../_lib/zohoCampaignsClient.js';
 
-const STATE_SECRET = process.env.SESSION_SECRET || process.env.INTEGRATION_ENCRYPTION_KEY;
+const STATE_SECRET = process.env.SESSION_SECRET || process.env.INTERNAL_API_SECRET;
 
 function generateSignedState(tenantId) {
   const nonce = crypto.randomBytes(16).toString('hex');

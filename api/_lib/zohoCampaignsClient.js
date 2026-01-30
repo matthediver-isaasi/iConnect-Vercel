@@ -2,7 +2,7 @@ import { supabase } from './database.js';
 import { getSessionMember, getSessionTenantUser } from './session.js';
 import crypto from 'crypto';
 
-const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
+const ENCRYPTION_KEY = process.env.INTERNAL_API_SECRET || process.env.SESSION_SECRET;
 
 const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID;
 const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
