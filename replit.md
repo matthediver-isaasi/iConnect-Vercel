@@ -148,6 +148,8 @@ Run with: `node scripts/debug-query.mjs`
 
 **Script:** `scripts/migrations/migrate-files-cross-storage.js`
 
+Copies physical files from source Supabase storage to destination multi-tenant storage, updating all database references to point to new tenant-scoped paths. Supports direct URL fields, JSONB nested URLs, and embedded URLs in HTML content.
+
 ### Usage
 
 ```bash
@@ -171,21 +173,27 @@ node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7
 | `file_repository` | File attachments |
 | `form_submission` | Form uploads (recursive JSON scan) |
 | `form_draft_submission` | Draft form uploads (recursive JSON scan) |
-| `system_settings` | Tenant branding/logos |
+| `system_settings` | Tenant branding/logos + embedded URLs in HTML content |
 | `member` | Profile photos |
 | `organization` | Organization logos |
 | `tenant` | Tenant branding assets |
-| `news_post` | News featured images + content |
+| `news_post` | News featured images + embedded URLs in content |
 | `i_edit_page` | Page builder elements (recursive JSON scan) |
 | `resource` | Resource files (dynamic URL detection) |
 | `event` | Event images (dynamic URL detection) |
-| `job_posting` | Job posting images (dynamic URL detection) |
-| `blog_post` | Blog featured images |
-| `page_banner` | Banner images + config (recursive JSON scan) |
-| `speaker` | Speaker photos |
-| `card_deck` | Card deck images (recursive JSON scan) |
+| `job_posting` | Job posting images + JSONB config URLs |
+| `blog_post` | Blog featured images + embedded URLs in content |
+| `page_banner` | Banner images + hero_content JSONB (recursive scan) |
+| `speaker` | Speaker photos + JSONB config URLs |
+| `card_deck` | Card deck images (direct + recursive JSONB scan) |
 | `navigation_item` | Nav icons + config (recursive JSON scan) |
-| `i_edit_page_element` | Page element configs (recursive JSON scan) |
+| `i_edit_page_element` | Page element configs + embedded URLs in text content |
+
+### Progress Tracking
+
+- Progress is saved to `scripts/migrations/cross-storage-migration-progress.json`
+- Already-migrated files are skipped on reruns
+- To force re-migration of specific tables, remove their entries from the progress file
 
 ### Required Environment Variables
 
@@ -200,7 +208,7 @@ node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7
 
 **Script:** `scripts/migrations/verify-file-migration.js`
 
-Checks the destination database for any records that still contain URLs pointing to the source Supabase storage. Useful for verifying migration completeness.
+Checks the destination database for any records that still contain URLs pointing to the source Supabase storage. Use this to verify migration completeness before shutting down the source database.
 
 ### Usage
 
@@ -219,5 +227,18 @@ node scripts/migrations/verify-file-migration.js --tenant-id=fd82da65-aab7-4a5c-
 
 - `0` - All tables clean, no source URLs found
 - `1` - Source URLs found in one or more tables
+
+### Recommended Workflow
+
+```bash
+# 1. Check current state
+node scripts/migrations/verify-file-migration.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d
+
+# 2. If URLs found, run migration
+node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d
+
+# 3. Verify again to confirm clean (exit code 0 = safe to shut down source)
+node scripts/migrations/verify-file-migration.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d
+```
 
 ---
