@@ -183,8 +183,17 @@ function findUrlsInValue(value, sourceUrl, results = [], path = '') {
   if (!value) return results;
   
   if (typeof value === 'string') {
-    if (isSourceStorageUrl(value, sourceUrl)) {
+    // Check if the whole string is a direct URL (starts with https://)
+    if (value.startsWith('https://') && isSourceStorageUrl(value, sourceUrl)) {
       results.push({ path, url: value });
+    } else if (isSourceStorageUrl(value, sourceUrl)) {
+      // String contains source URL but isn't a direct URL - extract embedded URLs
+      const urlMatches = value.match(/https?:\/\/[^\s"'<>]+/g) || [];
+      for (const url of urlMatches) {
+        if (isSourceStorageUrl(url, sourceUrl)) {
+          results.push({ path, url });
+        }
+      }
     }
     return results;
   }
@@ -1074,21 +1083,46 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
   for (const post of data || []) {
     // Dynamically find URL fields
     for (const [field, value] of Object.entries(post)) {
-      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
-        const parsed = parseSupabaseStorageUrl(value);
-        if (parsed) {
-          filesToMigrate.push({
-            id: `blog-${post.id}-${field}`,
-            source: 'blog_post',
-            blogId: post.id,
-            field,
-            originalUrl: value,
-            parsed,
-            fileType: 'blog_image',
-            mimeType: null,
-            isPrivate: false,
-            context: {}
-          });
+      if (value && typeof value === 'string') {
+        // Check if the whole value is a direct URL (must start with https://)
+        if (value.startsWith('https://') && isSourceStorageUrl(value, sourceUrl)) {
+          const parsed = parseSupabaseStorageUrl(value);
+          if (parsed) {
+            filesToMigrate.push({
+              id: `blog-${post.id}-${field}`,
+              source: 'blog_post',
+              blogId: post.id,
+              field,
+              originalUrl: value,
+              parsed,
+              fileType: 'blog_image',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
+        }
+        // Check for embedded URLs in text content fields
+        if (field === 'content' || field === 'body') {
+          const urlMatches = value.match(/https?:\/\/[^\s"'<>]+/g) || [];
+          for (const url of urlMatches) {
+            if (isSourceStorageUrl(url, sourceUrl)) {
+              const parsedEmbedded = parseSupabaseStorageUrl(url);
+              if (parsedEmbedded) {
+                filesToMigrate.push({
+                  id: `blog-${post.id}-content-${Buffer.from(url).toString('base64').slice(0, 10)}`,
+                  source: 'blog_post_content',
+                  blogId: post.id,
+                  originalUrl: url,
+                  parsed: parsedEmbedded,
+                  fileType: 'blog_content',
+                  mimeType: null,
+                  isPrivate: false,
+                  context: {}
+                });
+              }
+            }
+          }
         }
       }
     }
@@ -1859,6 +1893,22 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
         }
         break;
         
+      case 'blog_post_content':
+        const { data: blogContentItem } = await destClient
+          .from('blog_post')
+          .select('content')
+          .eq('id', file.blogId)
+          .single();
+        
+        if (blogContentItem?.content) {
+          const updatedBlogContent = blogContentItem.content.replace(file.originalUrl, newUrl);
+          await destClient
+            .from('blog_post')
+            .update({ content: updatedBlogContent })
+            .eq('id', file.blogId);
+        }
+        break;
+        
       case 'page_banner':
         await destClient
           .from('page_banner')
@@ -1869,20 +1919,20 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
       case 'page_banner_config':
         const { data: bannerData } = await destClient
           .from('page_banner')
-          .select('config')
+          .select(file.configField)
           .eq('id', file.bannerId)
           .single();
         
-        if (bannerData?.config) {
-          const bannerConfig = typeof bannerData.config === 'string'
-            ? JSON.parse(bannerData.config)
-            : bannerData.config;
+        if (bannerData?.[file.configField]) {
+          const bannerConfig = typeof bannerData[file.configField] === 'string'
+            ? JSON.parse(bannerData[file.configField])
+            : bannerData[file.configField];
           
           updateUrlInObject(bannerConfig, file.fieldPath, newUrl);
           
           await destClient
             .from('page_banner')
-            .update({ config: bannerConfig })
+            .update({ [file.configField]: bannerConfig })
             .eq('id', file.bannerId);
         }
         break;
@@ -1919,6 +1969,14 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
         break;
         
       case 'card_deck':
+        // Direct field update (e.g., image_url)
+        await destClient
+          .from('card_deck')
+          .update({ [file.field]: newUrl })
+          .eq('id', file.deckId);
+        break;
+        
+      case 'card_deck_cards':
         const { data: deckData } = await destClient
           .from('card_deck')
           .select('cards')
