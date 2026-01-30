@@ -11,11 +11,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight, Minus } from "lucide-react";
+import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight, Minus, GripVertical } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // Footer content block types that reference branding configuration sections
 const footerContentBlocks = [
@@ -112,6 +115,88 @@ const availableIcons = [
   { name: "MousePointer2", component: MousePointer2 },
   { name: "Download", component: Download }
 ];
+
+// Sortable footer item component for drag and drop
+function SortableFooterItem({ item, onEdit, onDelete }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const isContentBlock = item.link_type === 'content_block';
+  const blockDef = isContentBlock ? footerContentBlocks.find(b => b.type === item.content_block_type) : null;
+  const IconComponent = isContentBlock 
+    ? blockDef?.icon 
+    : availableIcons.find(i => i.name === item.icon)?.component;
+
+  return (
+    <div 
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${
+        isContentBlock 
+          ? 'bg-purple-50 border border-purple-200 hover:bg-purple-100' 
+          : 'bg-slate-50 hover:bg-slate-100'
+      } ${isDragging ? 'shadow-lg z-50' : ''}`}
+    >
+      <div 
+        {...attributes} 
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing p-1 hover:bg-slate-200 rounded"
+      >
+        <GripVertical className="w-4 h-4 text-slate-400" />
+      </div>
+      {IconComponent && <IconComponent className={`w-4 h-4 ${isContentBlock ? 'text-purple-600' : 'text-slate-500'}`} />}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-medium text-slate-800 truncate block">{item.title}</span>
+        <div className="flex items-center gap-1">
+          {isContentBlock ? (
+            <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+              {blockDef?.label || 'Content Block'}
+            </Badge>
+          ) : (
+            <span className="text-xs text-slate-500 truncate">{item.url}</span>
+          )}
+          {item.display_type === 'button' && (
+            <Badge variant="outline" className={`text-xs ml-1 ${item.button_style === 'secondary' ? 'text-blue-600 border-blue-300' : 'text-green-600 border-green-300'}`}>
+              {item.button_style === 'secondary' ? 'Secondary' : 'Primary'}
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onEdit(item)}
+          className="h-7 w-7 p-0"
+          data-testid={`button-edit-footer-${item.id}`}
+        >
+          <Pencil className="w-3 h-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDelete(item)}
+          className="h-7 w-7 p-0 text-red-600"
+          data-testid={`button-delete-footer-${item.id}`}
+        >
+          <Trash2 className="w-3 h-3" />
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 // All available pages for navigation (matching PortalMenuManagement)
 const hardcodedPublicPages = [
@@ -218,6 +303,18 @@ export default function NavigationManagementPage() {
   const [footerFilterColumn, setFooterFilterColumn] = useState("all");
 
   const queryClient = useQueryClient();
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   useEffect(() => {
     if (isAccessReady) {
@@ -533,6 +630,36 @@ export default function NavigationManagementPage() {
   const handleSelectIcon = (iconName) => {
     setEditingItem({ ...editingItem, icon: iconName });
     setShowIconSelector(false);
+  };
+
+  // Handle drag end for footer column reordering
+  const handleDragEnd = async (event, columnItems) => {
+    const { active, over } = event;
+    
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = columnItems.findIndex(item => item.id === active.id);
+    const newIndex = columnItems.findIndex(item => item.id === over.id);
+    
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reorderedItems = arrayMove(columnItems, oldIndex, newIndex);
+    
+    // Update display_order for all items in the new order
+    try {
+      await Promise.all(
+        reorderedItems.map((item, index) => 
+          base44.entities.NavigationItem.update(item.id, { display_order: index + 1 })
+        )
+      );
+      queryClient.invalidateQueries({ queryKey: ['navigation-items'] });
+      toast.success('Items reordered');
+    } catch (error) {
+      toast.error('Failed to reorder items');
+      console.error('Reorder error:', error);
+    }
   };
 
   const moveItem = async (itemId, direction) => {
@@ -947,62 +1074,27 @@ export default function NavigationManagementPage() {
                         {colItems.length === 0 ? (
                           <p className="text-sm text-slate-400 italic">No items</p>
                         ) : (
-                          colItems.map(item => {
-                            const isContentBlock = item.link_type === 'content_block';
-                            const blockDef = isContentBlock ? footerContentBlocks.find(b => b.type === item.content_block_type) : null;
-                            const IconComponent = isContentBlock 
-                              ? blockDef?.icon 
-                              : availableIcons.find(i => i.name === item.icon)?.component;
-                            return (
-                              <div 
-                                key={item.id} 
-                                className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${
-                                  isContentBlock 
-                                    ? 'bg-purple-50 border border-purple-200 hover:bg-purple-100' 
-                                    : 'bg-slate-50 hover:bg-slate-100'
-                                }`}
-                              >
-                                {IconComponent && <IconComponent className={`w-4 h-4 ${isContentBlock ? 'text-purple-600' : 'text-slate-500'}`} />}
-                                <div className="flex-1 min-w-0">
-                                  <span className="text-sm font-medium text-slate-800 truncate block">{item.title}</span>
-                                  <div className="flex items-center gap-1">
-                                    {isContentBlock ? (
-                                      <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
-                                        {blockDef?.label || 'Content Block'}
-                                      </Badge>
-                                    ) : (
-                                      <span className="text-xs text-slate-500 truncate">{item.url}</span>
-                                    )}
-                                    {item.display_type === 'button' && (
-                                      <Badge variant="outline" className={`text-xs ml-1 ${item.button_style === 'secondary' ? 'text-blue-600 border-blue-300' : 'text-green-600 border-green-300'}`}>
-                                        {item.button_style === 'secondary' ? 'Secondary' : 'Primary'}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleEdit(item)}
-                                    className="h-7 w-7 p-0"
-                                    data-testid={`button-edit-footer-${item.id}`}
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleDelete(item)}
-                                    className="h-7 w-7 p-0 text-red-600"
-                                    data-testid={`button-delete-footer-${item.id}`}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </Button>
-                                </div>
+                          <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={(event) => handleDragEnd(event, colItems)}
+                          >
+                            <SortableContext
+                              items={colItems.map(item => item.id)}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              <div className="space-y-2">
+                                {colItems.map(item => (
+                                  <SortableFooterItem
+                                    key={item.id}
+                                    item={item}
+                                    onEdit={handleEdit}
+                                    onDelete={handleDelete}
+                                  />
+                                ))}
                               </div>
-                            );
-                          })
+                            </SortableContext>
+                          </DndContext>
                         )}
                         <Button 
                           variant="ghost" 
