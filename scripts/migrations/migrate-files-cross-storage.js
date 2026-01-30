@@ -797,7 +797,7 @@ async function getResourceFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('resource')
-    .select('id, file_url, thumbnail_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -808,19 +808,19 @@ async function getResourceFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const resource of data || []) {
-    for (const field of ['file_url', 'thumbnail_url']) {
-      const url = resource[field];
-      if (url && isSourceStorageUrl(url, sourceUrl)) {
-        const parsed = parseSupabaseStorageUrl(url);
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(resource)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
         if (parsed) {
           filesToMigrate.push({
             id: `resource-${resource.id}-${field}`,
             source: 'resource',
             resourceId: resource.id,
             field,
-            originalUrl: url,
+            originalUrl: value,
             parsed,
-            fileType: field === 'file_url' ? 'resource_file' : 'resource_thumbnail',
+            fileType: 'resource_file',
             mimeType: null,
             isPrivate: false,
             context: {}
@@ -839,7 +839,7 @@ async function getEventFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('event')
-    .select('id, name, image_url, banner_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -850,17 +850,17 @@ async function getEventFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const event of data || []) {
-    for (const field of ['image_url', 'banner_url']) {
-      const url = event[field];
-      if (url && isSourceStorageUrl(url, sourceUrl)) {
-        const parsed = parseSupabaseStorageUrl(url);
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(event)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
         if (parsed) {
           filesToMigrate.push({
             id: `event-${event.id}-${field}`,
             source: 'event',
             eventId: event.id,
             field,
-            originalUrl: url,
+            originalUrl: value,
             parsed,
             fileType: 'event_image',
             mimeType: null,
@@ -881,7 +881,7 @@ async function getJobPostingFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('job_posting')
-    .select('id, title, company_logo_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -892,21 +892,24 @@ async function getJobPostingFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const job of data || []) {
-    if (job.company_logo_url && isSourceStorageUrl(job.company_logo_url, sourceUrl)) {
-      const parsed = parseSupabaseStorageUrl(job.company_logo_url);
-      if (parsed) {
-        filesToMigrate.push({
-          id: `job-${job.id}-logo`,
-          source: 'job_posting',
-          jobId: job.id,
-          field: 'company_logo_url',
-          originalUrl: job.company_logo_url,
-          parsed,
-          fileType: 'job_logo',
-          mimeType: null,
-          isPrivate: false,
-          context: {}
-        });
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(job)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
+        if (parsed) {
+          filesToMigrate.push({
+            id: `job-${job.id}-${field}`,
+            source: 'job_posting',
+            jobId: job.id,
+            field,
+            originalUrl: value,
+            parsed,
+            fileType: 'job_image',
+            mimeType: null,
+            isPrivate: false,
+            context: {}
+          });
+        }
       }
     }
   }
@@ -920,7 +923,7 @@ async function getProjectCardFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('project_card')
-    .select('id, title, attachments')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
