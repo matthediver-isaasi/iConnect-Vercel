@@ -377,6 +377,20 @@ export default function NavigationManagementPage() {
     staleTime: 60 * 1000,
   });
 
+  // Fetch active forms for form modal link type
+  const { data: availableForms = [] } = useQuery({
+    queryKey: ['forms-for-nav'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || []).filter(form => form.is_active);
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
   // Fetch tenant branding for footer columns setting
   const { data: tenantBranding, refetch: refetchBranding } = useQuery({
     queryKey: ['tenant-branding'],
@@ -594,8 +608,12 @@ export default function NavigationManagementPage() {
       toast.error('Title is required');
       return;
     }
-    if (editingItem.link_type !== 'content_block' && !editingItem.url) {
+    if (editingItem.link_type !== 'content_block' && editingItem.link_type !== 'form_modal' && !editingItem.url) {
       toast.error('URL is required');
+      return;
+    }
+    if (editingItem.link_type === 'form_modal' && !editingItem.form_slug) {
+      toast.error('Please select a form to display');
       return;
     }
 
@@ -1165,10 +1183,14 @@ export default function NavigationManagementPage() {
                       onValueChange={(value) => setEditingItem({ 
                         ...editingItem, 
                         link_type: value,
-                        // Clear URL when switching to content block
-                        url: value === 'content_block' ? '' : editingItem.url,
+                        // Clear URL when switching to content block or form modal
+                        url: (value === 'content_block' || value === 'form_modal') ? '' : editingItem.url,
                         // Set default content block type
-                        content_block_type: value === 'content_block' ? (editingItem.content_block_type || 'address') : null
+                        content_block_type: value === 'content_block' ? (editingItem.content_block_type || 'address') : null,
+                        // Clear form_slug when switching away from form_modal
+                        form_slug: value === 'form_modal' ? (editingItem.form_slug || '') : null,
+                        // Buttons work best with form modals
+                        display_type: value === 'form_modal' ? 'button' : editingItem.display_type
                       })}
                     >
                       <SelectTrigger>
@@ -1177,6 +1199,7 @@ export default function NavigationManagementPage() {
                       <SelectContent>
                         <SelectItem value="internal">Internal Page</SelectItem>
                         <SelectItem value="external">External URL</SelectItem>
+                        <SelectItem value="form_modal">Open Form</SelectItem>
                         {editingItem.location === 'footer' && (
                           <SelectItem value="content_block">Content Block</SelectItem>
                         )}
@@ -1328,8 +1351,8 @@ export default function NavigationManagementPage() {
                   </div>
                 )}
 
-                {/* URL/Page selector - hide for content blocks except CTA */}
-                {(editingItem.link_type !== 'content_block' || editingItem.content_block_type === 'cta') && (
+                {/* URL/Page selector - hide for content blocks except CTA, and hide for form_modal */}
+                {editingItem.link_type !== 'form_modal' && (editingItem.link_type !== 'content_block' || editingItem.content_block_type === 'cta') && (
                   <div className="space-y-2">
                     <Label htmlFor="url">
                       {editingItem.link_type === 'internal' ? 'Page *' : 
@@ -1365,6 +1388,35 @@ export default function NavigationManagementPage() {
                         : editingItem.content_block_type === 'cta' 
                           ? 'Enter the URL the button should link to'
                           : 'Enter the full URL including https://'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Form selector - show when link_type is form_modal */}
+                {editingItem.link_type === 'form_modal' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="form_slug">Form to Display *</Label>
+                    <Select
+                      value={editingItem.form_slug || ''}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, form_slug: value })}
+                    >
+                      <SelectTrigger data-testid="select-form-modal">
+                        <SelectValue placeholder="Select a form..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableForms.length === 0 ? (
+                          <SelectItem value="" disabled>No active forms available</SelectItem>
+                        ) : (
+                          availableForms.map(form => (
+                            <SelectItem key={form.id} value={form.slug}>
+                              {form.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Clicking this button will open the selected form in a modal dialog
                     </p>
                   </div>
                 )}

@@ -10,6 +10,8 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -301,6 +303,8 @@ export default function PublicHeader() {
   const [mobileSearchQuery, setMobileSearchQuery] = useState('');
   const [mobileSearchResults, setMobileSearchResults] = useState([]);
   const [isMobileSearching, setIsMobileSearching] = useState(false);
+  const [formModalOpen, setFormModalOpen] = useState(false);
+  const [activeFormSlug, setActiveFormSlug] = useState(null);
   const searchTimeoutRef = useRef(null);
   const mobileSearchTimeoutRef = useRef(null);
   const location = useLocation();
@@ -567,6 +571,37 @@ export default function PublicHeader() {
 
     const paddingLeft = 16 + (level * 16);
 
+    // Form modal link type - opens a form in a dialog instead of navigating
+    if (item.link_type === 'form_modal') {
+      // Don't render if form_slug is missing (invalid configuration)
+      if (!item.form_slug) {
+        return null;
+      }
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
+      return (
+        <button 
+          key={item.id}
+          onClick={() => {
+            setMobileMenuOpen(false);
+            setActiveFormSlug(item.form_slug);
+            setFormModalOpen(true);
+          }}
+          className="w-full"
+        >
+          <StyledNavDiv 
+            styleConfig={styleConfig}
+            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            {item.title}
+            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
+          </StyledNavDiv>
+        </button>
+      );
+    }
+
     // Button display type - renders with custom button style from branding
     if (item.display_type === 'button') {
       const styleName = item.button_style || 'primary';
@@ -677,6 +712,33 @@ export default function PublicHeader() {
     };
 
     const baseClassName = `nav-link text-${isTopNav ? 'white' : 'slate-900'} transition-colors ${getFontClass()} flex items-center gap-1`;
+
+    // Form modal link type - opens a form in a dialog instead of navigating
+    if (item.link_type === 'form_modal') {
+      // Don't render if form_slug is missing (invalid configuration)
+      if (!item.form_slug) {
+        return null;
+      }
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
+      return (
+        <button 
+          key={item.id}
+          onClick={() => {
+            setActiveFormSlug(item.form_slug);
+            setFormModalOpen(true);
+          }}
+          className="cursor-pointer"
+        >
+          <StyledNavButton styleConfig={styleConfig}>
+            {Icon && <Icon className="w-4 h-4 mr-2" />}
+            {item.title}
+            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+          </StyledNavButton>
+        </button>
+      );
+    }
 
     // Button display type - renders with custom button style from branding
     if (item.display_type === 'button') {
@@ -1478,6 +1540,29 @@ export default function PublicHeader() {
         </div>,
         document.body
       )}
+
+      {/* Form Modal Dialog - displays form when triggered by form_modal nav items */}
+      <Dialog open={formModalOpen} onOpenChange={setFormModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {activeFormSlug ? (
+            <IEditFormElement 
+              element={{
+                content: {
+                  form_slug: activeFormSlug,
+                  background_type: 'color',
+                  background_color: 'transparent'
+                }
+              }}
+              memberInfo={null}
+              organizationInfo={null}
+            />
+          ) : (
+            <div className="text-center py-8 px-6">
+              <p className="text-slate-600">Form not found or inactive.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
