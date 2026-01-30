@@ -173,15 +173,14 @@ node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7
 | `form_draft_submission` | Draft form uploads (recursive JSON scan) |
 | `system_settings` | Tenant branding/logos |
 | `member` | Profile photos |
-| `organization` | Organization logos/images |
+| `organization` | Organization logos |
 | `tenant` | Tenant branding assets |
-| `news` | News featured images + content |
-| `iedit_page` | Page builder elements (recursive JSON scan) |
-| `resource` | Resource files + thumbnails |
-| `event` | Event images |
-| `job_posting` | Job posting images |
-| `project_card` | Card attachments (JSON array) |
-| `blog_post` | Blog featured images + content |
+| `news_post` | News featured images + content |
+| `i_edit_page` | Page builder elements (recursive JSON scan) |
+| `resource` | Resource files (dynamic URL detection) |
+| `event` | Event images (dynamic URL detection) |
+| `job_posting` | Job posting images (dynamic URL detection) |
+| `blog_post` | Blog featured images |
 | `page_banner` | Banner images + config (recursive JSON scan) |
 | `speaker` | Speaker photos |
 | `card_deck` | Card deck images (recursive JSON scan) |
@@ -195,5 +194,31 @@ node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7
 - `SOURCE_SUPABASE_KEY` - Legacy Supabase service role key
 - `DEST_SUPABASE_URL` - New Supabase project URL
 - `DEST_SUPABASE_KEY` - New Supabase service role key
+
+---
+
+## Verify File Migration Script
+
+**Script:** `scripts/migrations/verify-file-migration.js`
+
+Checks the destination database for any records that still contain URLs pointing to the source Supabase storage. Useful for verifying migration completeness.
+
+### Usage
+
+```bash
+# Check all tables
+node scripts/migrations/verify-file-migration.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d
+
+# Check specific tables
+node scripts/migrations/verify-file-migration.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d --tables=member,organization
+
+# Verbose mode (show individual URLs found)
+node scripts/migrations/verify-file-migration.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d --verbose
+```
+
+### Exit Codes
+
+- `0` - All tables clean, no source URLs found
+- `1` - Source URLs found in one or more tables
 
 ---
