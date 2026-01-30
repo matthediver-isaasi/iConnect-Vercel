@@ -56,6 +56,7 @@ export default function PublicLayout({ children, currentPageName }) {
   const [socialIcons, setSocialIcons] = useState(null);
   const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
   const [footerNavItems, setFooterNavItems] = useState([]);
+  const [typographyStyles, setTypographyStyles] = useState([]);
   const [platformDefaults, setPlatformDefaults] = useState({
     platformBrandingText: 'Powered by isaasi',
     platformBrandingUrl: 'https://isaasi.co.uk'
@@ -142,6 +143,14 @@ export default function PublicLayout({ children, currentPageName }) {
           setFooterNavItems(footerItems);
         } catch (e) {
           console.error('Failed to fetch footer navigation items:', e);
+        }
+
+        // Fetch typography styles for heading content blocks
+        try {
+          const styles = await publicClient.listTypographyStyles();
+          setTypographyStyles(styles || []);
+        } catch (e) {
+          console.error('Failed to fetch typography styles:', e);
         }
 
         // Fetch platform defaults for branding text
@@ -355,20 +364,40 @@ export default function PublicLayout({ children, currentPageName }) {
                 
                 switch (blockType) {
                   case 'heading':
+                    // Look up the typography style if one is configured
+                    const headingStyleId = item.config?.typography_style_id;
+                    const headingStyle = headingStyleId ? typographyStyles.find(s => s.id === headingStyleId) : null;
+                    
+                    // Apply typography style or use default styling
+                    const headingStyles = headingStyle ? {
+                      fontFamily: headingStyle.font_family || 'Poppins, sans-serif',
+                      fontSize: `${headingStyle.font_size || 14}px`,
+                      fontWeight: headingStyle.font_weight || 600,
+                      lineHeight: headingStyle.line_height || 1.2,
+                      letterSpacing: headingStyle.letter_spacing ? `${headingStyle.letter_spacing}px` : '0px',
+                      textTransform: headingStyle.text_transform || 'none',
+                      marginBottom: headingStyle.margin_bottom ? `${headingStyle.margin_bottom}px` : '12px',
+                      color: headingStyle.color || footerTextColor
+                    } : {
+                      fontFamily: 'Poppins, sans-serif', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '5px',
+                      color: footerTextColor,
+                      fontSize: '14px',
+                      marginBottom: '12px'
+                    };
+                    
                     return (
                       <div key={item.id}>
                         <h4 
-                          className="text-sm mb-3" 
-                          style={{ 
-                            fontFamily: 'Poppins, sans-serif', 
-                            textTransform: 'uppercase', 
-                            letterSpacing: '5px',
-                            color: footerTextColor
-                          }}
+                          className="text-sm" 
+                          style={headingStyles}
                         >
                           {item.title || 'Section'}
                         </h4>
-                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        {!headingStyle && (
+                          <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        )}
                       </div>
                     );
                   case 'logo':

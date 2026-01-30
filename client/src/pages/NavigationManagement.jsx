@@ -266,6 +266,19 @@ export default function NavigationManagementPage() {
     staleTime: 60 * 1000,
   });
 
+  // Fetch typography styles for heading content blocks
+  const { data: typographyStyles = [] } = useQuery({
+    queryKey: ['typography-styles'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.TypographyStyle.list({ filter: { is_active: true } });
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
   // Fetch tenant branding for footer columns setting
   const { data: tenantBranding, refetch: refetchBranding } = useQuery({
     queryKey: ['tenant-branding'],
@@ -1144,6 +1157,38 @@ export default function NavigationManagementPage() {
                         </Select>
                         <p className="text-xs text-slate-500">
                           This block will display content from your branding settings
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Typography Style selector - only show for heading content blocks */}
+                    {editingItem.link_type === 'content_block' && editingItem.content_block_type === 'heading' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="typography_style">Typography Style</Label>
+                        <Select
+                          value={editingItem.config?.typography_style_id || 'default'}
+                          onValueChange={(value) => setEditingItem({ 
+                            ...editingItem, 
+                            config: { 
+                              ...editingItem.config, 
+                              typography_style_id: value === 'default' ? null : value 
+                            } 
+                          })}
+                        >
+                          <SelectTrigger data-testid="select-typography-style">
+                            <SelectValue placeholder="Select a typography style..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Default (Uppercase)</SelectItem>
+                            {typographyStyles.map(style => (
+                              <SelectItem key={style.id} value={style.id}>
+                                {style.name} ({style.style_type?.toUpperCase()})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">
+                          Select a typography style from your settings, or use the default style
                         </p>
                       </div>
                     )}

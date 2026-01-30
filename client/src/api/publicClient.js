@@ -226,6 +226,11 @@ class PublicClient {
     return this._fetch('/api/public/navigation-items');
   }
   
+  // Typography Styles
+  async listTypographyStyles() {
+    return this._fetch('/api/public/typography-styles');
+  }
+  
   // Pages (IEdit CMS pages)
   async getPage(slug) {
     if (!slug) return null;

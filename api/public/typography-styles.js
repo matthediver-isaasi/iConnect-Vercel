@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
   if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('[Public Navigation] Missing Supabase credentials');
+    console.error('[Public Typography] Missing Supabase credentials');
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
@@ -47,45 +47,36 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Note: navigation_item uses 'title' not 'label' column
-    const { data: items, error } = await supabase
-      .from('navigation_item')
+    const { data: styles, error } = await supabase
+      .from('typography_style')
       .select(`
         id,
-        title,
-        url,
-        location,
-        display_order,
-        is_active,
-        parent_id,
-        open_in_new_tab,
-        icon,
-        link_type,
-        display_type,
-        button_style,
-        highlight_style,
-        footer_column,
-        content_block_type,
-        config
+        name,
+        style_type,
+        font_family,
+        font_size,
+        font_size_mobile,
+        font_weight,
+        line_height,
+        letter_spacing,
+        text_transform,
+        color,
+        margin_bottom,
+        is_default,
+        is_active
       `)
       .eq('tenant_id', tenant.id)
       .eq('is_active', true)
-      .order('display_order', { ascending: true });
+      .order('name', { ascending: true });
 
     if (error) {
-      console.error('[Public Navigation] Query error:', error);
-      return res.status(500).json({ error: 'Failed to fetch navigation items' });
+      console.error('[Public Typography] Query error:', error);
+      return res.status(500).json({ error: 'Failed to fetch typography styles' });
     }
 
-    // Transform to match expected frontend shape (label instead of title)
-    const transformedItems = (items || []).map(item => ({
-      ...item,
-      label: item.title
-    }));
-
-    return res.status(200).json(transformedItems);
+    return res.status(200).json(styles || []);
   } catch (error) {
-    console.error('[Public Navigation] Error:', error);
+    console.error('[Public Typography] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
