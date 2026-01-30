@@ -1163,31 +1163,51 @@ export default function NavigationManagementPage() {
 
                     {/* Typography Style selector - only show for heading content blocks */}
                     {editingItem.link_type === 'content_block' && editingItem.content_block_type === 'heading' && (
-                      <div className="space-y-2">
-                        <Label htmlFor="typography_style">Typography Style</Label>
-                        <Select
-                          value={editingItem.typography_style_id || 'default'}
-                          onValueChange={(value) => setEditingItem({ 
-                            ...editingItem, 
-                            typography_style_id: value === 'default' ? null : value 
-                          })}
-                        >
-                          <SelectTrigger data-testid="select-typography-style">
-                            <SelectValue placeholder="Select a typography style..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">Default (Uppercase)</SelectItem>
-                            {typographyStyles.map(style => (
-                              <SelectItem key={style.id} value={style.id}>
-                                {style.name} ({style.style_type?.toUpperCase()})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-slate-500">
-                          Select a typography style from your settings, or use the default style
-                        </p>
-                      </div>
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="typography_style">Typography Style</Label>
+                          <Select
+                            value={editingItem.typography_style_id || 'default'}
+                            onValueChange={(value) => setEditingItem({ 
+                              ...editingItem, 
+                              typography_style_id: value === 'default' ? null : value 
+                            })}
+                          >
+                            <SelectTrigger data-testid="select-typography-style">
+                              <SelectValue placeholder="Select a typography style..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">Default (Uppercase)</SelectItem>
+                              {typographyStyles.map(style => (
+                                <SelectItem key={style.id} value={style.id}>
+                                  {style.name} ({style.style_type?.toUpperCase()})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-slate-500">
+                            Select a typography style from your settings, or use the default style
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="font_size_override">Font Size Override (px)</Label>
+                          <Input
+                            id="font_size_override"
+                            type="number"
+                            min="8"
+                            max="200"
+                            value={editingItem.font_size_override || ''}
+                            onChange={(e) => setEditingItem({ 
+                              ...editingItem, 
+                              font_size_override: e.target.value ? parseInt(e.target.value, 10) : null 
+                            })}
+                            placeholder="Leave empty to use style default"
+                          />
+                          <p className="text-xs text-slate-500">
+                            Override the font size from the typography style (optional)
+                          </p>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

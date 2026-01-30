@@ -369,9 +369,14 @@ export default function PublicLayout({ children, currentPageName }) {
                     const headingStyle = headingStyleId ? typographyStyles.find(s => s.id === headingStyleId) : null;
                     
                     // Apply typography style or use default styling
+                    // font_size_override takes precedence over the typography style's font size
+                    const fontSize = item.font_size_override 
+                      ? `${item.font_size_override}px` 
+                      : (headingStyle ? `${headingStyle.font_size || 14}px` : '14px');
+                    
                     const headingStyles = headingStyle ? {
                       fontFamily: headingStyle.font_family || 'Poppins, sans-serif',
-                      fontSize: `${headingStyle.font_size || 14}px`,
+                      fontSize: fontSize,
                       fontWeight: headingStyle.font_weight || 600,
                       lineHeight: headingStyle.line_height || 1.2,
                       letterSpacing: headingStyle.letter_spacing ? `${headingStyle.letter_spacing}px` : '0px',
@@ -383,7 +388,7 @@ export default function PublicLayout({ children, currentPageName }) {
                       textTransform: 'uppercase', 
                       letterSpacing: '5px',
                       color: footerTextColor,
-                      fontSize: '14px',
+                      fontSize: fontSize,
                       marginBottom: '12px'
                     };
                     
