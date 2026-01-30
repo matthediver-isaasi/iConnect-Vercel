@@ -503,7 +503,7 @@ async function getArticleFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('article')
-    .select('id, title, featured_image, content')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -648,7 +648,7 @@ async function getTenantBrandingFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('tenant')
-    .select('id, logo_url, favicon_url')
+    .select('*')
     .eq('id', tenantId);
   
   if (error) {
@@ -690,7 +690,7 @@ async function getNewsFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('news_post')
-    .select('id, title, featured_image, content')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -751,7 +751,7 @@ async function getIEditPageFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('i_edit_page')
-    .select('id, title, elements')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -974,7 +974,7 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('blog_post')
-    .select('id, title, feature_image_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1014,7 +1014,7 @@ async function getPageBannerFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('page_banner')
-    .select('id, title, image_url, config')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1025,46 +1025,46 @@ async function getPageBannerFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const banner of data || []) {
-    if (banner.image_url && isSourceStorageUrl(banner.image_url, sourceUrl)) {
-      const parsed = parseSupabaseStorageUrl(banner.image_url);
-      if (parsed) {
-        filesToMigrate.push({
-          id: `banner-${banner.id}-image`,
-          source: 'page_banner',
-          bannerId: banner.id,
-          field: 'image_url',
-          originalUrl: banner.image_url,
-          parsed,
-          fileType: 'banner_image',
-          mimeType: null,
-          isPrivate: false,
-          context: {}
-        });
-      }
-    }
-    
-    if (banner.config) {
-      const config = typeof banner.config === 'string' 
-        ? JSON.parse(banner.config) 
-        : banner.config;
-      
-      const foundUrls = findUrlsInValue(config, sourceUrl);
-      for (const { path, url } of foundUrls) {
-        const parsed = parseSupabaseStorageUrl(url);
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(banner)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
         if (parsed) {
-          const safePathId = path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
           filesToMigrate.push({
-            id: `banner-${banner.id}-config-${safePathId}`,
-            source: 'page_banner_config',
+            id: `banner-${banner.id}-${field}`,
+            source: 'page_banner',
             bannerId: banner.id,
-            fieldPath: path,
-            originalUrl: url,
+            field,
+            originalUrl: value,
             parsed,
-            fileType: 'banner_config_image',
+            fileType: 'banner_image',
             mimeType: null,
             isPrivate: false,
             context: {}
           });
+        }
+      }
+      // Check for JSONB config fields
+      if (value && typeof value === 'object') {
+        const foundUrls = findUrlsInValue(value, sourceUrl);
+        for (const { path, url } of foundUrls) {
+          const parsed = parseSupabaseStorageUrl(url);
+          if (parsed) {
+            const safePathId = path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
+            filesToMigrate.push({
+              id: `banner-${banner.id}-${field}-${safePathId}`,
+              source: 'page_banner_config',
+              bannerId: banner.id,
+              configField: field,
+              fieldPath: path,
+              originalUrl: url,
+              parsed,
+              fileType: 'banner_config_image',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
         }
       }
     }
@@ -1079,7 +1079,7 @@ async function getSpeakerFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('speaker')
-    .select('id, name, photo_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1118,7 +1118,7 @@ async function getCardDeckFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('card_deck')
-    .select('id, title, cards')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1165,7 +1165,7 @@ async function getNavigationItemFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('navigation_item')
-    .select('id, title, icon_url, config')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1226,7 +1226,7 @@ async function getIEditPageElementFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('i_edit_page_element')
-    .select('id, element_type, config')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1271,7 +1271,7 @@ async function getWallOfFameFiles(destClient, tenantId, sourceUrl) {
   
   const { data: persons, error: personsError } = await destClient
     .from('wall_of_fame_person')
-    .select('id, name, photo_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (!personsError && persons) {
@@ -1298,7 +1298,7 @@ async function getWallOfFameFiles(destClient, tenantId, sourceUrl) {
   
   const { data: sections, error: sectionsError } = await destClient
     .from('wall_of_fame_section')
-    .select('id, title, background_image_url')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (!sectionsError && sections) {
