@@ -56,6 +56,8 @@ export default function PublicLayout({ children, currentPageName }) {
   const [socialIcons, setSocialIcons] = useState(null);
   const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
   const [footerNavItems, setFooterNavItems] = useState([]);
+  const [navFormModalOpen, setNavFormModalOpen] = useState(false);
+  const [activeNavFormSlug, setActiveNavFormSlug] = useState(null);
   const [typographyStyles, setTypographyStyles] = useState([]);
   const [platformDefaults, setPlatformDefaults] = useState({
     platformBrandingText: 'Powered by isaasi',
@@ -664,6 +666,32 @@ export default function PublicLayout({ children, currentPageName }) {
                   return renderContentBlock(item);
                 }
                 
+                // Form modal link type - opens a form in a dialog instead of navigating
+                if (item.link_type === 'form_modal') {
+                  // Don't render if form_slug is missing (invalid configuration)
+                  if (!item.form_slug) {
+                    return null;
+                  }
+                  return (
+                    <div key={item.id} className="mb-3">
+                      <Button 
+                        onClick={() => {
+                          setActiveNavFormSlug(item.form_slug);
+                          setNavFormModalOpen(true);
+                        }}
+                        className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4 cursor-pointer"
+                        style={{ 
+                          fontFamily: 'Poppins, sans-serif',
+                          ...getButtonStyle(item.button_style || 'primary')
+                        }}
+                      >
+                        {item.title}
+                        <ArrowUpRight className="ml-0.5 w-4 h-4" />
+                      </Button>
+                    </div>
+                  );
+                }
+                
                 const linkUrl = item.link_type === 'internal' ? createPageUrl(item.url) : item.url;
                 const isButton = item.display_type === 'button';
                 
@@ -860,6 +888,29 @@ export default function PublicLayout({ children, currentPageName }) {
           ) : (
             <div className="text-center py-8 px-6">
               <p className="text-slate-600">Newsletter signup form not found or inactive.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Navigation Item Form Modal Dialog */}
+      <Dialog open={navFormModalOpen} onOpenChange={setNavFormModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {activeNavFormSlug ? (
+            <IEditFormElement 
+              element={{
+                content: {
+                  form_slug: activeNavFormSlug,
+                  background_type: 'color',
+                  background_color: 'transparent'
+                }
+              }}
+              memberInfo={null}
+              organizationInfo={null}
+            />
+          ) : (
+            <div className="text-center py-8 px-6">
+              <p className="text-slate-600">Form not found or inactive.</p>
             </div>
           )}
         </DialogContent>
