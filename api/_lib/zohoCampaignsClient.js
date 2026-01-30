@@ -2,7 +2,7 @@ import { supabase } from './database.js';
 import { getSessionMember, getSessionTenantUser } from './session.js';
 import crypto from 'crypto';
 
-const ENCRYPTION_KEY = process.env.INTERNAL_API_SECRET || process.env.SESSION_SECRET;
+const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
 
 const DEFAULT_ACCOUNTS_DOMAIN = 'https://accounts.zoho.com';
 const DEFAULT_CAMPAIGNS_DOMAIN = 'https://campaigns.zoho.com';
