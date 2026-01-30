@@ -81,17 +81,19 @@ export default function CommunicationsManagementPage() {
     const assignedRoleIds = getCategoryRoles(categoryId);
     if (assignedRoleIds.length === 0) return [];
     
+    // Filter eligible members by role and exclude those who opted out of ALL communications
     const eligibleMembers = allMembers.filter(member => 
-      assignedRoleIds.includes(member.role_id)
+      assignedRoleIds.includes(member.role_id) && 
+      member.communications_opted_out_all !== true
     );
     
-    // Find members who have explicitly opted OUT (is_subscribed === false)
+    // Find members who have explicitly opted OUT of this specific category (is_subscribed === false)
     // All eligible members are considered subscribed by default
     const optedOutMemberIds = preferences
       .filter(p => p.category_id === categoryId && p.is_subscribed === false)
       .map(p => p.member_id);
     
-    // Return eligible members who haven't opted out
+    // Return eligible members who haven't opted out of this category
     return eligibleMembers.filter(member => !optedOutMemberIds.includes(member.id));
   };
 

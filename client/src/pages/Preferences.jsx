@@ -1297,8 +1297,11 @@ export default function PreferencesPage() {
         }
       }
       
+      // Update sessionMember state immediately for UI update
+      setSessionMember(prev => prev ? { ...prev, communications_opted_out_all: optOut } : prev);
+      
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ["freshMemberData", memberRecord.id] });
+      queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
       queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
       
       // Update localStorage session data
@@ -2587,7 +2590,10 @@ export default function PreferencesPage() {
               </div>
               
               {isOptedOutAll && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                <div 
+                  className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+                  data-testid="comm-opt-out-warning"
+                >
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span>You have opted out of all communications. Turn off the toggle above to manage individual preferences.</span>
                 </div>
