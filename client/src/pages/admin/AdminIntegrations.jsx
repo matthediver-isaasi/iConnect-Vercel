@@ -57,6 +57,8 @@ export default function AdminIntegrations() {
   });
   const [zohoEnabled, setZohoEnabled] = useState(false);
   const [zohoSaving, setZohoSaving] = useState(false);
+  const [zohoConnecting, setZohoConnecting] = useState(false);
+  const [zohoConnected, setZohoConnected] = useState(false);
   const [hasZohoCredentials, setHasZohoCredentials] = useState(false);
   const [showZohoSecrets, setShowZohoSecrets] = useState(false);
 
@@ -92,6 +94,18 @@ export default function AdminIntegrations() {
     checkAuth();
   }, [navigate]);
 
+  const fetchZohoStatus = async () => {
+    try {
+      const response = await fetch('/api/zoho-campaigns/oauth?action=status', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setZohoConnected(data.connected === true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Zoho status:', err);
+    }
+  };
+
   const fetchIntegrations = async () => {
     try {
       const response = await fetch('/api/admin/integrations', { credentials: 'include' });
@@ -124,9 +138,30 @@ export default function AdminIntegrations() {
             });
           }
         }
+        
+        fetchZohoStatus();
       }
     } catch (err) {
       console.error('Failed to fetch integrations:', err);
+    }
+  };
+
+  const handleConnectZoho = async () => {
+    setZohoConnecting(true);
+    try {
+      const response = await fetch('/api/zoho-campaigns/oauth?action=auth-url', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to get auth URL');
+      const { authUrl } = await response.json();
+      window.location.href = authUrl;
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Connection Failed",
+        description: "Failed to initiate Zoho connection"
+      });
+      setZohoConnecting(false);
     }
   };
 
@@ -682,16 +717,46 @@ export default function AdminIntegrations() {
                   )}
                   Save Credentials
                 </Button>
+                
+                {hasZohoCredentials && !zohoConnected && (
+                  <Button
+                    onClick={handleConnectZoho}
+                    disabled={zohoConnecting}
+                    className="bg-orange-500"
+                    data-testid="button-connect-zoho"
+                  >
+                    {zohoConnecting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plug className="h-4 w-4 mr-2" />
+                    )}
+                    Connect Zoho Account
+                  </Button>
+                )}
               </div>
 
-              {hasZohoCredentials && zohoEnabled && (
+              {hasZohoCredentials && zohoConnected && (
                 <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-5 w-5 text-green-400" />
                     <div>
-                      <p className="text-sm font-medium text-green-400">Credentials Configured</p>
+                      <p className="text-sm font-medium text-green-400">Connected to Zoho Campaigns</p>
                       <p className="text-xs text-slate-400">
-                        Go to Communications Management to connect your Zoho account and map categories to lists.
+                        Go to Communications Management to map categories to Zoho lists and sync subscribers.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {hasZohoCredentials && !zohoConnected && (
+                <div className="rounded-lg bg-amber-500/10 p-4 border border-amber-500/30">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-400">Not Connected</p>
+                      <p className="text-xs text-slate-400">
+                        Click "Connect Zoho Account" to authorize access to your Zoho Campaigns account.
                       </p>
                     </div>
                   </div>

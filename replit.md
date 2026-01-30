@@ -77,20 +77,16 @@ COMMENT ON COLUMN communication_category.zoho_list_id IS 'Zoho Campaigns mailing
    - Create a "Server-based Application"
    - Add redirect URI: `https://your-domain.com/api/zoho-campaigns/oauth?action=callback`
 
-2. **Configure Credentials in Admin Integrations:**
+2. **Configure and Connect in Admin Integrations:**
    - Navigate to Admin > Integrations page
    - Find the Zoho Campaigns section
    - Select your Zoho region (US, EU, IN, AU) - this determines OAuth and API domains
    - Enter your Client ID and Client Secret from Zoho API Console
-   - Click Save
-
-3. **Connect OAuth from Communications Management:**
-   - Navigate to Communications Management page
-   - Click "Connect Zoho" button
-   - Authorize the application in Zoho
+   - Click "Save Credentials"
+   - Click "Connect Zoho Account" to authorize
    - You'll be redirected back with connection confirmed
 
-4. **Map Categories to Lists:**
+3. **Map Categories to Lists:**
    - For each communication category, select a Zoho mailing list from the dropdown
    - Click "Sync" to push current subscribers to that list
 

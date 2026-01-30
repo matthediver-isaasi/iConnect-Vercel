@@ -119,19 +119,7 @@ export default function CommunicationsManagementPage() {
   const isZohoConnected = zohoStatus?.connected === true;
   const isZohoCredentialsConfigured = zohoStatus?.credentialsConfigured === true;
 
-  const handleConnectZoho = async () => {
-    try {
-      const response = await fetch('/api/zoho-campaigns/oauth?action=auth-url', {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to get auth URL');
-      const { authUrl } = await response.json();
-      window.location.href = authUrl;
-    } catch (error) {
-      toast.error('Failed to initiate Zoho connection');
-    }
-  };
-
+  
   const handleSyncCategory = async (categoryId) => {
     setSyncingCategory(categoryId);
     try {
@@ -584,8 +572,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     <p className="text-sm text-slate-500">
                       {zohoStatusLoading ? 'Checking connection...' : 
                        isZohoConnected ? 'Connected - sync your lists to Zoho Campaigns' : 
-                       !isZohoCredentialsConfigured ? 'Configure credentials in Integrations first' :
-                       'Connect to sync subscribers with Zoho Campaigns'}
+                       !isZohoCredentialsConfigured ? 'Configure and connect in Admin Integrations' :
+                       'Connect your Zoho account in Admin Integrations'}
                     </p>
                   </div>
                 </div>
@@ -606,23 +594,13 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       Sync All Lists
                     </Button>
                   )}
-                  {!isZohoConnected && !zohoStatusLoading && isZohoCredentialsConfigured && (
-                    <Button
-                      onClick={handleConnectZoho}
-                      className="bg-orange-500 hover:bg-orange-600"
-                      data-testid="button-connect-zoho"
-                    >
-                      <Link2 className="w-4 h-4 mr-2" />
-                      Connect Zoho
-                    </Button>
-                  )}
-                  {!isZohoConnected && !zohoStatusLoading && !isZohoCredentialsConfigured && (
+                  {!isZohoConnected && !zohoStatusLoading && (
                     <Button
                       variant="outline"
                       onClick={() => window.location.href = '/admin/integrations'}
                       data-testid="button-configure-zoho"
                     >
-                      Configure in Integrations
+                      {isZohoCredentialsConfigured ? 'Connect in Integrations' : 'Configure in Integrations'}
                     </Button>
                   )}
                 </div>
