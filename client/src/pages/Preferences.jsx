@@ -773,48 +773,46 @@ export default function PreferencesPage() {
   const { data: sectionConfig = DEFAULT_SECTION_CONFIG } = useQuery({
     queryKey: ['preferences-section-order'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('setting_value')
-        .eq('setting_key', 'preferences_section_order')
-        .limit(1);
-      if (error) return DEFAULT_SECTION_CONFIG;
-      if (data?.[0]?.setting_value) {
-        try {
-          const parsed = JSON.parse(data[0].setting_value);
-          if (Array.isArray(parsed)) {
-            let storedConfig;
-            // Handle both old format (array of strings) and new format (array of objects)
-            if (parsed.length > 0 && typeof parsed[0] === 'object') {
-              // New format: [{ id: 'section_id', visible: true }, ...]
-              storedConfig = parsed;
-            } else {
-              // Old format: ['section_id', ...] - convert to new format with all visible
-              storedConfig = parsed.map(id => ({ id, visible: true }));
-            }
-            
-            // Remove deprecated 'engagement' section (now split into separate cards)
-            storedConfig = storedConfig.filter(s => s.id !== 'engagement');
-            
-            // Ensure password_security is always at the bottom
-            const passwordSection = storedConfig.find(s => s.id === 'password_security');
-            storedConfig = storedConfig.filter(s => s.id !== 'password_security');
-            
-            // Merge with DEFAULT_SECTION_CONFIG to include any new sections
-            // that weren't in the stored config
-            const storedIds = storedConfig.map(s => s.id);
-            const newSections = DEFAULT_SECTION_CONFIG.filter(
-              defaultSection => !storedIds.includes(defaultSection.id) && defaultSection.id !== 'password_security'
-            );
-            
-            // Add new sections, then password_security at the very end
-            return [...storedConfig, ...newSections, passwordSection || { id: 'password_security', visible: true }];
-          }
-        } catch {
-          return DEFAULT_SECTION_CONFIG;
+      try {
+        // Use base44.entities.SystemSettings.list() to match PreferenceSettings.jsx approach
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'preferences_section_order');
+        
+        if (!setting?.setting_value) return DEFAULT_SECTION_CONFIG;
+        
+        const parsed = JSON.parse(setting.setting_value);
+        if (!Array.isArray(parsed)) return DEFAULT_SECTION_CONFIG;
+        
+        let storedConfig;
+        // Handle both old format (array of strings) and new format (array of objects)
+        if (parsed.length > 0 && typeof parsed[0] === 'object') {
+          // New format: [{ id: 'section_id', visible: true }, ...]
+          storedConfig = parsed;
+        } else {
+          // Old format: ['section_id', ...] - convert to new format with all visible
+          storedConfig = parsed.map(id => ({ id, visible: true }));
         }
+        
+        // Remove deprecated 'engagement' section (now split into separate cards)
+        storedConfig = storedConfig.filter(s => s.id !== 'engagement');
+        
+        // Ensure password_security is always at the bottom
+        const passwordSection = storedConfig.find(s => s.id === 'password_security');
+        storedConfig = storedConfig.filter(s => s.id !== 'password_security');
+        
+        // Merge with DEFAULT_SECTION_CONFIG to include any new sections
+        // that weren't in the stored config
+        const storedIds = storedConfig.map(s => s.id);
+        const newSections = DEFAULT_SECTION_CONFIG.filter(
+          defaultSection => !storedIds.includes(defaultSection.id) && defaultSection.id !== 'password_security'
+        );
+        
+        // Add new sections, then password_security at the very end
+        return [...storedConfig, ...newSections, passwordSection || { id: 'password_security', visible: true }];
+      } catch (error) {
+        console.error('[Preferences] Error fetching section config:', error);
+        return DEFAULT_SECTION_CONFIG;
       }
-      return DEFAULT_SECTION_CONFIG;
     },
     staleTime: 60000
   });
