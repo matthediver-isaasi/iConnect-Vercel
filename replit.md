@@ -68,6 +68,33 @@ ALTER TABLE communication_category
 ADD COLUMN IF NOT EXISTS zoho_list_id TEXT;
 
 COMMENT ON COLUMN communication_category.zoho_list_id IS 'Zoho Campaigns mailing list ID for syncing subscribers';
+
+-- Create zoho_sync_job table for background sync job tracking
+CREATE TABLE IF NOT EXISTS zoho_sync_job (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id VARCHAR NOT NULL,
+    category_id VARCHAR NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'pending',
+    current_offset INTEGER NOT NULL DEFAULT 0,
+    total_members INTEGER NOT NULL DEFAULT 0,
+    subscribed INTEGER NOT NULL DEFAULT 0,
+    unsubscribed INTEGER NOT NULL DEFAULT 0,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Add index for faster tenant lookups
+CREATE INDEX IF NOT EXISTS idx_zoho_sync_job_tenant_status 
+ON zoho_sync_job(tenant_id, status);
+
+-- Add index for category lookups
+CREATE INDEX IF NOT EXISTS idx_zoho_sync_job_category 
+ON zoho_sync_job(category_id, status);
+
+COMMENT ON TABLE zoho_sync_job IS 'Tracks background Zoho Campaigns sync jobs for each category';
 ```
 
 ### Setup Instructions
@@ -92,9 +119,12 @@ COMMENT ON COLUMN communication_category.zoho_list_id IS 'Zoho Campaigns mailing
 
 ### How Sync Works
 
-- **Admin Sync:** Click "Sync" on any category to push all eligible, subscribed members to the mapped Zoho list
-- **Member Real-time Sync:** When a member changes their subscription preferences or opts out of all communications, their status is automatically synced to all mapped Zoho lists
-- **Opt-out Handling:** Members who opt out of all communications are removed from all Zoho lists
+- **Background Job Processing:** Sync runs as a background job that processes members in batches of 50 with 10 concurrent API calls. This avoids serverless timeouts and allows syncing thousands of members reliably.
+- **Admin Sync:** Click "Sync" on any category to push all eligible, subscribed members to the mapped Zoho list. Progress is shown in real-time.
+- **Job Recovery:** If you refresh the page during a sync, the running job is automatically detected and resumed.
+- **Member Real-time Sync:** When a member changes their subscription preferences or opts out of all communications, their status is automatically synced to all mapped Zoho lists.
+- **Opt-out Handling:** Members who opt out of all communications are removed from all Zoho lists.
+- **Deleted Members:** Members with anonymized emails (deleted_*@deleted.local) are excluded from sync.
 
 ### API Endpoints
 
