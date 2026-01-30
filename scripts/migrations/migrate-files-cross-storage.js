@@ -410,7 +410,7 @@ async function getFormSubmissionFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('form_submission')
-    .select('id, form_id, submission_data, attachments')
+    .select('id, form_id, submission_data')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -446,39 +446,6 @@ async function getFormSubmissionFiles(destClient, tenantId, sourceUrl) {
               formId: submission.form_id
             }
           });
-        }
-      }
-    }
-    
-    if (submission.attachments) {
-      const attachments = typeof submission.attachments === 'string'
-        ? JSON.parse(submission.attachments)
-        : submission.attachments;
-      
-      if (Array.isArray(attachments)) {
-        for (let i = 0; i < attachments.length; i++) {
-          const att = attachments[i];
-          const url = att.file_url || att.url;
-          if (url && isSourceStorageUrl(url, sourceUrl)) {
-            const parsed = parseSupabaseStorageUrl(url);
-            if (parsed) {
-              filesToMigrate.push({
-                id: `submission-${submission.id}-attachment-${i}`,
-                source: 'form_submission_attachment',
-                submissionId: submission.id,
-                attachmentIndex: i,
-                originalUrl: url,
-                parsed,
-                fileType: 'form_attachment',
-                mimeType: att.mime_type,
-                isPrivate: true,
-                context: { 
-                  formSubmissionId: submission.id,
-                  formId: submission.form_id
-                }
-              });
-            }
-          }
         }
       }
     }
