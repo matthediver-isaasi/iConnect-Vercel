@@ -368,6 +368,9 @@ export default function PublicLayout({ children, currentPageName }) {
                     const headingStyleId = item.typography_style_id;
                     const headingStyle = headingStyleId ? typographyStyles.find(s => s.id === headingStyleId) : null;
                     
+                    // Debug logging
+                    console.log('[Footer Heading] Item:', item.title, 'Typography Style ID:', headingStyleId, 'Found Style:', headingStyle?.name, 'Available Styles:', typographyStyles.length);
+                    
                     // Apply typography style or use default styling
                     const headingStyles = headingStyle ? {
                       fontFamily: headingStyle.font_family || 'Poppins, sans-serif',
