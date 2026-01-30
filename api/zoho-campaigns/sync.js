@@ -93,13 +93,21 @@ async function syncSingleMember(tenantId, memberId) {
   };
 }
 
-const BATCH_SIZE = 20;
+const BATCH_SIZE = 10;
 
 // Basic email validation to skip invalid emails before API calls
 function isValidEmail(email) {
-  if (!email || typeof email !== 'string') return false;
+  if (!email || typeof email !== 'string') {
+    console.log('[ZohoCampaigns] Skipping member - email is null or not a string:', email);
+    return false;
+  }
+  const trimmedEmail = email.trim();
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email.trim());
+  const isValid = emailRegex.test(trimmedEmail);
+  if (!isValid) {
+    console.log('[ZohoCampaigns] Skipping member - email failed validation:', trimmedEmail);
+  }
+  return isValid;
 }
 
 async function syncCategory(tenantId, categoryId, offset = 0) {
