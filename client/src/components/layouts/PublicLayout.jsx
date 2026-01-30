@@ -541,7 +541,7 @@ export default function PublicLayout({ children, currentPageName }) {
                               className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
                               style={{ 
                                 fontFamily: 'Poppins, sans-serif',
-                                ...(item.display_type === 'button' ? getButtonStyle(item.button_style || 'primary') : { background: getButtonGradientStyle() })
+                                ...getButtonStyle(item.button_style || 'primary')
                               }}
                             >
                               {item.title || 'Learn More'}
