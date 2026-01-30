@@ -93,7 +93,8 @@ async function syncSingleMember(tenantId, memberId) {
   };
 }
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 50;
+const CONCURRENCY_LIMIT = 10;
 
 // Basic email validation to skip invalid emails before API calls
 function isValidEmail(email) {
@@ -108,6 +109,17 @@ function isValidEmail(email) {
     console.log('[ZohoCampaigns] Skipping member - email failed validation:', trimmedEmail);
   }
   return isValid;
+}
+
+// Process items with concurrency limit
+async function processWithConcurrency(items, processor, limit) {
+  const results = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    const chunkResults = await Promise.all(chunk.map(processor));
+    results.push(...chunkResults);
+  }
+  return results;
 }
 
 async function syncCategory(tenantId, categoryId, offset = 0) {
@@ -176,6 +188,7 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
     subscribed: 0,
     unsubscribed: 0,
     errors: 0,
+    skipped: 0,
     processed: 0,
     total: totalMembers || 0,
     offset: offset,
@@ -183,14 +196,18 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
     details: []
   };
 
-  for (const member of members || []) {
-    // Skip members with invalid emails to avoid wasting API calls
+  // Filter valid members and prepare sync tasks
+  const validMembers = (members || []).filter(member => {
     if (!isValidEmail(member.email)) {
+      results.skipped++;
       results.processed++;
-      results.skipped = (results.skipped || 0) + 1;
-      continue;
+      return false;
     }
+    return true;
+  });
 
+  // Process members concurrently
+  const syncResults = await processWithConcurrency(validMembers, async (member) => {
     const pref = preferences?.find(p => p.member_id === member.id);
     const isOptedOutAll = member.communications_opted_out_all === true;
     const isSubscribed = !isOptedOutAll && pref?.is_subscribed !== false;
@@ -202,23 +219,27 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
           first_name: member.first_name,
           last_name: member.last_name
         });
-        if (result.success) {
-          results.subscribed++;
-        } else {
-          results.errors++;
-        }
+        return { success: result.success, action: 'subscribed' };
       } else {
         const result = await removeSubscriberFromList(tenantId, category.zoho_list_id, member.email.trim());
-        if (result.success) {
-          results.unsubscribed++;
-        } else {
-          results.errors++;
-        }
+        return { success: result.success, action: 'unsubscribed' };
       }
-      results.processed++;
     } catch (error) {
+      return { success: false, action: 'error', error: error.message };
+    }
+  }, CONCURRENCY_LIMIT);
+
+  // Aggregate results
+  for (const result of syncResults) {
+    results.processed++;
+    if (result.success) {
+      if (result.action === 'subscribed') {
+        results.subscribed++;
+      } else if (result.action === 'unsubscribed') {
+        results.unsubscribed++;
+      }
+    } else {
       results.errors++;
-      results.processed++;
     }
   }
 
