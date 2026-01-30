@@ -97,10 +97,10 @@ Options:
   --help, -h          Show this help message
 
 Supported Tables:
-  file_repository, form_submission, system_settings, article, member,
-  organization, tenant, news, iedit_page, resource, event, job_posting,
-  project_card, form_draft_submission, blog_post, page_banner, speaker,
-  card_deck, navigation_item, i_edit_page_element, wall_of_fame
+  file_repository, form_submission, system_settings, member, organization,
+  tenant, news, iedit_page, resource, event, job_posting, project_card,
+  form_draft_submission, blog_post, page_banner, speaker, card_deck,
+  navigation_item, i_edit_page_element, wall_of_fame
 
 Required Environment Variables:
   SOURCE_SUPABASE_URL   Source Supabase project URL
@@ -1848,7 +1848,6 @@ async function main() {
     'file_repository': () => getFileRepositoryRecords(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'form_submission': () => getFormSubmissionFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'system_settings': () => getBrandingFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
-    'article': () => getArticleFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'member': () => getMemberFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'organization': () => getOrganizationFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'tenant': () => getTenantBrandingFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),

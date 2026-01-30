@@ -172,8 +172,7 @@ node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7
 | `form_submission` | Form uploads (recursive JSON scan) |
 | `form_draft_submission` | Draft form uploads (recursive JSON scan) |
 | `system_settings` | Tenant branding/logos |
-| `article` | Featured images + content images |
-| `member` | Profile photos + signatures |
+| `member` | Profile photos |
 | `organization` | Organization logos/images |
 | `tenant` | Tenant branding assets |
 | `news` | News featured images + content |
