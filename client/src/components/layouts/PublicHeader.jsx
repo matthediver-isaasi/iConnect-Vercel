@@ -35,7 +35,6 @@ const typeIconMap = {
   resource: FolderOpen
 };
 
-const DEFAULT_HEADER_LOGO = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png";
 
 const DEFAULT_GRADIENT_STOPS = [
   { color: '#FFFFFF', position: 0 },
@@ -191,8 +190,9 @@ export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
   const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || '#5C0085';
-  const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || DEFAULT_HEADER_LOGO;
+  const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || null;
   const tenantName = branding?.name || "Graduate Futures Institute";
+  const hasLogoUrl = !!headerLogoUrl;
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
   const logoBackground = branding?.headerConfig?.logoBackground;
@@ -954,18 +954,32 @@ export default function PublicHeader() {
           data-testid="link-header-logo"
         >
           <div style={hasLogoContainerStyles ? logoContainerStyle : {}}>
-            <img
-              src={headerLogoUrl}
-              alt={tenantName}
-              style={{
-                width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
-                height: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
-                maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
-                maxHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
-                objectFit: 'contain',
-                display: 'block'
-              }}
-            />
+            {hasLogoUrl ? (
+              <img
+                src={headerLogoUrl}
+                alt={tenantName}
+                style={{
+                  width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
+                  height: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                  maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+                  maxHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                  objectFit: 'contain',
+                  display: 'block'
+                }}
+              />
+            ) : (
+              <span 
+                className="font-bold text-slate-900"
+                style={{
+                  fontSize: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight) * 0.4, 48)}px` : '32px',
+                  lineHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                  display: 'block',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {tenantName}
+              </span>
+            )}
           </div>
         </Link>
 
@@ -985,17 +999,31 @@ export default function PublicHeader() {
           }}
           data-testid="link-header-logo-mobile-floating"
         >
-          <img
-            src={headerLogoUrl}
-            alt={tenantName}
-            style={{
-              height: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight), 96)}px` : '96px',
-              width: 'auto',
-              maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
-              objectFit: 'contain',
-              display: 'block'
-            }}
-          />
+          {hasLogoUrl ? (
+            <img
+              src={headerLogoUrl}
+              alt={tenantName}
+              style={{
+                height: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight), 96)}px` : '96px',
+                width: 'auto',
+                maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+                objectFit: 'contain',
+                display: 'block'
+              }}
+            />
+          ) : (
+            <span 
+              className="font-bold text-slate-900"
+              style={{
+                fontSize: '18px',
+                lineHeight: '24px',
+                display: 'block',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {tenantName}
+            </span>
+          )}
         </Link>
 
         {/* Top Row - Gradient Header (Desktop only) */}
@@ -1269,17 +1297,31 @@ export default function PublicHeader() {
               ...logoContainerStyle,
               padding: logoPadding ? `${Math.min(parseInt(logoPadding), 8)}px` : '0'
             } : {}}>
-              <img
-                src={headerLogoUrl}
-                alt={tenantName}
-                style={{
-                  height: '40px',
-                  width: 'auto',
-                  maxWidth: headerLogoWidth ? `${Math.min(parseInt(headerLogoWidth), 150)}px` : '150px',
-                  objectFit: 'contain',
-                  display: 'block'
-                }}
-              />
+              {hasLogoUrl ? (
+                <img
+                  src={headerLogoUrl}
+                  alt={tenantName}
+                  style={{
+                    height: '40px',
+                    width: 'auto',
+                    maxWidth: headerLogoWidth ? `${Math.min(parseInt(headerLogoWidth), 150)}px` : '150px',
+                    objectFit: 'contain',
+                    display: 'block'
+                  }}
+                />
+              ) : (
+                <span 
+                  className="font-bold text-slate-900"
+                  style={{
+                    fontSize: '18px',
+                    lineHeight: '40px',
+                    display: 'block',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {tenantName}
+                </span>
+              )}
             </div>
           </Link>
           <button 
