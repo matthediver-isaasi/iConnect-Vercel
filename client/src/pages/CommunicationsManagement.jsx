@@ -85,11 +85,14 @@ export default function CommunicationsManagementPage() {
       assignedRoleIds.includes(member.role_id)
     );
     
-    const subscribedMemberIds = preferences
-      .filter(p => p.category_id === categoryId && p.is_subscribed === true)
+    // Find members who have explicitly opted OUT (is_subscribed === false)
+    // All eligible members are considered subscribed by default
+    const optedOutMemberIds = preferences
+      .filter(p => p.category_id === categoryId && p.is_subscribed === false)
       .map(p => p.member_id);
     
-    return eligibleMembers.filter(member => subscribedMemberIds.includes(member.id));
+    // Return eligible members who haven't opted out
+    return eligibleMembers.filter(member => !optedOutMemberIds.includes(member.id));
   };
 
   const getSubscriberCount = (categoryId) => {

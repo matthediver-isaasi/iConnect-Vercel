@@ -161,7 +161,7 @@ export const entityTenantScope = {
   
   // MEMBER - Scoped to the authenticated member
   'MemberPreferenceValue': TENANT_SCOPE.MEMBER,
-  'MemberCommunicationPreference': TENANT_SCOPE.MEMBER,
+  'MemberCommunicationPreference': TENANT_SCOPE.TENANT, // TENANT scope so admins can view all member preferences
   'MemberCredentials': TENANT_SCOPE.MEMBER,
 };
 
