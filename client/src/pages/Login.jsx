@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, Loader2, CheckCircle2, AlertCircle, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { createPageUrl } from "@/utils";
+import PublicLayout from "@/components/layouts/PublicLayout";
 
 export default function LoginPage() {
   const [, setLocation] = useLocation();
@@ -287,11 +288,12 @@ export default function LoginPage() {
   );
 
   return (
-    <div className="bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-start justify-center pt-12 px-4 pb-12">
-      <div className="w-full max-w-md">
+    <PublicLayout currentPageName="Login">
+      <div className="bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-start justify-center pt-12 px-4 pb-12 min-h-[60vh]">
+        <div className="w-full max-w-md">
 
-        {/* Login Card */}
-        <Card className="shadow-xl border-slate-200">
+          {/* Login Card */}
+          <Card className="shadow-xl border-slate-200">
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-2xl font-bold text-center">
               {mode === "login" && "Member Access"}
@@ -560,14 +562,10 @@ export default function LoginPage() {
                 )}
               </>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Footer */}
-        <p className="text-center text-sm text-slate-500 mt-6">
-          © {new Date().getFullYear()} iConnect by isaasi. All rights reserved.
-        </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </PublicLayout>
   );
 }
