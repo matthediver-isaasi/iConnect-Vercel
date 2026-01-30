@@ -1212,11 +1212,12 @@ export default function NavigationManagementPage() {
                   </div>
                 )}
 
-                {/* URL/Page selector - hide for content blocks */}
-                {editingItem.link_type !== 'content_block' && (
+                {/* URL/Page selector - hide for content blocks except CTA */}
+                {(editingItem.link_type !== 'content_block' || editingItem.content_block_type === 'cta') && (
                   <div className="space-y-2">
                     <Label htmlFor="url">
-                      {editingItem.link_type === 'internal' ? 'Page *' : 'URL *'}
+                      {editingItem.link_type === 'internal' ? 'Page *' : 
+                       editingItem.content_block_type === 'cta' ? 'Button Link URL *' : 'URL *'}
                     </Label>
                     {editingItem.link_type === 'internal' ? (
                       <Select
@@ -1245,7 +1246,9 @@ export default function NavigationManagementPage() {
                     <p className="text-xs text-slate-500">
                       {editingItem.link_type === 'internal' 
                         ? 'Select from available public pages'
-                        : 'Enter the full URL including https://'}
+                        : editingItem.content_block_type === 'cta' 
+                          ? 'Enter the URL the button should link to'
+                          : 'Enter the full URL including https://'}
                     </p>
                   </div>
                 )}
