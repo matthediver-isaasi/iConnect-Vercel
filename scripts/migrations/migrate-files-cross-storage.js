@@ -797,7 +797,7 @@ async function getResourceFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('resource')
-    .select('id, name, file_url, thumbnail_url')
+    .select('id, file_url, thumbnail_url')
     .eq('tenant_id', tenantId);
   
   if (error) {
