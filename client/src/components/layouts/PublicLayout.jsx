@@ -614,6 +614,11 @@ export default function PublicLayout({ children, currentPageName }) {
                         </div>
                       </div>
                     );
+                  case 'spacer':
+                    const spacerHeight = item.font_size_override || 24;
+                    return (
+                      <div key={item.id} style={{ height: `${spacerHeight}px` }} aria-hidden="true" />
+                    );
                   default:
                     return null;
                 }

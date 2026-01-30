@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight, Minus } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -26,7 +26,8 @@ const footerContentBlocks = [
   { type: 'contact', label: 'Contact', icon: Phone, description: 'Display phone & email from branding settings' },
   { type: 'cta', label: 'Call to Action', icon: Zap, description: 'Display CTA button from branding settings' },
   { type: 'newsletter', label: 'Newsletter', icon: Mail, description: 'Display newsletter signup from branding settings' },
-  { type: 'legal', label: 'Legal', icon: FileText, description: 'Display legal text, terms & privacy links' }
+  { type: 'legal', label: 'Legal', icon: FileText, description: 'Display legal text, terms & privacy links' },
+  { type: 'spacer', label: 'Spacer', icon: Minus, description: 'Add vertical spacing between elements' }
 ];
 
 // Available Lucide icons for navigation
@@ -1208,6 +1209,29 @@ export default function NavigationManagementPage() {
                           </p>
                         </div>
                       </>
+                    )}
+
+                    {/* Spacer height - only show for spacer content blocks */}
+                    {editingItem.link_type === 'content_block' && editingItem.content_block_type === 'spacer' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="spacer_height">Spacer Height (px)</Label>
+                        <Input
+                          id="spacer_height"
+                          type="number"
+                          min="4"
+                          max="200"
+                          value={editingItem.font_size_override || 24}
+                          onChange={(e) => setEditingItem({ 
+                            ...editingItem, 
+                            font_size_override: e.target.value ? parseInt(e.target.value, 10) : 24 
+                          })}
+                          placeholder="24"
+                          data-testid="input-spacer-height"
+                        />
+                        <p className="text-xs text-slate-500">
+                          Vertical gap in pixels between elements
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
