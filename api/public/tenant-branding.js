@@ -57,7 +57,8 @@ export default async function handler(req, res) {
         header_config,
         footer_config,
         branding_config,
-        platform_branding
+        platform_branding,
+        settings
       `)
       .eq('slug', tenantSlug)
       .eq('status', 'active')
@@ -70,6 +71,10 @@ export default async function handler(req, res) {
 
     // Button styles are stored in branding_config.button_styles
     const buttonStyles = tenantData.branding_config?.button_styles || {};
+    
+    // SEO settings from tenant settings
+    const tenantSettings = tenantData.settings || {};
+    const allowSearchIndexing = tenantSettings.allow_search_indexing === true;
 
     res.json({
       success: true,
@@ -87,7 +92,8 @@ export default async function handler(req, res) {
         footerConfig: tenantData.footer_config || {},
         brandingConfig: tenantData.branding_config || {},
         platformBranding: tenantData.platform_branding || { showPlatformBranding: true },
-        buttonStyles: buttonStyles
+        buttonStyles: buttonStyles,
+        allowSearchIndexing: allowSearchIndexing
       }
     });
   } catch (error) {

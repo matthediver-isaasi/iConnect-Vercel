@@ -178,6 +178,40 @@ export default function PublicLayout({ children, currentPageName }) {
     setShowNewsletterDialog(open);
   };
 
+  // Manage robots meta tag for SEO indexing control (client-side backup for JS-capable crawlers)
+  // Note: Primary enforcement is via /robots.txt endpoint for non-JS crawlers
+  useEffect(() => {
+    const robotsMetaId = 'tenant-robots-meta';
+    let robotsMeta = document.getElementById(robotsMetaId);
+    
+    // If branding is loaded and indexing is NOT allowed, add noindex meta tag
+    if (hasBranding) {
+      if (!branding?.allowSearchIndexing) {
+        // Add or update noindex meta tag
+        if (!robotsMeta) {
+          robotsMeta = document.createElement('meta');
+          robotsMeta.id = robotsMetaId;
+          robotsMeta.name = 'robots';
+          document.head.appendChild(robotsMeta);
+        }
+        robotsMeta.content = 'noindex, nofollow';
+      } else {
+        // If indexing is allowed, remove our meta tag if it exists
+        if (robotsMeta) {
+          robotsMeta.remove();
+        }
+      }
+    }
+    
+    // Cleanup: only remove our specific meta tag when component unmounts
+    return () => {
+      const meta = document.getElementById(robotsMetaId);
+      if (meta) {
+        meta.remove();
+      }
+    };
+  }, [hasBranding, branding?.allowSearchIndexing]);
+
   // Resolve page name to portal page ID, accounting for dynamic article URL remapping
   const resolvePortalPageId = (pageName) => {
     // First check static map

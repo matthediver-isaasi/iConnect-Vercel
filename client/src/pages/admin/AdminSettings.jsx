@@ -25,7 +25,8 @@ import {
   Building2,
   Menu,
   Eye,
-  Shield
+  Shield,
+  Search
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -63,7 +64,8 @@ export default function AdminSettings() {
       welcome_email_from_name: '',
       email_from_name: '',
       email_from_address: '',
-      member_google_login_enabled: true
+      member_google_login_enabled: true,
+      allow_search_indexing: false
     }
   });
   
@@ -115,7 +117,8 @@ export default function AdminSettings() {
                 welcome_email_from_name: settings.welcome_email_from_name || '',
                 email_from_name: emailDomain.from_name || settings.welcome_email_from_name || '',
                 email_from_address: emailDomain.from_email || settings.welcome_email_from_address || '',
-                member_google_login_enabled: settings.member_google_login_enabled !== false
+                member_google_login_enabled: settings.member_google_login_enabled !== false,
+                allow_search_indexing: settings.allow_search_indexing === true
               }
             });
             
@@ -857,6 +860,46 @@ export default function AdminSettings() {
                   data-testid="switch-member-google-login"
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Search className="w-5 h-5" />
+                Search Engine Indexing
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Control whether search engines can discover and index your site
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <div className="space-y-1">
+                  <Label htmlFor="search-indexing" className="text-slate-200 font-medium">Allow Search Engine Indexing</Label>
+                  <p className="text-sm text-slate-400">
+                    When disabled, search engines like Google and Bing will be instructed not to index your site. 
+                    Keep this off for development and staging sites.
+                  </p>
+                </div>
+                <Switch
+                  id="search-indexing"
+                  checked={formData.settings.allow_search_indexing}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, allow_search_indexing: checked }
+                  })}
+                  data-testid="switch-allow-search-indexing"
+                />
+              </div>
+              {!formData.settings.allow_search_indexing && (
+                <div className="flex items-start gap-3 p-3 bg-amber-900/30 border border-amber-800 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-200">
+                    Search engines will be blocked from indexing this site. Enable this when your site is ready for production.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 

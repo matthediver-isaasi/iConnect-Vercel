@@ -14,6 +14,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/robots.txt", "destination": "/api/public/robots.txt" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [
