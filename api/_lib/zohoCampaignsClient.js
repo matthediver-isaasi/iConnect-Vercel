@@ -4,10 +4,8 @@ import crypto from 'crypto';
 
 const ENCRYPTION_KEY = process.env.INTERNAL_API_SECRET || process.env.SESSION_SECRET;
 
-const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID;
-const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
-const ZOHO_CAMPAIGNS_API_DOMAIN = process.env.ZOHO_CAMPAIGNS_API_DOMAIN || 'https://campaigns.zoho.com';
-const ZOHO_ACCOUNTS_DOMAIN = process.env.ZOHO_ACCOUNTS_DOMAIN || 'https://accounts.zoho.com';
+const DEFAULT_ACCOUNTS_DOMAIN = 'https://accounts.zoho.com';
+const DEFAULT_CAMPAIGNS_DOMAIN = 'https://campaigns.zoho.com';
 
 const tokenCacheByTenant = new Map();
 
@@ -51,7 +49,9 @@ function encrypt(text) {
   }
 }
 
-async function getTenantZohoCredentials(tenantId) {
+async function getTenantZohoCredentials(tenantId, options = {}) {
+  const { bypassEnabledCheck = false } = options;
+  
   if (!supabase || !tenantId) {
     return null;
   }
@@ -69,7 +69,7 @@ async function getTenantZohoCredentials(tenantId) {
       return null;
     }
 
-    if (!integration.is_enabled) {
+    if (!bypassEnabledCheck && !integration.is_enabled) {
       console.log('[ZohoCampaigns] Zoho Campaigns integration disabled for tenant:', tenantId);
       return null;
     }
@@ -90,24 +90,38 @@ async function getTenantZohoCredentials(tenantId) {
   }
 }
 
-async function saveTenantZohoCredentials(tenantId, credentials) {
+async function saveTenantZohoCredentials(tenantId, credentials, mergeWithExisting = true) {
   if (!supabase || !tenantId) return false;
 
-  const encryptedCredentials = { ...credentials };
-  if (credentials.refresh_token) {
-    encryptedCredentials.refresh_token = encrypt(credentials.refresh_token);
-  }
-  if (credentials.access_token) {
-    encryptedCredentials.access_token = encrypt(credentials.access_token);
-  }
-
   try {
+    let finalCredentials = { ...credentials };
+
+    if (mergeWithExisting) {
+      const { data: existing } = await supabase
+        .from('tenant_integrations')
+        .select('credentials')
+        .eq('tenant_id', tenantId)
+        .eq('integration_type', 'zoho_campaigns')
+        .single();
+
+      if (existing?.credentials) {
+        finalCredentials = { ...existing.credentials, ...credentials };
+      }
+    }
+
+    if (credentials.refresh_token) {
+      finalCredentials.refresh_token = encrypt(credentials.refresh_token);
+    }
+    if (credentials.access_token) {
+      finalCredentials.access_token = encrypt(credentials.access_token);
+    }
+
     const { error } = await supabase
       .from('tenant_integrations')
       .upsert({
         tenant_id: tenantId,
         integration_type: 'zoho_campaigns',
-        credentials: encryptedCredentials,
+        credentials: finalCredentials,
         is_enabled: true,
         updated_at: new Date().toISOString()
       }, {
@@ -125,12 +139,17 @@ async function saveTenantZohoCredentials(tenantId, credentials) {
   }
 }
 
-async function refreshAccessToken(tenantId, refreshToken) {
-  const clientId = ZOHO_CLIENT_ID;
-  const clientSecret = ZOHO_CLIENT_SECRET;
+async function refreshAccessToken(tenantId, refreshToken, credentials = null) {
+  if (!credentials) {
+    credentials = await getTenantZohoCredentials(tenantId);
+  }
+
+  const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
+  const clientSecret = credentials?.client_secret ? decrypt(credentials.client_secret) || credentials.client_secret : null;
+  const accountsDomain = credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN;
 
   if (!clientId || !clientSecret) {
-    throw new Error('Zoho client credentials not configured');
+    throw new Error('Zoho client credentials not configured - please set up in Integrations');
   }
 
   if (!refreshToken) {
@@ -146,7 +165,7 @@ async function refreshAccessToken(tenantId, refreshToken) {
     refresh_token: refreshToken
   });
 
-  const response = await fetch(`${ZOHO_ACCOUNTS_DOMAIN}/oauth/v2/token`, {
+  const response = await fetch(`${accountsDomain}/oauth/v2/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
@@ -206,7 +225,15 @@ export async function getZohoCampaignsAccessToken(tenantId) {
     }
   }
 
-  return refreshAccessToken(tenantId, credentials.refresh_token);
+  return refreshAccessToken(tenantId, credentials.refresh_token, credentials);
+}
+
+export async function getTenantZohoDomains(tenantId) {
+  const credentials = await getTenantZohoCredentials(tenantId);
+  return {
+    accountsDomain: credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN,
+    campaignsDomain: credentials?.campaigns_domain || DEFAULT_CAMPAIGNS_DOMAIN
+  };
 }
 
 export async function getTenantIdFromSession(req) {
@@ -227,8 +254,9 @@ export async function getTenantIdFromSession(req) {
 
 export async function zohoCampaignsApiCall(tenantId, endpoint, options = {}) {
   const token = await getZohoCampaignsAccessToken(tenantId);
+  const { campaignsDomain } = await getTenantZohoDomains(tenantId);
   
-  const url = `${ZOHO_CAMPAIGNS_API_DOMAIN}/api/v1.1${endpoint}`;
+  const url = `${campaignsDomain}/api/v1.1${endpoint}`;
   
   const response = await fetch(url, {
     ...options,
@@ -364,10 +392,13 @@ export async function syncMemberToZohoLists(tenantId, member, preferences) {
   return results;
 }
 
-export function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
-  const clientId = ZOHO_CLIENT_ID;
+export async function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
+  const credentials = await getTenantZohoCredentials(tenantId, { bypassEnabledCheck: true });
+  const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
+  const accountsDomain = credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN;
+
   if (!clientId) {
-    throw new Error('Zoho client ID not configured');
+    throw new Error('Zoho client ID not configured - please set up in Integrations');
   }
 
   const scope = 'ZohoCampaigns.contact.CREATE,ZohoCampaigns.contact.READ,ZohoCampaigns.contact.UPDATE';
@@ -381,15 +412,17 @@ export function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
     state: signedState || tenantId
   });
 
-  return `${ZOHO_ACCOUNTS_DOMAIN}/oauth/v2/auth?${params.toString()}`;
+  return `${accountsDomain}/oauth/v2/auth?${params.toString()}`;
 }
 
-export async function exchangeCodeForTokens(code, redirectUri) {
-  const clientId = ZOHO_CLIENT_ID;
-  const clientSecret = ZOHO_CLIENT_SECRET;
+export async function exchangeCodeForTokens(tenantId, code, redirectUri) {
+  const credentials = await getTenantZohoCredentials(tenantId, { bypassEnabledCheck: true });
+  const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
+  const clientSecret = credentials?.client_secret ? decrypt(credentials.client_secret) || credentials.client_secret : null;
+  const accountsDomain = credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN;
 
   if (!clientId || !clientSecret) {
-    throw new Error('Zoho client credentials not configured');
+    throw new Error('Zoho client credentials not configured - please set up in Integrations');
   }
 
   const params = new URLSearchParams({
@@ -400,7 +433,7 @@ export async function exchangeCodeForTokens(code, redirectUri) {
     code
   });
 
-  const response = await fetch(`${ZOHO_ACCOUNTS_DOMAIN}/oauth/v2/token`, {
+  const response = await fetch(`${accountsDomain}/oauth/v2/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
@@ -429,7 +462,7 @@ export async function exchangeCodeForTokens(code, redirectUri) {
 }
 
 export async function connectZohoCampaigns(tenantId, code, redirectUri) {
-  const tokens = await exchangeCodeForTokens(code, redirectUri);
+  const tokens = await exchangeCodeForTokens(tenantId, code, redirectUri);
   await saveTenantZohoCredentials(tenantId, tokens);
   return { success: true };
 }
@@ -437,6 +470,12 @@ export async function connectZohoCampaigns(tenantId, code, redirectUri) {
 export async function isZohoCampaignsConnected(tenantId) {
   const credentials = await getTenantZohoCredentials(tenantId);
   return !!(credentials && credentials.refresh_token);
+}
+
+export async function hasZohoCredentialsConfigured(tenantId) {
+  const credentials = await getTenantZohoCredentials(tenantId, { bypassEnabledCheck: true });
+  const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
+  return !!clientId;
 }
 
 export function clearTenantZohoTokenCache(tenantId) {

@@ -4,7 +4,8 @@ import crypto from 'crypto';
 import { 
   getZohoOAuthUrl, 
   connectZohoCampaigns, 
-  isZohoCampaignsConnected 
+  isZohoCampaignsConnected,
+  hasZohoCredentialsConfigured 
 } from '../_lib/zohoCampaignsClient.js';
 
 const STATE_SECRET = process.env.SESSION_SECRET || process.env.INTERNAL_API_SECRET;
@@ -84,7 +85,8 @@ export default async function handler(req, res) {
 
       if (action === 'status') {
         const connected = await isZohoCampaignsConnected(tenantId);
-        return res.status(200).json({ connected });
+        const credentialsConfigured = await hasZohoCredentialsConfigured(tenantId);
+        return res.status(200).json({ connected, credentialsConfigured });
       }
 
       if (action === 'auth-url') {
@@ -93,7 +95,7 @@ export default async function handler(req, res) {
         const redirectUri = `${protocol}://${host}/api/zoho-campaigns/oauth?action=callback`;
         
         const signedState = generateSignedState(tenantId);
-        const authUrl = getZohoOAuthUrl(tenantId, redirectUri, signedState);
+        const authUrl = await getZohoOAuthUrl(tenantId, redirectUri, signedState);
         return res.status(200).json({ authUrl });
       }
 

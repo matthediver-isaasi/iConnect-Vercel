@@ -117,6 +117,7 @@ export default function CommunicationsManagementPage() {
 
   const zohoLists = zohoListsData?.lists || [];
   const isZohoConnected = zohoStatus?.connected === true;
+  const isZohoCredentialsConfigured = zohoStatus?.credentialsConfigured === true;
 
   const handleConnectZoho = async () => {
     try {
@@ -583,6 +584,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     <p className="text-sm text-slate-500">
                       {zohoStatusLoading ? 'Checking connection...' : 
                        isZohoConnected ? 'Connected - sync your lists to Zoho Campaigns' : 
+                       !isZohoCredentialsConfigured ? 'Configure credentials in Integrations first' :
                        'Connect to sync subscribers with Zoho Campaigns'}
                     </p>
                   </div>
@@ -604,7 +606,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       Sync All Lists
                     </Button>
                   )}
-                  {!isZohoConnected && !zohoStatusLoading && (
+                  {!isZohoConnected && !zohoStatusLoading && isZohoCredentialsConfigured && (
                     <Button
                       onClick={handleConnectZoho}
                       className="bg-orange-500 hover:bg-orange-600"
@@ -612,6 +614,15 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     >
                       <Link2 className="w-4 h-4 mr-2" />
                       Connect Zoho
+                    </Button>
+                  )}
+                  {!isZohoConnected && !zohoStatusLoading && !isZohoCredentialsConfigured && (
+                    <Button
+                      variant="outline"
+                      onClick={() => window.location.href = '/admin/integrations'}
+                      data-testid="button-configure-zoho"
+                    >
+                      Configure in Integrations
                     </Button>
                   )}
                 </div>
