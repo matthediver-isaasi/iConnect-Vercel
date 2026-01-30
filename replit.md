@@ -47,16 +47,16 @@ The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (R
 
 ## Zoho Campaigns Integration
 
-Syncs member communication preferences to Zoho Campaigns mailing lists in real-time.
+Syncs member communication preferences to Zoho Campaigns mailing lists in real-time. Credentials are stored per-tenant in the database, supporting multi-tenant deployments where each tenant may use different Zoho accounts in different regions.
 
 ### Required Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `ZOHO_CLIENT_ID` | Zoho OAuth2 client ID (from Zoho API Console) |
-| `ZOHO_CLIENT_SECRET` | Zoho OAuth2 client secret |
-| `INTERNAL_API_SECRET` | Used for encrypting stored OAuth tokens (already configured) |
+| `INTERNAL_API_SECRET` | Used for encrypting stored credentials and OAuth tokens (already configured) |
 | `SESSION_SECRET` | Fallback for token encryption and OAuth state signing |
+
+Note: Zoho Client ID and Client Secret are now stored per-tenant in the database (encrypted), not as global environment variables.
 
 ### Database Migration Required
 
@@ -76,15 +76,21 @@ COMMENT ON COLUMN communication_category.zoho_list_id IS 'Zoho Campaigns mailing
    - Go to [Zoho API Console](https://api-console.zoho.com/)
    - Create a "Server-based Application"
    - Add redirect URI: `https://your-domain.com/api/zoho-campaigns/oauth?action=callback`
-   - Copy Client ID and Client Secret to Vercel environment variables
 
-2. **Connect from Admin Dashboard:**
+2. **Configure Credentials in Admin Integrations:**
+   - Navigate to Admin > Integrations page
+   - Find the Zoho Campaigns section
+   - Select your Zoho region (US, EU, IN, AU) - this determines OAuth and API domains
+   - Enter your Client ID and Client Secret from Zoho API Console
+   - Click Save
+
+3. **Connect OAuth from Communications Management:**
    - Navigate to Communications Management page
-   - Click "Connect Zoho Campaigns" button
+   - Click "Connect Zoho" button
    - Authorize the application in Zoho
    - You'll be redirected back with connection confirmed
 
-3. **Map Categories to Lists:**
+4. **Map Categories to Lists:**
    - For each communication category, select a Zoho mailing list from the dropdown
    - Click "Sync" to push current subscribers to that list
 
