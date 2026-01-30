@@ -186,7 +186,6 @@ node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7
 | `card_deck` | Card deck images (recursive JSON scan) |
 | `navigation_item` | Nav icons + config (recursive JSON scan) |
 | `i_edit_page_element` | Page element configs (recursive JSON scan) |
-| `wall_of_fame` | Photos + section backgrounds |
 
 ### Required Environment Variables
 

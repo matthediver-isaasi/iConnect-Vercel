@@ -218,7 +218,6 @@ async function main() {
     'card_deck',
     'navigation_item',
     'i_edit_page_element',
-    'wall_of_fame'
   ];
 
   const tablesToCheck = args.tables || allTables;

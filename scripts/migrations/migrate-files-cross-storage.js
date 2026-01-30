@@ -460,7 +460,7 @@ async function getBrandingFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('system_settings')
-    .select('id, setting_key, setting_value')
+    .select('*')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -469,19 +469,18 @@ async function getBrandingFiles(destClient, tenantId, sourceUrl) {
   }
   
   const filesToMigrate = [];
-  const imageKeys = ['logo_url', 'favicon_url', 'banner_url', 'header_logo', 'footer_logo'];
   
   for (const setting of data || []) {
-    if (imageKeys.includes(setting.setting_key)) {
-      const value = setting.setting_value;
+    // Check all fields dynamically
+    for (const [field, value] of Object.entries(setting)) {
       if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
         const parsed = parseSupabaseStorageUrl(value);
         if (parsed) {
           filesToMigrate.push({
-            id: `setting-${setting.id}`,
+            id: `setting-${setting.id}-${field}`,
             source: 'system_settings',
             settingId: setting.id,
-            settingKey: setting.setting_key,
+            field,
             originalUrl: value,
             parsed,
             fileType: 'branding',
@@ -489,6 +488,28 @@ async function getBrandingFiles(destClient, tenantId, sourceUrl) {
             isPrivate: false,
             context: {}
           });
+        }
+      }
+      // Check for JSONB fields
+      if (value && typeof value === 'object') {
+        const foundUrls = findUrlsInValue(value, sourceUrl);
+        for (const { path, url } of foundUrls) {
+          const parsed = parseSupabaseStorageUrl(url);
+          if (parsed) {
+            filesToMigrate.push({
+              id: `setting-${setting.id}-${field}-${path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15)}`,
+              source: 'system_settings_config',
+              settingId: setting.id,
+              configField: field,
+              fieldPath: path,
+              originalUrl: url,
+              parsed,
+              fileType: 'branding',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
         }
       }
     }
@@ -701,41 +722,44 @@ async function getNewsFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const news of data || []) {
-    if (news.featured_image && isSourceStorageUrl(news.featured_image, sourceUrl)) {
-      const parsed = parseSupabaseStorageUrl(news.featured_image);
-      if (parsed) {
-        filesToMigrate.push({
-          id: `news-${news.id}-featured`,
-          source: 'news_post',
-          newsId: news.id,
-          field: 'featured_image',
-          originalUrl: news.featured_image,
-          parsed,
-          fileType: 'news_image',
-          mimeType: null,
-          isPrivate: false,
-          context: {}
-        });
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(news)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
+        if (parsed) {
+          filesToMigrate.push({
+            id: `news-${news.id}-${field}`,
+            source: 'news_post',
+            newsId: news.id,
+            field,
+            originalUrl: value,
+            parsed,
+            fileType: 'news_image',
+            mimeType: null,
+            isPrivate: false,
+            context: {}
+          });
+        }
       }
-    }
-    
-    if (news.content && typeof news.content === 'string') {
-      const urlMatches = news.content.match(/https?:\/\/[^\s"'<>]+/g) || [];
-      for (const url of urlMatches) {
-        if (isSourceStorageUrl(url, sourceUrl)) {
-          const parsed = parseSupabaseStorageUrl(url);
-          if (parsed) {
-            filesToMigrate.push({
-              id: `news-${news.id}-content-${Buffer.from(url).toString('base64').slice(0, 10)}`,
-              source: 'news_content',
-              newsId: news.id,
-              originalUrl: url,
-              parsed,
-              fileType: 'news_content_image',
-              mimeType: null,
-              isPrivate: false,
-              context: {}
-            });
+      // Check for embedded URLs in text content fields
+      if (value && typeof value === 'string' && (field === 'content' || field === 'body')) {
+        const urlMatches = value.match(/https?:\/\/[^\s"'<>]+/g) || [];
+        for (const url of urlMatches) {
+          if (isSourceStorageUrl(url, sourceUrl)) {
+            const parsed = parseSupabaseStorageUrl(url);
+            if (parsed) {
+              filesToMigrate.push({
+                id: `news-${news.id}-content-${Buffer.from(url).toString('base64').slice(0, 10)}`,
+                source: 'news_content',
+                newsId: news.id,
+                originalUrl: url,
+                parsed,
+                fileType: 'news_content_image',
+                mimeType: null,
+                isPrivate: false,
+                context: {}
+              });
+            }
           }
         }
       }
@@ -985,24 +1009,26 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const post of data || []) {
-    if (post.feature_image_url && isSourceStorageUrl(post.feature_image_url, sourceUrl)) {
-      const parsed = parseSupabaseStorageUrl(post.feature_image_url);
-      if (parsed) {
-        filesToMigrate.push({
-          id: `blog-${post.id}-featured`,
-          source: 'blog_post',
-          blogId: post.id,
-          field: 'feature_image_url',
-          originalUrl: post.feature_image_url,
-          parsed,
-          fileType: 'blog_image',
-          mimeType: null,
-          isPrivate: false,
-          context: {}
-        });
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(post)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
+        if (parsed) {
+          filesToMigrate.push({
+            id: `blog-${post.id}-${field}`,
+            source: 'blog_post',
+            blogId: post.id,
+            field,
+            originalUrl: value,
+            parsed,
+            fileType: 'blog_image',
+            mimeType: null,
+            isPrivate: false,
+            context: {}
+          });
+        }
       }
     }
-    
   }
   
   console.log(`  Found ${filesToMigrate.length} files to migrate from blog_post`);
@@ -1090,21 +1116,24 @@ async function getSpeakerFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const speaker of data || []) {
-    if (speaker.photo_url && isSourceStorageUrl(speaker.photo_url, sourceUrl)) {
-      const parsed = parseSupabaseStorageUrl(speaker.photo_url);
-      if (parsed) {
-        filesToMigrate.push({
-          id: `speaker-${speaker.id}-photo`,
-          source: 'speaker',
-          speakerId: speaker.id,
-          field: 'photo_url',
-          originalUrl: speaker.photo_url,
-          parsed,
-          fileType: 'speaker_photo',
-          mimeType: null,
-          isPrivate: false,
-          context: {}
-        });
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(speaker)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
+        if (parsed) {
+          filesToMigrate.push({
+            id: `speaker-${speaker.id}-${field}`,
+            source: 'speaker',
+            speakerId: speaker.id,
+            field,
+            originalUrl: value,
+            parsed,
+            fileType: 'speaker_photo',
+            mimeType: null,
+            isPrivate: false,
+            context: {}
+          });
+        }
       }
     }
   }
@@ -1129,28 +1158,46 @@ async function getCardDeckFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const deck of data || []) {
-    if (deck.cards) {
-      const cards = typeof deck.cards === 'string' 
-        ? JSON.parse(deck.cards) 
-        : deck.cards;
-      
-      const foundUrls = findUrlsInValue(cards, sourceUrl);
-      for (const { path, url } of foundUrls) {
-        const parsed = parseSupabaseStorageUrl(url);
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(deck)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
         if (parsed) {
-          const safePathId = path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
           filesToMigrate.push({
-            id: `deck-${deck.id}-${safePathId}`,
+            id: `deck-${deck.id}-${field}`,
             source: 'card_deck',
             deckId: deck.id,
-            fieldPath: path,
-            originalUrl: url,
+            field,
+            originalUrl: value,
             parsed,
             fileType: 'card_image',
             mimeType: null,
             isPrivate: false,
             context: {}
           });
+        }
+      }
+      // Check for JSONB fields (like cards array)
+      if (value && typeof value === 'object') {
+        const foundUrls = findUrlsInValue(value, sourceUrl);
+        for (const { path, url } of foundUrls) {
+          const parsed = parseSupabaseStorageUrl(url);
+          if (parsed) {
+            const safePathId = path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 20);
+            filesToMigrate.push({
+              id: `deck-${deck.id}-${field}-${safePathId}`,
+              source: 'card_deck_config',
+              deckId: deck.id,
+              configField: field,
+              fieldPath: path,
+              originalUrl: url,
+              parsed,
+              fileType: 'card_image',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
         }
       }
     }
@@ -1237,24 +1284,45 @@ async function getIEditPageElementFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const element of data || []) {
-    if (element.config) {
-      const config = typeof element.config === 'string' ? JSON.parse(element.config) : element.config;
-      const foundUrls = findUrlsInValue(config, sourceUrl);
-      for (const { path, url } of foundUrls) {
-        const parsed = parseSupabaseStorageUrl(url);
+    // Dynamically find URL fields
+    for (const [field, value] of Object.entries(element)) {
+      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
+        const parsed = parseSupabaseStorageUrl(value);
         if (parsed) {
           filesToMigrate.push({
-            id: `element-${element.id}-${path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15)}`,
+            id: `element-${element.id}-${field}`,
             source: 'i_edit_page_element',
             elementId: element.id,
-            fieldPath: path,
-            originalUrl: url,
+            field,
+            originalUrl: value,
             parsed,
             fileType: 'page_element_image',
             mimeType: null,
             isPrivate: false,
             context: {}
           });
+        }
+      }
+      // Check for JSONB fields (like config)
+      if (value && typeof value === 'object') {
+        const foundUrls = findUrlsInValue(value, sourceUrl);
+        for (const { path, url } of foundUrls) {
+          const parsed = parseSupabaseStorageUrl(url);
+          if (parsed) {
+            filesToMigrate.push({
+              id: `element-${element.id}-${field}-${path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15)}`,
+              source: 'i_edit_page_element_config',
+              elementId: element.id,
+              configField: field,
+              fieldPath: path,
+              originalUrl: url,
+              parsed,
+              fileType: 'page_element_image',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
         }
       }
     }
@@ -1845,7 +1913,6 @@ async function main() {
     'card_deck': () => getCardDeckFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'navigation_item': () => getNavigationItemFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'i_edit_page_element': () => getIEditPageElementFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
-    'wall_of_fame': () => getWallOfFameFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL)
   };
   
   const tablesToProcess = args.tables || Object.keys(tableHandlers);
