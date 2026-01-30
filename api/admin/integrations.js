@@ -71,8 +71,14 @@ function decryptCredentials(credentials) {
 function maskCredentials(credentials) {
   if (!credentials) return {};
   const masked = {};
+  // Fields that should not be masked (non-sensitive configuration values)
+  const unmaskedFields = ['region', 'accounts_domain', 'campaigns_domain'];
+  
   for (const [key, value] of Object.entries(credentials)) {
-    if (value && typeof value === 'string' && value.length > 8) {
+    if (unmaskedFields.includes(key)) {
+      // Return these fields as-is (they're not sensitive)
+      masked[key] = value;
+    } else if (value && typeof value === 'string' && value.length > 8) {
       masked[key] = value.substring(0, 4) + '****' + value.substring(value.length - 4);
     } else if (value) {
       masked[key] = '****';
