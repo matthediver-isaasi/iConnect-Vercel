@@ -190,7 +190,7 @@ export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
   const buttonStyles = branding?.brandingConfig?.button_styles || {};
   const headerSocialIconColor = branding?.brandingConfig?.headerSocialIconColor || '#5C0085';
-  const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || null;
+  const headerLogoUrl = branding?.headerLogoUrl || null;
   const tenantName = branding?.name || "Graduate Futures Institute";
   const hasLogoUrl = !!headerLogoUrl;
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
