@@ -133,11 +133,12 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
 
   const roleIds = categoryRoles?.map(r => r.role_id) || [];
 
-  // First get total count
+  // First get total count (excluding deleted/anonymized members)
   let countQuery = supabase
     .from('member')
     .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', tenantId)
+    .not('email', 'ilike', 'deleted_%@deleted.local');
 
   if (roleIds.length > 0) {
     countQuery = countQuery.in('role_id', roleIds);
@@ -145,11 +146,12 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
 
   const { count: totalMembers } = await countQuery;
 
-  // Get batch of members
+  // Get batch of members (excluding deleted/anonymized members)
   let membersQuery = supabase
     .from('member')
     .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
     .eq('tenant_id', tenantId)
+    .not('email', 'ilike', 'deleted_%@deleted.local')
     .range(offset, offset + BATCH_SIZE - 1);
 
   if (roleIds.length > 0) {
