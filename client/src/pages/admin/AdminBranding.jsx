@@ -70,6 +70,7 @@ export default function AdminBranding() {
     },
     footer_config: {
       columns: 4,
+      columnAlignments: {},
       ctaText: 'Become a member today',
       ctaButtonText: 'Join Us',
       ctaLink: 'Membership',
@@ -176,6 +177,7 @@ export default function AdminBranding() {
               },
               footer_config: {
                 columns: t?.footer_config?.columns || 4,
+                columnAlignments: t?.footer_config?.columnAlignments || {},
                 ctaText: t?.footer_config?.ctaText || 'Become a member today',
                 ctaButtonText: t?.footer_config?.ctaButtonText || 'Join Us',
                 ctaLink: t?.footer_config?.ctaLink || 'Membership',
