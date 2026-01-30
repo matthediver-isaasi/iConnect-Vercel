@@ -597,7 +597,7 @@ async function getMemberFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('member')
-    .select('id, profile_photo_url, signature_url')
+    .select('id, profile_photo_url')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -608,7 +608,7 @@ async function getMemberFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const member of data || []) {
-    for (const field of ['profile_photo_url', 'signature_url']) {
+    for (const field of ['profile_photo_url']) {
       const url = member[field];
       if (url && isSourceStorageUrl(url, sourceUrl)) {
         const parsed = parseSupabaseStorageUrl(url);
