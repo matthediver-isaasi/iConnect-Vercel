@@ -267,7 +267,7 @@ export default function NavigationManagementPage() {
   });
 
   // Fetch tenant branding for footer columns setting
-  const { data: tenantBranding } = useQuery({
+  const { data: tenantBranding, refetch: refetchBranding } = useQuery({
     queryKey: ['tenant-branding'],
     queryFn: async () => {
       try {
@@ -282,7 +282,7 @@ export default function NavigationManagementPage() {
         return null;
       }
     },
-    staleTime: 60 * 1000,
+    staleTime: 0,
   });
   const brandingData = tenantBranding?.branding;
   const footerColumns = brandingData?.footer_config?.columns || 4;
@@ -313,7 +313,7 @@ export default function NavigationManagementPage() {
       });
       
       if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['tenant-branding'] });
+        await refetchBranding();
         toast.success(`Column ${colNum} alignment updated`);
       } else {
         throw new Error('Failed to save');
