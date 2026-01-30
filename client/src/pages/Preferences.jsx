@@ -1263,8 +1263,7 @@ export default function PreferencesPage() {
       const { error } = await supabase
         .from("member")
         .update({ 
-          communications_opted_out_all: optOut,
-          updated_at: new Date().toISOString()
+          communications_opted_out_all: optOut
         })
         .eq("id", memberRecord.id);
       
@@ -1279,8 +1278,7 @@ export default function PreferencesPage() {
             await supabase
               .from("member_communication_preference")
               .update({ 
-                is_subscribed: false,
-                updated_at: new Date().toISOString()
+                is_subscribed: false
               })
               .eq("id", existingPref.id);
           } else {
