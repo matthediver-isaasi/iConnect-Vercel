@@ -146,7 +146,7 @@ async function refreshAccessToken(tenantId, refreshToken, credentials = null) {
 
   const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
   const clientSecret = credentials?.client_secret ? decrypt(credentials.client_secret) || credentials.client_secret : null;
-  const accountsDomain = credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN;
+  const accountsDomain = credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN;
 
   if (!clientId || !clientSecret) {
     throw new Error('Zoho client credentials not configured - please set up in Integrations');
@@ -231,8 +231,8 @@ export async function getZohoCampaignsAccessToken(tenantId) {
 export async function getTenantZohoDomains(tenantId) {
   const credentials = await getTenantZohoCredentials(tenantId);
   return {
-    accountsDomain: credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN,
-    campaignsDomain: credentials?.campaigns_domain || DEFAULT_CAMPAIGNS_DOMAIN
+    accountsDomain: credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN,
+    campaignsDomain: credentials?.campaigns_domain ? (decrypt(credentials.campaigns_domain) || credentials.campaigns_domain) : DEFAULT_CAMPAIGNS_DOMAIN
   };
 }
 
@@ -395,7 +395,7 @@ export async function syncMemberToZohoLists(tenantId, member, preferences) {
 export async function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
   const credentials = await getTenantZohoCredentials(tenantId, { bypassEnabledCheck: true });
   const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
-  const accountsDomain = credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN;
+  const accountsDomain = credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN;
 
   if (!clientId) {
     throw new Error('Zoho client ID not configured - please set up in Integrations');
@@ -419,7 +419,7 @@ export async function exchangeCodeForTokens(tenantId, code, redirectUri) {
   const credentials = await getTenantZohoCredentials(tenantId, { bypassEnabledCheck: true });
   const clientId = credentials?.client_id ? decrypt(credentials.client_id) || credentials.client_id : null;
   const clientSecret = credentials?.client_secret ? decrypt(credentials.client_secret) || credentials.client_secret : null;
-  const accountsDomain = credentials?.accounts_domain || DEFAULT_ACCOUNTS_DOMAIN;
+  const accountsDomain = credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN;
 
   if (!clientId || !clientSecret) {
     throw new Error('Zoho client credentials not configured - please set up in Integrations');
