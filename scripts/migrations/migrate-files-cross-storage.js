@@ -971,7 +971,7 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('blog_post')
-    .select('id, title, feature_image_url, body')
+    .select('id, title, feature_image_url')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1000,27 +1000,6 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
       }
     }
     
-    if (post.body && typeof post.body === 'string') {
-      const urlMatches = post.body.match(/https?:\/\/[^\s"'<>]+/g) || [];
-      for (const url of urlMatches) {
-        if (isSourceStorageUrl(url, sourceUrl)) {
-          const parsed = parseSupabaseStorageUrl(url);
-          if (parsed) {
-            filesToMigrate.push({
-              id: `blog-${post.id}-body-${Buffer.from(url).toString('base64').slice(0, 10)}`,
-              source: 'blog_post_body',
-              blogId: post.id,
-              originalUrl: url,
-              parsed,
-              fileType: 'blog_content_image',
-              mimeType: null,
-              isPrivate: false,
-              context: {}
-            });
-          }
-        }
-      }
-    }
   }
   
   console.log(`  Found ${filesToMigrate.length} files to migrate from blog_post`);
