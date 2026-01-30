@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type } from "lucide-react";
+import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Type, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -285,6 +285,41 @@ export default function NavigationManagementPage() {
     staleTime: 60 * 1000,
   });
   const footerColumns = tenantBranding?.footer_config?.columns || 4;
+  const columnAlignments = tenantBranding?.footer_config?.columnAlignments || {};
+
+  const handleColumnAlignmentChange = async (colNum, alignment) => {
+    if (!tenantBranding) {
+      toast.error('Branding settings not loaded');
+      return;
+    }
+    
+    try {
+      const updatedAlignments = {
+        ...columnAlignments,
+        [colNum]: alignment
+      };
+      
+      const response = await fetch('/api/admin/tenant-branding', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          footer_config: {
+            ...tenantBranding?.footer_config,
+            columnAlignments: updatedAlignments
+          }
+        })
+      });
+      
+      if (response.ok) {
+        queryClient.invalidateQueries({ queryKey: ['tenant-branding'] });
+        toast.success(`Column ${colNum} alignment updated`);
+      } else {
+        throw new Error('Failed to save');
+      }
+    } catch (error) {
+      toast.error('Failed to update column alignment');
+    }
+  };
 
   // Combine hardcoded, dynamic CMS pages, and dynamic directories
   const availablePages = useMemo(() => {
@@ -848,9 +883,43 @@ export default function NavigationManagementPage() {
                   return (
                     <Card key={colNum}>
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium text-slate-600">
-                          Column {colNum}
-                        </CardTitle>
+                        <div className="flex items-center justify-between gap-2">
+                          <CardTitle className="text-sm font-medium text-slate-600">
+                            Column {colNum}
+                          </CardTitle>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant={columnAlignments[colNum] === 'left' || !columnAlignments[colNum] ? 'default' : 'ghost'}
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleColumnAlignmentChange(colNum, 'left')}
+                              title="Align left"
+                              data-testid={`button-align-left-col-${colNum}`}
+                            >
+                              <AlignLeft className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant={columnAlignments[colNum] === 'center' ? 'default' : 'ghost'}
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleColumnAlignmentChange(colNum, 'center')}
+                              title="Align center"
+                              data-testid={`button-align-center-col-${colNum}`}
+                            >
+                              <AlignCenter className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant={columnAlignments[colNum] === 'right' ? 'default' : 'ghost'}
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleColumnAlignmentChange(colNum, 'right')}
+                              title="Align right"
+                              data-testid={`button-align-right-col-${colNum}`}
+                            >
+                              <AlignRight className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
                       </CardHeader>
                       <CardContent className="space-y-2">
                         {colItems.length === 0 ? (

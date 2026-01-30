@@ -608,8 +608,13 @@ export default function PublicLayout({ children, currentPageName }) {
                     const colItems = itemsByColumn[colNum] || [];
                     if (colItems.length === 0) return <div key={colNum} />;
                     
+                    const columnAlignment = tenantFooterConfig.columnAlignments?.[colNum] || 'left';
+                    const alignmentClass = columnAlignment === 'center' ? 'items-center text-center' 
+                      : columnAlignment === 'right' ? 'items-end text-right' 
+                      : 'items-start text-left';
+                    
                     return (
-                      <div key={colNum} className="space-y-4">
+                      <div key={colNum} className={`flex flex-col space-y-4 ${alignmentClass}`}>
                         {colItems.map(item => renderNavItem(item))}
                       </div>
                     );
