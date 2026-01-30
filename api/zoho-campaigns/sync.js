@@ -93,7 +93,14 @@ async function syncSingleMember(tenantId, memberId) {
   };
 }
 
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 20;
+
+// Basic email validation to skip invalid emails before API calls
+function isValidEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email.trim());
+}
 
 async function syncCategory(tenantId, categoryId, offset = 0) {
   const { data: category, error: catError } = await supabase
@@ -167,6 +174,13 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
   };
 
   for (const member of members || []) {
+    // Skip members with invalid emails to avoid wasting API calls
+    if (!isValidEmail(member.email)) {
+      results.processed++;
+      results.skipped = (results.skipped || 0) + 1;
+      continue;
+    }
+
     const pref = preferences?.find(p => p.member_id === member.id);
     const isOptedOutAll = member.communications_opted_out_all === true;
     const isSubscribed = !isOptedOutAll && pref?.is_subscribed !== false;
@@ -174,7 +188,7 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
     try {
       if (isSubscribed) {
         const result = await addSubscriberToList(tenantId, category.zoho_list_id, {
-          email: member.email,
+          email: member.email.trim(),
           first_name: member.first_name,
           last_name: member.last_name
         });
@@ -184,7 +198,7 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
           results.errors++;
         }
       } else {
-        const result = await removeSubscriberFromList(tenantId, category.zoho_list_id, member.email);
+        const result = await removeSubscriberFromList(tenantId, category.zoho_list_id, member.email.trim());
         if (result.success) {
           results.unsubscribed++;
         } else {

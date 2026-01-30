@@ -156,14 +156,15 @@ export default function CommunicationsManagementPage() {
         totalUnsubscribed += result.unsubscribed || 0;
         totalErrors += result.errors || 0;
         
-        setSyncProgress({
+        setSyncProgress(prev => ({
           categoryId,
           processed: result.totalProcessed || 0,
           total: result.total || 0,
           subscribed: totalSubscribed,
           unsubscribed: totalUnsubscribed,
-          errors: totalErrors
-        });
+          errors: totalErrors,
+          skipped: (prev?.skipped || 0) + (result.skipped || 0)
+        }));
         
         hasMore = result.hasMore === true && result.nextOffset != null && result.nextOffset > offset;
         offset = result.nextOffset || 0;
@@ -175,7 +176,8 @@ export default function CommunicationsManagementPage() {
       }
       
       if (syncCompleted) {
-        toast.success(`Sync complete: ${totalSubscribed} subscribed, ${totalUnsubscribed} unsubscribed${totalErrors > 0 ? `, ${totalErrors} errors` : ''}`);
+        const skippedMsg = syncProgress?.skipped > 0 ? `, ${syncProgress.skipped} skipped (invalid email)` : '';
+        toast.success(`Sync complete: ${totalSubscribed} subscribed, ${totalUnsubscribed} unsubscribed${totalErrors > 0 ? `, ${totalErrors} errors` : ''}${skippedMsg}`);
       }
     } catch (error) {
       toast.error('Failed to sync with Zoho Campaigns');
