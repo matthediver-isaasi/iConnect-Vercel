@@ -9,6 +9,5 @@ ADD COLUMN IF NOT EXISTS zoho_list_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_communication_category_zoho_list_id 
 ON communication_category(zoho_list_id) 
 WHERE zoho_list_id IS NOT NULL;
-
--- Add a comment explaining the column
+  column
 COMMENT ON COLUMN communication_category.zoho_list_id IS 'Zoho Campaigns list ID for syncing subscribers';
