@@ -1,6 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 
-const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, release_date, author_name, tags, subcategories, tenant_id';
+const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, open_in_new_tab, release_date, author_name, tags, subcategories, tenant_id';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -90,6 +90,7 @@ export default async function handler(req, res) {
       image_url: resource.image_url,
       resource_type: resource.resource_type,
       is_public: resource.is_public,
+      open_in_new_tab: resource.open_in_new_tab,
       release_date: resource.release_date,
       author_name: resource.author_name,
       tags: resource.tags,

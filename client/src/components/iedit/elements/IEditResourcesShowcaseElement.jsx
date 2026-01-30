@@ -925,19 +925,36 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
 
   const fullWidth = settings?.fullWidth;
 
-  // Fetch selected resources using public endpoint
-  const { data: allResources = [] } = useQuery({
-    queryKey: ['public-resources-showcase'],
-    queryFn: async () => await publicClient.listResources() || [],
-    enabled: Array.isArray(content.resourceIds) && content.resourceIds.some(id => id)
-  });
-
-  const selectedResources = React.useMemo(() => {
+  // Get the list of configured resource IDs (filter out empty strings)
+  const configuredResourceIds = React.useMemo(() => {
     if (!Array.isArray(content.resourceIds)) return [];
-    return content.resourceIds
-      .map(id => id ? allResources.find(r => r.id === id) : null)
-      .filter(Boolean);
-  }, [content.resourceIds, allResources]);
+    return content.resourceIds.filter(id => id && id.trim() !== '');
+  }, [content.resourceIds]);
+
+  // Fetch each configured resource individually by ID using public endpoint
+  // This ensures we get both public and private resources with all required fields
+  const { data: selectedResources = [], isLoading: isLoadingResources } = useQuery({
+    queryKey: ['public-resources-showcase', configuredResourceIds],
+    queryFn: async () => {
+      if (configuredResourceIds.length === 0) return [];
+      
+      // Fetch each resource by ID in parallel
+      const resourcePromises = configuredResourceIds.map(async (id) => {
+        try {
+          const resource = await publicClient.getResource(id);
+          return resource;
+        } catch (error) {
+          console.warn(`[ResourcesShowcase] Failed to fetch resource ${id}:`, error);
+          return null;
+        }
+      });
+      
+      const resources = await Promise.all(resourcePromises);
+      // Filter out nulls (failed fetches) and maintain order
+      return resources.filter(Boolean);
+    },
+    enabled: configuredResourceIds.length > 0
+  });
 
   const sectionStyle = content.gradient_enabled ? {
     background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`,
