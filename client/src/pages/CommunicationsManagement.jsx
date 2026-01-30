@@ -10,12 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 export default function CommunicationsManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -25,9 +26,27 @@ export default function CommunicationsManagementPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
+  const [syncingCategory, setSyncingCategory] = useState(null);
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const zohoConnected = searchParams.get('zoho_connected');
+    const zohoError = searchParams.get('zoho_error');
+    
+    if (zohoConnected === 'true') {
+      toast.success('Zoho Campaigns connected successfully!');
+      queryClient.invalidateQueries({ queryKey: ['zoho-campaigns-status'] });
+      queryClient.invalidateQueries({ queryKey: ['zoho-campaigns-lists'] });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (zohoError) {
+      toast.error(`Zoho connection failed: ${zohoError}`);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [searchParams, queryClient]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -70,6 +89,111 @@ export default function CommunicationsManagementPage() {
     queryFn: () => base44.entities.Member.listAll(),
     staleTime: 60000,
   });
+
+  const { data: zohoStatus, isLoading: zohoStatusLoading } = useQuery({
+    queryKey: ['zoho-campaigns-status'],
+    queryFn: async () => {
+      const response = await fetch('/api/zoho-campaigns/oauth?action=status', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch Zoho status');
+      return response.json();
+    },
+    staleTime: 30000,
+  });
+
+  const { data: zohoListsData, isLoading: zohoListsLoading } = useQuery({
+    queryKey: ['zoho-campaigns-lists'],
+    queryFn: async () => {
+      const response = await fetch('/api/zoho-campaigns/lists', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch Zoho lists');
+      return response.json();
+    },
+    enabled: zohoStatus?.connected === true,
+    staleTime: 60000,
+  });
+
+  const zohoLists = zohoListsData?.lists || [];
+  const isZohoConnected = zohoStatus?.connected === true;
+
+  const handleConnectZoho = async () => {
+    try {
+      const response = await fetch('/api/zoho-campaigns/oauth?action=auth-url', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to get auth URL');
+      const { authUrl } = await response.json();
+      window.location.href = authUrl;
+    } catch (error) {
+      toast.error('Failed to initiate Zoho connection');
+    }
+  };
+
+  const handleSyncCategory = async (categoryId) => {
+    setSyncingCategory(categoryId);
+    try {
+      const response = await fetch('/api/zoho-campaigns/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ categoryId })
+      });
+      
+      if (!response.ok) throw new Error('Sync failed');
+      
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`Synced ${result.subscribed || 0} subscribers, ${result.unsubscribed || 0} unsubscribed`);
+      } else {
+        toast.error(result.error || 'Sync failed');
+      }
+    } catch (error) {
+      toast.error('Failed to sync with Zoho Campaigns');
+    } finally {
+      setSyncingCategory(null);
+    }
+  };
+
+  const handleSyncAll = async () => {
+    setSyncingAll(true);
+    try {
+      const response = await fetch('/api/zoho-campaigns/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({})
+      });
+      
+      if (!response.ok) throw new Error('Sync failed');
+      
+      const result = await response.json();
+      if (result.success) {
+        const totalSubscribed = result.categories?.reduce((sum, c) => sum + (c.subscribed || 0), 0) || 0;
+        const totalUnsubscribed = result.categories?.reduce((sum, c) => sum + (c.unsubscribed || 0), 0) || 0;
+        toast.success(`Synced all lists: ${totalSubscribed} subscribers, ${totalUnsubscribed} unsubscribed`);
+      } else {
+        toast.error(result.error || 'Sync failed');
+      }
+    } catch (error) {
+      toast.error('Failed to sync with Zoho Campaigns');
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
+  const handleUpdateZohoListId = async (categoryId, zohoListId) => {
+    try {
+      await base44.entities.CommunicationCategory.update(categoryId, { 
+        zoho_list_id: zohoListId || null 
+      });
+      queryClient.invalidateQueries({ queryKey: ['communication-categories'] });
+      toast.success('Zoho list mapping updated');
+    } catch (error) {
+      toast.error('Failed to update Zoho list mapping');
+    }
+  };
 
   const [exportingCategory, setExportingCategory] = useState(null);
   const [showSubscribersDialog, setShowSubscribersDialog] = useState(false);
@@ -443,6 +567,57 @@ CREATE POLICY "Service role has full access to member_communication_preference"
           </CardHeader>
 
           <CardContent className="p-6">
+            {/* Zoho Campaigns Integration Status */}
+            <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${isZohoConnected ? 'bg-green-100' : 'bg-amber-100'}`}>
+                    {isZohoConnected ? (
+                      <Link2 className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <Unlink className="w-5 h-5 text-amber-600" />
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-slate-900">Zoho Campaigns</h4>
+                    <p className="text-sm text-slate-500">
+                      {zohoStatusLoading ? 'Checking connection...' : 
+                       isZohoConnected ? 'Connected - sync your lists to Zoho Campaigns' : 
+                       'Connect to sync subscribers with Zoho Campaigns'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isZohoConnected && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncAll}
+                      disabled={syncingAll || categories.filter(c => c.zoho_list_id).length === 0}
+                      data-testid="button-sync-all-zoho"
+                    >
+                      {syncingAll ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Sync All Lists
+                    </Button>
+                  )}
+                  {!isZohoConnected && !zohoStatusLoading && (
+                    <Button
+                      onClick={handleConnectZoho}
+                      className="bg-orange-500 hover:bg-orange-600"
+                      data-testid="button-connect-zoho"
+                    >
+                      <Link2 className="w-4 h-4 mr-2" />
+                      Connect Zoho
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {categoriesLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="animate-pulse text-slate-600">Loading categories...</div>
@@ -547,6 +722,49 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 </Button>
                               </div>
                             </div>
+                            
+                            {/* Zoho List Mapping */}
+                            {isZohoConnected && (
+                              <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
+                                <div className="flex items-center gap-2">
+                                  <Link2 className="w-4 h-4 text-orange-500" />
+                                  <span className="text-sm text-slate-600">Zoho List:</span>
+                                  <Select
+                                    value={category.zoho_list_id || "none"}
+                                    onValueChange={(value) => handleUpdateZohoListId(category.id, value === "none" ? null : value)}
+                                  >
+                                    <SelectTrigger className="w-[200px] h-8" data-testid={`select-zoho-list-${category.id}`}>
+                                      <SelectValue placeholder="Select list..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">Not mapped</SelectItem>
+                                      {zohoLists.map(list => (
+                                        <SelectItem key={list.listkey} value={list.listkey}>
+                                          {list.listname}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                
+                                {category.zoho_list_id && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleSyncCategory(category.id)}
+                                    disabled={syncingCategory === category.id}
+                                    data-testid={`button-sync-category-${category.id}`}
+                                  >
+                                    {syncingCategory === category.id ? (
+                                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-4 h-4 mr-1" />
+                                    )}
+                                    Sync
+                                  </Button>
+                                )}
+                              </div>
+                            )}
                           </div>
                           
                           <div className="flex items-center gap-2 ml-4">

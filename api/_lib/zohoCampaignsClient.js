@@ -364,7 +364,7 @@ export async function syncMemberToZohoLists(tenantId, member, preferences) {
   return results;
 }
 
-export function getZohoOAuthUrl(tenantId, redirectUri) {
+export function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
   const clientId = ZOHO_CLIENT_ID;
   if (!clientId) {
     throw new Error('Zoho client ID not configured');
@@ -378,7 +378,7 @@ export function getZohoOAuthUrl(tenantId, redirectUri) {
     response_type: 'code',
     access_type: 'offline',
     redirect_uri: redirectUri,
-    state: tenantId
+    state: signedState || tenantId
   });
 
   return `${ZOHO_ACCOUNTS_DOMAIN}/oauth/v2/auth?${params.toString()}`;

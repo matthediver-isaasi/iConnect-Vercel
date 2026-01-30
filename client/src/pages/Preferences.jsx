@@ -1204,6 +1204,20 @@ export default function PreferencesPage() {
     setHasUnsavedChanges(true);
   };
 
+  // Sync member preferences to Zoho Campaigns (fire-and-forget, don't block UI)
+  const syncToZohoCampaigns = async (memberId) => {
+    try {
+      await fetch('/api/zoho-campaigns/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ memberId })
+      });
+    } catch (error) {
+      console.log('[Preferences] Zoho sync skipped or failed:', error.message);
+    }
+  };
+
   // Handle communication preference toggle
   const handleCommunicationToggle = async (categoryId, isSubscribed) => {
     if (!memberRecord?.id) return;
@@ -1218,8 +1232,7 @@ export default function PreferencesPage() {
         const { error } = await supabase
           .from("member_communication_preference")
           .update({ 
-            is_subscribed: isSubscribed,
-            updated_at: new Date().toISOString()
+            is_subscribed: isSubscribed
           })
           .eq("id", existingPref.id);
         
@@ -1240,6 +1253,9 @@ export default function PreferencesPage() {
       // Invalidate query to refresh data
       queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
+      
+      // Sync to Zoho Campaigns in background (don't await)
+      syncToZohoCampaigns(memberRecord.id);
     } catch (error) {
       console.error("Failed to update communication preference:", error);
       toast.error("Failed to update preference");
@@ -1313,6 +1329,9 @@ export default function PreferencesPage() {
       }
       
       toast.success(optOut ? "Opted out of all communications" : "Communications re-enabled");
+      
+      // Sync to Zoho Campaigns in background (don't await)
+      syncToZohoCampaigns(memberRecord.id);
     } catch (error) {
       console.error("Failed to update opt-out preference:", error);
       toast.error("Failed to update preference");
