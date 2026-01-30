@@ -98,7 +98,7 @@ Options:
 
 Supported Tables:
   file_repository, form_submission, system_settings, member, organization,
-  tenant, news_post, i_edit_page, resource, event, job_posting, project_card,
+  tenant, news_post, i_edit_page, resource, event, job_posting,
   form_draft_submission, blog_post, page_banner, speaker, card_deck,
   navigation_item, i_edit_page_element, wall_of_fame
 
@@ -1838,7 +1838,6 @@ async function main() {
     'resource': () => getResourceFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'event': () => getEventFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'job_posting': () => getJobPostingFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
-    'project_card': () => getProjectCardFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'form_draft_submission': () => getFormDraftSubmissionFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'blog_post': () => getBlogPostFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
     'page_banner': () => getPageBannerFiles(destClient, args.tenantId, SOURCE_SUPABASE_URL),
