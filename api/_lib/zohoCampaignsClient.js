@@ -370,7 +370,7 @@ export function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
     throw new Error('Zoho client ID not configured');
   }
 
-  const scope = 'ZohoCampaigns.contact.ALL,ZohoCampaigns.mailinglist.READ';
+  const scope = 'ZohoCampaigns.contact.CREATE,ZohoCampaigns.contact.READ,ZohoCampaigns.contact.UPDATE';
   
   const params = new URLSearchParams({
     scope,
