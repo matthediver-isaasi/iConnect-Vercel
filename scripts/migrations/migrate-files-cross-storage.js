@@ -1350,7 +1350,7 @@ async function getFormDraftSubmissionFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('form_draft_submission')
-    .select('id, form_id, submission_data')
+    .select('id, form_id, draft_data')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1361,10 +1361,10 @@ async function getFormDraftSubmissionFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const draft of data || []) {
-    if (draft.submission_data) {
-      const draftData = typeof draft.submission_data === 'string' 
-        ? JSON.parse(draft.submission_data) 
-        : draft.submission_data;
+    if (draft.draft_data) {
+      const draftData = typeof draft.draft_data === 'string' 
+        ? JSON.parse(draft.draft_data) 
+        : draft.draft_data;
       
       const foundUrls = findUrlsInValue(draftData, sourceUrl);
       for (const { path, url } of foundUrls) {
@@ -1601,22 +1601,22 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
         break;
         
       case 'form_draft_submission':
-        const { data: draftData } = await destClient
+        const { data: draftDataRecord } = await destClient
           .from('form_draft_submission')
-          .select('submission_data')
+          .select('draft_data')
           .eq('id', file.draftId)
           .single();
         
-        if (draftData?.submission_data) {
-          const draftFormData = typeof draftData.submission_data === 'string'
-            ? JSON.parse(draftData.submission_data)
-            : draftData.submission_data;
+        if (draftDataRecord?.draft_data) {
+          const draftFormData = typeof draftDataRecord.draft_data === 'string'
+            ? JSON.parse(draftDataRecord.draft_data)
+            : draftDataRecord.draft_data;
           
           updateUrlInObject(draftFormData, file.fieldPath, newUrl);
           
           await destClient
             .from('form_draft_submission')
-            .update({ submission_data: draftFormData })
+            .update({ draft_data: draftFormData })
             .eq('id', file.draftId);
         }
         break;
