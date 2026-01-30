@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit, Trash2, User, Mail, Briefcase, Building, Upload, X, Mic, Settings, Save } from "lucide-react";
+import { Plus, Edit, Trash2, User, Mail, Briefcase, Building, Upload, X, Mic, Settings, Save, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -27,6 +27,15 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 export default function SpeakerManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -50,6 +59,11 @@ export default function SpeakerManagementPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [moduleNameSingular, setModuleNameSingular] = useState("Speaker");
   const [moduleNamePlural, setModuleNamePlural] = useState("Speakers");
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+  const debouncedSearch = useDebounce(searchQuery, 300);
 
   const [formData, setFormData] = useState({
     full_name: "",
@@ -63,13 +77,31 @@ export default function SpeakerManagementPage() {
 
   const queryClient = useQueryClient();
 
-  const { data: speakers = [], isLoading } = useQuery({
-    queryKey: ['speakers'],
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch]);
+
+  const { data: speakersData, isLoading, isFetching } = useQuery({
+    queryKey: ['speakers-paginated', currentPage, itemsPerPage, debouncedSearch],
+    enabled: accessChecked,
+    keepPreviousData: true,
     queryFn: async () => {
-      const speakerList = await base44.entities.Speaker.list();
-      return speakerList;
-    },
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+        search: debouncedSearch
+      });
+      const response = await fetch(`/api/admin/speakers/paginated?${params}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch speakers');
+      return response.json();
+    }
   });
+
+  const speakers = speakersData?.speakers || [];
+  const pagination = speakersData?.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 };
+  const totalPages = pagination.totalPages;
 
   // Query for module name setting
   const { data: moduleNameSetting } = useQuery({
@@ -141,7 +173,7 @@ export default function SpeakerManagementPage() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['speakers'] });
+      queryClient.invalidateQueries({ queryKey: ['speakers-paginated'] });
       toast.success(editingSpeaker ? `${moduleNameSingular} updated` : `${moduleNameSingular} created`);
       handleCloseEditor();
     },
@@ -155,7 +187,7 @@ export default function SpeakerManagementPage() {
       await base44.entities.Speaker.delete(id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['speakers'] });
+      queryClient.invalidateQueries({ queryKey: ['speakers-paginated'] });
       toast.success(`${moduleNameSingular} deleted`);
       setDeleteDialogOpen(false);
       setSpeakerToDelete(null);
@@ -284,6 +316,28 @@ export default function SpeakerManagementPage() {
               Add {moduleNameSingular}
             </Button>
           </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="mb-6 flex items-center gap-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder={`Search ${moduleNamePlural.toLowerCase()}...`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+              data-testid="input-search-speakers"
+            />
+          </div>
+          {isFetching && !isLoading && (
+            <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+          )}
+          {pagination.total > 0 && (
+            <span className="text-sm text-slate-500">
+              {pagination.total} {pagination.total === 1 ? moduleNameSingular.toLowerCase() : moduleNamePlural.toLowerCase()}
+            </span>
+          )}
         </div>
 
         {/* Module Name Settings Panel */}
@@ -463,6 +517,35 @@ export default function SpeakerManagementPage() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-8">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1 || isFetching}
+              data-testid="button-prev-page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </Button>
+            <span className="text-sm text-slate-600 px-4">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages || isFetching}
+              data-testid="button-next-page"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
         )}
 
