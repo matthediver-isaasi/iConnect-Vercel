@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     }
 
     const tenantId = context.tenantId;
-    const { categoryId, memberId } = req.body;
+    const { categoryId, memberId, offset } = req.body;
 
     const tenantUser = await getSessionTenantUser(req);
     const sessionMember = await getSessionMember(req);
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     }
 
     if (categoryId) {
-      const result = await syncCategory(tenantId, categoryId);
+      const result = await syncCategory(tenantId, categoryId, offset || 0);
       return res.status(200).json(result);
     }
 
@@ -93,7 +93,9 @@ async function syncSingleMember(tenantId, memberId) {
   };
 }
 
-async function syncCategory(tenantId, categoryId) {
+const BATCH_SIZE = 50;
+
+async function syncCategory(tenantId, categoryId, offset = 0) {
   const { data: category, error: catError } = await supabase
     .from('communication_category')
     .select('id, name, zoho_list_id')
@@ -116,10 +118,24 @@ async function syncCategory(tenantId, categoryId) {
 
   const roleIds = categoryRoles?.map(r => r.role_id) || [];
 
+  // First get total count
+  let countQuery = supabase
+    .from('member')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId);
+
+  if (roleIds.length > 0) {
+    countQuery = countQuery.in('role_id', roleIds);
+  }
+
+  const { count: totalMembers } = await countQuery;
+
+  // Get batch of members
   let membersQuery = supabase
     .from('member')
     .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', tenantId)
+    .range(offset, offset + BATCH_SIZE - 1);
 
   if (roleIds.length > 0) {
     membersQuery = membersQuery.in('role_id', roleIds);
@@ -143,6 +159,10 @@ async function syncCategory(tenantId, categoryId) {
     subscribed: 0,
     unsubscribed: 0,
     errors: 0,
+    processed: 0,
+    total: totalMembers || 0,
+    offset: offset,
+    hasMore: false,
     details: []
   };
 
@@ -162,7 +182,6 @@ async function syncCategory(tenantId, categoryId) {
           results.subscribed++;
         } else {
           results.errors++;
-          results.details.push({ email: member.email, action: 'subscribe', error: result.error });
         }
       } else {
         const result = await removeSubscriberFromList(tenantId, category.zoho_list_id, member.email);
@@ -170,14 +189,20 @@ async function syncCategory(tenantId, categoryId) {
           results.unsubscribed++;
         } else {
           results.errors++;
-          results.details.push({ email: member.email, action: 'unsubscribe', error: result.error });
         }
       }
+      results.processed++;
     } catch (error) {
       results.errors++;
-      results.details.push({ email: member.email, error: error.message });
+      results.processed++;
     }
   }
+
+  // Calculate if there are more members to process
+  const nextOffset = offset + BATCH_SIZE;
+  results.hasMore = nextOffset < (totalMembers || 0);
+  results.nextOffset = results.hasMore ? nextOffset : null;
+  results.totalProcessed = offset + results.processed;
 
   return { success: true, ...results };
 }

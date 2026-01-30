@@ -28,6 +28,7 @@ export default function CommunicationsManagementPage() {
   const [showSetupInstructions, setShowSetupInstructions] = useState(false);
   const [syncingCategory, setSyncingCategory] = useState(null);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(null); // { categoryId, processed, total, subscribed, unsubscribed, errors }
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -122,26 +123,65 @@ export default function CommunicationsManagementPage() {
   
   const handleSyncCategory = async (categoryId) => {
     setSyncingCategory(categoryId);
+    let offset = 0;
+    let totalSubscribed = 0;
+    let totalUnsubscribed = 0;
+    let totalErrors = 0;
+    
+    setSyncProgress({ categoryId, processed: 0, total: 0, subscribed: 0, unsubscribed: 0, errors: 0 });
+    
+    let syncCompleted = false;
+    
     try {
-      const response = await fetch('/api/zoho-campaigns/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ categoryId })
-      });
+      let hasMore = true;
       
-      if (!response.ok) throw new Error('Sync failed');
+      while (hasMore) {
+        const response = await fetch('/api/zoho-campaigns/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ categoryId, offset })
+        });
+        
+        if (!response.ok) throw new Error('Sync failed');
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+          toast.error(result.error || 'Sync failed');
+          break;
+        }
+        
+        totalSubscribed += result.subscribed || 0;
+        totalUnsubscribed += result.unsubscribed || 0;
+        totalErrors += result.errors || 0;
+        
+        setSyncProgress({
+          categoryId,
+          processed: result.totalProcessed || 0,
+          total: result.total || 0,
+          subscribed: totalSubscribed,
+          unsubscribed: totalUnsubscribed,
+          errors: totalErrors
+        });
+        
+        hasMore = result.hasMore === true && result.nextOffset != null && result.nextOffset > offset;
+        offset = result.nextOffset || 0;
+        
+        // Mark as completed if we've processed everything
+        if (!hasMore) {
+          syncCompleted = true;
+        }
+      }
       
-      const result = await response.json();
-      if (result.success) {
-        toast.success(`Synced ${result.subscribed || 0} subscribers, ${result.unsubscribed || 0} unsubscribed`);
-      } else {
-        toast.error(result.error || 'Sync failed');
+      if (syncCompleted) {
+        toast.success(`Sync complete: ${totalSubscribed} subscribed, ${totalUnsubscribed} unsubscribed${totalErrors > 0 ? `, ${totalErrors} errors` : ''}`);
       }
     } catch (error) {
       toast.error('Failed to sync with Zoho Campaigns');
     } finally {
       setSyncingCategory(null);
+      setSyncProgress(null);
     }
   };
 
@@ -737,20 +777,41 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 </div>
                                 
                                 {category.zoho_list_id && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleSyncCategory(category.id)}
-                                    disabled={syncingCategory === category.id}
-                                    data-testid={`button-sync-category-${category.id}`}
-                                  >
-                                    {syncingCategory === category.id ? (
-                                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                                    ) : (
-                                      <RefreshCw className="w-4 h-4 mr-1" />
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleSyncCategory(category.id)}
+                                      disabled={syncingCategory === category.id}
+                                      data-testid={`button-sync-category-${category.id}`}
+                                    >
+                                      {syncingCategory === category.id ? (
+                                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                      ) : (
+                                        <RefreshCw className="w-4 h-4 mr-1" />
+                                      )}
+                                      Sync
+                                    </Button>
+                                    
+                                    {syncProgress && syncProgress.categoryId === category.id && (
+                                      <div className="flex flex-col gap-1 ml-2" data-testid={`sync-progress-${category.id}`}>
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden" data-testid={`sync-progress-bar-${category.id}`}>
+                                            <div 
+                                              className="h-full bg-blue-500 transition-all duration-300"
+                                              style={{ width: `${syncProgress.total > 0 ? (syncProgress.processed / syncProgress.total) * 100 : 0}%` }}
+                                            />
+                                          </div>
+                                          <span className="text-xs text-slate-600 whitespace-nowrap" data-testid={`sync-progress-count-${category.id}`}>
+                                            {syncProgress.processed} / {syncProgress.total}
+                                          </span>
+                                        </div>
+                                        <span className="text-xs text-amber-600" data-testid={`sync-progress-warning-${category.id}`}>
+                                          Please stay on this page until sync completes
+                                        </span>
+                                      </div>
                                     )}
-                                    Sync
-                                  </Button>
+                                  </>
                                 )}
                               </div>
                             )}
