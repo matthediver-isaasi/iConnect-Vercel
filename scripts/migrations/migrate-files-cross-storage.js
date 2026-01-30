@@ -410,7 +410,7 @@ async function getFormSubmissionFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('form_submission')
-    .select('id, form_id, data, attachments')
+    .select('id, form_id, submission_data, attachments')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -421,10 +421,10 @@ async function getFormSubmissionFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const submission of data || []) {
-    if (submission.data) {
-      const submissionData = typeof submission.data === 'string' 
-        ? JSON.parse(submission.data) 
-        : submission.data;
+    if (submission.submission_data) {
+      const submissionData = typeof submission.submission_data === 'string' 
+        ? JSON.parse(submission.submission_data) 
+        : submission.submission_data;
       
       const foundUrls = findUrlsInValue(submissionData, sourceUrl);
       for (const { path, url } of foundUrls) {
@@ -1383,7 +1383,7 @@ async function getFormDraftSubmissionFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('form_draft_submission')
-    .select('id, form_id, data')
+    .select('id, form_id, submission_data')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -1394,10 +1394,10 @@ async function getFormDraftSubmissionFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const draft of data || []) {
-    if (draft.data) {
-      const draftData = typeof draft.data === 'string' 
-        ? JSON.parse(draft.data) 
-        : draft.data;
+    if (draft.submission_data) {
+      const draftData = typeof draft.submission_data === 'string' 
+        ? JSON.parse(draft.submission_data) 
+        : draft.submission_data;
       
       const foundUrls = findUrlsInValue(draftData, sourceUrl);
       for (const { path, url } of foundUrls) {
@@ -1447,20 +1447,20 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
       case 'form_submission_nested':
         const { data: submissionNested } = await destClient
           .from('form_submission')
-          .select('data')
+          .select('submission_data')
           .eq('id', file.submissionId)
           .single();
         
-        if (submissionNested?.data) {
-          const submissionFormData = typeof submissionNested.data === 'string' 
-            ? JSON.parse(submissionNested.data) 
-            : submissionNested.data;
+        if (submissionNested?.submission_data) {
+          const submissionFormData = typeof submissionNested.submission_data === 'string' 
+            ? JSON.parse(submissionNested.submission_data) 
+            : submissionNested.submission_data;
           
           updateUrlInObject(submissionFormData, file.fieldPath, newUrl);
           
           await destClient
             .from('form_submission')
-            .update({ data: submissionFormData })
+            .update({ submission_data: submissionFormData })
             .eq('id', file.submissionId);
         }
         break;
@@ -1636,20 +1636,20 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
       case 'form_draft_submission':
         const { data: draftData } = await destClient
           .from('form_draft_submission')
-          .select('data')
+          .select('submission_data')
           .eq('id', file.draftId)
           .single();
         
-        if (draftData?.data) {
-          const draftFormData = typeof draftData.data === 'string'
-            ? JSON.parse(draftData.data)
-            : draftData.data;
+        if (draftData?.submission_data) {
+          const draftFormData = typeof draftData.submission_data === 'string'
+            ? JSON.parse(draftData.submission_data)
+            : draftData.submission_data;
           
           updateUrlInObject(draftFormData, file.fieldPath, newUrl);
           
           await destClient
             .from('form_draft_submission')
-            .update({ data: draftFormData })
+            .update({ submission_data: draftFormData })
             .eq('id', file.draftId);
         }
         break;
