@@ -572,10 +572,7 @@ export default function PublicLayout({ children, currentPageName }) {
                   case 'cta':
                     return (
                       <div key={item.id}>
-                        <h2 className="text-2xl mb-6" style={{ fontFamily: "'Degular Medium', sans-serif", color: footerTextColor }}>
-                          {item.title || 'Get Started'}
-                        </h2>
-                        {item.url && (
+                        {item.url ? (
                           <Link 
                             to={item.link_type === 'internal' ? createPageUrl(item.url) : item.url}
                             target={item.open_in_new_tab ? '_blank' : undefined}
@@ -592,6 +589,10 @@ export default function PublicLayout({ children, currentPageName }) {
                               <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
                             </Button>
                           </Link>
+                        ) : (
+                          <h2 className="text-2xl mb-6" style={{ fontFamily: "'Degular Medium', sans-serif", color: footerTextColor }}>
+                            {item.title || 'Get Started'}
+                          </h2>
                         )}
                       </div>
                     );
