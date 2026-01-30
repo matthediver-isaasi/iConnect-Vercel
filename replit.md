@@ -143,3 +143,58 @@ Run with: `node scripts/debug-query.mjs`
 - See `scripts/debug-tenant.mjs` for a working example of database queries
 
 ---
+
+## Cross-Storage File Migration Script
+
+**Script:** `scripts/migrations/migrate-files-cross-storage.js`
+
+### Usage
+
+```bash
+# Dry-run all tables (preview only, no changes)
+node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d --dry-run
+
+# Dry-run specific table
+node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d --dry-run --tables=member
+
+# Run migration for specific tables
+node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d --tables=member,organization
+
+# Run all tables with batch size
+node scripts/migrations/migrate-files-cross-storage.js --tenant-id=fd82da65-aab7-4a5c-85b8-b2febeb2003d --batch-size=10
+```
+
+### Supported Tables
+
+| Table | Description |
+|-------|-------------|
+| `file_repository` | File attachments |
+| `form_submission` | Form uploads (recursive JSON scan) |
+| `form_draft_submission` | Draft form uploads (recursive JSON scan) |
+| `system_settings` | Tenant branding/logos |
+| `article` | Featured images + content images |
+| `member` | Profile photos + signatures |
+| `organization` | Organization logos/images |
+| `tenant` | Tenant branding assets |
+| `news` | News featured images + content |
+| `iedit_page` | Page builder elements (recursive JSON scan) |
+| `resource` | Resource files + thumbnails |
+| `event` | Event images |
+| `job_posting` | Job posting images |
+| `project_card` | Card attachments (JSON array) |
+| `blog_post` | Blog featured images + content |
+| `page_banner` | Banner images + config (recursive JSON scan) |
+| `speaker` | Speaker photos |
+| `card_deck` | Card deck images (recursive JSON scan) |
+| `navigation_item` | Nav icons + config (recursive JSON scan) |
+| `i_edit_page_element` | Page element configs (recursive JSON scan) |
+| `wall_of_fame` | Photos + section backgrounds |
+
+### Required Environment Variables
+
+- `SOURCE_SUPABASE_URL` - Legacy Supabase project URL
+- `SOURCE_SUPABASE_KEY` - Legacy Supabase service role key
+- `DEST_SUPABASE_URL` - New Supabase project URL
+- `DEST_SUPABASE_KEY` - New Supabase service role key
+
+---
