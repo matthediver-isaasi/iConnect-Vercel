@@ -971,7 +971,7 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
   
   const { data, error } = await destClient
     .from('blog_post')
-    .select('id, title, featured_image, content')
+    .select('id, title, feature_image_url, body')
     .eq('tenant_id', tenantId);
   
   if (error) {
@@ -982,15 +982,15 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
   const filesToMigrate = [];
   
   for (const post of data || []) {
-    if (post.featured_image && isSourceStorageUrl(post.featured_image, sourceUrl)) {
-      const parsed = parseSupabaseStorageUrl(post.featured_image);
+    if (post.feature_image_url && isSourceStorageUrl(post.feature_image_url, sourceUrl)) {
+      const parsed = parseSupabaseStorageUrl(post.feature_image_url);
       if (parsed) {
         filesToMigrate.push({
           id: `blog-${post.id}-featured`,
           source: 'blog_post',
           blogId: post.id,
-          field: 'featured_image',
-          originalUrl: post.featured_image,
+          field: 'feature_image_url',
+          originalUrl: post.feature_image_url,
           parsed,
           fileType: 'blog_image',
           mimeType: null,
@@ -1000,15 +1000,15 @@ async function getBlogPostFiles(destClient, tenantId, sourceUrl) {
       }
     }
     
-    if (post.content && typeof post.content === 'string') {
-      const urlMatches = post.content.match(/https?:\/\/[^\s"'<>]+/g) || [];
+    if (post.body && typeof post.body === 'string') {
+      const urlMatches = post.body.match(/https?:\/\/[^\s"'<>]+/g) || [];
       for (const url of urlMatches) {
         if (isSourceStorageUrl(url, sourceUrl)) {
           const parsed = parseSupabaseStorageUrl(url);
           if (parsed) {
             filesToMigrate.push({
-              id: `blog-${post.id}-content-${Buffer.from(url).toString('base64').slice(0, 10)}`,
-              source: 'blog_post_content',
+              id: `blog-${post.id}-body-${Buffer.from(url).toString('base64').slice(0, 10)}`,
+              source: 'blog_post_body',
               blogId: post.id,
               originalUrl: url,
               parsed,
@@ -1628,18 +1628,18 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
           .eq('id', file.blogId);
         break;
         
-      case 'blog_post_content':
+      case 'blog_post_body':
         const { data: blogItem } = await destClient
           .from('blog_post')
-          .select('content')
+          .select('body')
           .eq('id', file.blogId)
           .single();
         
-        if (blogItem?.content) {
-          const updatedBlogContent = blogItem.content.replace(file.originalUrl, newUrl);
+        if (blogItem?.body) {
+          const updatedBlogBody = blogItem.body.replace(file.originalUrl, newUrl);
           await destClient
             .from('blog_post')
-            .update({ content: updatedBlogContent })
+            .update({ body: updatedBlogBody })
             .eq('id', file.blogId);
         }
         break;
