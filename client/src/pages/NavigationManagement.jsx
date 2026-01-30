@@ -502,12 +502,12 @@ export default function NavigationManagementPage() {
     }
 
     if (editingItem.id) {
-      // Remove fields that shouldn't be sent to the API
-      const { id, created_date, updated_date, created_by, children, ...dataToUpdate } = editingItem;
+      // Remove fields that shouldn't be sent to the API (config doesn't exist in DB schema)
+      const { id, created_date, updated_date, created_by, children, config, ...dataToUpdate } = editingItem;
       updateMutation.mutate({ id, data: dataToUpdate });
     } else {
-      // Also strip children from new items just in case
-      const { children, ...dataToCreate } = editingItem;
+      // Also strip children and config from new items
+      const { children, config, ...dataToCreate } = editingItem;
       createMutation.mutate(dataToCreate);
     }
   };
