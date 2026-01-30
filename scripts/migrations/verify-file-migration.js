@@ -107,11 +107,7 @@ function findUrlsInValue(value, sourceUrl, results = [], path = '') {
   if (typeof value === 'object') {
     for (const [key, val] of Object.entries(value)) {
       const fieldPath = path ? `${path}.${key}` : key;
-      if (key.includes('url') || key.includes('image') || key.includes('file') || key.includes('src')) {
-        if (typeof val === 'string' && isSourceStorageUrl(val, sourceUrl)) {
-          results.push({ path: fieldPath, url: val });
-        }
-      }
+      // Recursively scan all values - string URLs are handled at the top
       findUrlsInValue(val, sourceUrl, results, fieldPath);
     }
     return results;

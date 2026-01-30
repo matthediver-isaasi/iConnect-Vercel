@@ -199,11 +199,7 @@ function findUrlsInValue(value, sourceUrl, results = [], path = '') {
   if (typeof value === 'object') {
     for (const [key, val] of Object.entries(value)) {
       const fieldPath = path ? `${path}.${key}` : key;
-      if (key.includes('url') || key.includes('image') || key.includes('file') || key.includes('src')) {
-        if (typeof val === 'string' && isSourceStorageUrl(val, sourceUrl)) {
-          results.push({ path: fieldPath, url: val });
-        }
-      }
+      // Recursively scan all values - string URLs are handled at the top
       findUrlsInValue(val, sourceUrl, results, fieldPath);
     }
     return results;
@@ -473,21 +469,44 @@ async function getBrandingFiles(destClient, tenantId, sourceUrl) {
   for (const setting of data || []) {
     // Check all fields dynamically
     for (const [field, value] of Object.entries(setting)) {
-      if (value && typeof value === 'string' && isSourceStorageUrl(value, sourceUrl)) {
-        const parsed = parseSupabaseStorageUrl(value);
-        if (parsed) {
-          filesToMigrate.push({
-            id: `setting-${setting.id}-${field}`,
-            source: 'system_settings',
-            settingId: setting.id,
-            field,
-            originalUrl: value,
-            parsed,
-            fileType: 'branding',
-            mimeType: null,
-            isPrivate: false,
-            context: {}
-          });
+      if (value && typeof value === 'string') {
+        // Check if the whole value is a URL
+        if (isSourceStorageUrl(value, sourceUrl)) {
+          const parsed = parseSupabaseStorageUrl(value);
+          if (parsed) {
+            filesToMigrate.push({
+              id: `setting-${setting.id}-${field}`,
+              source: 'system_settings',
+              settingId: setting.id,
+              field,
+              originalUrl: value,
+              parsed,
+              fileType: 'branding',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
+        }
+        // Check for embedded URLs in HTML/text content
+        const urlMatches = value.match(/https?:\/\/[^\s"'<>]+/g) || [];
+        for (const url of urlMatches) {
+          if (isSourceStorageUrl(url, sourceUrl) && url !== value) {
+            const parsed = parseSupabaseStorageUrl(url);
+            if (parsed) {
+              filesToMigrate.push({
+                id: `setting-${setting.id}-content-${Buffer.from(url).toString('base64').slice(0, 10)}`,
+                source: 'system_settings_content',
+                settingId: setting.id,
+                originalUrl: url,
+                parsed,
+                fileType: 'branding_content',
+                mimeType: null,
+                isPrivate: false,
+                context: {}
+              });
+            }
+          }
         }
       }
       // Check for JSONB fields
@@ -935,6 +954,50 @@ async function getJobPostingFiles(destClient, tenantId, sourceUrl) {
           });
         }
       }
+      // Check for JSONB fields
+      if (value && typeof value === 'object') {
+        const foundUrls = findUrlsInValue(value, sourceUrl);
+        for (const { path, url } of foundUrls) {
+          const parsed = parseSupabaseStorageUrl(url);
+          if (parsed) {
+            filesToMigrate.push({
+              id: `job-${job.id}-${field}-${path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15)}`,
+              source: 'job_posting_config',
+              jobId: job.id,
+              configField: field,
+              fieldPath: path,
+              originalUrl: url,
+              parsed,
+              fileType: 'job_image',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
+        }
+      }
+      // Check for embedded URLs in text content fields
+      if (value && typeof value === 'string' && (field === 'description' || field === 'content' || field === 'body')) {
+        const urlMatches = value.match(/https?:\/\/[^\s"'<>]+/g) || [];
+        for (const url of urlMatches) {
+          if (isSourceStorageUrl(url, sourceUrl)) {
+            const parsed = parseSupabaseStorageUrl(url);
+            if (parsed) {
+              filesToMigrate.push({
+                id: `job-${job.id}-content-${Buffer.from(url).toString('base64').slice(0, 10)}`,
+                source: 'job_posting_content',
+                jobId: job.id,
+                originalUrl: url,
+                parsed,
+                fileType: 'job_content_image',
+                mimeType: null,
+                isPrivate: false,
+                context: {}
+              });
+            }
+          }
+        }
+      }
     }
   }
   
@@ -1133,6 +1196,28 @@ async function getSpeakerFiles(destClient, tenantId, sourceUrl) {
             isPrivate: false,
             context: {}
           });
+        }
+      }
+      // Check for JSONB fields
+      if (value && typeof value === 'object') {
+        const foundUrls = findUrlsInValue(value, sourceUrl);
+        for (const { path, url } of foundUrls) {
+          const parsed = parseSupabaseStorageUrl(url);
+          if (parsed) {
+            filesToMigrate.push({
+              id: `speaker-${speaker.id}-${field}-${path.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 15)}`,
+              source: 'speaker_config',
+              speakerId: speaker.id,
+              configField: field,
+              fieldPath: path,
+              originalUrl: url,
+              parsed,
+              fileType: 'speaker_photo',
+              mimeType: null,
+              isPrivate: false,
+              context: {}
+            });
+          }
         }
       }
     }
@@ -1515,6 +1600,46 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
           .eq('id', file.settingId);
         break;
         
+      case 'system_settings_config':
+        const { data: settingData } = await destClient
+          .from('system_settings')
+          .select('*')
+          .eq('id', file.settingId)
+          .single();
+        
+        if (settingData) {
+          const fieldValue = settingData[file.configField];
+          if (fieldValue && typeof fieldValue === 'object') {
+            const configData = typeof fieldValue === 'string'
+              ? JSON.parse(fieldValue)
+              : fieldValue;
+            
+            updateUrlInObject(configData, file.fieldPath, newUrl);
+            
+            await destClient
+              .from('system_settings')
+              .update({ [file.configField]: configData })
+              .eq('id', file.settingId);
+          }
+        }
+        break;
+        
+      case 'system_settings_content':
+        const { data: settingContentData } = await destClient
+          .from('system_settings')
+          .select('setting_value')
+          .eq('id', file.settingId)
+          .single();
+        
+        if (settingContentData?.setting_value) {
+          const updatedContent = settingContentData.setting_value.replace(file.originalUrl, newUrl);
+          await destClient
+            .from('system_settings')
+            .update({ setting_value: updatedContent })
+            .eq('id', file.settingId);
+        }
+        break;
+        
       case 'article':
         await destClient
           .from('article')
@@ -1624,6 +1749,46 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
           .eq('id', file.jobId);
         break;
         
+      case 'job_posting_config':
+        const { data: jobConfigData } = await destClient
+          .from('job_posting')
+          .select('*')
+          .eq('id', file.jobId)
+          .single();
+        
+        if (jobConfigData) {
+          const fieldValue = jobConfigData[file.configField];
+          if (fieldValue && typeof fieldValue === 'object') {
+            const configData = typeof fieldValue === 'string'
+              ? JSON.parse(fieldValue)
+              : fieldValue;
+            
+            updateUrlInObject(configData, file.fieldPath, newUrl);
+            
+            await destClient
+              .from('job_posting')
+              .update({ [file.configField]: configData })
+              .eq('id', file.jobId);
+          }
+        }
+        break;
+        
+      case 'job_posting_content':
+        const { data: jobContentData } = await destClient
+          .from('job_posting')
+          .select('description')
+          .eq('id', file.jobId)
+          .single();
+        
+        if (jobContentData?.description) {
+          const updatedContent = jobContentData.description.replace(file.originalUrl, newUrl);
+          await destClient
+            .from('job_posting')
+            .update({ description: updatedContent })
+            .eq('id', file.jobId);
+        }
+        break;
+        
       case 'project_card':
         const { data: cardData } = await destClient
           .from('project_card')
@@ -1729,6 +1894,30 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
           .eq('id', file.speakerId);
         break;
         
+      case 'speaker_config':
+        const { data: speakerConfigData } = await destClient
+          .from('speaker')
+          .select('*')
+          .eq('id', file.speakerId)
+          .single();
+        
+        if (speakerConfigData) {
+          const fieldValue = speakerConfigData[file.configField];
+          if (fieldValue && typeof fieldValue === 'object') {
+            const configData = typeof fieldValue === 'string'
+              ? JSON.parse(fieldValue)
+              : fieldValue;
+            
+            updateUrlInObject(configData, file.fieldPath, newUrl);
+            
+            await destClient
+              .from('speaker')
+              .update({ [file.configField]: configData })
+              .eq('id', file.speakerId);
+          }
+        }
+        break;
+        
       case 'card_deck':
         const { data: deckData } = await destClient
           .from('card_deck')
@@ -1747,6 +1936,30 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
             .from('card_deck')
             .update({ cards: cardsData })
             .eq('id', file.deckId);
+        }
+        break;
+        
+      case 'card_deck_config':
+        const { data: deckConfigData } = await destClient
+          .from('card_deck')
+          .select('*')
+          .eq('id', file.deckId)
+          .single();
+        
+        if (deckConfigData) {
+          const fieldValue = deckConfigData[file.configField];
+          if (fieldValue && typeof fieldValue === 'object') {
+            const configData = typeof fieldValue === 'string'
+              ? JSON.parse(fieldValue)
+              : fieldValue;
+            
+            updateUrlInObject(configData, file.fieldPath, newUrl);
+            
+            await destClient
+              .from('card_deck')
+              .update({ [file.configField]: configData })
+              .eq('id', file.deckId);
+          }
         }
         break;
         
@@ -1796,6 +2009,30 @@ async function updateDatabaseRecord(destClient, file, newUrl, newPath, destBucke
             .from('i_edit_page_element')
             .update({ config: elemConfig })
             .eq('id', file.elementId);
+        }
+        break;
+        
+      case 'i_edit_page_element_config':
+        const { data: elemConfigData } = await destClient
+          .from('i_edit_page_element')
+          .select('*')
+          .eq('id', file.elementId)
+          .single();
+        
+        if (elemConfigData) {
+          const fieldValue = elemConfigData[file.configField];
+          if (fieldValue && typeof fieldValue === 'object') {
+            const configData = typeof fieldValue === 'string'
+              ? JSON.parse(fieldValue)
+              : fieldValue;
+            
+            updateUrlInObject(configData, file.fieldPath, newUrl);
+            
+            await destClient
+              .from('i_edit_page_element')
+              .update({ [file.configField]: configData })
+              .eq('id', file.elementId);
+          }
         }
         break;
         
