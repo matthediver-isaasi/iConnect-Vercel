@@ -1166,13 +1166,10 @@ export default function NavigationManagementPage() {
                       <div className="space-y-2">
                         <Label htmlFor="typography_style">Typography Style</Label>
                         <Select
-                          value={editingItem.config?.typography_style_id || 'default'}
+                          value={editingItem.typography_style_id || 'default'}
                           onValueChange={(value) => setEditingItem({ 
                             ...editingItem, 
-                            config: { 
-                              ...editingItem.config, 
-                              typography_style_id: value === 'default' ? null : value 
-                            } 
+                            typography_style_id: value === 'default' ? null : value 
                           })}
                         >
                           <SelectTrigger data-testid="select-typography-style">

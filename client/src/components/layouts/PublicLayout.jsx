@@ -365,7 +365,7 @@ export default function PublicLayout({ children, currentPageName }) {
                 switch (blockType) {
                   case 'heading':
                     // Look up the typography style if one is configured
-                    const headingStyleId = item.config?.typography_style_id;
+                    const headingStyleId = item.typography_style_id;
                     const headingStyle = headingStyleId ? typographyStyles.find(s => s.id === headingStyleId) : null;
                     
                     // Apply typography style or use default styling
