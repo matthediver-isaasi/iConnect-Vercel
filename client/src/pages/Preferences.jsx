@@ -187,6 +187,7 @@ export default function PreferencesPage() {
 
   // Communication preferences state
   const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
+  const [updatingOptOutAll, setUpdatingOptOutAll] = useState(false);
 
   // Additional info (custom preference fields) state
   const [additionalInfoValues, setAdditionalInfoValues] = useState({});
@@ -1250,6 +1251,74 @@ export default function PreferencesPage() {
         next.delete(categoryId);
         return next;
       });
+    }
+  };
+
+  // Handle opt-out of all communications toggle
+  const handleOptOutAllToggle = async (optOut) => {
+    if (!memberRecord?.id) return;
+    
+    setUpdatingOptOutAll(true);
+    
+    try {
+      // Update member record with opt-out-all flag
+      const { error } = await supabase
+        .from("member")
+        .update({ 
+          communications_opted_out_all: optOut,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", memberRecord.id);
+      
+      if (error) throw error;
+      
+      // If opting out, also set all individual preferences to false
+      if (optOut && availableCategories.length > 0) {
+        for (const category of availableCategories) {
+          const existingPref = communicationPreferences.find(p => p.category_id === category.id);
+          
+          if (existingPref) {
+            await supabase
+              .from("member_communication_preference")
+              .update({ 
+                is_subscribed: false,
+                updated_at: new Date().toISOString()
+              })
+              .eq("id", existingPref.id);
+          } else {
+            await supabase
+              .from("member_communication_preference")
+              .insert({
+                member_id: memberRecord.id,
+                category_id: category.id,
+                is_subscribed: false
+              });
+          }
+        }
+      }
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ["freshMemberData", memberRecord.id] });
+      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
+      
+      // Update localStorage session data
+      const storedMember = localStorage.getItem('agcas_member');
+      if (storedMember) {
+        try {
+          const parsed = JSON.parse(storedMember);
+          parsed.communications_opted_out_all = optOut;
+          localStorage.setItem('agcas_member', JSON.stringify(parsed));
+        } catch (e) {
+          console.error("Failed to update localStorage:", e);
+        }
+      }
+      
+      toast.success(optOut ? "Opted out of all communications" : "Communications re-enabled");
+    } catch (error) {
+      console.error("Failed to update opt-out preference:", error);
+      toast.error("Failed to update preference");
+    } finally {
+      setUpdatingOptOutAll(false);
     }
   };
 
@@ -2480,6 +2549,7 @@ export default function PreferencesPage() {
 
       case 'communications':
         if (isFeatureExcluded('user.about-me.communication-preferences')) return null;
+        const isOptedOutAll = memberRecord?.communications_opted_out_all === true;
         return (
           <Card key="communications" className="border-slate-200 shadow-sm">
             <CardHeader>
@@ -2492,6 +2562,37 @@ export default function PreferencesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Master opt-out toggle */}
+              <div 
+                className={`flex items-center justify-between p-4 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}
+                data-testid="comm-opt-out-all"
+              >
+                <div className="space-y-1">
+                  <h4 className="font-medium text-slate-900 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-amber-600" />
+                    Opt out of all communications
+                  </h4>
+                  <p className="text-sm text-slate-500">
+                    {isOptedOutAll 
+                      ? "You have opted out of all marketing communications" 
+                      : "Enable this to stop receiving all marketing communications"}
+                  </p>
+                </div>
+                <Switch
+                  checked={isOptedOutAll}
+                  onCheckedChange={(checked) => handleOptOutAllToggle(checked)}
+                  disabled={updatingOptOutAll}
+                  data-testid="switch-opt-out-all"
+                />
+              </div>
+              
+              {isOptedOutAll && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>You have opted out of all communications. Turn off the toggle above to manage individual preferences.</span>
+                </div>
+              )}
+              
               {communicationCategoriesLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
@@ -2502,10 +2603,11 @@ export default function PreferencesPage() {
                   <p>No communication categories available for your role.</p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className={`space-y-4 ${isOptedOutAll ? 'opacity-50' : ''}`}>
                   {availableCategories.map((category) => {
                     const pref = communicationPreferences.find(p => p.category_id === category.id);
-                    const isSubscribed = pref ? pref.is_subscribed : true;
+                    // When opted out all, show as unsubscribed; otherwise use preference or default true
+                    const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : true);
                     
                     return (
                       <div 
@@ -2522,7 +2624,7 @@ export default function PreferencesPage() {
                         <Switch
                           checked={isSubscribed}
                           onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
-                          disabled={updatingCommPrefs.has(category.id)}
+                          disabled={updatingCommPrefs.has(category.id) || isOptedOutAll}
                           data-testid={`switch-comm-${category.id}`}
                         />
                       </div>
