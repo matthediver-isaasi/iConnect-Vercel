@@ -341,6 +341,11 @@ export async function removeSubscriberFromList(tenantId, listKey, email) {
     });
     
     if (data.status === 'error') {
+      // Error 2101 means contact not on list - treat as success (already unsubscribed/never subscribed)
+      if (data.code === '2101') {
+        console.log('[ZohoCampaigns] Contact not on list (already unsubscribed):', email);
+        return { success: true, data, alreadyUnsubscribed: true };
+      }
       console.error('[ZohoCampaigns] Remove subscriber error for email:', email, 'Error:', data);
       return { success: false, error: data.message || 'Failed to remove subscriber', email };
     }

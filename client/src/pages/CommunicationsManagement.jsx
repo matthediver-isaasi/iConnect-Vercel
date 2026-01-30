@@ -29,6 +29,7 @@ export default function CommunicationsManagementPage() {
   const [syncingCategory, setSyncingCategory] = useState(null);
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncProgress, setSyncProgress] = useState(null); // { categoryId, processed, total, subscribed, unsubscribed, errors }
+  const [activeJobId, setActiveJobId] = useState(null);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -55,9 +56,38 @@ export default function CommunicationsManagementPage() {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
+        checkForRunningJob();
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+
+  const checkForRunningJob = async () => {
+    try {
+      const response = await fetch('/api/zoho-campaigns/sync-job', {
+        credentials: 'include'
+      });
+      if (!response.ok) return;
+      
+      const job = await response.json();
+      if (job.status === 'running' || job.status === 'pending') {
+        setActiveJobId(job.id);
+        setSyncingCategory(job.categoryId);
+        setSyncProgress({
+          categoryId: job.categoryId,
+          processed: job.currentOffset,
+          total: job.totalMembers,
+          subscribed: job.subscribed,
+          unsubscribed: job.unsubscribed,
+          errors: job.errors,
+          skipped: job.skipped,
+          progress: job.progress
+        });
+        continueAndPollJob(job.id, job.categoryId);
+      }
+    } catch (error) {
+      console.log('No running sync job found');
+    }
+  };
 
   const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery({
     queryKey: ['communication-categories'],
@@ -123,67 +153,89 @@ export default function CommunicationsManagementPage() {
   
   const handleSyncCategory = async (categoryId) => {
     setSyncingCategory(categoryId);
-    let offset = 0;
-    let totalSubscribed = 0;
-    let totalUnsubscribed = 0;
-    let totalErrors = 0;
-    
     setSyncProgress({ categoryId, processed: 0, total: 0, subscribed: 0, unsubscribed: 0, errors: 0 });
     
-    let syncCompleted = false;
-    
     try {
-      let hasMore = true;
+      const response = await fetch('/api/zoho-campaigns/sync-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ categoryId })
+      });
       
-      while (hasMore) {
-        const response = await fetch('/api/zoho-campaigns/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ categoryId, offset })
-        });
-        
-        if (!response.ok) throw new Error('Sync failed');
-        
-        const result = await response.json();
-        
-        if (!result.success) {
-          toast.error(result.error || 'Sync failed');
-          break;
-        }
-        
-        totalSubscribed += result.subscribed || 0;
-        totalUnsubscribed += result.unsubscribed || 0;
-        totalErrors += result.errors || 0;
-        
-        setSyncProgress(prev => ({
-          categoryId,
-          processed: result.totalProcessed || 0,
-          total: result.total || 0,
-          subscribed: totalSubscribed,
-          unsubscribed: totalUnsubscribed,
-          errors: totalErrors,
-          skipped: (prev?.skipped || 0) + (result.skipped || 0)
-        }));
-        
-        hasMore = result.hasMore === true && result.nextOffset != null && result.nextOffset > offset;
-        offset = result.nextOffset || 0;
-        
-        // Mark as completed if we've processed everything
-        if (!hasMore) {
-          syncCompleted = true;
-        }
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to start sync');
       }
       
-      if (syncCompleted) {
-        const skippedMsg = syncProgress?.skipped > 0 ? `, ${syncProgress.skipped} skipped (invalid email)` : '';
-        toast.success(`Sync complete: ${totalSubscribed} subscribed, ${totalUnsubscribed} unsubscribed${totalErrors > 0 ? `, ${totalErrors} errors` : ''}${skippedMsg}`);
+      const result = await response.json();
+      
+      if (!result.success) {
+        toast.error(result.error || 'Failed to start sync');
+        setSyncingCategory(null);
+        setSyncProgress(null);
+        return;
       }
+      
+      setActiveJobId(result.jobId);
+      if (!result.resumed) {
+        setSyncProgress(prev => ({ ...prev, total: result.totalMembers }));
+      }
+      
+      continueAndPollJob(result.jobId, categoryId);
+      
     } catch (error) {
-      toast.error('Failed to sync with Zoho Campaigns');
-    } finally {
+      toast.error(error.message || 'Failed to sync with Zoho Campaigns');
       setSyncingCategory(null);
       setSyncProgress(null);
+    }
+  };
+  
+  const continueAndPollJob = async (jobId, categoryId) => {
+    try {
+      const response = await fetch('/api/zoho-campaigns/sync-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'continue', jobId })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to continue job');
+      }
+      
+      const job = await response.json();
+      
+      setSyncProgress({
+        categoryId,
+        processed: job.currentOffset,
+        total: job.totalMembers,
+        subscribed: job.subscribed,
+        unsubscribed: job.unsubscribed,
+        errors: job.errors,
+        skipped: job.skipped,
+        progress: job.progress
+      });
+      
+      if (job.status === 'running' && job.hasMore) {
+        setTimeout(() => continueAndPollJob(jobId, categoryId), 500);
+      } else if (job.status === 'completed') {
+        const skippedMsg = job.skipped > 0 ? `, ${job.skipped} skipped` : '';
+        toast.success(`Sync complete: ${job.subscribed} subscribed, ${job.unsubscribed} unsubscribed${job.errors > 0 ? `, ${job.errors} errors` : ''}${skippedMsg}`);
+        setSyncingCategory(null);
+        setSyncProgress(null);
+        setActiveJobId(null);
+      } else if (job.status === 'failed') {
+        toast.error(job.errorMessage || job.error || 'Sync failed');
+        setSyncingCategory(null);
+        setSyncProgress(null);
+        setActiveJobId(null);
+      }
+    } catch (error) {
+      toast.error('Lost connection to sync job');
+      setSyncingCategory(null);
+      setSyncProgress(null);
+      setActiveJobId(null);
     }
   };
 
