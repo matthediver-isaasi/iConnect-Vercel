@@ -68,20 +68,8 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Fetch button styles for this tenant
-    const { data: buttonStylesData } = await supabase
-      .from('button_style')
-      .select('name, style_config')
-      .eq('tenant_id', tenantData.id)
-      .eq('is_active', true);
-
-    // Convert button styles array to object keyed by name
-    const buttonStyles = {};
-    if (buttonStylesData) {
-      buttonStylesData.forEach(bs => {
-        buttonStyles[bs.name] = bs.style_config || {};
-      });
-    }
+    // Button styles are stored in branding_config.button_styles
+    const buttonStyles = tenantData.branding_config?.button_styles || {};
 
     res.json({
       success: true,
