@@ -62,7 +62,7 @@ export default function SpeakerManagementPage() {
   
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 50;
+  const itemsPerPage = 20;
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   const [formData, setFormData] = useState({
@@ -521,8 +521,8 @@ export default function SpeakerManagementPage() {
         )}
 
         {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-8">
+        {pagination.total > 0 && (
+          <div className="flex items-center justify-center gap-4 mt-8">
             <Button
               variant="outline"
               size="sm"
@@ -533,14 +533,14 @@ export default function SpeakerManagementPage() {
               <ChevronLeft className="w-4 h-4" />
               Previous
             </Button>
-            <span className="text-sm text-slate-600 px-4">
-              Page {currentPage} of {totalPages}
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages} ({pagination.total} total)
             </span>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages || isFetching}
+              disabled={currentPage >= totalPages || isFetching}
               data-testid="button-next-page"
             >
               Next
