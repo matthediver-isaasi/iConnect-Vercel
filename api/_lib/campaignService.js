@@ -155,16 +155,27 @@ export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlu
 }
 
 // Helper to fetch all members with pagination (bypasses Supabase 1000 row limit)
-async function fetchAllMembers(query, selectFields) {
+async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
   const allRecords = [];
   const batchSize = 1000;
   let offset = 0;
   let hasMore = true;
 
   while (hasMore) {
-    const { data: batch, error } = await query
+    let query = supabase
+      .from('member')
       .select(selectFields)
-      .range(offset, offset + batchSize - 1);
+      .eq('tenant_id', tenantId)
+      .not('email', 'ilike', 'deleted_%@deleted.local');
+
+    // Apply optional filters
+    if (filters.roleIds && filters.roleIds.length > 0) {
+      query = query.in('role_id', filters.roleIds);
+    }
+
+    query = query.range(offset, offset + batchSize - 1);
+
+    const { data: batch, error } = await query;
 
     if (error) {
       console.error('[Campaign Service] Pagination error:', error);
@@ -207,13 +218,11 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
 
       if (roleIds.length > 0) {
         // Get members with those roles using pagination
-        const baseQuery = supabase
-          .from('member')
-          .eq('tenant_id', tenantId)
-          .in('role_id', roleIds)
-          .not('email', 'ilike', 'deleted_%@deleted.local');
-
-        const members = await fetchAllMembers(baseQuery, 'id, email, first_name, last_name, role_id, communications_opted_out_all');
+        const members = await fetchAllMembersPaginated(
+          tenantId, 
+          'id, email, first_name, last_name, role_id, communications_opted_out_all',
+          { roleIds }
+        );
 
         // Get members who have explicitly unsubscribed from these categories
         const { data: unsubscribes } = await supabase
@@ -277,24 +286,20 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
         );
       }
     } else if (targetType === 'role' && targetIds.length > 0) {
-      const baseQuery = supabase
-        .from('member')
-        .eq('tenant_id', tenantId)
-        .in('role_id', targetIds)
-        .not('email', 'ilike', 'deleted_%@deleted.local');
-
-      const members = await fetchAllMembers(baseQuery, 'id, email, first_name, last_name, communications_opted_out_all');
+      const members = await fetchAllMembersPaginated(
+        tenantId,
+        'id, email, first_name, last_name, communications_opted_out_all',
+        { roleIds: targetIds }
+      );
 
       recipients = members.filter(m => 
         m.email && m.communications_opted_out_all !== true
       );
     } else if (targetType === 'all_members') {
-      const baseQuery = supabase
-        .from('member')
-        .eq('tenant_id', tenantId)
-        .not('email', 'ilike', 'deleted_%@deleted.local');
-
-      const members = await fetchAllMembers(baseQuery, 'id, email, first_name, last_name, communications_opted_out_all');
+      const members = await fetchAllMembersPaginated(
+        tenantId,
+        'id, email, first_name, last_name, communications_opted_out_all'
+      );
 
       recipients = members.filter(m => 
         m.email && m.communications_opted_out_all !== true
