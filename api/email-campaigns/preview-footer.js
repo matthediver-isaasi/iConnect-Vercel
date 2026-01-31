@@ -1,4 +1,4 @@
-import { getTenantContext } from '../_lib/authContext.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 import { getEmailFooterForPreview } from '../_lib/emailService.js';
 
 export default async function handler(req, res) {
