@@ -55,6 +55,8 @@ export default function EmailCampaigns() {
   const [sending, setSending] = useState(false);
   const [editorTab, setEditorTab] = useState('editor');
   const [testSending, setTestSending] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState('');
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -109,7 +111,8 @@ export default function EmailCampaigns() {
     email_template_id: '',
     html_content: '',
     target_type: 'communication_category',
-    target_ids: []
+    target_ids: [],
+    scheduled_at: ''
   });
 
   const openNewCampaignDialog = () => {
@@ -123,7 +126,8 @@ export default function EmailCampaigns() {
       email_template_id: '',
       html_content: '',
       target_type: 'communication_category',
-      target_ids: []
+      target_ids: [],
+      scheduled_at: ''
     });
     setEditorTab('editor');
     setShowCampaignDialog(true);
@@ -140,7 +144,8 @@ export default function EmailCampaigns() {
       email_template_id: campaign.email_template_id || '',
       html_content: campaign.html_content || '',
       target_type: campaign.target_type || 'communication_category',
-      target_ids: campaign.target_ids || []
+      target_ids: campaign.target_ids || [],
+      scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
     });
     setEditorTab('editor');
     setShowCampaignDialog(true);
@@ -288,6 +293,60 @@ export default function EmailCampaigns() {
     }
   };
 
+  const handleScheduleCampaign = async (campaign, scheduledAtLocal) => {
+    if (sending) return;
+    setSending(true);
+
+    try {
+      // Convert local datetime string to ISO UTC format
+      const scheduledAtUTC = new Date(scheduledAtLocal).toISOString();
+      
+      const response = await fetch('/api/email-campaigns/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ campaignId: campaign.id, scheduledAt: scheduledAtUTC })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to schedule campaign');
+      }
+
+      const result = await response.json();
+      toast.success(`Campaign scheduled for ${new Date(scheduledAtLocal).toLocaleString()}`);
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+      setShowPreviewDialog(false);
+      setScheduleMode(false);
+      setScheduleDateTime('');
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleCancelSchedule = async (campaign) => {
+    try {
+      const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: 'draft', scheduled_at: null })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to cancel schedule');
+      }
+
+      toast.success('Schedule cancelled - campaign returned to draft');
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
   const handleViewStats = async (campaign) => {
     try {
       const [statsResponse, heatmapResponse] = await Promise.all([
@@ -408,6 +467,12 @@ export default function EmailCampaigns() {
                         <Users className="w-4 h-4" />
                         {getTargetLabel(campaign)}
                       </span>
+                      {campaign.scheduled_at && campaign.status === 'scheduled' && (
+                        <span className="flex items-center gap-1 text-blue-600">
+                          <Clock className="w-4 h-4" />
+                          Scheduled: {new Date(campaign.scheduled_at).toLocaleString()}
+                        </span>
+                      )}
                       {campaign.sent_at && (
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
@@ -485,6 +550,17 @@ export default function EmailCampaigns() {
                           <Trash2 className="w-4 h-4 text-red-500" />
                         </Button>
                       </>
+                    )}
+                    {campaign.status === 'scheduled' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCancelSchedule(campaign)}
+                        data-testid={`button-cancel-schedule-${campaign.id}`}
+                      >
+                        <XCircle className="w-4 h-4 mr-1 text-orange-500" />
+                        Cancel Schedule
+                      </Button>
                     )}
                     {campaign.status === 'sent' && (
                       <Button
@@ -796,12 +872,21 @@ export default function EmailCampaigns() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
+      <Dialog open={showPreviewDialog} onOpenChange={(open) => {
+        setShowPreviewDialog(open);
+        if (!open) {
+          setScheduleMode(false);
+          setScheduleDateTime('');
+        }
+      }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Send Campaign</DialogTitle>
+            <DialogTitle>{scheduleMode ? 'Schedule Campaign' : 'Send Campaign'}</DialogTitle>
             <DialogDescription>
-              Review recipients before sending "{previewData?.campaign?.name}"
+              {scheduleMode 
+                ? `Schedule "${previewData?.campaign?.name}" for later delivery`
+                : `Review recipients before sending "${previewData?.campaign?.name}"`
+              }
             </DialogDescription>
           </DialogHeader>
           
@@ -814,7 +899,32 @@ export default function EmailCampaigns() {
                 </div>
               </div>
               
-              {previewData.sampleRecipients?.length > 0 && (
+              {scheduleMode && (
+                <div className="space-y-3 mb-4">
+                  <Label htmlFor="schedule-datetime" className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    Schedule Date & Time
+                  </Label>
+                  <Input
+                    id="schedule-datetime"
+                    type="datetime-local"
+                    value={scheduleDateTime}
+                    onChange={(e) => setScheduleDateTime(e.target.value)}
+                    min={(() => {
+                      const now = new Date();
+                      const offset = now.getTimezoneOffset();
+                      const local = new Date(now.getTime() - offset * 60000);
+                      return local.toISOString().slice(0, 16);
+                    })()}
+                    data-testid="input-schedule-datetime"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Campaign will be sent at the scheduled time. Scheduling uses your local timezone.
+                  </p>
+                </div>
+              )}
+              
+              {!scheduleMode && previewData.sampleRecipients?.length > 0 && (
                 <div>
                   <h4 className="text-sm font-medium mb-2">Sample recipients:</h4>
                   <div className="text-sm text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
@@ -834,27 +944,69 @@ export default function EmailCampaigns() {
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPreviewDialog(false)}>
-              Cancel
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => {
+              if (scheduleMode) {
+                setScheduleMode(false);
+                setScheduleDateTime('');
+              } else {
+                setShowPreviewDialog(false);
+              }
+            }}>
+              {scheduleMode ? 'Back' : 'Cancel'}
             </Button>
-            <Button 
-              onClick={() => handleSendCampaign(previewData?.campaign)}
-              disabled={sending || previewData?.recipientCount === 0}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              {sending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4 mr-2" />
-                  Send Now
-                </>
-              )}
-            </Button>
+            
+            {!scheduleMode && (
+              <Button 
+                variant="outline"
+                onClick={() => setScheduleMode(true)}
+                disabled={sending || previewData?.recipientCount === 0}
+                data-testid="button-schedule-mode"
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                Schedule
+              </Button>
+            )}
+            
+            {scheduleMode ? (
+              <Button 
+                onClick={() => handleScheduleCampaign(previewData?.campaign, scheduleDateTime)}
+                disabled={sending || !scheduleDateTime || previewData?.recipientCount === 0}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-confirm-schedule"
+              >
+                {sending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Scheduling...
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="w-4 h-4 mr-2" />
+                    Schedule Send
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button 
+                onClick={() => handleSendCampaign(previewData?.campaign)}
+                disabled={sending || previewData?.recipientCount === 0}
+                className="bg-green-600 hover:bg-green-700"
+                data-testid="button-send-now"
+              >
+                {sending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Send Now
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

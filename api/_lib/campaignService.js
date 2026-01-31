@@ -255,6 +255,92 @@ export async function getTargetRecipients(campaign, tenantId) {
   }
 }
 
+export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { success, campaign, error } = await getCampaign(campaignId, tenantId);
+    if (!success || !campaign) {
+      return { success: false, error: error || 'Campaign not found' };
+    }
+
+    if (campaign.status !== 'draft') {
+      return { success: false, error: `Cannot schedule campaign with status: ${campaign.status}` };
+    }
+
+    const { error: updateError } = await supabase
+      .from('email_campaign')
+      .update({ 
+        status: 'scheduled', 
+        scheduled_at: scheduledAt.toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    console.log(`[Campaign Service] Campaign ${campaignId} scheduled for ${scheduledAt.toISOString()}`);
+    return { 
+      success: true, 
+      scheduled: true,
+      scheduledAt: scheduledAt.toISOString()
+    };
+  } catch (err) {
+    console.error('[Campaign Service] Error scheduling campaign:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function processScheduledCampaigns() {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const now = new Date().toISOString();
+    
+    // Find all scheduled campaigns that are due
+    const { data: dueCampaigns, error: fetchError } = await supabase
+      .from('email_campaign')
+      .select('id, tenant_id, name')
+      .eq('status', 'scheduled')
+      .lte('scheduled_at', now);
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    if (!dueCampaigns || dueCampaigns.length === 0) {
+      return { success: true, processed: 0, campaigns: [] };
+    }
+
+    const results = [];
+    for (const campaign of dueCampaigns) {
+      console.log(`[Campaign Service] Processing scheduled campaign: ${campaign.id} (${campaign.name})`);
+      const result = await sendCampaign(campaign.id, campaign.tenant_id);
+      results.push({
+        campaignId: campaign.id,
+        name: campaign.name,
+        ...result
+      });
+    }
+
+    return { 
+      success: true, 
+      processed: dueCampaigns.length,
+      campaigns: results
+    };
+  } catch (err) {
+    console.error('[Campaign Service] Error processing scheduled campaigns:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function sendCampaign(campaignId, tenantId) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };

@@ -1,5 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { sendCampaign, getTargetRecipients, getCampaign } from '../_lib/campaignService.js';
+import { sendCampaign, getTargetRecipients, getCampaign, scheduleCampaign } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   }
 
   const { tenantId } = tenantContext;
-  const { campaignId, preview } = req.body;
+  const { campaignId, preview, scheduledAt } = req.body;
 
   if (!campaignId) {
     return res.status(400).json({ error: 'Campaign ID required' });
@@ -41,6 +41,24 @@ export default async function handler(req, res) {
     });
   }
 
+  // Handle scheduling
+  if (scheduledAt) {
+    const scheduleDate = new Date(scheduledAt);
+    if (isNaN(scheduleDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid schedule date' });
+    }
+    if (scheduleDate <= new Date()) {
+      return res.status(400).json({ error: 'Schedule date must be in the future' });
+    }
+
+    const result = await scheduleCampaign(campaignId, tenantId, scheduleDate);
+    if (!result.success) {
+      return res.status(500).json({ error: result.error });
+    }
+    return res.json(result);
+  }
+
+  // Send immediately
   const result = await sendCampaign(campaignId, tenantId);
 
   if (!result.success) {
