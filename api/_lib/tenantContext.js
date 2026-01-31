@@ -241,22 +241,11 @@ export async function getTenantContext(req) {
   
   console.log('[TenantContext] Member found:', { memberId: member.id, organizationId: member.organization_id });
   
-  // Get tenant_id from the member's organization
-  let tenantId = null;
-  if (member.organization_id && supabase) {
-    const { data: org } = await supabase
-      .from('organization')
-      .select('tenant_id')
-      .eq('id', member.organization_id)
-      .single();
-    
-    if (org) {
-      tenantId = org.tenant_id;
-    }
-    console.log('[TenantContext] Tenant from organization:', tenantId);
-  }
+  // Get tenant_id from the member's organization (already included in member fetch via join)
+  let tenantId = member.organization?.tenant_id || null;
+  console.log('[TenantContext] Tenant from member.organization:', tenantId);
   
-  // If no tenant from session, use hostname-based tenant
+  // Fallback: If tenant_id not available from organization join, use hostname-based tenant
   if (!tenantId && tenantFromHost) {
     tenantId = tenantFromHost.id;
     console.log('[TenantContext] Using tenant from host:', tenantId);

@@ -491,7 +491,7 @@ export async function getSessionMember(req) {
   try {
     const { data: member, error } = await supabase
       .from('member')
-      .select('*')
+      .select('*, organization:organization_id(tenant_id)')
       .eq('id', session.data.memberId)
       .single();
     
