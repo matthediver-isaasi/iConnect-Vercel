@@ -66,6 +66,16 @@ export default function EmailCampaigns() {
     staleTime: 30000
   });
 
+  const { data: footerData } = useQuery({
+    queryKey: ['email-footer-preview'],
+    queryFn: async () => {
+      const response = await fetch('/api/email-campaigns/preview-footer', { credentials: 'include' });
+      if (!response.ok) return { footer: null };
+      return response.json();
+    },
+    staleTime: 60000
+  });
+
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['email-templates'],
     queryFn: () => base44.entities.EmailTemplate.list({ filter: { is_active: true } }),
@@ -732,9 +742,24 @@ export default function EmailCampaigns() {
                   <TabsContent value="preview" className="mt-3">
                     <div 
                       className="border rounded-md p-4 min-h-[300px] bg-white prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Switch to Editor tab to add content.</p>' }}
                       data-testid="preview-html-content"
-                    />
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Switch to Editor tab to add content.</p>' }} />
+                      {footerData?.footer && (
+                        <>
+                          <hr className="my-4 border-gray-200" />
+                          <div 
+                            className="text-xs text-gray-500"
+                            dangerouslySetInnerHTML={{ __html: footerData.footer }}
+                          />
+                        </>
+                      )}
+                      {!footerData?.footer && formData.html_content && (
+                        <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
+                          No tenant email footer configured. Configure one in Admin &gt; System Settings.
+                        </p>
+                      )}
+                    </div>
                   </TabsContent>
                 </Tabs>
               </div>

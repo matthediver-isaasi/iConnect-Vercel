@@ -273,6 +273,12 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   }
 }
 
+export async function getEmailFooterForPreview(tenantId) {
+  const footer = await getEmailFooter(tenantId);
+  if (!footer) return null;
+  return await replaceSocialPlaceholdersInFooter(footer, tenantId);
+}
+
 export function clearTenantEmailCache(tenantId) {
   if (tenantId) {
     tenantEmailConfigCache.delete(tenantId);
