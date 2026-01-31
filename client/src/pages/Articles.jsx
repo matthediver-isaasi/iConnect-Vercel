@@ -109,8 +109,11 @@ export default function ArticlesPage() {
     queryKey: ['my-articles', currentMemberId],
     queryFn: async () => {
       const allArticles = await base44.entities.BlogPost.list('-published_date');
-      // Get all articles by this author (published + drafts)
-      return allArticles.filter(article => String(article.author_id) === String(currentMemberId));
+      // Get all articles by this author OR where they are the original author (for guest writer articles)
+      return allArticles.filter(article => 
+        String(article.author_id) === String(currentMemberId) ||
+        String(article.original_author_id) === String(currentMemberId)
+      );
     },
     enabled: !!currentMemberId && showMyArticlesOnly,
     staleTime: 0,

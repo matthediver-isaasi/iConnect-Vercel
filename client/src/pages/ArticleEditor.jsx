@@ -459,7 +459,11 @@ export default function ArticleEditorPage() {
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
-        // Guest writers don't have original_author_id
+        // For new articles with guest writer, set original_author_id to the creating member
+        // so they retain visibility/access to their article
+        if (!isEditing && currentMember?.id) {
+          articleData.original_author_id = currentMember.id;
+        }
       } else if (authorType === "other_member" && originalAuthorId) {
         // Keep the current author - don't change author_id
         articleData = {
