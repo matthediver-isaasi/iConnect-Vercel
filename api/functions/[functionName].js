@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';

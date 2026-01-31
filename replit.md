@@ -1,3 +1,5 @@
+<!-- IMPORTANT: This application is deployed on Vercel. Server-side logs are NOT visible in Replit's console. To debug production issues, check Vercel's function logs or add client-side console logging. -->
+
 # Overview
 
 This project is a multi-tenant SaaS membership management platform providing organizations with a comprehensive solution for managing members, events, bookings, resources, and blog posts. It aims to consolidate various organizational management functions into a single, efficient platform, offering significant market potential. Key capabilities include a unified identity system, a dynamic page builder, custom forms, workflow automation, and a robust Due Diligence process. The platform supports a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) with strong access control and data isolation.
