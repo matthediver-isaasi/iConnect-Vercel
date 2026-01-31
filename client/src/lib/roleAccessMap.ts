@@ -39,7 +39,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "user.about-me.awards", label: "Awards" },
           { id: "user.about-me.professional-biography", label: "Professional Biography" },
           { id: "user.about-me.outlook", label: "Outlook Email Integration" },
-          { id: "user.about-me.booking", label: "Personal Booking Links" }
+          { id: "user.about-me.booking", label: "Personal Booking Links" },
+          { id: "user.about-me.booking-availability", label: "Booking Availability" }
         ]
       },
       {
