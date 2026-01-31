@@ -255,6 +255,11 @@ class EntitiesProxy {
   get ContractReminder() { return this._getEntity('ContractReminder'); }
   get FormDueDiligenceConfig() { return this._getEntity('FormDueDiligenceConfig'); }
   get FormSubmissionDueDiligence() { return this._getEntity('FormSubmissionDueDiligence'); }
+  get EmailCampaign() { return this._getEntity('EmailCampaign'); }
+  get EmailCampaignRecipient() { return this._getEntity('EmailCampaignRecipient'); }
+  get EmailLinkClick() { return this._getEntity('EmailLinkClick'); }
+  get EmailEvent() { return this._getEntity('EmailEvent'); }
+  get EmailUnsubscribe() { return this._getEntity('EmailUnsubscribe'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

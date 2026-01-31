@@ -42,8 +42,55 @@ The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (R
 -   **Stripe:** Payment processing.
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
--   **Mailgun:** Tenant-specific email sending domains and email delivery.
--   **Zoho Campaigns:** Email marketing list synchronization.
+-   **Mailgun:** Tenant-specific email sending domains, email delivery, and Email Marketing System (EMS) with full tracking.
+
+## Native Email Marketing System (EMS)
+
+A built-in email campaign management system powered by Mailgun, replacing the need for external email marketing tools like Zoho Campaigns. The EMS provides comprehensive campaign management with full tracking capabilities.
+
+### Features
+
+- **Campaign Management:** Create, edit, and send email campaigns with HTML templates
+- **Audience Targeting:** Send to communication categories, member groups, roles, or all members
+- **Recipient Filtering:** Automatically excludes unsubscribed members and respects communication preferences
+- **Link Tracking:** All links are rewritten through `/api/track/click` for click tracking with position data
+- **Open Tracking:** Via Mailgun's pixel tracking, events received via webhooks
+- **Bounce Handling:** Automatic member record updates for permanent bounces
+- **Unsubscribe Management:** Built-in unsubscribe pages with local tracking
+- **Click Heatmap:** Visual representation of link click distribution across campaigns
+- **Campaign Analytics:** Sent, delivered, opened, clicked, bounced, unsubscribed, and complaint counts
+
+### Database Tables
+
+| Table | Description |
+|-------|-------------|
+| `email_campaign` | Campaign records with targeting, content, and aggregated stats |
+| `email_campaign_recipient` | Individual send records per recipient with status tracking |
+| `email_link_click` | Detailed click tracking with link position for heatmaps |
+| `email_event` | Mailgun webhook events for audit trail |
+| `email_unsubscribe` | Local unsubscribe tracking |
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/email-campaigns` | GET/POST | List or create campaigns |
+| `/api/email-campaigns/:id` | GET/PATCH/DELETE | Get, update, or delete a campaign |
+| `/api/email-campaigns/:id?stats=true` | GET | Get campaign statistics |
+| `/api/email-campaigns/:id?heatmap=true` | GET | Get click heatmap data |
+| `/api/email-campaigns/send` | POST | Send campaign or preview recipients |
+| `/api/email-campaigns/unsubscribe` | GET | Unsubscribe page for recipients |
+| `/api/track/click` | GET | Click tracking redirect endpoint |
+| `/api/webhooks/mailgun` | POST | Mailgun webhook handler |
+
+### Mailgun Webhook Configuration
+
+Configure Mailgun webhooks to point to `/api/webhooks/mailgun` for:
+- Delivered, Opened, Clicked, Bounced, Dropped, Complained, Unsubscribed events
+
+Set `MAILGUN_WEBHOOK_SIGNING_KEY` for signature verification (optional but recommended).
+
+-   **Zoho Campaigns:** Legacy email marketing list synchronization (being replaced by native EMS).
 
 ## Zoho Campaigns Integration
 

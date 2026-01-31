@@ -11,12 +11,14 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink, Send } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import EmailCampaigns from "@/components/EmailCampaigns";
 
 export default function CommunicationsManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -650,6 +652,23 @@ CREATE POLICY "Service role has full access to member_communication_preference"
           </CardHeader>
 
           <CardContent className="p-6">
+            <Tabs defaultValue="campaigns" className="w-full">
+              <TabsList className="mb-6">
+                <TabsTrigger value="campaigns" data-testid="tab-campaigns">
+                  <Send className="w-4 h-4 mr-2" />
+                  Email Campaigns
+                </TabsTrigger>
+                <TabsTrigger value="categories" data-testid="tab-categories">
+                  <Mail className="w-4 h-4 mr-2" />
+                  Subscription Categories
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="campaigns">
+                <EmailCampaigns />
+              </TabsContent>
+
+              <TabsContent value="categories">
             {/* Zoho Campaigns Integration Status */}
             <div className="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
               <div className="flex items-center justify-between">
@@ -900,6 +919,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 })}
               </div>
             )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
 

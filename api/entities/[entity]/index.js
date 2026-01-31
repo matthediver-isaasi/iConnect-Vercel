@@ -170,6 +170,11 @@ const entityToTable = {
   'ContractDocument': 'contract_document',
   'ContractSigner': 'contract_signer',
   'ContractReminder': 'contract_reminder',
+  'EmailCampaign': 'email_campaign',
+  'EmailCampaignRecipient': 'email_campaign_recipient',
+  'EmailLinkClick': 'email_link_click',
+  'EmailEvent': 'email_event',
+  'EmailUnsubscribe': 'email_unsubscribe',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
