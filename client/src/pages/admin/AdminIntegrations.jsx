@@ -29,7 +29,7 @@ import {
   TestTube2
 } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { Elements, CardElement } from "@stripe/react-stripe-js";
 import {
   Select,
   SelectContent,
@@ -39,17 +39,13 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 
-function StripeTestCardForm({ onSuccess, onError }) {
-  const stripe = useStripe();
-  const elements = useElements();
+function StripeTestCardForm({ onReady }) {
   const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    if (stripe && elements) {
-      setReady(true);
-      onSuccess();
-    }
-  }, [stripe, elements, onSuccess]);
+  const handleReady = () => {
+    setReady(true);
+    if (onReady) onReady();
+  };
 
   const cardStyle = {
     style: {
@@ -72,10 +68,10 @@ function StripeTestCardForm({ onSuccess, onError }) {
   return (
     <div className="space-y-4">
       <div className="p-4 bg-slate-800 border border-slate-600 rounded-lg">
-        <CardElement options={cardStyle} onReady={() => setReady(true)} />
+        <CardElement options={cardStyle} onReady={handleReady} data-testid="stripe-card-element" />
       </div>
       {ready && (
-        <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+        <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg" data-testid="text-stripe-test-success">
           <CheckCircle2 className="h-5 w-5 text-green-400" />
           <p className="text-sm text-green-400">Stripe Elements loaded successfully - your publishable key is valid!</p>
         </div>
@@ -139,7 +135,8 @@ export default function AdminIntegrations() {
   const [hasStripeCredentials, setHasStripeCredentials] = useState(false);
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
   const [stripeTestModalOpen, setStripeTestModalOpen] = useState(false);
-  const [stripeTestResult, setStripeTestResult] = useState(null);
+  const [stripeTestLoading, setStripeTestLoading] = useState(false);
+  const [stripeTestError, setStripeTestError] = useState(null);
   const [stripePromise, setStripePromise] = useState(null);
 
   const ZOHO_REGIONS = [
@@ -699,17 +696,24 @@ export default function AdminIntegrations() {
       return;
     }
     
+    setStripeTestLoading(true);
+    setStripeTestError(null);
+    setStripeTestModalOpen(true);
+    
     try {
-      setStripeTestResult(null);
-      const promise = loadStripe(publishableKey);
-      setStripePromise(promise);
-      setStripeTestModalOpen(true);
+      const stripe = await loadStripe(publishableKey);
+      
+      if (!stripe) {
+        setStripeTestError("Failed to initialize Stripe - please check your publishable key");
+        setStripePromise(null);
+      } else {
+        setStripePromise(Promise.resolve(stripe));
+      }
     } catch (err) {
-      toast({
-        title: "Test Failed",
-        description: err.message || "Failed to initialize Stripe",
-        variant: "destructive"
-      });
+      setStripeTestError(err.message || "Failed to initialize Stripe");
+      setStripePromise(null);
+    } finally {
+      setStripeTestLoading(false);
     }
   };
 
@@ -1484,11 +1488,15 @@ export default function AdminIntegrations() {
                 <Button
                   variant="outline"
                   onClick={handleTestStripe}
-                  disabled={!stripeForm.publishable_key}
-                  className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+                  disabled={!stripeForm.publishable_key || stripeTestLoading}
+                  className="border-purple-500/50 text-purple-400"
                   data-testid="button-test-stripe"
                 >
-                  <TestTube2 className="h-4 w-4 mr-2" />
+                  {stripeTestLoading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <TestTube2 className="h-4 w-4 mr-2" />
+                  )}
                   Test Connection
                 </Button>
               </div>
@@ -1547,8 +1555,14 @@ export default function AdminIntegrations() {
         </div>
       </main>
 
-      <Dialog open={stripeTestModalOpen} onOpenChange={setStripeTestModalOpen}>
-        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+      <Dialog open={stripeTestModalOpen} onOpenChange={(open) => {
+        setStripeTestModalOpen(open);
+        if (!open) {
+          setStripePromise(null);
+          setStripeTestError(null);
+        }
+      }}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md" data-testid="dialog-stripe-test">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <CreditCard className="h-5 w-5 text-purple-400" />
@@ -1559,12 +1573,22 @@ export default function AdminIntegrations() {
             </DialogDescription>
           </DialogHeader>
           
-          {stripePromise && (
+          {stripeTestLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
+            </div>
+          )}
+          
+          {stripeTestError && (
+            <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg" data-testid="text-stripe-test-error">
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+              <p className="text-sm text-red-400">{stripeTestError}</p>
+            </div>
+          )}
+          
+          {!stripeTestLoading && !stripeTestError && stripePromise && (
             <Elements stripe={stripePromise}>
-              <StripeTestCardForm 
-                onSuccess={() => setStripeTestResult('success')}
-                onError={() => setStripeTestResult('error')}
-              />
+              <StripeTestCardForm onReady={() => {}} />
             </Elements>
           )}
 
@@ -1573,6 +1597,7 @@ export default function AdminIntegrations() {
               variant="outline" 
               onClick={() => setStripeTestModalOpen(false)}
               className="border-slate-600 text-slate-300"
+              data-testid="button-close-stripe-test"
             >
               Close
             </Button>
