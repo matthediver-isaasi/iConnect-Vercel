@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,10 +8,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, 
   Loader2, Calendar, Clock, Users, MousePointerClick,
-  CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2
+  CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,6 +32,11 @@ export default function EmailCampaigns() {
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
   const [testEmailCampaign, setTestEmailCampaign] = useState(null);
+  const [testEmailMode, setTestEmailMode] = useState('manual');
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [memberSearchResults, setMemberSearchResults] = useState([]);
+  const [searchingMembers, setSearchingMembers] = useState(false);
+  const [selectedMember, setSelectedMember] = useState(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -91,6 +97,54 @@ export default function EmailCampaigns() {
       scheduledCount
     };
   }, [campaigns]);
+
+  // Member search for test emails with debouncing
+  useEffect(() => {
+    if (!memberSearchQuery || memberSearchQuery.length < 2) {
+      setMemberSearchResults([]);
+      return;
+    }
+
+    const searchController = new AbortController();
+    const debounceTimer = setTimeout(async () => {
+      setSearchingMembers(true);
+      try {
+        const response = await fetch(`/api/members/search?q=${encodeURIComponent(memberSearchQuery)}&limit=10`, {
+          credentials: 'include',
+          signal: searchController.signal
+        });
+        
+        if (response.ok) {
+          const results = await response.json();
+          setMemberSearchResults(results);
+        }
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          console.error('Failed to search members:', e);
+          setMemberSearchResults([]);
+        }
+      } finally {
+        setSearchingMembers(false);
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(debounceTimer);
+      searchController.abort();
+    };
+  }, [memberSearchQuery]);
+
+  const handleMemberSearchInput = (query) => {
+    setMemberSearchQuery(query);
+    setSelectedMember(null);
+  };
+
+  const handleSelectMember = (member) => {
+    setSelectedMember(member);
+    setTestEmailAddress(member.email);
+    setMemberSearchQuery(`${member.first_name || ''} ${member.last_name || ''} <${member.email}>`);
+    setMemberSearchResults([]);
+  };
 
   const handleDeleteCampaign = async () => {
     if (!campaignToDelete) return;
@@ -816,6 +870,10 @@ export default function EmailCampaigns() {
         if (!open) {
           setTestEmailAddress('');
           setTestEmailCampaign(null);
+          setTestEmailMode('manual');
+          setMemberSearchQuery('');
+          setMemberSearchResults([]);
+          setSelectedMember(null);
         }
       }}>
         <DialogContent className="max-w-md">
@@ -826,26 +884,109 @@ export default function EmailCampaigns() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="test-email">Email Address</Label>
-              <Input
-                id="test-email"
-                type="email"
-                value={testEmailAddress}
-                onChange={(e) => setTestEmailAddress(e.target.value)}
-                placeholder="your@email.com"
-                data-testid="input-test-email"
-              />
-              <p className="text-xs text-muted-foreground">
-                The test email will be sent to this address
-              </p>
-            </div>
+            <Tabs value={testEmailMode} onValueChange={(v) => {
+              setTestEmailMode(v);
+              setTestEmailAddress('');
+              setMemberSearchQuery('');
+              setMemberSearchResults([]);
+              setSelectedMember(null);
+            }}>
+              <TabsList className="w-full">
+                <TabsTrigger value="manual" className="flex-1" data-testid="tab-manual-email-list">
+                  <Mail className="w-4 h-4 mr-2" />
+                  Enter Email
+                </TabsTrigger>
+                <TabsTrigger value="member" className="flex-1" data-testid="tab-member-lookup-list">
+                  <Search className="w-4 h-4 mr-2" />
+                  Find Member
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="manual" className="mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="test-email-list">Email Address</Label>
+                  <Input
+                    id="test-email-list"
+                    type="email"
+                    value={testEmailAddress}
+                    onChange={(e) => setTestEmailAddress(e.target.value)}
+                    placeholder="your@email.com"
+                    data-testid="input-test-email-list"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The test email will be sent to this address
+                  </p>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="member" className="mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="member-search-list">Search Member</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="member-search-list"
+                      value={memberSearchQuery}
+                      onChange={(e) => handleMemberSearchInput(e.target.value)}
+                      placeholder="Search by name or email..."
+                      className="pl-9"
+                      data-testid="input-member-search-list"
+                    />
+                    {searchingMembers && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  
+                  {memberSearchResults.length > 0 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      {memberSearchResults.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => handleSelectMember(member)}
+                          className="w-full text-left px-3 py-2 hover-elevate flex items-center gap-2 border-b last:border-b-0"
+                          data-testid={`member-result-list-${member.id}`}
+                        >
+                          <Users className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">
+                              {member.first_name} {member.last_name}
+                            </div>
+                            <div className="text-sm text-muted-foreground truncate">
+                              {member.email}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {memberSearchQuery.length >= 2 && memberSearchResults.length === 0 && !searchingMembers && (
+                    <p className="text-sm text-muted-foreground">No members found</p>
+                  )}
+                  
+                  {selectedMember && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-blue-900">
+                          {selectedMember.first_name} {selectedMember.last_name}
+                        </div>
+                        <div className="text-sm text-blue-700 truncate">
+                          {selectedMember.email}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
           <DialogFooter>
             <Button 
               variant="outline" 
               onClick={() => setShowTestEmailDialog(false)}
-              data-testid="button-cancel-test-send"
+              data-testid="button-cancel-test-send-list"
             >
               Cancel
             </Button>
@@ -857,7 +998,7 @@ export default function EmailCampaigns() {
                 }
               }}
               disabled={!testEmailAddress || testSending}
-              data-testid="button-confirm-test-send"
+              data-testid="button-confirm-test-send-list"
             >
               {testSending ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
