@@ -1,0 +1,27 @@
+2026-01-31 13:24:31.693 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-31 13:24:31.693 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-31 13:24:31.830 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-31 13:24:31.830 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","tenantUserId":"baed1877-0c08-4959-943e-c90448d792e9","memberId":"48b25075-51da-437f-af20-17836a892bfe","identityId":"2d4067d6-1b12-43b3-84cf-c76ba181e7ab","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-01-31 13:24:31.830 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-31 13:24:32.079 [info] [Session] Verified via unified identity system: mat@isaasi.co.uk
+2026-01-31 13:24:32.079 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-01-31 13:24:32.079 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-31 13:24:32.204 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-31 13:24:32.204 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","memberId":"48b25075-51da-437f-af20-17836a892bfe"}
+2026-01-31 13:24:32.469 [info] [Campaign Service] Category targeting: {
+  targetIds: [ '6f6d6abd-6d90-4593-845b-e8b48682818f' ],
+  categoryRoles: 9,
+  roleError: undefined
+}
+2026-01-31 13:24:32.469 [info] [Campaign Service] Role IDs found: [
+  'c94cdcfd-d0f0-497a-ab5e-c742baacf049',
+  '5be10af3-cfd9-4e25-80c9-886e804314da',
+  '0c915ec8-1112-4f00-ae34-293fd6cdd971',
+  '1c897ab7-bd4d-48ec-a432-bd5d50631dcd',
+  '39ed3e82-cf1b-4764-a059-42ba71bdf4b3',
+  '8d671ef8-689a-4df6-a41e-6016d8e4c204',
+  '561682bb-57f2-4a61-89aa-c3c201692923',
+  'd913cc27-5203-48b4-b1eb-695010e1ef12',
+  'c733a692-4406-4c83-b844-f01ab7871df2'
+]
+2026-01-31 13:24:32.607 [info] [Campaign Service] Members found: { count: 0, error: 'column member.is_active does not exist' }
