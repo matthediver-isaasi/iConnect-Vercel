@@ -7,10 +7,50 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessToken } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
+import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 
-const stripe = process.env.STRIPE_SECRET_KEY 
-  ? new Stripe(process.env.STRIPE_SECRET_KEY)
-  : null;
+// Helper: Get Stripe client for a tenant
+async function getStripeClient(tenantId) {
+  if (!tenantId) {
+    console.error('[Stripe] Cannot get Stripe client: tenantId is required');
+    return null;
+  }
+  
+  const creds = await getStripeCredentials(tenantId);
+  
+  if (!creds || !creds.secret_key) {
+    console.error('[Stripe] No Stripe credentials configured for tenant:', tenantId);
+    return null;
+  }
+  
+  if (!creds.is_enabled) {
+    console.error('[Stripe] Stripe integration is disabled for tenant:', tenantId);
+    return null;
+  }
+  
+  console.log('[Stripe] Got Stripe client for tenant:', tenantId);
+  return new Stripe(creds.secret_key);
+}
+
+// Helper: Get Stripe publishable key for a tenant
+async function getStripePublishableKeyForTenant(tenantId) {
+  if (!tenantId) {
+    console.error('[Stripe] Cannot get publishable key: tenantId is required');
+    return null;
+  }
+  
+  const creds = await getStripeCredentials(tenantId);
+  
+  if (!creds || !creds.publishable_key) {
+    return null;
+  }
+  
+  if (!creds.is_enabled) {
+    return null;
+  }
+  
+  return creds.publishable_key;
+}
 
 // Helper: Get valid Xero access token (refreshes if needed)
 // REQUIRES appTenantId for multi-tenant isolation
@@ -679,14 +719,29 @@ const functionHandlers = {
     };
   },
 
-  async getStripePublishableKey() {
-    const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
-    if (!publishableKey) throw new Error('Stripe not configured');
+  async getStripePublishableKey(params, req) {
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext.tenantId;
+    
+    if (!tenantId) {
+      throw new Error('Unable to determine tenant context');
+    }
+    
+    const publishableKey = await getStripePublishableKeyForTenant(tenantId);
+    if (!publishableKey) throw new Error('Stripe not configured for this tenant');
     return { publishableKey };
   },
 
-  async createStripePaymentIntent(params) {
-    if (!stripe) throw new Error('Stripe not configured');
+  async createStripePaymentIntent(params, req) {
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext.tenantId;
+    
+    if (!tenantId) {
+      throw new Error('Unable to determine tenant context');
+    }
+    
+    const stripe = await getStripeClient(tenantId);
+    if (!stripe) throw new Error('Stripe not configured for this tenant');
     
     const { amount, currency = 'gbp', metadata } = params;
     const paymentIntent = await stripe.paymentIntents.create({
@@ -1517,8 +1572,10 @@ const functionHandlers = {
     if (paymentMethod === 'card' && stripePaymentIntentId) {
       console.log('[createOneOffEventBooking] Verifying Stripe payment:', stripePaymentIntentId);
       
+      // Get tenant-scoped Stripe client from event's tenant
+      const stripe = await getStripeClient(event.tenant_id);
       if (!stripe) {
-        return { success: false, error: 'Stripe is not configured' };
+        return { success: false, error: 'Stripe is not configured for this tenant' };
       }
 
       try {
@@ -2578,9 +2635,18 @@ const functionHandlers = {
     };
   },
 
-  async createJobPostingPaymentIntent(params) {
-    if (!stripe) throw new Error('Stripe not configured');
+  async createJobPostingPaymentIntent(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
+    
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext.tenantId;
+    
+    if (!tenantId) {
+      throw new Error('Unable to determine tenant context');
+    }
+    
+    const stripe = await getStripeClient(tenantId);
+    if (!stripe) throw new Error('Stripe not configured for this tenant');
     
     // Frontend sends: amount, currency, metadata: { job_posting_id, contact_email, company_name, job_title }
     const { amount, currency = 'gbp', metadata = {} } = params;
@@ -2989,9 +3055,8 @@ const functionHandlers = {
     return { success: true, job_id: jobPosting.id, job_posting: jobPosting };
   },
 
-  async confirmJobPostingPayment(params) {
+  async confirmJobPostingPayment(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
-    if (!stripe) throw new Error('Stripe not configured');
     
     const { jobPostingId, paymentIntentId } = params;
     
@@ -3001,6 +3066,21 @@ const functionHandlers = {
       return { success: false, error: 'Missing jobPostingId or paymentIntentId' };
     }
     
+    // First, try to find the job by ID to get the tenant
+    const { data: jobPosting } = await supabase
+      .from('job_posting')
+      .select('*')
+      .eq('id', jobPostingId)
+      .single();
+    
+    if (!jobPosting) {
+      return { success: false, error: 'Job posting not found' };
+    }
+    
+    // Get tenant-scoped Stripe client from job posting's tenant
+    const stripe = await getStripeClient(jobPosting.tenant_id);
+    if (!stripe) throw new Error('Stripe not configured for this tenant');
+    
     // Verify payment was successful with Stripe
     try {
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -3009,17 +3089,6 @@ const functionHandlers = {
       
       if (paymentIntent.status !== 'succeeded') {
         return { success: false, error: `Payment not confirmed. Status: ${paymentIntent.status}` };
-      }
-      
-      // First, try to find the job by ID and verify the stored PaymentIntent matches
-      const { data: jobPosting } = await supabase
-        .from('job_posting')
-        .select('*')
-        .eq('id', jobPostingId)
-        .single();
-      
-      if (!jobPosting) {
-        return { success: false, error: 'Job posting not found' };
       }
       
       // Verify either via metadata or stored PaymentIntent ID on the job record
@@ -3418,32 +3487,6 @@ const functionHandlers = {
         debug: { error: err.message, searchedEmail: searchEmail }
       };
     }
-  },
-
-  async createStripePaymentIntent(params) {
-    if (!stripe) throw new Error('Stripe not configured');
-    
-    const { amount, currency = 'gbp', metadata = {}, memberEmail } = params;
-
-    if (!amount || amount <= 0) {
-      return { error: 'Invalid amount' };
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency,
-      metadata: { ...metadata, member_email: memberEmail }
-    });
-
-    return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
-  },
-
-  async getStripePublishableKey() {
-    const key = process.env.STRIPE_PUBLISHABLE_KEY || process.env.VITE_STRIPE_PUBLISHABLE_KEY;
-    if (!key) {
-      return { error: 'Stripe publishable key not configured' };
-    }
-    return { publishableKey: key };
   },
 
   async validateUser(params) {
