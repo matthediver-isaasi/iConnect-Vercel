@@ -1749,7 +1749,7 @@ export default function PreferencesPage() {
         );
 
       case 'booking_availability':
-        if (isFeatureExcluded('user.about-me.booking')) return null;
+        if (isFeatureExcluded('user.about-me.booking-availability')) return null;
         return (
           <div key="booking_availability">
             <BookingAvailabilitySettings />
