@@ -166,34 +166,21 @@ export async function getTargetRecipients(campaign, tenantId) {
 
     if (targetType === 'communication_category' && targetIds.length > 0) {
       // Get role IDs associated with these categories
-      const { data: categoryRoles, error: roleError } = await supabase
+      const { data: categoryRoles } = await supabase
         .from('communication_category_role')
         .select('role_id')
         .in('category_id', targetIds);
-      
-      console.log('[Campaign Service] Category targeting:', {
-        targetIds,
-        categoryRoles: categoryRoles?.length || 0,
-        roleError: roleError?.message
-      });
 
       const roleIds = [...new Set((categoryRoles || []).map(cr => cr.role_id))];
-      console.log('[Campaign Service] Role IDs found:', roleIds);
 
       if (roleIds.length > 0) {
-        // Get active members with those roles (exclude those who opted out of all communications)
-        const { data: members, error: membersError } = await supabase
+        // Get members with those roles (exclude deleted emails and those who opted out)
+        const { data: members } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .in('role_id', roleIds)
-          .eq('is_active', true)
           .not('email', 'ilike', 'deleted_%@deleted.local');
-
-        console.log('[Campaign Service] Members found:', {
-          count: members?.length || 0,
-          error: membersError?.message
-        });
 
         // Get members who have explicitly unsubscribed from these categories
         const { data: unsubscribes } = await supabase
@@ -221,30 +208,36 @@ export async function getTargetRecipients(campaign, tenantId) {
       if (memberIds.length > 0) {
         const { data: members } = await supabase
           .from('member')
-          .select('id, email, first_name, last_name')
+          .select('id, email, first_name, last_name, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .in('id', memberIds)
-          .eq('is_active', true);
+          .not('email', 'ilike', 'deleted_%@deleted.local');
 
-        recipients = (members || []).filter(m => m.email);
+        recipients = (members || []).filter(m => 
+          m.email && m.communications_opted_out_all !== true
+        );
       }
     } else if (targetType === 'role' && targetIds.length > 0) {
       const { data: members } = await supabase
         .from('member')
-        .select('id, email, first_name, last_name')
+        .select('id, email, first_name, last_name, communications_opted_out_all')
         .eq('tenant_id', tenantId)
         .in('role_id', targetIds)
-        .eq('is_active', true);
+        .not('email', 'ilike', 'deleted_%@deleted.local');
 
-      recipients = (members || []).filter(m => m.email);
+      recipients = (members || []).filter(m => 
+        m.email && m.communications_opted_out_all !== true
+      );
     } else if (targetType === 'all_members') {
       const { data: members } = await supabase
         .from('member')
-        .select('id, email, first_name, last_name')
+        .select('id, email, first_name, last_name, communications_opted_out_all')
         .eq('tenant_id', tenantId)
-        .eq('is_active', true);
+        .not('email', 'ilike', 'deleted_%@deleted.local');
 
-      recipients = (members || []).filter(m => m.email);
+      recipients = (members || []).filter(m => 
+        m.email && m.communications_opted_out_all !== true
+      );
     }
 
     const { data: globalUnsubscribes } = await supabase
