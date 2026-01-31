@@ -161,7 +161,7 @@ export default async function handler(req, res) {
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-            'ButtonStyle'
+            'ButtonStyle', 'BlogPost'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -212,7 +212,7 @@ export default async function handler(req, res) {
                 'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
                 'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
                 'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-                'ButtonStyle'
+                'ButtonStyle', 'BlogPost'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -335,7 +335,7 @@ export default async function handler(req, res) {
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-            'ButtonStyle'
+            'ButtonStyle', 'BlogPost'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -437,7 +437,7 @@ export default async function handler(req, res) {
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-            'ButtonStyle'
+            'ButtonStyle', 'BlogPost'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
