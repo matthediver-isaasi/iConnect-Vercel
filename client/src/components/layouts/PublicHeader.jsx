@@ -1130,7 +1130,7 @@ export default function PublicHeader() {
 
                 {/* Static Items - Login / Member Area */}
                 <Link
-                  to={isLoggedIn ? createPageUrl(memberLandingPage) : createPageUrl('Home')}
+                  to={isLoggedIn ? createPageUrl(memberLandingPage) : "/login"}
                   className="flex items-center gap-1 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
                 >
                   <User className="w-4 h-4" />
@@ -1446,7 +1446,7 @@ export default function PublicHeader() {
               </div>
             ) : (
               <Link
-                to={createPageUrl('Home')}
+                to="/login"
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex items-center gap-2 py-2 text-slate-900 font-medium"
               >
