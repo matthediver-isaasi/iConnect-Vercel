@@ -187,40 +187,11 @@ export default function OrganisationDirectoryPage() {
     return orgCustomFields.filter(f => f.is_filterable);
   }, [orgCustomFields]);
 
-  // Fetch all organization custom fields (including application_status even if not shown on card)
-  const { data: allOrgCustomFields = [] } = useQuery({
-    queryKey: ['all-org-custom-fields-for-status-filter'],
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' }
-        });
-        return fields || [];
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({
-            filter: { is_active: true }
-          });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
-        } catch {
-          return [];
-        }
-      }
-    },
-    staleTime: 5 * 60 * 1000
-  });
-
-  // Find the application_status field to use for filtering (from all org fields, not just visible ones)
-  const applicationStatusField = useMemo(() => {
-    return allOrgCustomFields.find(f => f.name === 'application_status');
-  }, [allOrgCustomFields]);
-
-  // Fetch ALL organization preference values for filtering
-  // Enable if: there are filterable fields OR we have application_status filtering configured
-  const hasApplicationStatusFilter = !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0);
+  // Fetch organization preference values for custom field filtering (UI dropdowns)
+  // Note: application_status and excluded_orgs filtering is now done on the backend
   const { data: allOrgPreferenceValues = [] } = useQuery({
     queryKey: ['all-org-preference-values'],
-    enabled: filterableFields.length > 0 || hasApplicationStatusFilter,
+    enabled: filterableFields.length > 0,
     queryFn: async () => {
       try {
         const values = await base44.entities.OrganizationPreferenceValue.list();
@@ -284,33 +255,11 @@ export default function OrganisationDirectoryPage() {
   }, [allOrgPreferenceValues]);
 
   const filteredOrganizations = useMemo(() => {
-    const excludedIds = displaySettings?.excludedOrgIds || [];
-    const allowedStatuses = displaySettings?.allowedApplicationStatuses || [];
+    // Note: application_status and excluded_orgs filtering is now done on the backend
+    // The organizations list already comes pre-filtered from the API
+    let filtered = [...organizations];
     
-    // First filter out excluded organizations
-    let filtered = organizations.filter(org => 
-      !excludedIds.includes(org.id)
-    );
-
-    // Filter by application_status if allowedStatuses is configured
-    if (allowedStatuses.length > 0 && applicationStatusField?.id) {
-      filtered = filtered.filter(org => {
-        const orgValues = orgPreferenceMap[org.id] || {};
-        const statusValue = orgValues[applicationStatusField.id];
-        
-        if (!statusValue) return false;
-        
-        // Handle array values (picklist)
-        if (Array.isArray(statusValue)) {
-          return statusValue.some(v => allowedStatuses.includes(v));
-        }
-        
-        // Handle single value (dropdown)
-        return allowedStatuses.includes(statusValue);
-      });
-    }
-    
-    // Then apply search filter
+    // Apply search filter
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter((org) =>
@@ -349,7 +298,7 @@ export default function OrganisationDirectoryPage() {
     });
     
     return filtered;
-  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, displaySettings?.allowedApplicationStatuses, sortOrder, customFieldFilters, orgPreferenceMap, applicationStatusField]);
+  }, [organizations, searchQuery, sortOrder, customFieldFilters, orgPreferenceMap]);
 
   // Calculate itemsPerPage based on cardsPerRow and rowsPerPage
   const columnsNum = parseInt(displaySettings?.cardsPerRow) || 3;

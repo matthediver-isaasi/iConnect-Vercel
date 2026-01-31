@@ -260,6 +260,100 @@ export default async function handler(req, res) {
           console.log('[Entity GET] Organization query - tenantCtx.tenantId:', tenantCtx.tenantId, 'type:', typeof tenantCtx.tenantId, 'organizationId:', tenantCtx.organizationId, 'isTenantAdmin:', isTenantAdmin);
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
+            
+            // Apply directory filtering for non-admin users (application_status and excluded orgs)
+            if (!isTenantAdmin) {
+              // Check for org_directory_allowed_application_statuses setting
+              const { data: statusSetting } = await supabase
+                .from('system_settings')
+                .select('setting_value')
+                .eq('tenant_id', tenantCtx.tenantId)
+                .eq('setting_key', 'org_directory_allowed_application_statuses')
+                .single();
+              
+              if (statusSetting?.setting_value) {
+                try {
+                  const allowedStatuses = JSON.parse(statusSetting.setting_value);
+                  if (Array.isArray(allowedStatuses) && allowedStatuses.length > 0) {
+                    // Find the application_status preference field
+                    const { data: statusField } = await supabase
+                      .from('preference_field')
+                      .select('id')
+                      .eq('tenant_id', tenantCtx.tenantId)
+                      .eq('name', 'application_status')
+                      .eq('entity_scope', 'organization')
+                      .single();
+                    
+                    if (statusField?.id) {
+                      // Get org IDs that have matching application_status
+                      // Join with organization table to ensure tenant isolation
+                      const { data: matchingOrgValues } = await supabase
+                        .from('organization_preference_value')
+                        .select('organization_id, value, organization!inner(tenant_id)')
+                        .eq('field_id', statusField.id)
+                        .eq('organization.tenant_id', tenantCtx.tenantId);
+                      
+                      // Filter to orgs with allowed status values
+                      const allowedOrgIds = (matchingOrgValues || [])
+                        .filter(pv => {
+                          let val = pv.value;
+                          // Parse JSON if needed
+                          if (typeof val === 'string') {
+                            const trimmed = val.trim();
+                            if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+                              try { val = JSON.parse(trimmed); } catch {}
+                            }
+                          }
+                          // Extract value from {value, label} objects
+                          if (typeof val === 'object' && val !== null && !Array.isArray(val) && val.value !== undefined) {
+                            val = val.value;
+                          }
+                          // Check if value matches allowed statuses
+                          if (Array.isArray(val)) {
+                            return val.some(v => allowedStatuses.includes(typeof v === 'object' ? v.value : v));
+                          }
+                          return allowedStatuses.includes(val);
+                        })
+                        .map(pv => pv.organization_id);
+                      
+                      console.log('[Entity GET] Organization - filtering by application_status, allowed org count:', allowedOrgIds.length);
+                      
+                      if (allowedOrgIds.length === 0) {
+                        // No orgs match the status filter - return empty
+                        return res.json([]);
+                      }
+                      query = query.in('id', allowedOrgIds);
+                    }
+                  }
+                } catch (e) {
+                  console.error('[Entity GET] Error parsing allowed_application_statuses:', e);
+                }
+              }
+              
+              // Check for org_directory_excluded_orgs setting
+              const { data: excludedSetting } = await supabase
+                .from('system_settings')
+                .select('setting_value')
+                .eq('tenant_id', tenantCtx.tenantId)
+                .eq('setting_key', 'org_directory_excluded_orgs')
+                .single();
+              
+              if (excludedSetting?.setting_value) {
+                try {
+                  const excludedOrgIds = JSON.parse(excludedSetting.setting_value);
+                  // Validate UUIDs and filter out any invalid entries
+                  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                  const validExcludedIds = excludedOrgIds.filter(id => typeof id === 'string' && uuidRegex.test(id));
+                  if (Array.isArray(validExcludedIds) && validExcludedIds.length > 0) {
+                    console.log('[Entity GET] Organization - excluding orgs:', validExcludedIds.length);
+                    // Use Supabase's proper array syntax for NOT IN with UUIDs
+                    query = query.not('id', 'in', `(${validExcludedIds.map(id => `"${id}"`).join(',')})`);
+                  }
+                } catch (e) {
+                  console.error('[Entity GET] Error parsing excluded_orgs:', e);
+                }
+              }
+            }
           } else {
             console.log('[Entity GET] Organization - FALLBACK to single org id:', tenantCtx.organizationId);
             query = query.eq('id', tenantCtx.organizationId);
