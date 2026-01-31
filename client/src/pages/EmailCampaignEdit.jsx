@@ -135,25 +135,13 @@ export default function EmailCampaignEdit() {
 
   const { data: memberGroups = [] } = useQuery({
     queryKey: ['member-groups'],
-    queryFn: async () => {
-      try {
-        return await base44.entities.MemberGroup.list();
-      } catch (e) {
-        return [];
-      }
-    },
+    queryFn: () => base44.entities.MemberGroup.list(),
     staleTime: 60000
   });
 
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
-    queryFn: async () => {
-      try {
-        return await base44.entities.Role.list();
-      } catch (e) {
-        return [];
-      }
-    },
+    queryFn: () => base44.entities.Role.list(),
     staleTime: 60000
   });
 
