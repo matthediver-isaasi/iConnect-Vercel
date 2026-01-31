@@ -105,25 +105,49 @@ export default function EmailCampaignEdit() {
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['email-templates'],
-    queryFn: () => base44.entities.EmailTemplate.list({ filter: { is_active: true } }),
+    queryFn: async () => {
+      try {
+        return await base44.entities.EmailTemplate.list({ filter: { is_active: true } });
+      } catch (e) {
+        return [];
+      }
+    },
     staleTime: 60000
   });
 
   const { data: categories = [] } = useQuery({
     queryKey: ['communication-categories'],
-    queryFn: () => base44.entities.CommunicationCategory.list(),
+    queryFn: async () => {
+      try {
+        return await base44.entities.CommunicationCategory.list();
+      } catch (e) {
+        return [];
+      }
+    },
     staleTime: 60000
   });
 
   const { data: memberGroups = [] } = useQuery({
     queryKey: ['member-groups'],
-    queryFn: () => base44.entities.MemberGroup.list(),
+    queryFn: async () => {
+      try {
+        return await base44.entities.MemberGroup.list();
+      } catch (e) {
+        return [];
+      }
+    },
     staleTime: 60000
   });
 
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
-    queryFn: () => base44.entities.Role.list(),
+    queryFn: async () => {
+      try {
+        return await base44.entities.Role.list();
+      } catch (e) {
+        return [];
+      }
+    },
     staleTime: 60000
   });
 
