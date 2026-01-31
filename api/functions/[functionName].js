@@ -1765,7 +1765,8 @@ const functionHandlers = {
         ticket_class_id: ticketClassId,
         ticket_class_name: ticketClassName,
         is_guest_booking: isGuestBooking,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        tenant_id: event.tenant_id
       };
 
       console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
