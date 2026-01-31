@@ -61,10 +61,16 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
   }
 
   try {
+    // Clean up scheduled_at - convert empty string to null
+    const cleanedData = { ...campaignData };
+    if (cleanedData.scheduled_at === '' || cleanedData.scheduled_at === undefined) {
+      cleanedData.scheduled_at = null;
+    }
+
     const { data, error } = await supabase
       .from('email_campaign')
       .insert({
-        ...campaignData,
+        ...cleanedData,
         tenant_id: tenantId,
         created_by: createdBy,
         status: 'draft'
@@ -86,10 +92,16 @@ export async function updateCampaign(campaignId, updates, tenantId) {
   }
 
   try {
+    // Clean up scheduled_at - convert empty string to null
+    const cleanedUpdates = { ...updates };
+    if (cleanedUpdates.scheduled_at === '' || cleanedUpdates.scheduled_at === undefined) {
+      cleanedUpdates.scheduled_at = null;
+    }
+
     const { data, error } = await supabase
       .from('email_campaign')
       .update({
-        ...updates,
+        ...cleanedUpdates,
         updated_at: new Date().toISOString()
       })
       .eq('id', campaignId)

@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
-  Loader2, TestTube2
+  Loader2, TestTube2, Clock, Calendar
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -53,6 +53,7 @@ export default function EmailCampaignEdit() {
   const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [scheduleMode, setScheduleMode] = useState('immediate');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -93,6 +94,7 @@ export default function EmailCampaignEdit() {
         target_ids: campaign.target_ids || [],
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
       });
+      setScheduleMode(campaign.scheduled_at ? 'scheduled' : 'immediate');
     }
   }, [campaign]);
 
@@ -565,6 +567,80 @@ export default function EmailCampaignEdit() {
                     <span>Calculating...</span>
                   )}
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Clock className="w-5 h-5 text-blue-600" />
+              Scheduling
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border hover-elevate">
+                <input
+                  type="radio"
+                  name="scheduleMode"
+                  value="immediate"
+                  checked={scheduleMode === 'immediate'}
+                  onChange={() => {
+                    setScheduleMode('immediate');
+                    setFormData(prev => ({ ...prev, scheduled_at: '' }));
+                  }}
+                  className="w-4 h-4"
+                  data-testid="radio-send-immediate"
+                />
+                <div>
+                  <div className="font-medium">Send immediately</div>
+                  <div className="text-sm text-muted-foreground">
+                    Campaign will be sent as soon as you click the Send button
+                  </div>
+                </div>
+              </label>
+              
+              <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border hover-elevate">
+                <input
+                  type="radio"
+                  name="scheduleMode"
+                  value="scheduled"
+                  checked={scheduleMode === 'scheduled'}
+                  onChange={() => setScheduleMode('scheduled')}
+                  className="w-4 h-4"
+                  data-testid="radio-send-scheduled"
+                />
+                <div className="flex-1">
+                  <div className="font-medium">Schedule for later</div>
+                  <div className="text-sm text-muted-foreground">
+                    Choose a specific date and time to send the campaign
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            {scheduleMode === 'scheduled' && (
+              <div className="pl-7 space-y-2">
+                <Label htmlFor="scheduled_at">Send Date & Time</Label>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <Input
+                    id="scheduled_at"
+                    type="datetime-local"
+                    value={formData.scheduled_at}
+                    onChange={(e) => setFormData(prev => ({ ...prev, scheduled_at: e.target.value }))}
+                    min={new Date().toISOString().slice(0, 16)}
+                    className="max-w-xs"
+                    data-testid="input-scheduled-at"
+                  />
+                </div>
+                {formData.scheduled_at && (
+                  <p className="text-sm text-muted-foreground">
+                    Scheduled for: {new Date(formData.scheduled_at).toLocaleString()}
+                  </p>
+                )}
               </div>
             )}
           </CardContent>
