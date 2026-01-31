@@ -95,6 +95,7 @@ export const PAGE_NAMES = [
   "CreateEvent",
   "PageVisibilitySettings",
   "CommunicationsManagement",
+  "EmailCampaignEdit",
   "CustomFieldsAdmin",
   "SpeakerManagement",
   "CardDeckManagement",

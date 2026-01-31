@@ -242,6 +242,8 @@ import PageVisibilitySettings from "./PageVisibilitySettings";
 
 import CommunicationsManagement from "./CommunicationsManagement";
 
+import EmailCampaignEdit from "./EmailCampaignEdit";
+
 import AdminMemberEdit from "./AdminMemberEdit";
 
 import MyOrganisation from "./MyOrganisation";
@@ -550,6 +552,8 @@ const PAGES = {
     
     CommunicationsManagement: CommunicationsManagement,
     
+    EmailCampaignEdit: EmailCampaignEdit,
+    
     AdminMemberEdit: AdminMemberEdit,
     
     MyOrganisation: MyOrganisation,
@@ -857,6 +861,8 @@ function PagesContent() {
                 <Route path="/PageVisibilitySettings" element={<PageVisibilitySettings />} />
                 
                 <Route path="/CommunicationsManagement" element={<CommunicationsManagement />} />
+                
+                <Route path="/EmailCampaignEdit/:id" element={<EmailCampaignEdit />} />
                 
                 <Route path="/AdminMemberEdit" element={<AdminMemberEdit />} />
                 

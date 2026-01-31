@@ -1,51 +1,21 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, 
   Loader2, Calendar, Clock, Users, MousePointerClick,
-  CheckCircle2, XCircle, AlertTriangle, TrendingUp, TestTube2, Code
+  CheckCircle2, XCircle, AlertTriangle, TrendingUp, TestTube2
 } from "lucide-react";
 import { toast } from "sonner";
-import { base44 } from "@/api/base44Client";
-
-const quillModules = {
-  toolbar: [
-    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-    ['bold', 'italic', 'underline', 'strike'],
-    [{ 'color': [] }, { 'background': [] }],
-    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-    [{ 'align': [] }],
-    ['link', 'image'],
-    ['blockquote', 'code-block'],
-    ['clean']
-  ],
-};
-
-const quillFormats = [
-  'header',
-  'bold', 'italic', 'underline', 'strike',
-  'color', 'background',
-  'list', 'bullet',
-  'align',
-  'link', 'image',
-  'blockquote', 'code-block'
-];
 
 export default function EmailCampaigns() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showCampaignDialog, setShowCampaignDialog] = useState(false);
-  const [editingCampaign, setEditingCampaign] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [campaignToDelete, setCampaignToDelete] = useState(null);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -53,79 +23,9 @@ export default function EmailCampaigns() {
   const [showStatsDialog, setShowStatsDialog] = useState(false);
   const [statsData, setStatsData] = useState(null);
   const [sending, setSending] = useState(false);
-  const [editorTab, setEditorTab] = useState('editor');
   const [testSending, setTestSending] = useState(false);
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
-  const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
-  const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
-
-  // Fetch recipient count preview when target changes
-  useEffect(() => {
-    const fetchRecipientCount = async () => {
-      if (!showCampaignDialog) {
-        setRecipientPreviewCount(null);
-        return;
-      }
-
-      if (formData.target_type === 'all_members') {
-        setLoadingRecipientCount(true);
-        try {
-          const response = await fetch('/api/email-campaigns/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ 
-              campaignId: 'preview',
-              preview: true,
-              targetType: formData.target_type,
-              targetIds: []
-            })
-          });
-          if (response.ok) {
-            const data = await response.json();
-            setRecipientPreviewCount(data.recipientCount);
-          }
-        } catch (e) {
-          console.error('Failed to fetch recipient count:', e);
-        } finally {
-          setLoadingRecipientCount(false);
-        }
-        return;
-      }
-
-      if (formData.target_ids.length === 0) {
-        setRecipientPreviewCount(null);
-        return;
-      }
-
-      setLoadingRecipientCount(true);
-      try {
-        const response = await fetch('/api/email-campaigns/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ 
-            campaignId: 'preview',
-            preview: true,
-            targetType: formData.target_type,
-            targetIds: formData.target_ids
-          })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setRecipientPreviewCount(data.recipientCount);
-        }
-      } catch (e) {
-        console.error('Failed to fetch recipient count:', e);
-      } finally {
-        setLoadingRecipientCount(false);
-      }
-    };
-
-    const debounceTimer = setTimeout(fetchRecipientCount, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [showCampaignDialog, formData.target_type, formData.target_ids]);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -136,138 +36,6 @@ export default function EmailCampaigns() {
     },
     staleTime: 30000
   });
-
-  const { data: footerData } = useQuery({
-    queryKey: ['email-footer-preview'],
-    queryFn: async () => {
-      const response = await fetch('/api/email-campaigns/preview-footer', { credentials: 'include' });
-      if (!response.ok) return { footer: null };
-      return response.json();
-    },
-    staleTime: 60000
-  });
-
-  const { data: emailTemplates = [] } = useQuery({
-    queryKey: ['email-templates'],
-    queryFn: () => base44.entities.EmailTemplate.list({ filter: { is_active: true } }),
-    staleTime: 60000
-  });
-
-  const { data: categories = [] } = useQuery({
-    queryKey: ['communication-categories'],
-    queryFn: () => base44.entities.CommunicationCategory.list(),
-    staleTime: 60000
-  });
-
-  const { data: memberGroups = [] } = useQuery({
-    queryKey: ['member-groups'],
-    queryFn: () => base44.entities.MemberGroup.list(),
-    staleTime: 60000
-  });
-
-  const { data: roles = [] } = useQuery({
-    queryKey: ['roles'],
-    queryFn: () => base44.entities.Role.list(),
-    staleTime: 60000
-  });
-
-  const [formData, setFormData] = useState({
-    name: '',
-    subject: '',
-    from_name: '',
-    from_email: '',
-    reply_to: '',
-    email_template_id: '',
-    html_content: '',
-    target_type: 'communication_category',
-    target_ids: [],
-    scheduled_at: ''
-  });
-
-  const openNewCampaignDialog = () => {
-    setEditingCampaign(null);
-    setFormData({
-      name: '',
-      subject: '',
-      from_name: '',
-      from_email: '',
-      reply_to: '',
-      email_template_id: '',
-      html_content: '',
-      target_type: 'communication_category',
-      target_ids: [],
-      scheduled_at: ''
-    });
-    setEditorTab('editor');
-    setShowCampaignDialog(true);
-  };
-
-  const openEditCampaignDialog = (campaign) => {
-    setEditingCampaign(campaign);
-    setFormData({
-      name: campaign.name || '',
-      subject: campaign.subject || '',
-      from_name: campaign.from_name || '',
-      from_email: campaign.from_email || '',
-      reply_to: campaign.reply_to || '',
-      email_template_id: campaign.email_template_id || '',
-      html_content: campaign.html_content || '',
-      target_type: campaign.target_type || 'communication_category',
-      target_ids: campaign.target_ids || [],
-      scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
-    });
-    setEditorTab('editor');
-    setShowCampaignDialog(true);
-  };
-
-  const handleTemplateSelect = async (templateId) => {
-    const actualId = templateId === 'none' ? null : templateId;
-    setFormData(prev => ({ ...prev, email_template_id: actualId }));
-    
-    if (actualId) {
-      const template = emailTemplates.find(t => t.id === actualId);
-      if (template) {
-        setFormData(prev => ({
-          ...prev,
-          subject: prev.subject || template.subject || '',
-          html_content: template.body || '',
-          from_name: prev.from_name || template.from_name || '',
-          from_email: prev.from_email || template.from_email || ''
-        }));
-      }
-    }
-  };
-
-  const handleSaveCampaign = async () => {
-    if (!formData.name || !formData.subject) {
-      toast.error('Name and subject are required');
-      return;
-    }
-
-    try {
-      const url = editingCampaign 
-        ? `/api/email-campaigns/${editingCampaign.id}`
-        : '/api/email-campaigns';
-      
-      const response = await fetch(url, {
-        method: editingCampaign ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(formData)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save campaign');
-      }
-
-      toast.success(editingCampaign ? 'Campaign updated' : 'Campaign created');
-      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
-      setShowCampaignDialog(false);
-    } catch (error) {
-      toast.error(error.message);
-    }
-  };
 
   const handleDeleteCampaign = async () => {
     if (!campaignToDelete) return;
@@ -489,7 +257,7 @@ export default function EmailCampaigns() {
           </p>
         </div>
         <Button 
-          onClick={openNewCampaignDialog}
+          onClick={() => navigate('/EmailCampaignEdit/new')}
           className="bg-blue-600 hover:bg-blue-700"
           data-testid="button-create-campaign"
         >
@@ -510,7 +278,7 @@ export default function EmailCampaigns() {
             Create your first email campaign to reach your members
           </p>
           <Button 
-            onClick={openNewCampaignDialog}
+            onClick={() => navigate('/EmailCampaignEdit/new')}
             data-testid="button-create-first-campaign"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -602,7 +370,7 @@ export default function EmailCampaigns() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => openEditCampaignDialog(campaign)}
+                          onClick={() => navigate(`/EmailCampaignEdit/${campaign.id}`)}
                           data-testid={`button-edit-${campaign.id}`}
                         >
                           <Pencil className="w-4 h-4" />
@@ -649,298 +417,6 @@ export default function EmailCampaigns() {
           ))}
         </div>
       )}
-
-      <Dialog open={showCampaignDialog} onOpenChange={setShowCampaignDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingCampaign ? 'Edit Campaign' : 'Create New Campaign'}
-            </DialogTitle>
-            <DialogDescription>
-              Configure your email campaign settings and content
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6 py-4">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b pb-2">
-                <Mail className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-base">Campaign Details</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Campaign Name *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="e.g., January Newsletter"
-                    data-testid="input-campaign-name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="subject">Email Subject *</Label>
-                  <Input
-                    id="subject"
-                    value={formData.subject}
-                    onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
-                    placeholder="e.g., Your Monthly Update"
-                    data-testid="input-campaign-subject"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b pb-2">
-                <Send className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-base">Sender Information</h3>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="from_name">From Name</Label>
-                  <Input
-                    id="from_name"
-                    value={formData.from_name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, from_name: e.target.value }))}
-                    placeholder="e.g., ACME Company"
-                    data-testid="input-from-name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="from_email">From Email</Label>
-                  <Input
-                    id="from_email"
-                    type="email"
-                    value={formData.from_email}
-                    onChange={(e) => setFormData(prev => ({ ...prev, from_email: e.target.value }))}
-                    placeholder="e.g., news@company.com"
-                    data-testid="input-from-email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reply_to">Reply-To Email</Label>
-                  <Input
-                    id="reply_to"
-                    type="email"
-                    value={formData.reply_to}
-                    onChange={(e) => setFormData(prev => ({ ...prev, reply_to: e.target.value }))}
-                    placeholder="e.g., support@company.com"
-                    data-testid="input-reply-to"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b pb-2">
-                <Users className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-base">Target Audience</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Audience Type</Label>
-                  <Select
-                    value={formData.target_type}
-                    onValueChange={(value) => setFormData(prev => ({ 
-                      ...prev, 
-                      target_type: value,
-                      target_ids: []
-                    }))}
-                  >
-                    <SelectTrigger data-testid="select-target-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="communication_category">Communication Categories</SelectItem>
-                      <SelectItem value="member_group">Member Groups</SelectItem>
-                      <SelectItem value="role">Roles</SelectItem>
-                      <SelectItem value="all_members">All Members</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {formData.target_type !== 'all_members' && (
-                  <div className="space-y-2">
-                    <Label>
-                      Select {formData.target_type === 'communication_category' ? 'Categories' : 
-                              formData.target_type === 'member_group' ? 'Groups' : 'Roles'}
-                    </Label>
-                    <div className="border rounded-md p-3 max-h-32 overflow-y-auto space-y-2">
-                      {formData.target_type === 'communication_category' && categories.map(cat => (
-                        <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.target_ids.includes(cat.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, cat.id] }));
-                              } else {
-                                setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== cat.id) }));
-                              }
-                            }}
-                            className="rounded"
-                          />
-                          <span className="text-sm">{cat.name}</span>
-                        </label>
-                      ))}
-                      {formData.target_type === 'member_group' && memberGroups.map(group => (
-                        <label key={group.id} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.target_ids.includes(group.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, group.id] }));
-                              } else {
-                                setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== group.id) }));
-                              }
-                            }}
-                            className="rounded"
-                          />
-                          <span className="text-sm">{group.name}</span>
-                        </label>
-                      ))}
-                      {formData.target_type === 'role' && roles.map(role => (
-                        <label key={role.id} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.target_ids.includes(role.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, role.id] }));
-                              } else {
-                                setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== role.id) }));
-                              }
-                            }}
-                            className="rounded"
-                          />
-                          <span className="text-sm">{role.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {(formData.target_type === 'all_members' || formData.target_ids.length > 0) && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
-                    <div className="flex items-center gap-2 text-blue-700">
-                      <Mail className="w-4 h-4" />
-                      {loadingRecipientCount ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Calculating recipients...
-                        </span>
-                      ) : recipientPreviewCount !== null ? (
-                        <span className="font-medium">
-                          {recipientPreviewCount} {recipientPreviewCount === 1 ? 'recipient' : 'recipients'} will receive this email
-                        </span>
-                      ) : (
-                        <span>Calculating...</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-b pb-2">
-                <Code className="w-5 h-5 text-blue-600" />
-                <h3 className="font-semibold text-base">Email Content</h3>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="template">Email Template (Optional)</Label>
-                <Select
-                  value={formData.email_template_id || 'none'}
-                  onValueChange={handleTemplateSelect}
-                >
-                  <SelectTrigger data-testid="select-template">
-                    <SelectValue placeholder="Select a template (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No template</SelectItem>
-                    {emailTemplates.map(template => (
-                      <SelectItem key={template.id} value={template.id}>
-                        {template.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Tabs value={editorTab} onValueChange={setEditorTab} className="w-full">
-                  <TabsList className="w-full grid grid-cols-2">
-                    <TabsTrigger value="editor" className="flex items-center gap-2">
-                      <Pencil className="w-4 h-4" />
-                      Editor
-                    </TabsTrigger>
-                    <TabsTrigger value="preview" className="flex items-center gap-2">
-                      <Eye className="w-4 h-4" />
-                      Preview
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="editor" className="mt-3">
-                    <div className="border rounded-md">
-                      <ReactQuill
-                        theme="snow"
-                        value={formData.html_content}
-                        onChange={(content) => setFormData(prev => ({ ...prev, html_content: content }))}
-                        modules={quillModules}
-                        formats={quillFormats}
-                        placeholder="Enter your email content..."
-                        className="min-h-[300px]"
-                        data-testid="editor-html-content"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_url}}'}
-                    </p>
-                  </TabsContent>
-                  
-                  <TabsContent value="preview" className="mt-3">
-                    <div 
-                      className="border rounded-md p-4 min-h-[300px] bg-white prose prose-sm max-w-none"
-                      data-testid="preview-html-content"
-                    >
-                      <div dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Switch to Editor tab to add content.</p>' }} />
-                      {footerData?.footer && (
-                        <>
-                          <hr className="my-4 border-gray-200" />
-                          <div 
-                            className="text-xs text-gray-500"
-                            dangerouslySetInnerHTML={{ __html: footerData.footer }}
-                          />
-                        </>
-                      )}
-                      {!footerData?.footer && formData.html_content && (
-                        <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
-                          No tenant email footer configured. Configure one in Admin &gt; System Settings.
-                        </p>
-                      )}
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowCampaignDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveCampaign} data-testid="button-save-campaign">
-              {editingCampaign ? 'Update Campaign' : 'Create Campaign'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
