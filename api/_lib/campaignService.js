@@ -165,25 +165,29 @@ export async function getTargetRecipients(campaign, tenantId) {
     let recipients = [];
 
     if (targetType === 'communication_category' && targetIds.length > 0) {
+      // Get role IDs associated with these categories
       const { data: categoryRoles } = await supabase
         .from('communication_category_role')
         .select('role_id')
-        .in('communication_category_id', targetIds);
+        .in('category_id', targetIds);
 
       const roleIds = [...new Set((categoryRoles || []).map(cr => cr.role_id))];
 
       if (roleIds.length > 0) {
+        // Get active members with those roles
         const { data: members } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, role_id')
           .eq('tenant_id', tenantId)
           .in('role_id', roleIds)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .not('email', 'ilike', 'deleted_%@deleted.local');
 
+        // Get members who have explicitly unsubscribed from these categories
         const { data: unsubscribes } = await supabase
           .from('member_communication_preference')
           .select('member_id')
-          .in('communication_category_id', targetIds)
+          .in('category_id', targetIds)
           .eq('is_subscribed', false);
 
         const unsubscribedIds = new Set((unsubscribes || []).map(u => u.member_id));
