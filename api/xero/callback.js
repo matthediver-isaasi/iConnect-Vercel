@@ -2,17 +2,23 @@ import { supabase } from "../_lib/database.js";
 import { getXeroCredentials } from "../_lib/xeroCredentials.js";
 
 export default async function handler(req, res) {
+  console.log('[Xero Callback] Received request with query:', JSON.stringify(req.query));
   
   const { code, error, state } = req.query;
   
   let appTenantId = null;
   if (state) {
     try {
+      console.log('[Xero Callback] Raw state parameter:', state);
       const stateData = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
+      console.log('[Xero Callback] Parsed state data:', JSON.stringify(stateData));
       appTenantId = stateData.tenantId;
+      console.log('[Xero Callback] Extracted appTenantId:', appTenantId);
     } catch (e) {
       console.error('[Xero Callback] Failed to parse state:', e);
     }
+  } else {
+    console.error('[Xero Callback] No state parameter received');
   }
 
   if (error) {
@@ -245,16 +251,38 @@ export default async function handler(req, res) {
       app_tenant_id: appTenantId
     };
 
+    console.log('[Xero Callback] Saving token record for appTenantId:', appTenantId, 'xeroTenantId:', tenantId);
+    
+    let saveResult;
     if (existingTokens && existingTokens.length > 0) {
-      await supabase
+      console.log('[Xero Callback] Updating existing token with id:', existingTokens[0].id);
+      saveResult = await supabase
         .from("xero_token")
         .update(tokenRecord)
         .eq("id", existingTokens[0].id);
     } else {
-      await supabase
+      console.log('[Xero Callback] Inserting new token');
+      saveResult = await supabase
         .from("xero_token")
         .insert(tokenRecord);
     }
+    
+    if (saveResult.error) {
+      console.error('[Xero Callback] Failed to save token:', saveResult.error);
+      return res.send(`
+        <html>
+          <body style="font-family: system-ui; padding: 40px; text-align: center;">
+            <h1 style="color: #dc2626;">Database Error</h1>
+            <p>Failed to save Xero token: ${saveResult.error.message}</p>
+            <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
+              Close Window
+            </button>
+          </body>
+        </html>
+      `);
+    }
+    
+    console.log('[Xero Callback] Token saved successfully');
 
     res.send(`
       <html>
