@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -57,6 +57,75 @@ export default function EmailCampaigns() {
   const [testSending, setTestSending] = useState(false);
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
+  const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
+
+  // Fetch recipient count preview when target changes
+  useEffect(() => {
+    const fetchRecipientCount = async () => {
+      if (!showCampaignDialog) {
+        setRecipientPreviewCount(null);
+        return;
+      }
+
+      if (formData.target_type === 'all_members') {
+        setLoadingRecipientCount(true);
+        try {
+          const response = await fetch('/api/email-campaigns/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ 
+              campaignId: 'preview',
+              preview: true,
+              targetType: formData.target_type,
+              targetIds: []
+            })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setRecipientPreviewCount(data.recipientCount);
+          }
+        } catch (e) {
+          console.error('Failed to fetch recipient count:', e);
+        } finally {
+          setLoadingRecipientCount(false);
+        }
+        return;
+      }
+
+      if (formData.target_ids.length === 0) {
+        setRecipientPreviewCount(null);
+        return;
+      }
+
+      setLoadingRecipientCount(true);
+      try {
+        const response = await fetch('/api/email-campaigns/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            campaignId: 'preview',
+            preview: true,
+            targetType: formData.target_type,
+            targetIds: formData.target_ids
+          })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setRecipientPreviewCount(data.recipientCount);
+        }
+      } catch (e) {
+        console.error('Failed to fetch recipient count:', e);
+      } finally {
+        setLoadingRecipientCount(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(fetchRecipientCount, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [showCampaignDialog, formData.target_type, formData.target_ids]);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -752,6 +821,26 @@ export default function EmailCampaigns() {
                           <span className="text-sm">{role.name}</span>
                         </label>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {(formData.target_type === 'all_members' || formData.target_ids.length > 0) && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
+                    <div className="flex items-center gap-2 text-blue-700">
+                      <Mail className="w-4 h-4" />
+                      {loadingRecipientCount ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Calculating recipients...
+                        </span>
+                      ) : recipientPreviewCount !== null ? (
+                        <span className="font-medium">
+                          {recipientPreviewCount} {recipientPreviewCount === 1 ? 'recipient' : 'recipients'} will receive this email
+                        </span>
+                      ) : (
+                        <span>Calculating...</span>
+                      )}
                     </div>
                   </div>
                 )}

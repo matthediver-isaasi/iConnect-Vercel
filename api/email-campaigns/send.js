@@ -12,7 +12,26 @@ export default async function handler(req, res) {
   }
 
   const { tenantId } = tenantContext;
-  const { campaignId, preview, scheduledAt } = req.body;
+  const { campaignId, preview, scheduledAt, targetType, targetIds } = req.body;
+
+  // Handle preview for targeting selection (no campaign needed)
+  if (preview === true && campaignId === 'preview') {
+    const fakeCampaign = {
+      target_type: targetType || 'all_members',
+      target_ids: targetIds || []
+    };
+    
+    const recipientsResult = await getTargetRecipients(fakeCampaign, tenantId);
+    if (!recipientsResult.success) {
+      return res.status(500).json({ error: recipientsResult.error });
+    }
+
+    return res.json({
+      success: true,
+      preview: true,
+      recipientCount: recipientsResult.recipients.length
+    });
+  }
 
   if (!campaignId) {
     return res.status(400).json({ error: 'Campaign ID required' });
