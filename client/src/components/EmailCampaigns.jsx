@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,10 +14,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, 
   Loader2, Calendar, Clock, Users, MousePointerClick,
-  CheckCircle2, XCircle, AlertTriangle, TrendingUp
+  CheckCircle2, XCircle, AlertTriangle, TrendingUp, TestTube2, Code
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+
+const quillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    [{ 'align': [] }],
+    ['link', 'image'],
+    ['blockquote', 'code-block'],
+    ['clean']
+  ],
+};
+
+const quillFormats = [
+  'header',
+  'bold', 'italic', 'underline', 'strike',
+  'color', 'background',
+  'list', 'bullet',
+  'align',
+  'link', 'image',
+  'blockquote', 'code-block'
+];
 
 export default function EmailCampaigns() {
   const queryClient = useQueryClient();
@@ -29,6 +53,8 @@ export default function EmailCampaigns() {
   const [showStatsDialog, setShowStatsDialog] = useState(false);
   const [statsData, setStatsData] = useState(null);
   const [sending, setSending] = useState(false);
+  const [editorTab, setEditorTab] = useState('editor');
+  const [testSending, setTestSending] = useState(false);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -89,6 +115,7 @@ export default function EmailCampaigns() {
       target_type: 'communication_category',
       target_ids: []
     });
+    setEditorTab('editor');
     setShowCampaignDialog(true);
   };
 
@@ -105,6 +132,7 @@ export default function EmailCampaigns() {
       target_type: campaign.target_type || 'communication_category',
       target_ids: campaign.target_ids || []
     });
+    setEditorTab('editor');
     setShowCampaignDialog(true);
   };
 
@@ -193,6 +221,32 @@ export default function EmailCampaigns() {
       setShowPreviewDialog(true);
     } catch (error) {
       toast.error(error.message);
+    }
+  };
+
+  const handleTestSend = async (campaign, testEmail) => {
+    if (testSending) return;
+    setTestSending(true);
+
+    try {
+      const response = await fetch('/api/email-campaigns/test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ campaignId: campaign.id, testEmail })
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send test email');
+      }
+
+      toast.success(data.message || `Test email sent to ${testEmail}`);
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setTestSending(false);
     }
   };
 
@@ -374,6 +428,27 @@ export default function EmailCampaigns() {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => {
+                            const testEmail = prompt('Enter test email address:');
+                            if (testEmail) {
+                              handleTestSend(campaign, testEmail);
+                            }
+                          }}
+                          disabled={testSending}
+                          data-testid={`button-test-send-${campaign.id}`}
+                        >
+                          {testSending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <TestTube2 className="w-4 h-4 mr-1" />
+                              Send Test
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => handlePreviewRecipients(campaign)}
                           data-testid={`button-preview-${campaign.id}`}
                         >
@@ -421,7 +496,7 @@ export default function EmailCampaigns() {
       )}
 
       <Dialog open={showCampaignDialog} onOpenChange={setShowCampaignDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingCampaign ? 'Edit Campaign' : 'Create New Campaign'}
@@ -431,175 +506,242 @@ export default function EmailCampaigns() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Campaign Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="e.g., January Newsletter"
-                  data-testid="input-campaign-name"
-                />
+          <div className="space-y-6 py-4">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Mail className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-base">Campaign Details</h3>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="subject">Email Subject *</Label>
-                <Input
-                  id="subject"
-                  value={formData.subject}
-                  onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
-                  placeholder="e.g., Your Monthly Update"
-                  data-testid="input-campaign-subject"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="from_name">From Name</Label>
-                <Input
-                  id="from_name"
-                  value={formData.from_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, from_name: e.target.value }))}
-                  placeholder="e.g., ACME Company"
-                  data-testid="input-from-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="from_email">From Email</Label>
-                <Input
-                  id="from_email"
-                  type="email"
-                  value={formData.from_email}
-                  onChange={(e) => setFormData(prev => ({ ...prev, from_email: e.target.value }))}
-                  placeholder="e.g., news@company.com"
-                  data-testid="input-from-email"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="template">Email Template</Label>
-              <Select
-                value={formData.email_template_id || 'none'}
-                onValueChange={handleTemplateSelect}
-              >
-                <SelectTrigger data-testid="select-template">
-                  <SelectValue placeholder="Select a template (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No template</SelectItem>
-                  {emailTemplates.map(template => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Target Audience</Label>
-              <Select
-                value={formData.target_type}
-                onValueChange={(value) => setFormData(prev => ({ 
-                  ...prev, 
-                  target_type: value,
-                  target_ids: []
-                }))}
-              >
-                <SelectTrigger data-testid="select-target-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="communication_category">Communication Categories</SelectItem>
-                  <SelectItem value="member_group">Member Groups</SelectItem>
-                  <SelectItem value="role">Roles</SelectItem>
-                  <SelectItem value="all_members">All Members</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {formData.target_type !== 'all_members' && (
-              <div className="space-y-2">
-                <Label>
-                  Select {formData.target_type === 'communication_category' ? 'Categories' : 
-                          formData.target_type === 'member_group' ? 'Groups' : 'Roles'}
-                </Label>
-                <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
-                  {formData.target_type === 'communication_category' && categories.map(cat => (
-                    <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.target_ids.includes(cat.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, cat.id] }));
-                          } else {
-                            setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== cat.id) }));
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span>{cat.name}</span>
-                    </label>
-                  ))}
-                  {formData.target_type === 'member_group' && memberGroups.map(group => (
-                    <label key={group.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.target_ids.includes(group.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, group.id] }));
-                          } else {
-                            setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== group.id) }));
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span>{group.name}</span>
-                    </label>
-                  ))}
-                  {formData.target_type === 'role' && roles.map(role => (
-                    <label key={role.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.target_ids.includes(role.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, role.id] }));
-                          } else {
-                            setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== role.id) }));
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span>{role.name}</span>
-                    </label>
-                  ))}
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Campaign Name *</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="e.g., January Newsletter"
+                    data-testid="input-campaign-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="subject">Email Subject *</Label>
+                  <Input
+                    id="subject"
+                    value={formData.subject}
+                    onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
+                    placeholder="e.g., Your Monthly Update"
+                    data-testid="input-campaign-subject"
+                  />
                 </div>
               </div>
-            )}
+            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="html_content">Email Content (HTML)</Label>
-              <Textarea
-                id="html_content"
-                value={formData.html_content}
-                onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value }))}
-                placeholder="Enter your email HTML content..."
-                className="min-h-[200px] font-mono text-sm"
-                data-testid="textarea-html-content"
-              />
-              <p className="text-xs text-muted-foreground">
-                Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_url}}'}
-              </p>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Send className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-base">Sender Information</h3>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="from_name">From Name</Label>
+                  <Input
+                    id="from_name"
+                    value={formData.from_name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, from_name: e.target.value }))}
+                    placeholder="e.g., ACME Company"
+                    data-testid="input-from-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="from_email">From Email</Label>
+                  <Input
+                    id="from_email"
+                    type="email"
+                    value={formData.from_email}
+                    onChange={(e) => setFormData(prev => ({ ...prev, from_email: e.target.value }))}
+                    placeholder="e.g., news@company.com"
+                    data-testid="input-from-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reply_to">Reply-To Email</Label>
+                  <Input
+                    id="reply_to"
+                    type="email"
+                    value={formData.reply_to}
+                    onChange={(e) => setFormData(prev => ({ ...prev, reply_to: e.target.value }))}
+                    placeholder="e.g., support@company.com"
+                    data-testid="input-reply-to"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-base">Target Audience</h3>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Audience Type</Label>
+                  <Select
+                    value={formData.target_type}
+                    onValueChange={(value) => setFormData(prev => ({ 
+                      ...prev, 
+                      target_type: value,
+                      target_ids: []
+                    }))}
+                  >
+                    <SelectTrigger data-testid="select-target-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="communication_category">Communication Categories</SelectItem>
+                      <SelectItem value="member_group">Member Groups</SelectItem>
+                      <SelectItem value="role">Roles</SelectItem>
+                      <SelectItem value="all_members">All Members</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formData.target_type !== 'all_members' && (
+                  <div className="space-y-2">
+                    <Label>
+                      Select {formData.target_type === 'communication_category' ? 'Categories' : 
+                              formData.target_type === 'member_group' ? 'Groups' : 'Roles'}
+                    </Label>
+                    <div className="border rounded-md p-3 max-h-32 overflow-y-auto space-y-2">
+                      {formData.target_type === 'communication_category' && categories.map(cat => (
+                        <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.target_ids.includes(cat.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, cat.id] }));
+                              } else {
+                                setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== cat.id) }));
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm">{cat.name}</span>
+                        </label>
+                      ))}
+                      {formData.target_type === 'member_group' && memberGroups.map(group => (
+                        <label key={group.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.target_ids.includes(group.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, group.id] }));
+                              } else {
+                                setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== group.id) }));
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm">{group.name}</span>
+                        </label>
+                      ))}
+                      {formData.target_type === 'role' && roles.map(role => (
+                        <label key={role.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.target_ids.includes(role.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, role.id] }));
+                              } else {
+                                setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== role.id) }));
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm">{role.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Code className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-base">Email Content</h3>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="template">Email Template (Optional)</Label>
+                <Select
+                  value={formData.email_template_id || 'none'}
+                  onValueChange={handleTemplateSelect}
+                >
+                  <SelectTrigger data-testid="select-template">
+                    <SelectValue placeholder="Select a template (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No template</SelectItem>
+                    {emailTemplates.map(template => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Tabs value={editorTab} onValueChange={setEditorTab} className="w-full">
+                  <TabsList className="w-full grid grid-cols-2">
+                    <TabsTrigger value="editor" className="flex items-center gap-2">
+                      <Pencil className="w-4 h-4" />
+                      Editor
+                    </TabsTrigger>
+                    <TabsTrigger value="preview" className="flex items-center gap-2">
+                      <Eye className="w-4 h-4" />
+                      Preview
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="editor" className="mt-3">
+                    <div className="border rounded-md">
+                      <ReactQuill
+                        theme="snow"
+                        value={formData.html_content}
+                        onChange={(content) => setFormData(prev => ({ ...prev, html_content: content }))}
+                        modules={quillModules}
+                        formats={quillFormats}
+                        placeholder="Enter your email content..."
+                        className="min-h-[300px]"
+                        data-testid="editor-html-content"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_url}}'}
+                    </p>
+                  </TabsContent>
+                  
+                  <TabsContent value="preview" className="mt-3">
+                    <div 
+                      className="border rounded-md p-4 min-h-[300px] bg-white prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Switch to Editor tab to add content.</p>' }}
+                      data-testid="preview-html-content"
+                    />
+                  </TabsContent>
+                </Tabs>
+              </div>
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowCampaignDialog(false)}>
               Cancel
             </Button>

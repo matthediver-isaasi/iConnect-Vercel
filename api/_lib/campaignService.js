@@ -125,7 +125,7 @@ export async function deleteCampaign(campaignId, tenantId) {
   }
 }
 
-function generateTrackingToken(campaignId, recipientId, linkIndex) {
+export function generateTrackingToken(campaignId, recipientId, linkIndex) {
   const data = `${campaignId}:${recipientId}:${linkIndex}`;
   return Buffer.from(data).toString('base64url');
 }
@@ -339,8 +339,7 @@ export async function sendCampaign(campaignId, tenantId) {
           subject: subject,
           html: html,
           from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
-          tenantId: tenantId,
-          skipFooter: true
+          tenantId: tenantId
         });
 
         if (result.success) {
