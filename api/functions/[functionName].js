@@ -2865,9 +2865,28 @@ const functionHandlers = {
       }
     }
 
+    // Get tenant_id from tenantContext or from member's organization
+    let tenantId = tenantContext?.tenantId;
+    if (!tenantId && member.organization_id) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('tenant_id')
+        .eq('id', member.organization_id)
+        .single();
+      tenantId = org?.tenant_id;
+    }
+    
+    // CRITICAL: tenant_id is required for the job to appear in queries
+    if (!tenantId) {
+      console.error('[createJobPostingMember] FAILED: Could not determine tenant_id');
+      return { success: false, error: 'Could not determine tenant context. Please log in again.' };
+    }
+    console.log('[createJobPostingMember] Using tenant_id:', tenantId);
+
     const { data: jobPosting, error } = await supabase
       .from('job_posting')
       .insert({
+        tenant_id: tenantId,
         title,
         description,
         company_name,
