@@ -257,9 +257,11 @@ export default async function handler(req, res) {
         } else if (entity === 'Organization') {
           // Organization entity: filter by tenant_id to show all orgs in tenant
           // Or fall back to showing only the member's own org if tenant_id not set
+          console.log('[Entity GET] Organization query - tenantCtx.tenantId:', tenantCtx.tenantId, 'type:', typeof tenantCtx.tenantId, 'organizationId:', tenantCtx.organizationId, 'isTenantAdmin:', isTenantAdmin);
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
           } else {
+            console.log('[Entity GET] Organization - FALLBACK to single org id:', tenantCtx.organizationId);
             query = query.eq('id', tenantCtx.organizationId);
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
