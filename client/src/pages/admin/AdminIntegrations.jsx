@@ -23,7 +23,8 @@ import {
   Copy,
   Check,
   FileText,
-  Unplug
+  Unplug,
+  CreditCard
 } from "lucide-react";
 import {
   Select,
@@ -79,6 +80,15 @@ export default function AdminIntegrations() {
   const [hasXeroCredentials, setHasXeroCredentials] = useState(false);
   const [showXeroSecrets, setShowXeroSecrets] = useState(false);
   const [xeroTenantName, setXeroTenantName] = useState('');
+
+  const [stripeForm, setStripeForm] = useState({
+    secret_key: '',
+    publishable_key: ''
+  });
+  const [stripeEnabled, setStripeEnabled] = useState(false);
+  const [stripeSaving, setStripeSaving] = useState(false);
+  const [hasStripeCredentials, setHasStripeCredentials] = useState(false);
+  const [showStripeSecrets, setShowStripeSecrets] = useState(false);
 
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
@@ -204,6 +214,18 @@ export default function AdminIntegrations() {
             setXeroForm({
               client_id: xeroIntegration.credentials.client_id || '',
               client_secret: xeroIntegration.credentials.client_secret || ''
+            });
+          }
+        }
+
+        const stripeIntegration = data.integrations?.find(i => i.integration_type === 'stripe');
+        if (stripeIntegration) {
+          setStripeEnabled(stripeIntegration.is_enabled);
+          setHasStripeCredentials(stripeIntegration.has_credentials);
+          if (stripeIntegration.credentials) {
+            setStripeForm({
+              secret_key: stripeIntegration.credentials.secret_key || '',
+              publishable_key: stripeIntegration.credentials.publishable_key || ''
             });
           }
         }
@@ -536,8 +558,71 @@ export default function AdminIntegrations() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to disconnect Xero"
+        description: "Failed to disconnect Xero account"
       });
+    }
+  };
+
+  const handleSaveStripe = async () => {
+    setStripeSaving(true);
+    
+    try {
+      const response = await fetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'stripe',
+          credentials: {
+            secret_key: stripeForm.secret_key,
+            publishable_key: stripeForm.publishable_key
+          },
+          is_enabled: stripeEnabled
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: "Saved",
+          description: "Stripe credentials saved successfully"
+        });
+        setHasStripeCredentials(true);
+        fetchIntegrations();
+      } else {
+        toast({
+          title: "Error",
+          description: data.error || "Failed to save Stripe settings",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save Stripe settings"
+      });
+    } finally {
+      setStripeSaving(false);
+    }
+  };
+
+  const handleToggleStripe = async (enabled) => {
+    setStripeEnabled(enabled);
+    
+    try {
+      await fetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'stripe',
+          is_enabled: enabled
+        })
+      });
+    } catch (err) {
+      console.error('Failed to toggle stripe:', err);
     }
   };
 
@@ -1185,6 +1270,154 @@ export default function AdminIntegrations() {
                       <p className="text-sm font-medium text-amber-400">Not Connected</p>
                       <p className="text-xs text-slate-400">
                         Click "Connect Xero Account" to authorize access to your Xero account.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                    <CreditCard className="h-5 w-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">Stripe</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Accept payments for events, memberships, and job postings
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {hasStripeCredentials && (
+                    <Badge 
+                      variant={stripeEnabled ? "default" : "secondary"}
+                      className={stripeEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}
+                    >
+                      {stripeEnabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  )}
+                  <Switch
+                    checked={stripeEnabled}
+                    onCheckedChange={handleToggleStripe}
+                    disabled={!hasStripeCredentials}
+                    data-testid="switch-stripe-enabled"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <Plug className="h-4 w-4 text-slate-400" />
+                  API Keys
+                </h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  Get your API keys from the{" "}
+                  <a 
+                    href="https://dashboard.stripe.com/apikeys" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-purple-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    Stripe Dashboard
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </p>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe_secret_key" className="text-slate-300">Secret Key</Label>
+                    <Input
+                      id="stripe_secret_key"
+                      type={showStripeSecrets ? "text" : "password"}
+                      value={stripeForm.secret_key}
+                      onChange={(e) => setStripeForm(prev => ({ ...prev, secret_key: e.target.value }))}
+                      placeholder="sk_live_..."
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-stripe-secret-key"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Your Stripe secret key (starts with sk_live_ or sk_test_)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe_publishable_key" className="text-slate-300">Publishable Key</Label>
+                    <Input
+                      id="stripe_publishable_key"
+                      type={showStripeSecrets ? "text" : "password"}
+                      value={stripeForm.publishable_key}
+                      onChange={(e) => setStripeForm(prev => ({ ...prev, publishable_key: e.target.value }))}
+                      placeholder="pk_live_..."
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-stripe-publishable-key"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Your Stripe publishable key (starts with pk_live_ or pk_test_)
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowStripeSecrets(!showStripeSecrets)}
+                      className="text-slate-400 hover:text-white"
+                      data-testid="button-toggle-stripe-secrets"
+                    >
+                      {showStripeSecrets ? (
+                        <><EyeOff className="h-4 w-4 mr-2" /> Hide values</>
+                      ) : (
+                        <><Eye className="h-4 w-4 mr-2" /> Show values</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <Button
+                  onClick={handleSaveStripe}
+                  disabled={stripeSaving}
+                  className="bg-primary hover:bg-primary/90"
+                  data-testid="button-save-stripe"
+                >
+                  {stripeSaving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Save Credentials
+                </Button>
+              </div>
+
+              {hasStripeCredentials && stripeEnabled && (
+                <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-400" />
+                    <div>
+                      <p className="text-sm font-medium text-green-400">Stripe Configured</p>
+                      <p className="text-xs text-slate-400">
+                        Your Stripe credentials are saved and enabled. Payments are ready to accept.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {hasStripeCredentials && !stripeEnabled && (
+                <div className="rounded-lg bg-amber-500/10 p-4 border border-amber-500/30">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-400">Stripe Disabled</p>
+                      <p className="text-xs text-slate-400">
+                        Your credentials are saved but the integration is disabled. Toggle the switch to enable payments.
                       </p>
                     </div>
                   </div>
