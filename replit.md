@@ -14,6 +14,82 @@ The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shad
 ## Multi-Tenant Architecture
 The platform is designed for multi-tenancy, ensuring data isolation across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, primarily using `tenant_id` and `organization_id` for scoping.
 
+### Tenant-Scoped Tables (DO NOT REMOVE)
+The following tables are scoped by `tenant_id` and require proper tenant context for queries:
+- **organization** - All organizations belong to a tenant. The `organization` table has a `tenant_id` column that MUST be populated.
+- **member** - Members belong to organizations which belong to tenants
+- **role**, **event**, **program**, **form**, **resource**, **job_posting**, **email_template**, **workflow**, etc.
+
+**CRITICAL:** When querying tenant-scoped entities, always use `getTenantContext(req)` to get the `tenantId` for filtering.
+
+## API Authentication Pattern (DO NOT REMOVE)
+
+The platform supports two types of authenticated sessions:
+- **Member sessions** - Portal users logged in via the member portal (`{tenant}.iconn.app`)
+- **Tenant user sessions** - Admin dashboard users logged in via `iconn.app`
+
+### Authentication Functions
+
+| Function | Use Case | Returns |
+|----------|----------|---------|
+| `getTenantContext(req)` | **Preferred** - Handles BOTH member and admin sessions | `{ tenantId, memberId, isAuthenticated, ... }` |
+| `getSessionTenantUser(req)` | Admin-only endpoints | Tenant user object or null |
+| `getSessionMember(req)` | Member-only endpoints | Member object or null |
+
+### Best Practice: Use getTenantContext for Most Endpoints
+
+**DO THIS** - Works for both member and admin users:
+```javascript
+import { getTenantContext } from '../_lib/tenantContext.js';
+
+const tenantContext = await getTenantContext(req);
+if (!tenantContext || !tenantContext.isAuthenticated) {
+  return res.status(401).json({ error: 'Unauthorized' });
+}
+const tenantId = tenantContext.tenantId;
+```
+
+**AVOID THIS** - Only works for admin users:
+```javascript
+import { getSessionTenantUser } from '../_lib/session.js';
+
+const tenantUser = await getSessionTenantUser(req);
+if (!tenantUser) {
+  return res.status(401).json({ error: 'Unauthorized' });
+}
+```
+
+### When to Use Each Function
+
+- **getTenantContext:** Use for any endpoint that should be accessible to authenticated users (both member portal and admin dashboard)
+- **getSessionTenantUser:** Use ONLY for admin-specific endpoints that should never be accessed by regular members
+- **getSessionMember:** Use for member-specific operations within endpoints
+
+### Legacy Session Handling
+
+Some sessions may have `userType: undefined` (legacy sessions). The `getTenantContext` function handles these correctly by:
+1. First checking for tenant_user sessions
+2. Falling back to member sessions via `getSessionMember`
+3. Looking up tenant from the member's organization
+
+### How tenantId is Resolved for Members
+
+For member sessions, `tenantId` is looked up from the member's organization:
+```javascript
+// In getTenantContext:
+const { data: org } = await supabase
+  .from('organization')
+  .select('tenant_id')
+  .eq('id', member.organization_id)
+  .single();
+
+if (org) {
+  tenantId = org.tenant_id;
+}
+```
+
+**IMPORTANT:** If an organization's `tenant_id` is null or missing, members of that organization will have limited access (only seeing their own organization instead of all organizations in the tenant).
+
 ## Identity and Access Management
 A unified identity system (`tenant_identity` table) manages user authentication, supporting multiple tenant ownership and organization memberships, with per-tenant password isolation and Google OAuth. A feature-based role management system provides granular control over UI visibility and backend access, including protected system roles and role-based field access control.
 
