@@ -2747,38 +2747,111 @@ const functionHandlers = {
 
     let member = null;
 
-    // FIRST: Try to get member from session (portal users - most reliable)
-    if (req) {
-      const sessionMember = await getSessionMember(req);
-      if (sessionMember) {
-        member = sessionMember;
-        console.log('[createJobPostingMember] Found member via session:', member.id, member.email);
+    // Get tenant context ONCE and reuse it for all lookups
+    const tenantContext = req ? await getTenantContext(req) : null;
+    console.log('[createJobPostingMember] Tenant context:', JSON.stringify({
+      tenantId: tenantContext?.tenantId,
+      memberId: tenantContext?.memberId,
+      tenantUserId: tenantContext?.tenantUserId,
+      isAuthenticated: tenantContext?.isAuthenticated
+    }));
+
+    // PRIMARY: Use memberId from getTenantContext if available
+    if (tenantContext?.memberId) {
+      const { data: contextMember, error: contextError } = await supabase
+        .from('member')
+        .select('*')
+        .eq('id', tenantContext.memberId)
+        .single();
+      
+      if (contextMember && !contextError) {
+        member = contextMember;
+        console.log('[createJobPostingMember] Found member via tenant context:', member.id, member.email);
       } else {
-        console.log('[createJobPostingMember] No session member found');
+        console.warn('[createJobPostingMember] Failed to fetch member from context memberId:', contextError?.message);
       }
     }
 
-    // FALLBACK: Try email lookup with case-insensitive matching
-    if (!member && memberEmail) {
+    // FALLBACK 1: Try email lookup with tenant scoping for security
+    // CRITICAL: Filter by tenant_id to prevent cross-tenant member lookup
+    if (!member && memberEmail && tenantContext?.tenantId) {
       const normalizedEmail = memberEmail.toLowerCase().trim();
-      console.log('[createJobPostingMember] Falling back to email lookup:', normalizedEmail);
+      console.log('[createJobPostingMember] Fallback 1: Tenant-scoped email lookup:', normalizedEmail, 'tenant:', tenantContext.tenantId);
       
-      const { data: emailMember, error: emailError } = await supabase
+      // Join with organization to get tenant-scoped members
+      const { data: emailMembers, error: emailError } = await supabase
         .from('member')
-        .select('*')
-        .eq('email', normalizedEmail)
-        .single();
+        .select('*, organization!inner(tenant_id)')
+        .ilike('email', normalizedEmail)
+        .eq('organization.tenant_id', tenantContext.tenantId);
       
-      if (emailMember && !emailError) {
-        member = emailMember;
-        console.log('[createJobPostingMember] Found member via email:', member.id, member.email);
+      if (emailMembers && emailMembers.length > 0 && !emailError) {
+        member = emailMembers[0];
+        console.log('[createJobPostingMember] Found member via tenant-scoped email:', member.id, member.email);
       } else {
-        console.warn('[createJobPostingMember] Email lookup failed:', emailError?.message);
+        // Also check members without organization but with matching tenant context
+        console.log('[createJobPostingMember] Org-scoped email lookup failed, trying direct member lookup');
+        const { data: directMembers, error: directError } = await supabase
+          .from('member')
+          .select('*')
+          .ilike('email', normalizedEmail);
+        
+        if (directMembers && directMembers.length > 0 && !directError) {
+          // Filter to match tenant - check if member's org belongs to this tenant
+          for (const m of directMembers) {
+            if (m.organization_id) {
+              const { data: org } = await supabase
+                .from('organization')
+                .select('tenant_id')
+                .eq('id', m.organization_id)
+                .single();
+              if (org?.tenant_id === tenantContext.tenantId) {
+                member = m;
+                console.log('[createJobPostingMember] Found member via direct lookup with tenant check:', member.id);
+                break;
+              }
+            }
+          }
+        }
+        if (!member) {
+          console.warn('[createJobPostingMember] Tenant-scoped email lookup failed:', emailError?.message || 'no results');
+        }
+      }
+    }
+
+    // FALLBACK 2: Try tenant_user_member_link table if we have tenantUserId
+    if (!member && tenantContext?.tenantUserId) {
+      console.log('[createJobPostingMember] Fallback 2: Checking tenant_user_member_link for tenantUserId:', tenantContext.tenantUserId);
+      
+      try {
+        const { data: link, error: linkError } = await supabase
+          .from('tenant_user_member_link')
+          .select('member_id')
+          .eq('tenant_user_id', tenantContext.tenantUserId)
+          .single();
+        
+        if (link && !linkError) {
+          const { data: linkedMember, error: linkedError } = await supabase
+            .from('member')
+            .select('*')
+            .eq('id', link.member_id)
+            .single();
+          
+          if (linkedMember && !linkedError) {
+            member = linkedMember;
+            console.log('[createJobPostingMember] Found member via tenant_user_member_link:', member.id, member.email);
+          }
+        } else {
+          console.log('[createJobPostingMember] No tenant_user_member_link found:', linkError?.message || 'no link');
+        }
+      } catch (err) {
+        // Handle case where tenant_user_member_link table doesn't exist
+        console.log('[createJobPostingMember] tenant_user_member_link lookup failed (table may not exist):', err.message);
       }
     }
 
     if (!member) {
-      console.error('[createJobPostingMember] Member not found via session or email');
+      console.error('[createJobPostingMember] Member not found via tenant context, email, or tenant_user link');
       return { success: false, error: 'Member not found. Please log in again.' };
     }
 
