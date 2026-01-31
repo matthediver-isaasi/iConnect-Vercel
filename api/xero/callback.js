@@ -284,6 +284,15 @@ export default async function handler(req, res) {
     
     console.log('[Xero Callback] Token saved successfully');
 
+    const debugInfo = {
+      appTenantId,
+      xeroTenantId: tenantId,
+      xeroTenantName: tenantName,
+      tokenSaved: true,
+      existingTokenUpdated: existingTokens && existingTokens.length > 0,
+      timestamp: new Date().toISOString()
+    };
+
     res.send(`
       <html>
         <head>
@@ -306,6 +315,24 @@ export default async function handler(req, res) {
               font-size: 16px;
             }
             button:hover { background: #1d4ed8; }
+            .debug { 
+              margin-top: 30px; 
+              text-align: left; 
+              background: #f1f5f9; 
+              padding: 15px; 
+              border-radius: 8px; 
+              font-size: 12px;
+              max-width: 400px;
+              margin-left: auto;
+              margin-right: auto;
+            }
+            .debug summary { cursor: pointer; color: #64748b; }
+            .debug pre { 
+              margin: 10px 0 0 0; 
+              white-space: pre-wrap; 
+              word-break: break-all;
+              color: #334155;
+            }
           </style>
         </head>
         <body>
@@ -313,22 +340,62 @@ export default async function handler(req, res) {
           <p>Your Xero account (${connections[0].tenantName}) has been connected.</p>
           <p style="font-size: 14px; color: #64748b;">You can now close this window.</p>
           <button onclick="window.close()">Close Window</button>
+          <details class="debug">
+            <summary>Debug Info (click to expand)</summary>
+            <pre>${JSON.stringify(debugInfo, null, 2)}</pre>
+          </details>
           <script>
-            setTimeout(() => window.close(), 3000);
+            console.log('[Xero Callback] Success debug info:', ${JSON.stringify(debugInfo)});
           </script>
         </body>
       </html>
     `);
   } catch (error) {
     console.error("Xero OAuth callback error:", error);
+    const errorDebugInfo = {
+      error: error.message,
+      stack: error.stack,
+      appTenantId,
+      timestamp: new Date().toISOString()
+    };
     res.status(500).send(`
       <html>
-        <body style="font-family: system-ui; padding: 40px; text-align: center;">
+        <head>
+          <style>
+            body { font-family: system-ui; padding: 40px; text-align: center; }
+            .debug { 
+              margin-top: 30px; 
+              text-align: left; 
+              background: #fef2f2; 
+              padding: 15px; 
+              border-radius: 8px; 
+              font-size: 12px;
+              max-width: 500px;
+              margin-left: auto;
+              margin-right: auto;
+            }
+            .debug summary { cursor: pointer; color: #991b1b; }
+            .debug pre { 
+              margin: 10px 0 0 0; 
+              white-space: pre-wrap; 
+              word-break: break-all;
+              color: #7f1d1d;
+            }
+          </style>
+        </head>
+        <body>
           <h1 style="color: #dc2626;">Authentication Error</h1>
           <p>${error.message}</p>
           <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
             Close Window
           </button>
+          <details class="debug" open>
+            <summary>Error Details</summary>
+            <pre>${JSON.stringify(errorDebugInfo, null, 2)}</pre>
+          </details>
+          <script>
+            console.error('[Xero Callback] Error debug info:', ${JSON.stringify(errorDebugInfo)});
+          </script>
         </body>
       </html>
     `);
