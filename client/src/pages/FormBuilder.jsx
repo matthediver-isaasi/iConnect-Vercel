@@ -2616,6 +2616,68 @@ function FieldCard({
                 </div>
               )}
 
+              {field.type === 'organisation_dropdown' && (() => {
+                const applicationStatusField = customFields.find(
+                  cf => cf.name === 'application_status' && cf.entity_scope === 'organization'
+                );
+                const statusOptions = applicationStatusField?.options?.map(opt => {
+                  if (typeof opt === 'string') return { value: opt, label: opt };
+                  return { value: opt.value || opt, label: opt.label || opt.value || opt };
+                }) || [];
+                
+                return (
+                  <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <Label className="text-xs font-medium">Filter by Application Status</Label>
+                    <p className="text-xs text-slate-500">
+                      Only show organisations with specific status values. If none selected, all organisations will appear.
+                    </p>
+                    {statusOptions.length === 0 ? (
+                      <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                        No application_status field found for organisations. Create one in Preference Settings to enable filtering.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {statusOptions.map((opt) => {
+                            const isSelected = (field.allowed_org_statuses || []).includes(opt.value);
+                            return (
+                              <div
+                                key={opt.value}
+                                className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                              >
+                                <Checkbox
+                                  id={`org-status-${field.id}-${opt.value}`}
+                                  checked={isSelected}
+                                  onCheckedChange={(checked) => {
+                                    const currentStatuses = field.allowed_org_statuses || [];
+                                    const newStatuses = checked
+                                      ? [...currentStatuses, opt.value]
+                                      : currentStatuses.filter(s => s !== opt.value);
+                                    updateField(originalIndex, { allowed_org_statuses: newStatuses });
+                                  }}
+                                  data-testid={`checkbox-org-status-${field.id}-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                                />
+                                <Label 
+                                  htmlFor={`org-status-${field.id}-${opt.value}`}
+                                  className="text-xs font-medium cursor-pointer flex-1"
+                                >
+                                  {opt.label}
+                                </Label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2">
+                          {(field.allowed_org_statuses || []).length === 0 
+                            ? "No filter applied - all organisations will be shown"
+                            : `Showing organisations with status: ${(field.allowed_org_statuses || []).join(', ')}`}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+
               {field.type === 'category_multiselect' && (
                 <div className="space-y-2">
                   <Label className="text-xs">Select Categories to Include</Label>

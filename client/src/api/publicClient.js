@@ -257,8 +257,13 @@ class PublicClient {
   }
   
   // Organizations
-  async listOrganizations() {
-    return this._fetch('/api/public/organisations');
+  async listOrganizations(options = {}) {
+    const params = new URLSearchParams();
+    if (options.allowedStatuses && options.allowedStatuses.length > 0) {
+      params.set('allowedStatuses', JSON.stringify(options.allowedStatuses));
+    }
+    const queryString = params.toString();
+    return this._fetch(`/api/public/organisations${queryString ? `?${queryString}` : ''}`);
   }
   
   async getOrganization(id) {
