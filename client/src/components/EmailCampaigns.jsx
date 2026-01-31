@@ -28,6 +28,9 @@ export default function EmailCampaigns() {
   const [testSending, setTestSending] = useState(false);
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState('');
+  const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [testEmailCampaign, setTestEmailCampaign] = useState(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -489,8 +492,9 @@ export default function EmailCampaigns() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() => {
-                                    const testEmail = prompt('Enter test email address:');
-                                    if (testEmail) handleTestSend(campaign, testEmail);
+                                    setTestEmailCampaign(campaign);
+                                    setTestEmailAddress('');
+                                    setShowTestEmailDialog(true);
                                   }}
                                   disabled={testSending}
                                   title="Send Test"
@@ -802,6 +806,65 @@ export default function EmailCampaigns() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowStatsDialog(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTestEmailDialog} onOpenChange={(open) => {
+        setShowTestEmailDialog(open);
+        if (!open) {
+          setTestEmailAddress('');
+          setTestEmailCampaign(null);
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Test Email</DialogTitle>
+            <DialogDescription>
+              Send a test email for "{testEmailCampaign?.name}" to preview how it will look
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="test-email">Email Address</Label>
+              <Input
+                id="test-email"
+                type="email"
+                value={testEmailAddress}
+                onChange={(e) => setTestEmailAddress(e.target.value)}
+                placeholder="your@email.com"
+                data-testid="input-test-email"
+              />
+              <p className="text-xs text-muted-foreground">
+                The test email will be sent to this address
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowTestEmailDialog(false)}
+              data-testid="button-cancel-test-send"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                if (testEmailAddress && testEmailCampaign) {
+                  handleTestSend(testEmailCampaign, testEmailAddress);
+                  setShowTestEmailDialog(false);
+                }
+              }}
+              disabled={!testEmailAddress || testSending}
+              data-testid="button-confirm-test-send"
+            >
+              {testSending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <TestTube2 className="w-4 h-4 mr-2" />
+              )}
+              Send Test
             </Button>
           </DialogFooter>
         </DialogContent>

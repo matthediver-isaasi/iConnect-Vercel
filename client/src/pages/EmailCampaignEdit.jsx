@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
   Loader2, TestTube2
@@ -50,6 +51,8 @@ export default function EmailCampaignEdit() {
   const [editorTab, setEditorTab] = useState('editor');
   const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
   const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
+  const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -93,11 +96,14 @@ export default function EmailCampaignEdit() {
     }
   }, [campaign]);
 
-  const { data: footerData } = useQuery({
+  const { data: footerData, isLoading: footerLoading, error: footerError } = useQuery({
     queryKey: ['email-footer-preview'],
     queryFn: async () => {
       const response = await fetch('/api/email-campaigns/preview-footer', { credentials: 'include' });
-      if (!response.ok) return { footer: null };
+      if (!response.ok) {
+        console.error('[Footer Preview] Response not ok:', response.status);
+        return { footer: null, hasFooter: false, error: true };
+      }
       return response.json();
     },
     staleTime: 60000
@@ -268,7 +274,12 @@ export default function EmailCampaignEdit() {
     }
   };
 
-  const handleTestSend = async () => {
+  const handleTestSend = async (testEmail) => {
+    if (!isEditing) {
+      toast.error('Please save the campaign first before sending a test');
+      return;
+    }
+
     if (!formData.subject || !formData.html_content) {
       toast.error('Subject and content are required for test send');
       return;
@@ -281,20 +292,17 @@ export default function EmailCampaignEdit() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          subject: formData.subject,
-          html_content: formData.html_content,
-          from_name: formData.from_name,
-          from_email: formData.from_email,
-          reply_to: formData.reply_to
+          campaignId: id,
+          testEmail
         })
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to send test email');
+        throw new Error(result.error || 'Failed to send test email');
       }
 
-      const result = await response.json();
       toast.success(`Test email sent to ${result.sentTo}`);
     } catch (error) {
       toast.error(error.message);
@@ -336,7 +344,14 @@ export default function EmailCampaignEdit() {
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
-            onClick={handleTestSend}
+            onClick={() => {
+              if (!isEditing) {
+                toast.error('Please save the campaign first before sending a test');
+                return;
+              }
+              setTestEmailAddress('');
+              setShowTestEmailDialog(true);
+            }}
             disabled={testSending || !formData.subject || !formData.html_content}
             data-testid="button-test-send"
           >
@@ -641,9 +656,16 @@ export default function EmailCampaignEdit() {
                         />
                       </>
                     )}
-                    {!footerData?.footer && formData.html_content && (
+                    {footerLoading && formData.html_content && (
                       <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
-                        No tenant email footer configured. Configure one in Admin &gt; System Settings.
+                        Loading email footer...
+                      </p>
+                    )}
+                    {!footerLoading && !footerData?.footer && formData.html_content && (
+                      <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
+                        {footerData?.error 
+                          ? 'Unable to load email footer preview.'
+                          : 'Email footer will be added when the campaign is sent.'}
                       </p>
                     )}
                   </div>
@@ -653,6 +675,62 @@ export default function EmailCampaignEdit() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showTestEmailDialog} onOpenChange={(open) => {
+        setShowTestEmailDialog(open);
+        if (!open) setTestEmailAddress('');
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Test Email</DialogTitle>
+            <DialogDescription>
+              Send a test email to preview how the campaign will look
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="test-email">Email Address</Label>
+              <Input
+                id="test-email"
+                type="email"
+                value={testEmailAddress}
+                onChange={(e) => setTestEmailAddress(e.target.value)}
+                placeholder="your@email.com"
+                data-testid="input-test-email"
+              />
+              <p className="text-xs text-muted-foreground">
+                The test email will be sent to this address
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowTestEmailDialog(false)}
+              data-testid="button-cancel-test-send"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                if (testEmailAddress) {
+                  handleTestSend(testEmailAddress);
+                  setShowTestEmailDialog(false);
+                }
+              }}
+              disabled={!testEmailAddress || testSending}
+              data-testid="button-confirm-test-send"
+            >
+              {testSending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <TestTube2 className="w-4 h-4 mr-2" />
+              )}
+              Send Test
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
