@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
-  Loader2, TestTube2, Clock, Calendar
+  Loader2, TestTube2, Clock, Calendar, Search
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -54,6 +54,11 @@ export default function EmailCampaignEdit() {
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
   const [scheduleMode, setScheduleMode] = useState('immediate');
+  const [testEmailMode, setTestEmailMode] = useState('manual');
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [memberSearchResults, setMemberSearchResults] = useState([]);
+  const [searchingMembers, setSearchingMembers] = useState(false);
+  const [selectedMember, setSelectedMember] = useState(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -207,6 +212,65 @@ export default function EmailCampaignEdit() {
     const debounceTimer = setTimeout(fetchRecipientCount, 300);
     return () => clearTimeout(debounceTimer);
   }, [formData.target_type, formData.target_ids]);
+
+  // Member search for test emails with debouncing
+  useEffect(() => {
+    if (!memberSearchQuery || memberSearchQuery.length < 2) {
+      setMemberSearchResults([]);
+      return;
+    }
+
+    const searchController = new AbortController();
+    const debounceTimer = setTimeout(async () => {
+      setSearchingMembers(true);
+      try {
+        // Use API endpoint for server-side search
+        const response = await fetch(`/api/members/search?q=${encodeURIComponent(memberSearchQuery)}&limit=10`, {
+          credentials: 'include',
+          signal: searchController.signal
+        });
+        
+        if (response.ok) {
+          const results = await response.json();
+          setMemberSearchResults(results);
+        } else {
+          // Fallback to base44 if search endpoint doesn't exist
+          const members = await base44.entities.Member.list({ limit: 100 });
+          const queryLower = memberSearchQuery.toLowerCase();
+          const filtered = members.filter(m => 
+            (m.first_name && m.first_name.toLowerCase().includes(queryLower)) ||
+            (m.last_name && m.last_name.toLowerCase().includes(queryLower)) ||
+            (m.email && m.email.toLowerCase().includes(queryLower))
+          ).slice(0, 10);
+          setMemberSearchResults(filtered);
+        }
+      } catch (e) {
+        if (e.name !== 'AbortError') {
+          console.error('Failed to search members:', e);
+          setMemberSearchResults([]);
+        }
+      } finally {
+        setSearchingMembers(false);
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(debounceTimer);
+      searchController.abort();
+    };
+  }, [memberSearchQuery]);
+
+  const handleMemberSearchInput = (query) => {
+    setMemberSearchQuery(query);
+    setSelectedMember(null);
+  };
+
+  const handleSelectMember = (member) => {
+    setSelectedMember(member);
+    setTestEmailAddress(member.email);
+    setMemberSearchQuery(`${member.first_name || ''} ${member.last_name || ''} <${member.email}>`);
+    setMemberSearchResults([]);
+  };
 
   const handleTemplateSelect = async (templateId) => {
     const actualId = templateId === 'none' ? null : templateId;
@@ -742,7 +806,13 @@ export default function EmailCampaignEdit() {
 
       <Dialog open={showTestEmailDialog} onOpenChange={(open) => {
         setShowTestEmailDialog(open);
-        if (!open) setTestEmailAddress('');
+        if (!open) {
+          setTestEmailAddress('');
+          setTestEmailMode('manual');
+          setMemberSearchQuery('');
+          setMemberSearchResults([]);
+          setSelectedMember(null);
+        }
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -752,20 +822,103 @@ export default function EmailCampaignEdit() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="test-email">Email Address</Label>
-              <Input
-                id="test-email"
-                type="email"
-                value={testEmailAddress}
-                onChange={(e) => setTestEmailAddress(e.target.value)}
-                placeholder="your@email.com"
-                data-testid="input-test-email"
-              />
-              <p className="text-xs text-muted-foreground">
-                The test email will be sent to this address
-              </p>
-            </div>
+            <Tabs value={testEmailMode} onValueChange={(v) => {
+              setTestEmailMode(v);
+              setTestEmailAddress('');
+              setMemberSearchQuery('');
+              setMemberSearchResults([]);
+              setSelectedMember(null);
+            }}>
+              <TabsList className="w-full">
+                <TabsTrigger value="manual" className="flex-1" data-testid="tab-manual-email">
+                  <Mail className="w-4 h-4 mr-2" />
+                  Enter Email
+                </TabsTrigger>
+                <TabsTrigger value="member" className="flex-1" data-testid="tab-member-lookup">
+                  <Search className="w-4 h-4 mr-2" />
+                  Find Member
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="manual" className="mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="test-email">Email Address</Label>
+                  <Input
+                    id="test-email"
+                    type="email"
+                    value={testEmailAddress}
+                    onChange={(e) => setTestEmailAddress(e.target.value)}
+                    placeholder="your@email.com"
+                    data-testid="input-test-email"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The test email will be sent to this address
+                  </p>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="member" className="mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="member-search">Search Member</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="member-search"
+                      value={memberSearchQuery}
+                      onChange={(e) => handleMemberSearchInput(e.target.value)}
+                      placeholder="Search by name or email..."
+                      className="pl-9"
+                      data-testid="input-member-search"
+                    />
+                    {searchingMembers && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  
+                  {memberSearchResults.length > 0 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      {memberSearchResults.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onClick={() => handleSelectMember(member)}
+                          className="w-full text-left px-3 py-2 hover-elevate flex items-center gap-2 border-b last:border-b-0"
+                          data-testid={`member-result-${member.id}`}
+                        >
+                          <Users className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">
+                              {member.first_name} {member.last_name}
+                            </div>
+                            <div className="text-sm text-muted-foreground truncate">
+                              {member.email}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {memberSearchQuery.length >= 2 && memberSearchResults.length === 0 && !searchingMembers && (
+                    <p className="text-sm text-muted-foreground">No members found</p>
+                  )}
+                  
+                  {selectedMember && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-blue-900">
+                          {selectedMember.first_name} {selectedMember.last_name}
+                        </div>
+                        <div className="text-sm text-blue-700 truncate">
+                          {selectedMember.email}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
           <DialogFooter>
             <Button 
