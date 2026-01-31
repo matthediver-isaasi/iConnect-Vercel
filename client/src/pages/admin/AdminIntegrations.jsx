@@ -140,9 +140,12 @@ export default function AdminIntegrations() {
           const token = data.tokens.find(t => t.tenant_id !== 'PENDING_SELECTION');
           setXeroTenantName(token?.tenant_name || '');
         }
+        return hasValidToken;
       }
+      return false;
     } catch (err) {
       console.error('Failed to fetch Xero status:', err);
+      return false;
     }
   };
 
@@ -489,10 +492,14 @@ export default function AdminIntegrations() {
       window.open(authUrl, 'xero-auth', 'width=600,height=700');
       
       const checkInterval = setInterval(async () => {
-        await fetchXeroStatus();
-        if (xeroConnected) {
+        const isConnected = await fetchXeroStatus();
+        if (isConnected) {
           clearInterval(checkInterval);
           setXeroConnecting(false);
+          toast({
+            title: "Xero Connected",
+            description: "Your Xero account has been connected successfully."
+          });
         }
       }, 2000);
       
