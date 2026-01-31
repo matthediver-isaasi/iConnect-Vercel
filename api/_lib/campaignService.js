@@ -154,7 +154,36 @@ export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlu
   return rewritten;
 }
 
-export async function getTargetRecipients(campaign, tenantId) {
+// Helper to fetch all members with pagination (bypasses Supabase 1000 row limit)
+async function fetchAllMembers(query, selectFields) {
+  const allRecords = [];
+  const batchSize = 1000;
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data: batch, error } = await query
+      .select(selectFields)
+      .range(offset, offset + batchSize - 1);
+
+    if (error) {
+      console.error('[Campaign Service] Pagination error:', error);
+      break;
+    }
+
+    if (batch && batch.length > 0) {
+      allRecords.push(...batch);
+      offset += batch.length;
+      hasMore = batch.length === batchSize;
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return allRecords;
+}
+
+export async function getTargetRecipients(campaign, tenantId, countOnly = false) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -163,6 +192,9 @@ export async function getTargetRecipients(campaign, tenantId) {
     const targetType = campaign.target_type;
     const targetIds = campaign.target_ids || [];
     let recipients = [];
+
+    // For count-only mode, we fetch all member IDs and emails to properly filter
+    // (We need to apply in-memory filters for opt-outs and unsubscribes)
 
     if (targetType === 'communication_category' && targetIds.length > 0) {
       // Get role IDs associated with these categories
@@ -174,13 +206,14 @@ export async function getTargetRecipients(campaign, tenantId) {
       const roleIds = [...new Set((categoryRoles || []).map(cr => cr.role_id))];
 
       if (roleIds.length > 0) {
-        // Get members with those roles (exclude deleted emails and those who opted out)
-        const { data: members } = await supabase
+        // Get members with those roles using pagination
+        const baseQuery = supabase
           .from('member')
-          .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .in('role_id', roleIds)
           .not('email', 'ilike', 'deleted_%@deleted.local');
+
+        const members = await fetchAllMembers(baseQuery, 'id, email, first_name, last_name, role_id, communications_opted_out_all');
 
         // Get members who have explicitly unsubscribed from these categories
         const { data: unsubscribes } = await supabase
@@ -191,55 +224,84 @@ export async function getTargetRecipients(campaign, tenantId) {
 
         const unsubscribedIds = new Set((unsubscribes || []).map(u => u.member_id));
 
-        recipients = (members || []).filter(m => 
+        recipients = members.filter(m => 
           m.email && 
           !unsubscribedIds.has(m.id) &&
           m.communications_opted_out_all !== true
         );
       }
     } else if (targetType === 'member_group' && targetIds.length > 0) {
-      const { data: assignments } = await supabase
-        .from('member_group_assignment')
-        .select('member_id')
-        .in('member_group_id', targetIds);
+      // Fetch all member group assignments with pagination
+      const allAssignments = [];
+      let assignmentOffset = 0;
+      const assignmentBatchSize = 1000;
+      let hasMoreAssignments = true;
 
-      const memberIds = [...new Set((assignments || []).map(a => a.member_id))];
+      while (hasMoreAssignments) {
+        const { data: batch } = await supabase
+          .from('member_group_assignment')
+          .select('member_id')
+          .in('member_group_id', targetIds)
+          .range(assignmentOffset, assignmentOffset + assignmentBatchSize - 1);
+
+        if (batch && batch.length > 0) {
+          allAssignments.push(...batch);
+          assignmentOffset += batch.length;
+          hasMoreAssignments = batch.length === assignmentBatchSize;
+        } else {
+          hasMoreAssignments = false;
+        }
+      }
+
+      const memberIds = [...new Set(allAssignments.map(a => a.member_id))];
 
       if (memberIds.length > 0) {
-        const { data: members } = await supabase
-          .from('member')
-          .select('id, email, first_name, last_name, communications_opted_out_all')
-          .eq('tenant_id', tenantId)
-          .in('id', memberIds)
-          .not('email', 'ilike', 'deleted_%@deleted.local');
+        // Fetch in batches if there are many member IDs
+        const allMembers = [];
+        const idBatchSize = 500; // Supabase IN query limit
+        
+        for (let i = 0; i < memberIds.length; i += idBatchSize) {
+          const idBatch = memberIds.slice(i, i + idBatchSize);
+          const { data: members } = await supabase
+            .from('member')
+            .select('id, email, first_name, last_name, communications_opted_out_all')
+            .eq('tenant_id', tenantId)
+            .in('id', idBatch)
+            .not('email', 'ilike', 'deleted_%@deleted.local');
+          
+          if (members) allMembers.push(...members);
+        }
 
-        recipients = (members || []).filter(m => 
+        recipients = allMembers.filter(m => 
           m.email && m.communications_opted_out_all !== true
         );
       }
     } else if (targetType === 'role' && targetIds.length > 0) {
-      const { data: members } = await supabase
+      const baseQuery = supabase
         .from('member')
-        .select('id, email, first_name, last_name, communications_opted_out_all')
         .eq('tenant_id', tenantId)
         .in('role_id', targetIds)
         .not('email', 'ilike', 'deleted_%@deleted.local');
 
-      recipients = (members || []).filter(m => 
+      const members = await fetchAllMembers(baseQuery, 'id, email, first_name, last_name, communications_opted_out_all');
+
+      recipients = members.filter(m => 
         m.email && m.communications_opted_out_all !== true
       );
     } else if (targetType === 'all_members') {
-      const { data: members } = await supabase
+      const baseQuery = supabase
         .from('member')
-        .select('id, email, first_name, last_name, communications_opted_out_all')
         .eq('tenant_id', tenantId)
         .not('email', 'ilike', 'deleted_%@deleted.local');
 
-      recipients = (members || []).filter(m => 
+      const members = await fetchAllMembers(baseQuery, 'id, email, first_name, last_name, communications_opted_out_all');
+
+      recipients = members.filter(m => 
         m.email && m.communications_opted_out_all !== true
       );
     }
 
+    // Get global unsubscribes
     const { data: globalUnsubscribes } = await supabase
       .from('email_unsubscribe')
       .select('email')
@@ -249,6 +311,7 @@ export async function getTargetRecipients(campaign, tenantId) {
     const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
     recipients = recipients.filter(r => !globalUnsubSet.has(r.email.toLowerCase()));
 
+    // Deduplicate by email
     const uniqueRecipients = [];
     const seenEmails = new Set();
     for (const r of recipients) {
@@ -257,6 +320,11 @@ export async function getTargetRecipients(campaign, tenantId) {
         seenEmails.add(emailLower);
         uniqueRecipients.push(r);
       }
+    }
+
+    // For count-only mode, just return the count
+    if (countOnly) {
+      return { success: true, count: uniqueRecipients.length };
     }
 
     return { success: true, recipients: uniqueRecipients };
