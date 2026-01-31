@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, 
   Loader2, Calendar, Clock, Users, MousePointerClick,
-  CheckCircle2, XCircle, AlertTriangle, TrendingUp, TestTube2
+  CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -36,6 +38,56 @@ export default function EmailCampaigns() {
     },
     staleTime: 30000
   });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['communication-categories'],
+    queryFn: async () => {
+      const response = await fetch('/api/communication-categories', { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    }
+  });
+
+  const { data: memberGroups = [] } = useQuery({
+    queryKey: ['member-groups'],
+    queryFn: async () => {
+      const response = await fetch('/api/member-groups', { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    }
+  });
+
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles'],
+    queryFn: async () => {
+      const response = await fetch('/api/roles', { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    }
+  });
+
+  const stats = useMemo(() => {
+    const sentCampaigns = campaigns.filter(c => c.status === 'sent');
+    const totalSent = sentCampaigns.reduce((sum, c) => sum + (c.sent_count || 0), 0);
+    const totalOpened = sentCampaigns.reduce((sum, c) => sum + (c.opened_count || 0), 0);
+    const totalClicked = sentCampaigns.reduce((sum, c) => sum + (c.clicked_count || 0), 0);
+    const avgOpenRate = totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : 0;
+    const avgClickRate = totalSent > 0 ? ((totalClicked / totalSent) * 100).toFixed(1) : 0;
+    const draftCount = campaigns.filter(c => c.status === 'draft').length;
+    const scheduledCount = campaigns.filter(c => c.status === 'scheduled').length;
+
+    return {
+      totalCampaigns: campaigns.length,
+      sentCampaigns: sentCampaigns.length,
+      totalSent,
+      totalOpened,
+      totalClicked,
+      avgOpenRate,
+      avgClickRate,
+      draftCount,
+      scheduledCount
+    };
+  }, [campaigns]);
 
   const handleDeleteCampaign = async () => {
     if (!campaignToDelete) return;
@@ -135,7 +187,6 @@ export default function EmailCampaigns() {
     setSending(true);
 
     try {
-      // Convert local datetime string to ISO UTC format
       const scheduledAtUTC = new Date(scheduledAtLocal).toISOString();
       
       const response = await fetch('/api/email-campaigns/send', {
@@ -150,7 +201,6 @@ export default function EmailCampaigns() {
         throw new Error(error.error || 'Failed to schedule campaign');
       }
 
-      const result = await response.json();
       toast.success(`Campaign scheduled for ${new Date(scheduledAtLocal).toLocaleString()}`);
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
       setShowPreviewDialog(false);
@@ -163,42 +213,25 @@ export default function EmailCampaigns() {
     }
   };
 
-  const handleCancelSchedule = async (campaign) => {
-    try {
-      const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status: 'draft', scheduled_at: null })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to cancel schedule');
-      }
-
-      toast.success('Schedule cancelled - campaign returned to draft');
-      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
-    } catch (error) {
-      toast.error(error.message);
-    }
-  };
-
   const handleViewStats = async (campaign) => {
     try {
-      const [statsResponse, heatmapResponse] = await Promise.all([
-        fetch(`/api/email-campaigns/${campaign.id}?stats=true`, { credentials: 'include' }),
-        fetch(`/api/email-campaigns/${campaign.id}?heatmap=true`, { credentials: 'include' })
-      ]);
+      const statsResponse = await fetch(`/api/email-campaigns/${campaign.id}?stats=true`, {
+        credentials: 'include'
+      });
 
-      if (!statsResponse.ok) throw new Error('Failed to fetch stats');
+      if (!statsResponse.ok) throw new Error('Failed to fetch campaign stats');
 
       const statsData = await statsResponse.json();
-      let heatmapData = [];
       
-      if (heatmapResponse.ok) {
-        const heatmapResult = await heatmapResponse.json();
-        heatmapData = heatmapResult.heatmapData || [];
+      let heatmapData = [];
+      if (statsData.clicked_count > 0) {
+        const heatmapResponse = await fetch(`/api/email-campaigns/${campaign.id}?heatmap=true`, {
+          credentials: 'include'
+        });
+        if (heatmapResponse.ok) {
+          const heatmapResult = await heatmapResponse.json();
+          heatmapData = heatmapResult.heatmapData || [];
+        }
       }
 
       setStatsData({ ...statsData, heatmapData });
@@ -227,19 +260,19 @@ export default function EmailCampaigns() {
       const names = (campaign.target_ids || [])
         .map(id => categories.find(c => c.id === id)?.name)
         .filter(Boolean);
-      return names.length > 0 ? names.join(', ') : 'No categories selected';
+      return names.length > 0 ? names.join(', ') : 'Categories';
     }
     if (campaign.target_type === 'member_group') {
       const names = (campaign.target_ids || [])
         .map(id => memberGroups.find(g => g.id === id)?.name)
         .filter(Boolean);
-      return names.length > 0 ? names.join(', ') : 'No groups selected';
+      return names.length > 0 ? names.join(', ') : 'Groups';
     }
     if (campaign.target_type === 'role') {
       const names = (campaign.target_ids || [])
         .map(id => roles.find(r => r.id === id)?.name)
         .filter(Boolean);
-      return names.length > 0 ? names.join(', ') : 'No roles selected';
+      return names.length > 0 ? names.join(', ') : 'Roles';
     }
     if (campaign.target_type === 'all_members') {
       return 'All Members';
@@ -247,176 +280,270 @@ export default function EmailCampaigns() {
     return 'Unknown';
   };
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const recentCampaigns = campaigns.slice(0, 10);
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-lg font-semibold">Email Campaigns</h3>
-          <p className="text-sm text-muted-foreground">
-            Create and send email campaigns to your members
+          <h1 className="text-2xl font-bold tracking-tight">Email Campaigns</h1>
+          <p className="text-muted-foreground">
+            Create, send, and track email campaigns to engage your members
           </p>
         </div>
         <Button 
           onClick={() => navigate('/EmailCampaignEdit/new')}
-          className="bg-blue-600 hover:bg-blue-700"
+          size="lg"
           data-testid="button-create-campaign"
         >
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="w-5 h-5 mr-2" />
           Create Campaign
         </Button>
       </div>
 
-      {campaignsLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-        </div>
-      ) : campaigns.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed rounded-lg">
-          <Mail className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium mb-2">No Campaigns Yet</h3>
-          <p className="text-muted-foreground mb-4">
-            Create your first email campaign to reach your members
-          </p>
-          <Button 
-            onClick={() => navigate('/EmailCampaignEdit/new')}
-            data-testid="button-create-first-campaign"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Create First Campaign
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {campaigns.map((campaign) => (
-            <Card key={campaign.id} className="border" data-testid={`card-campaign-${campaign.id}`}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1">
-                      <h4 className="font-semibold">{campaign.name}</h4>
-                      {getStatusBadge(campaign.status)}
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-2">
-                      Subject: {campaign.subject}
-                    </p>
-                    <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Users className="w-4 h-4" />
-                        {getTargetLabel(campaign)}
-                      </span>
-                      {campaign.scheduled_at && campaign.status === 'scheduled' && (
-                        <span className="flex items-center gap-1 text-blue-600">
-                          <Clock className="w-4 h-4" />
-                          Scheduled: {new Date(campaign.scheduled_at).toLocaleString()}
-                        </span>
-                      )}
-                      {campaign.sent_at && (
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          Sent {new Date(campaign.sent_at).toLocaleDateString()}
-                        </span>
-                      )}
-                      {campaign.status === 'sent' && (
-                        <>
-                          <span className="flex items-center gap-1">
-                            <Send className="w-4 h-4" />
-                            {campaign.sent_count || 0} sent
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Eye className="w-4 h-4" />
-                            {campaign.opened_count || 0} opened
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <MousePointerClick className="w-4 h-4" />
-                            {campaign.clicked_count || 0} clicked
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {campaign.status === 'draft' && (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const testEmail = prompt('Enter test email address:');
-                            if (testEmail) {
-                              handleTestSend(campaign, testEmail);
-                            }
-                          }}
-                          disabled={testSending}
-                          data-testid={`button-test-send-${campaign.id}`}
-                        >
-                          {testSending ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <TestTube2 className="w-4 h-4 mr-1" />
-                              Send Test
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePreviewRecipients(campaign)}
-                          data-testid={`button-preview-${campaign.id}`}
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Preview
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate(`/EmailCampaignEdit/${campaign.id}`)}
-                          data-testid={`button-edit-${campaign.id}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setCampaignToDelete(campaign);
-                            setShowDeleteConfirm(true);
-                          }}
-                          data-testid={`button-delete-${campaign.id}`}
-                        >
-                          <Trash2 className="w-4 h-4 text-red-500" />
-                        </Button>
-                      </>
-                    )}
-                    {campaign.status === 'scheduled' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCancelSchedule(campaign)}
-                        data-testid={`button-cancel-schedule-${campaign.id}`}
-                      >
-                        <XCircle className="w-4 h-4 mr-1 text-orange-500" />
-                        Cancel Schedule
-                      </Button>
-                    )}
-                    {campaign.status === 'sent' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewStats(campaign)}
-                        data-testid={`button-stats-${campaign.id}`}
-                      >
-                        <BarChart3 className="w-4 h-4 mr-1" />
-                        Stats
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card data-testid="stat-campaigns-sent">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Campaigns Sent</CardTitle>
+            <Send className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.sentCampaigns}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.draftCount} drafts, {stats.scheduledCount} scheduled
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="stat-emails-delivered">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Emails Delivered</CardTitle>
+            <Mail className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalSent.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">
+              Total emails sent to recipients
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="stat-open-rate">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Open Rate</CardTitle>
+            <MailOpen className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.avgOpenRate}%</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.totalOpened.toLocaleString()} total opens
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="stat-click-rate">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Click Rate</CardTitle>
+            <Link2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.avgClickRate}%</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.totalClicked.toLocaleString()} total clicks
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle>Recent Campaigns</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Your most recent email campaigns and their performance
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {campaignsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+          ) : campaigns.length === 0 ? (
+            <div className="text-center py-12 border-2 border-dashed rounded-lg">
+              <Mail className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No Campaigns Yet</h3>
+              <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+                Create your first email campaign to start engaging with your members
+              </p>
+              <Button 
+                onClick={() => navigate('/EmailCampaignEdit/new')}
+                data-testid="button-create-first-campaign"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Create First Campaign
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Campaign</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Audience</TableHead>
+                    <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Opens</TableHead>
+                    <TableHead className="text-right">Clicks</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentCampaigns.map((campaign) => {
+                    const openRate = campaign.sent_count > 0 
+                      ? ((campaign.opened_count || 0) / campaign.sent_count * 100).toFixed(1)
+                      : 0;
+                    const clickRate = campaign.sent_count > 0 
+                      ? ((campaign.clicked_count || 0) / campaign.sent_count * 100).toFixed(1)
+                      : 0;
+
+                    return (
+                      <TableRow key={campaign.id} data-testid={`row-campaign-${campaign.id}`}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{campaign.name}</div>
+                            <div className="text-sm text-muted-foreground truncate max-w-[200px]">
+                              {campaign.subject}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {getStatusBadge(campaign.status)}
+                            {campaign.status === 'scheduled' && campaign.scheduled_at && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(campaign.scheduled_at)}
+                              </span>
+                            )}
+                            {campaign.status === 'sent' && campaign.sent_at && (
+                              <span className="text-xs text-muted-foreground">
+                                {formatDate(campaign.sent_at)}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Target className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-sm truncate max-w-[120px]">
+                              {getTargetLabel(campaign)}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {campaign.sent_count || '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {campaign.status === 'sent' ? (
+                            <div>
+                              <span className="font-medium">{campaign.opened_count || 0}</span>
+                              <span className="text-muted-foreground text-xs ml-1">
+                                ({openRate}%)
+                              </span>
+                            </div>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {campaign.status === 'sent' ? (
+                            <div>
+                              <span className="font-medium">{campaign.clicked_count || 0}</span>
+                              <span className="text-muted-foreground text-xs ml-1">
+                                ({clickRate}%)
+                              </span>
+                            </div>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {campaign.status === 'draft' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => navigate(`/EmailCampaignEdit/${campaign.id}`)}
+                                  title="Edit"
+                                  data-testid={`button-edit-${campaign.id}`}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    const testEmail = prompt('Enter test email address:');
+                                    if (testEmail) handleTestSend(campaign, testEmail);
+                                  }}
+                                  disabled={testSending}
+                                  title="Send Test"
+                                  data-testid={`button-test-${campaign.id}`}
+                                >
+                                  <TestTube2 className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handlePreviewRecipients(campaign)}
+                                  title="Preview & Send"
+                                  data-testid={`button-preview-${campaign.id}`}
+                                >
+                                  <Send className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                            {campaign.status === 'sent' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleViewStats(campaign)}
+                                title="View Statistics"
+                                data-testid={`button-stats-${campaign.id}`}
+                              >
+                                <BarChart3 className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setCampaignToDelete(campaign);
+                                setShowDeleteConfirm(true);
+                              }}
+                              title="Delete"
+                              className="text-destructive hover:text-destructive"
+                              data-testid={`button-delete-${campaign.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
@@ -446,131 +573,121 @@ export default function EmailCampaigns() {
       }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{scheduleMode ? 'Schedule Campaign' : 'Send Campaign'}</DialogTitle>
+            <DialogTitle>Send Campaign</DialogTitle>
             <DialogDescription>
-              {scheduleMode 
-                ? `Schedule "${previewData?.campaign?.name}" for later delivery`
-                : `Review recipients before sending "${previewData?.campaign?.name}"`
-              }
+              Review recipients before sending "{previewData?.campaign?.name}"
             </DialogDescription>
           </DialogHeader>
           
           {previewData && (
-            <div className="py-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center gap-2 text-blue-700 font-medium">
-                  <Users className="w-5 h-5" />
-                  {previewData.recipientCount} recipients will receive this email
+            <div className="space-y-4">
+              <div className="bg-muted/50 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  <span className="font-semibold text-lg">
+                    {previewData.recipientCount} Recipients
+                  </span>
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  This campaign will be sent to all eligible members who haven't unsubscribed
+                </p>
               </div>
-              
-              {scheduleMode && (
-                <div className="space-y-3 mb-4">
-                  <Label htmlFor="schedule-datetime" className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Schedule Date & Time
-                  </Label>
+
+              {previewData.recipients && previewData.recipients.length > 0 && (
+                <div className="max-h-48 overflow-y-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {previewData.recipients.slice(0, 20).map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-sm">{r.name}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{r.email}</TableCell>
+                        </TableRow>
+                      ))}
+                      {previewData.recipients.length > 20 && (
+                        <TableRow>
+                          <TableCell colSpan={2} className="text-center text-sm text-muted-foreground">
+                            ... and {previewData.recipients.length - 20} more
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {scheduleMode ? (
+                <div className="space-y-3 pt-2 border-t">
+                  <Label htmlFor="schedule-datetime">Schedule Date & Time</Label>
                   <Input
                     id="schedule-datetime"
                     type="datetime-local"
                     value={scheduleDateTime}
                     onChange={(e) => setScheduleDateTime(e.target.value)}
-                    min={(() => {
-                      const now = new Date();
-                      const offset = now.getTimezoneOffset();
-                      const local = new Date(now.getTime() - offset * 60000);
-                      return local.toISOString().slice(0, 16);
-                    })()}
+                    min={new Date().toISOString().slice(0, 16)}
                     data-testid="input-schedule-datetime"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Campaign will be sent at the scheduled time. Scheduling uses your local timezone.
-                  </p>
                 </div>
-              )}
-              
-              {!scheduleMode && previewData.sampleRecipients?.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Sample recipients:</h4>
-                  <div className="text-sm text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
-                    {previewData.sampleRecipients.map((r, i) => (
-                      <div key={i}>
-                        {r.firstName} {r.lastName} ({r.email})
-                      </div>
-                    ))}
-                    {previewData.recipientCount > 10 && (
-                      <div className="text-muted-foreground italic">
-                        ...and {previewData.recipientCount - 10} more
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
           )}
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => {
-              if (scheduleMode) {
-                setScheduleMode(false);
-                setScheduleDateTime('');
-              } else {
-                setShowPreviewDialog(false);
-              }
-            }}>
-              {scheduleMode ? 'Back' : 'Cancel'}
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)}>
+              Cancel
             </Button>
-            
-            {!scheduleMode && (
-              <Button 
-                variant="outline"
-                onClick={() => setScheduleMode(true)}
-                disabled={sending || previewData?.recipientCount === 0}
-                data-testid="button-schedule-mode"
-              >
-                <Clock className="w-4 h-4 mr-2" />
-                Schedule
-              </Button>
-            )}
-            
-            {scheduleMode ? (
-              <Button 
-                onClick={() => handleScheduleCampaign(previewData?.campaign, scheduleDateTime)}
-                disabled={sending || !scheduleDateTime || previewData?.recipientCount === 0}
-                className="bg-blue-600 hover:bg-blue-700"
-                data-testid="button-confirm-schedule"
-              >
-                {sending ? (
-                  <>
+            {!scheduleMode ? (
+              <>
+                <Button 
+                  variant="outline"
+                  onClick={() => setScheduleMode(true)}
+                  data-testid="button-schedule-mode"
+                >
+                  <Clock className="w-4 h-4 mr-2" />
+                  Schedule
+                </Button>
+                <Button 
+                  onClick={() => handleSendCampaign(previewData?.campaign)}
+                  disabled={sending || !previewData?.recipientCount}
+                  data-testid="button-confirm-send"
+                >
+                  {sending ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Scheduling...
-                  </>
-                ) : (
-                  <>
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Schedule Send
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button 
-                onClick={() => handleSendCampaign(previewData?.campaign)}
-                disabled={sending || previewData?.recipientCount === 0}
-                className="bg-green-600 hover:bg-green-700"
-                data-testid="button-send-now"
-              >
-                {sending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
+                  ) : (
                     <Send className="w-4 h-4 mr-2" />
-                    Send Now
-                  </>
-                )}
-              </Button>
+                  )}
+                  Send Now
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setScheduleMode(false);
+                    setScheduleDateTime('');
+                  }}
+                >
+                  Back
+                </Button>
+                <Button 
+                  onClick={() => handleScheduleCampaign(previewData?.campaign, scheduleDateTime)}
+                  disabled={sending || !scheduleDateTime}
+                  data-testid="button-confirm-schedule"
+                >
+                  {sending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Calendar className="w-4 h-4 mr-2" />
+                  )}
+                  Schedule Campaign
+                </Button>
+              </>
             )}
           </DialogFooter>
         </DialogContent>
@@ -581,88 +698,97 @@ export default function EmailCampaigns() {
           <DialogHeader>
             <DialogTitle>Campaign Statistics</DialogTitle>
             <DialogDescription>
-              Performance metrics for "{statsData?.campaign?.name}"
+              Performance metrics for "{statsData?.name}"
             </DialogDescription>
           </DialogHeader>
           
           {statsData && (
-            <div className="py-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <Send className="w-6 h-6 mx-auto mb-2 text-blue-500" />
-                    <div className="text-2xl font-bold">{statsData.stats.sent}</div>
-                    <div className="text-sm text-muted-foreground">Sent</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <CheckCircle2 className="w-6 h-6 mx-auto mb-2 text-green-500" />
-                    <div className="text-2xl font-bold">{statsData.stats.delivered}</div>
-                    <div className="text-sm text-muted-foreground">Delivered</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <Eye className="w-6 h-6 mx-auto mb-2 text-purple-500" />
-                    <div className="text-2xl font-bold">{statsData.stats.opened}</div>
-                    <div className="text-sm text-muted-foreground">Opened ({statsData.stats.openRate}%)</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 text-center">
-                    <MousePointerClick className="w-6 h-6 mx-auto mb-2 text-amber-500" />
-                    <div className="text-2xl font-bold">{statsData.stats.clicked}</div>
-                    <div className="text-sm text-muted-foreground">Clicked ({statsData.stats.clickRate}%)</div>
-                  </CardContent>
-                </Card>
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                  <Send className="w-5 h-5 mx-auto mb-1 text-blue-600" />
+                  <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+                    {statsData.sent_count || 0}
+                  </div>
+                  <div className="text-xs text-blue-600">Sent</div>
+                </div>
+                <div className="text-center p-4 bg-green-50 dark:bg-green-950 rounded-lg">
+                  <CheckCircle2 className="w-5 h-5 mx-auto mb-1 text-green-600" />
+                  <div className="text-2xl font-bold text-green-700 dark:text-green-300">
+                    {statsData.delivered_count || 0}
+                  </div>
+                  <div className="text-xs text-green-600">Delivered</div>
+                </div>
+                <div className="text-center p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
+                  <Eye className="w-5 h-5 mx-auto mb-1 text-purple-600" />
+                  <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">
+                    {statsData.opened_count || 0}
+                  </div>
+                  <div className="text-xs text-purple-600">Opened</div>
+                </div>
+                <div className="text-center p-4 bg-amber-50 dark:bg-amber-950 rounded-lg">
+                  <MousePointerClick className="w-5 h-5 mx-auto mb-1 text-amber-600" />
+                  <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">
+                    {statsData.clicked_count || 0}
+                  </div>
+                  <div className="text-xs text-amber-600">Clicked</div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <Card className="border-red-200">
-                  <CardContent className="p-3 text-center">
-                    <XCircle className="w-5 h-5 mx-auto mb-1 text-red-500" />
-                    <div className="text-lg font-bold">{statsData.stats.bounced}</div>
-                    <div className="text-xs text-muted-foreground">Bounced ({statsData.stats.bounceRate}%)</div>
-                  </CardContent>
-                </Card>
-                <Card className="border-amber-200">
-                  <CardContent className="p-3 text-center">
-                    <AlertTriangle className="w-5 h-5 mx-auto mb-1 text-amber-500" />
-                    <div className="text-lg font-bold">{statsData.stats.unsubscribed}</div>
-                    <div className="text-xs text-muted-foreground">Unsubscribed</div>
-                  </CardContent>
-                </Card>
-                <Card className="border-red-200">
-                  <CardContent className="p-3 text-center">
-                    <AlertTriangle className="w-5 h-5 mx-auto mb-1 text-red-500" />
-                    <div className="text-lg font-bold">{statsData.stats.complained}</div>
-                    <div className="text-xs text-muted-foreground">Complaints</div>
-                  </CardContent>
-                </Card>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center p-3 border rounded-lg">
+                  <div className="text-lg font-semibold text-red-600">
+                    {statsData.bounced_count || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Bounced</div>
+                </div>
+                <div className="text-center p-3 border rounded-lg">
+                  <div className="text-lg font-semibold text-orange-600">
+                    {statsData.unsubscribed_count || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Unsubscribed</div>
+                </div>
+                <div className="text-center p-3 border rounded-lg">
+                  <div className="text-lg font-semibold text-rose-600">
+                    {statsData.complained_count || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Complaints</div>
+                </div>
               </div>
 
               {statsData.heatmapData && statsData.heatmapData.length > 0 && (
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-3 flex items-center gap-2">
-                    <MousePointerClick className="w-4 h-4" />
-                    Click Heatmap - Top Links
+                <div>
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4" />
+                    Link Click Heatmap
                   </h4>
-                  <div className="space-y-2">
-                    {statsData.heatmapData.slice(0, 10).map((link, idx) => {
-                      const maxClicks = statsData.heatmapData[0]?.clicks || 1;
-                      const intensity = Math.round((link.clicks / maxClicks) * 100);
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {statsData.heatmapData.map((link, i) => {
+                      const maxClicks = Math.max(...statsData.heatmapData.map(l => l.clicks));
+                      const intensity = maxClicks > 0 ? (link.clicks / maxClicks) * 100 : 0;
+                      
                       return (
-                        <div key={idx} className="flex items-center gap-3">
-                          <div className="w-16 text-right text-sm font-medium">{link.clicks} clicks</div>
-                          <div className="flex-1 relative h-6 bg-slate-100 rounded overflow-hidden">
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
                             <div 
-                              className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-400 to-red-500 rounded"
-                              style={{ width: `${intensity}%` }}
-                            />
-                            <span className="absolute inset-0 flex items-center px-2 text-xs truncate">
-                              {link.text || link.url?.substring(0, 50) || `Link ${link.index + 1}`}
-                            </span>
+                              className="h-8 rounded flex items-center px-3 text-sm truncate"
+                              style={{
+                                background: `linear-gradient(90deg, rgba(59, 130, 246, ${0.1 + intensity * 0.005}) ${intensity}%, transparent ${intensity}%)`,
+                                border: '1px solid rgba(59, 130, 246, 0.2)'
+                              }}
+                            >
+                              <a 
+                                href={link.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline truncate"
+                              >
+                                {link.url}
+                              </a>
+                            </div>
+                          </div>
+                          <div className="text-sm font-medium w-16 text-right">
+                            {link.clicks} clicks
                           </div>
                         </div>
                       );
