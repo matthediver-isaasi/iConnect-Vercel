@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { 
   ArrowLeft, 
   Loader2,
@@ -24,8 +25,11 @@ import {
   Check,
   FileText,
   Unplug,
-  CreditCard
+  CreditCard,
+  TestTube2
 } from "lucide-react";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import {
   Select,
   SelectContent,
@@ -34,6 +38,51 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
+
+function StripeTestCardForm({ onSuccess, onError }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (stripe && elements) {
+      setReady(true);
+      onSuccess();
+    }
+  }, [stripe, elements, onSuccess]);
+
+  const cardStyle = {
+    style: {
+      base: {
+        color: '#fff',
+        fontFamily: '"Inter", sans-serif',
+        fontSmoothing: 'antialiased',
+        fontSize: '16px',
+        '::placeholder': {
+          color: '#94a3b8'
+        }
+      },
+      invalid: {
+        color: '#ef4444',
+        iconColor: '#ef4444'
+      }
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 bg-slate-800 border border-slate-600 rounded-lg">
+        <CardElement options={cardStyle} onReady={() => setReady(true)} />
+      </div>
+      {ready && (
+        <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+          <CheckCircle2 className="h-5 w-5 text-green-400" />
+          <p className="text-sm text-green-400">Stripe Elements loaded successfully - your publishable key is valid!</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminIntegrations() {
   const navigate = useNavigate();
@@ -89,6 +138,9 @@ export default function AdminIntegrations() {
   const [stripeSaving, setStripeSaving] = useState(false);
   const [hasStripeCredentials, setHasStripeCredentials] = useState(false);
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
+  const [stripeTestModalOpen, setStripeTestModalOpen] = useState(false);
+  const [stripeTestResult, setStripeTestResult] = useState(null);
+  const [stripePromise, setStripePromise] = useState(null);
 
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
@@ -623,6 +675,41 @@ export default function AdminIntegrations() {
       });
     } catch (err) {
       console.error('Failed to toggle stripe:', err);
+    }
+  };
+
+  const handleTestStripe = async () => {
+    const publishableKey = stripeForm.publishable_key;
+    
+    if (!publishableKey) {
+      toast({
+        title: "Missing Publishable Key",
+        description: "Please enter your Stripe publishable key first",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    if (!publishableKey.startsWith('pk_')) {
+      toast({
+        title: "Invalid Publishable Key",
+        description: "Publishable key should start with 'pk_live_' or 'pk_test_'",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    try {
+      setStripeTestResult(null);
+      const promise = loadStripe(publishableKey);
+      setStripePromise(promise);
+      setStripeTestModalOpen(true);
+    } catch (err) {
+      toast({
+        title: "Test Failed",
+        description: err.message || "Failed to initialize Stripe",
+        variant: "destructive"
+      });
     }
   };
 
@@ -1394,6 +1481,16 @@ export default function AdminIntegrations() {
                   )}
                   Save Credentials
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleTestStripe}
+                  disabled={!stripeForm.publishable_key}
+                  className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+                  data-testid="button-test-stripe"
+                >
+                  <TestTube2 className="h-4 w-4 mr-2" />
+                  Test Connection
+                </Button>
               </div>
 
               {hasStripeCredentials && stripeEnabled && (
@@ -1449,6 +1546,39 @@ export default function AdminIntegrations() {
           </Card>
         </div>
       </main>
+
+      <Dialog open={stripeTestModalOpen} onOpenChange={setStripeTestModalOpen}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-purple-400" />
+              Test Stripe Connection
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              If the card input form appears below, your Stripe publishable key is valid and working.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {stripePromise && (
+            <Elements stripe={stripePromise}>
+              <StripeTestCardForm 
+                onSuccess={() => setStripeTestResult('success')}
+                onError={() => setStripeTestResult('error')}
+              />
+            </Elements>
+          )}
+
+          <div className="flex justify-end gap-2 mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setStripeTestModalOpen(false)}
+              className="border-slate-600 text-slate-300"
+            >
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
