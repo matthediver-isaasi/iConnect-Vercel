@@ -143,6 +143,7 @@ const builtInPages = [
   { value: "RedirectManagement", label: "Redirect Management" },
   { value: "ResourceManagement", label: "Resource Management" },
   { value: "ResourceSettings", label: "Resource Settings" },
+  { value: "RoleAccessConfigManagement", label: "Role Access Config Management" },
   { value: "RoleManagement", label: "Role Management" },
   { value: "SiteMap", label: "Site Map" },
   { value: "Support", label: "Support" },

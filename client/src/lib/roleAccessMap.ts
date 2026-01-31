@@ -509,6 +509,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.redirect-management",
         label: "Redirect Management"
+      },
+      {
+        id: "admin.roleaccessconfigmanagement",
+        label: "Role Access Config Management"
       }
     ]
   },
