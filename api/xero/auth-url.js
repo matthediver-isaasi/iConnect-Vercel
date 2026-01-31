@@ -35,6 +35,7 @@ export default async function handler(req, res) {
     const XERO_REDIRECT_URI = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/api/xero/callback`;
 
     const scopes = [
+      'offline_access',
       'openid',
       'profile', 
       'email',
