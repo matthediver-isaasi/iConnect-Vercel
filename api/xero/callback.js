@@ -1,8 +1,5 @@
 import { supabase } from "../_lib/database.js";
-
-const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
-const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
-const XERO_REDIRECT_URI = process.env.XERO_REDIRECT_URI;
+import { getXeroCredentials } from "../_lib/xeroCredentials.js";
 
 export default async function handler(req, res) {
   
@@ -36,18 +33,64 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "No authorization code provided" });
   }
 
+  if (!appTenantId) {
+    return res.send(`
+      <html>
+        <body style="font-family: system-ui; padding: 40px; text-align: center;">
+          <h1 style="color: #dc2626;">Authentication Error</h1>
+          <p>Missing tenant information in state parameter</p>
+          <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
+            Close Window
+          </button>
+        </body>
+      </html>
+    `);
+  }
+
   try {
+    const xeroCredentials = await getXeroCredentials(appTenantId);
+    
+    if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
+      return res.send(`
+        <html>
+          <body style="font-family: system-ui; padding: 40px; text-align: center;">
+            <h1 style="color: #dc2626;">Configuration Error</h1>
+            <p>Xero credentials not configured for this tenant</p>
+            <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
+              Close Window
+            </button>
+          </body>
+        </html>
+      `);
+    }
+
+    if (!xeroCredentials.is_enabled) {
+      return res.send(`
+        <html>
+          <body style="font-family: system-ui; padding: 40px; text-align: center;">
+            <h1 style="color: #dc2626;">Integration Disabled</h1>
+            <p>Xero integration is disabled for this tenant</p>
+            <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
+              Close Window
+            </button>
+          </body>
+        </html>
+      `);
+    }
+
+    const XERO_REDIRECT_URI = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/api/xero/callback`;
+
     // Exchange code for tokens
     const tokenResponse = await fetch("https://identity.xero.com/connect/token", {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": "Basic " + Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString("base64")
+        "Authorization": "Basic " + Buffer.from(`${xeroCredentials.client_id}:${xeroCredentials.client_secret}`).toString("base64")
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code: code,
-        redirect_uri: XERO_REDIRECT_URI || ""
+        redirect_uri: XERO_REDIRECT_URI
       }).toString()
     });
 

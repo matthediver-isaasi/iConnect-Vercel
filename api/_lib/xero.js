@@ -1,7 +1,5 @@
 import { supabase } from './database.js';
-
-const XERO_CLIENT_ID = process.env.ZOHO_CLIENT_ID ? undefined : process.env.XERO_CLIENT_ID;
-const XERO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET ? undefined : process.env.XERO_CLIENT_SECRET;
+import { getXeroCredentials } from './xeroCredentials.js';
 
 export async function getValidXeroAccessToken(appTenantId) {
   if (!supabase) throw new Error('Supabase not configured');
@@ -38,18 +36,17 @@ export async function getValidXeroAccessToken(appTenantId) {
     return { accessToken: token.access_token, tenantId: token.tenant_id };
   }
 
-  const clientId = process.env.XERO_CLIENT_ID;
-  const clientSecret = process.env.XERO_CLIENT_SECRET;
+  const xeroCredentials = await getXeroCredentials(appTenantId);
   
-  if (!clientId || !clientSecret) {
-    throw new Error('Xero credentials not configured');
+  if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
+    throw new Error('Xero credentials not configured for this tenant');
   }
 
   const tokenResponse = await fetch('https://identity.xero.com/connect/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+      'Authorization': 'Basic ' + Buffer.from(`${xeroCredentials.client_id}:${xeroCredentials.client_secret}`).toString('base64')
     },
     body: new URLSearchParams({
       grant_type: 'refresh_token',

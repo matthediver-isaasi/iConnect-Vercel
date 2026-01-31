@@ -6,15 +6,11 @@ import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessToken } from '../_lib/zoomClient.js';
+import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 
 const stripe = process.env.STRIPE_SECRET_KEY 
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
-
-// Xero OAuth credentials
-const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
-const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
-const XERO_REDIRECT_URI = process.env.XERO_REDIRECT_URI;
 
 // Helper: Get valid Xero access token (refreshes if needed)
 // REQUIRES appTenantId for multi-tenant isolation
@@ -63,19 +59,21 @@ async function getValidXeroAccessToken(appTenantId) {
     return { accessToken: token.access_token, tenantId: token.tenant_id };
   }
 
-  // Refresh token
+  // Refresh token using tenant-scoped credentials
   console.log('[Xero] Token expired or expiring soon, refreshing...');
   
-  if (!XERO_CLIENT_ID || !XERO_CLIENT_SECRET) {
-    console.error('[Xero] Xero credentials not configured (XERO_CLIENT_ID or XERO_CLIENT_SECRET missing)');
-    throw new Error('Xero credentials not configured');
+  const xeroCredentials = await getXeroCredentials(appTenantId);
+  
+  if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
+    console.error('[Xero] Xero credentials not configured for this tenant');
+    throw new Error('Xero credentials not configured for this tenant');
   }
 
   const tokenResponse = await fetch('https://identity.xero.com/connect/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString('base64')
+      'Authorization': 'Basic ' + Buffer.from(`${xeroCredentials.client_id}:${xeroCredentials.client_secret}`).toString('base64')
     },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
@@ -4026,128 +4024,61 @@ const functionHandlers = {
   },
 
   // ============ Xero Integration Functions ============
+  // NOTE: These legacy functions are deprecated - use /api/xero/* endpoints instead
+  // They are kept for backwards compatibility but now use tenant-scoped credentials
 
   async getXeroAuthUrl(params, req) {
-    // Debug: log which env vars are present
-    const debug = {
-      hasClientId: !!XERO_CLIENT_ID,
-      hasRedirectUri: !!XERO_REDIRECT_URI,
-      redirectUriValue: XERO_REDIRECT_URI ? XERO_REDIRECT_URI.substring(0, 30) + '...' : 'NOT SET'
-    };
-    console.log('getXeroAuthUrl debug:', debug);
-    
-    if (!XERO_CLIENT_ID || !XERO_REDIRECT_URI) {
-      throw new Error(`Xero not configured - hasClientId: ${!!XERO_CLIENT_ID}, hasRedirectUri: ${!!XERO_REDIRECT_URI}`);
+    // This is a legacy function - the new flow uses /api/xero/auth-url
+    const tenantContext = await getTenantContext(req, supabase);
+    if (!tenantContext?.tenant?.id) {
+      throw new Error('Tenant context required for Xero auth');
     }
+    
+    const xeroCredentials = await getXeroCredentials(tenantContext.tenant.id);
+    
+    if (!xeroCredentials || !xeroCredentials.client_id) {
+      throw new Error('Xero not configured. Please add your Xero credentials in Admin > Integrations.');
+    }
+
+    const host = req.headers.host || 'localhost';
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const redirectUri = `${protocol}://${host}/api/xero/callback`;
 
     const authUrl = `https://login.xero.com/identity/connect/authorize?` + new URLSearchParams({
       response_type: 'code',
-      client_id: XERO_CLIENT_ID,
-      redirect_uri: XERO_REDIRECT_URI,
+      client_id: xeroCredentials.client_id,
+      redirect_uri: redirectUri,
       scope: 'offline_access accounting.transactions accounting.contacts accounting.settings openid profile email',
-      state: 'xero_auth'
+      state: Buffer.from(JSON.stringify({ tenantId: tenantContext.tenant.id })).toString('base64')
     }).toString();
 
     return { authUrl };
   },
 
   async xeroOAuthCallback(params, req) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    const { code, error: oauthError } = params;
-
-    if (oauthError) {
-      throw new Error(`Xero OAuth error: ${oauthError}`);
-    }
-
-    if (!code) {
-      throw new Error('No authorization code received');
-    }
-
-    if (!XERO_CLIENT_ID || !XERO_CLIENT_SECRET || !XERO_REDIRECT_URI) {
-      throw new Error('Xero credentials not configured');
-    }
-
-    // Exchange code for tokens
-    const tokenResponse = await fetch('https://identity.xero.com/connect/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': 'Basic ' + Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString('base64')
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: XERO_REDIRECT_URI
-      }).toString()
-    });
-
-    const tokenData = await tokenResponse.json();
-
-    if (!tokenResponse.ok || tokenData.error) {
-      throw new Error(`Failed to exchange code for token: ${JSON.stringify(tokenData)}`);
-    }
-
-    // Get tenant connections
-    const connectionsResponse = await fetch('https://api.xero.com/connections', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const connections = await connectionsResponse.json();
-    const tenantId = connections[0]?.tenantId;
-
-    if (!tenantId) {
-      throw new Error('No Xero tenant found');
-    }
-
-    const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
-
-    // Store or update token
-    const { data: existingTokens } = await supabase
-      .from('xero_token')
-      .select('id');
-
-    if (existingTokens && existingTokens.length > 0) {
-      await supabase
-        .from('xero_token')
-        .update({
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-          expires_at: expiresAt,
-          tenant_id: tenantId
-        })
-        .eq('id', existingTokens[0].id);
-    } else {
-      await supabase
-        .from('xero_token')
-        .insert({
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token,
-          expires_at: expiresAt,
-          tenant_id: tenantId
-        });
-    }
-
-    return {
-      success: true,
-      message: 'Xero authentication successful',
-      tenant_id: tenantId
-    };
+    // This is a legacy function - the new flow uses /api/xero/callback
+    throw new Error('This function is deprecated. Use /api/xero/callback endpoint instead.');
   },
 
-  async refreshXeroToken(params) {
+  async refreshXeroToken(params, req) {
+    // This function now requires tenant context
     if (!supabase) throw new Error('Supabase not configured');
 
-    if (!XERO_CLIENT_ID || !XERO_CLIENT_SECRET) {
-      throw new Error('Xero credentials not configured');
+    const tenantContext = await getTenantContext(req, supabase);
+    if (!tenantContext?.tenant?.id) {
+      throw new Error('Tenant context required for Xero token refresh');
+    }
+
+    const xeroCredentials = await getXeroCredentials(tenantContext.tenant.id);
+    
+    if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
+      throw new Error('Xero credentials not configured for this tenant');
     }
 
     const { data: tokens } = await supabase
       .from('xero_token')
-      .select('*');
+      .select('*')
+      .eq('app_tenant_id', tenantContext.tenant.id);
 
     if (!tokens || tokens.length === 0) {
       throw new Error('No Xero token found. Please authenticate first.');
@@ -4171,7 +4102,7 @@ const functionHandlers = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': 'Basic ' + Buffer.from(`${XERO_CLIENT_ID}:${XERO_CLIENT_SECRET}`).toString('base64')
+        'Authorization': 'Basic ' + Buffer.from(`${xeroCredentials.client_id}:${xeroCredentials.client_secret}`).toString('base64')
       },
       body: new URLSearchParams({
         grant_type: 'refresh_token',

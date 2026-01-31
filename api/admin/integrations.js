@@ -142,7 +142,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'integration_type is required' });
       }
 
-      const validTypes = ['zoom', 'zoho_campaigns'];
+      const validTypes = ['zoom', 'zoho_campaigns', 'xero'];
       if (!validTypes.includes(integration_type)) {
         return res.status(400).json({ error: 'Invalid integration type' });
       }

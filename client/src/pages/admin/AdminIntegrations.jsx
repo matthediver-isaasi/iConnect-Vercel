@@ -21,7 +21,9 @@ import {
   Plug,
   Mail,
   Copy,
-  Check
+  Check,
+  FileText,
+  Unplug
 } from "lucide-react";
 import {
   Select,
@@ -65,6 +67,18 @@ export default function AdminIntegrations() {
   const [showZohoSecrets, setShowZohoSecrets] = useState(false);
   const [webhookUrlCopied, setWebhookUrlCopied] = useState(false);
   const [zohoWebhookUrl, setZohoWebhookUrl] = useState('');
+
+  const [xeroForm, setXeroForm] = useState({
+    client_id: '',
+    client_secret: ''
+  });
+  const [xeroEnabled, setXeroEnabled] = useState(false);
+  const [xeroSaving, setXeroSaving] = useState(false);
+  const [xeroConnecting, setXeroConnecting] = useState(false);
+  const [xeroConnected, setXeroConnected] = useState(false);
+  const [hasXeroCredentials, setHasXeroCredentials] = useState(false);
+  const [showXeroSecrets, setShowXeroSecrets] = useState(false);
+  const [xeroTenantName, setXeroTenantName] = useState('');
 
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
@@ -114,6 +128,24 @@ export default function AdminIntegrations() {
     }
   };
 
+  const fetchXeroStatus = async () => {
+    try {
+      const response = await fetch('/api/admin/xero-status', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        const hasValidToken = data.tokens && data.tokens.length > 0 && 
+          data.tokens.some(t => t.tenant_id !== 'PENDING_SELECTION');
+        setXeroConnected(hasValidToken);
+        if (hasValidToken) {
+          const token = data.tokens.find(t => t.tenant_id !== 'PENDING_SELECTION');
+          setXeroTenantName(token?.tenant_name || '');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch Xero status:', err);
+    }
+  };
+
   const fetchZohoWebhookUrl = async () => {
     try {
       const response = await fetch('/api/zoho-campaigns/webhook-url', { credentials: 'include' });
@@ -160,8 +192,21 @@ export default function AdminIntegrations() {
             });
           }
         }
+
+        const xeroIntegration = data.integrations?.find(i => i.integration_type === 'xero');
+        if (xeroIntegration) {
+          setXeroEnabled(xeroIntegration.is_enabled);
+          setHasXeroCredentials(xeroIntegration.has_credentials);
+          if (xeroIntegration.credentials) {
+            setXeroForm({
+              client_id: xeroIntegration.credentials.client_id || '',
+              client_secret: xeroIntegration.credentials.client_secret || ''
+            });
+          }
+        }
         
         fetchZohoStatus();
+        fetchXeroStatus();
       }
     } catch (err) {
       console.error('Failed to fetch integrations:', err);
@@ -363,6 +408,129 @@ export default function AdminIntegrations() {
       });
     } catch (err) {
       console.error('Failed to toggle zoho:', err);
+    }
+  };
+
+  const handleSaveXero = async () => {
+    setXeroSaving(true);
+    
+    try {
+      const response = await fetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'xero',
+          credentials: {
+            client_id: xeroForm.client_id,
+            client_secret: xeroForm.client_secret
+          },
+          is_enabled: xeroEnabled
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: "Saved",
+          description: "Xero credentials saved successfully"
+        });
+        setHasXeroCredentials(true);
+        fetchIntegrations();
+      } else {
+        toast({
+          title: "Error",
+          description: data.error || "Failed to save Xero settings",
+          variant: "destructive"
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to save Xero settings",
+        variant: "destructive"
+      });
+    } finally {
+      setXeroSaving(false);
+    }
+  };
+
+  const handleToggleXero = async (enabled) => {
+    setXeroEnabled(enabled);
+    
+    try {
+      await fetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'xero',
+          is_enabled: enabled
+        })
+      });
+    } catch (err) {
+      console.error('Failed to toggle xero:', err);
+    }
+  };
+
+  const handleConnectXero = async () => {
+    setXeroConnecting(true);
+    try {
+      const response = await fetch('/api/xero/auth-url', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Failed to get auth URL');
+      }
+      const { authUrl } = await response.json();
+      window.open(authUrl, 'xero-auth', 'width=600,height=700');
+      
+      const checkInterval = setInterval(async () => {
+        await fetchXeroStatus();
+        if (xeroConnected) {
+          clearInterval(checkInterval);
+          setXeroConnecting(false);
+        }
+      }, 2000);
+      
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        setXeroConnecting(false);
+      }, 120000);
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Connection Failed",
+        description: error.message || "Failed to initiate Xero connection"
+      });
+      setXeroConnecting(false);
+    }
+  };
+
+  const handleDisconnectXero = async () => {
+    try {
+      const response = await fetch('/api/xero/disconnect', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        setXeroConnected(false);
+        setXeroTenantName('');
+        toast({
+          title: "Disconnected",
+          description: "Xero account has been disconnected"
+        });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to disconnect Xero"
+      });
     }
   };
 
@@ -828,6 +996,188 @@ export default function AdminIntegrations() {
                       <p className="text-sm font-medium text-amber-400">Not Connected</p>
                       <p className="text-xs text-slate-400">
                         Click "Connect Zoho Account" to authorize access to your Zoho Campaigns account.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                    <FileText className="h-5 w-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">Xero</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Create invoices and sync accounting data with Xero
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {hasXeroCredentials && (
+                    <Badge 
+                      variant={xeroEnabled ? "default" : "secondary"}
+                      className={xeroEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}
+                    >
+                      {xeroEnabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  )}
+                  <Switch
+                    checked={xeroEnabled}
+                    onCheckedChange={handleToggleXero}
+                    disabled={!hasXeroCredentials}
+                    data-testid="switch-xero-enabled"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <Plug className="h-4 w-4 text-slate-400" />
+                  OAuth2 Credentials
+                </h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  Create an app in the{" "}
+                  <a 
+                    href="https://developer.xero.com/app/manage" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-cyan-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    Xero Developer Portal
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </p>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="xero_client_id" className="text-slate-300">Client ID</Label>
+                    <Input
+                      id="xero_client_id"
+                      type={showXeroSecrets ? "text" : "password"}
+                      value={xeroForm.client_id}
+                      onChange={(e) => setXeroForm(prev => ({ ...prev, client_id: e.target.value }))}
+                      placeholder="Enter your Xero Client ID"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-xero-client-id"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="xero_client_secret" className="text-slate-300">Client Secret</Label>
+                    <Input
+                      id="xero_client_secret"
+                      type={showXeroSecrets ? "text" : "password"}
+                      value={xeroForm.client_secret}
+                      onChange={(e) => setXeroForm(prev => ({ ...prev, client_secret: e.target.value }))}
+                      placeholder="Enter your Xero Client Secret"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-xero-client-secret"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowXeroSecrets(!showXeroSecrets)}
+                      className="text-slate-400 hover:text-white"
+                      data-testid="button-toggle-xero-secrets"
+                    >
+                      {showXeroSecrets ? (
+                        <><EyeOff className="h-4 w-4 mr-2" /> Hide values</>
+                      ) : (
+                        <><Eye className="h-4 w-4 mr-2" /> Show values</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2">Redirect URI</h4>
+                <p className="text-xs text-slate-400 mb-2">
+                  Add this redirect URI in your Xero app settings:
+                </p>
+                <code className="text-xs bg-slate-800 px-2 py-1 rounded text-cyan-400 block">
+                  {typeof window !== 'undefined' ? `${window.location.origin}/api/xero/callback` : '/api/xero/callback'}
+                </code>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <Button
+                  onClick={handleSaveXero}
+                  disabled={xeroSaving}
+                  className="bg-primary hover:bg-primary/90"
+                  data-testid="button-save-xero"
+                >
+                  {xeroSaving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Save Credentials
+                </Button>
+                
+                {hasXeroCredentials && !xeroConnected && (
+                  <Button
+                    onClick={handleConnectXero}
+                    disabled={xeroConnecting}
+                    className="bg-cyan-500 hover:bg-cyan-600"
+                    data-testid="button-connect-xero"
+                  >
+                    {xeroConnecting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plug className="h-4 w-4 mr-2" />
+                    )}
+                    Connect Xero Account
+                  </Button>
+                )}
+              </div>
+
+              {hasXeroCredentials && xeroConnected && (
+                <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-green-400" />
+                      <div>
+                        <p className="text-sm font-medium text-green-400">Connected to Xero</p>
+                        {xeroTenantName && (
+                          <p className="text-xs text-slate-400">
+                            Organization: {xeroTenantName}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDisconnectXero}
+                      className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                      data-testid="button-disconnect-xero"
+                    >
+                      <Unplug className="h-4 w-4 mr-2" />
+                      Disconnect
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {hasXeroCredentials && !xeroConnected && (
+                <div className="rounded-lg bg-amber-500/10 p-4 border border-amber-500/30">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-400">Not Connected</p>
+                      <p className="text-xs text-slate-400">
+                        Click "Connect Xero Account" to authorize access to your Xero account.
                       </p>
                     </div>
                   </div>
