@@ -109,10 +109,11 @@ export default function EmailCampaigns() {
   };
 
   const handleTemplateSelect = async (templateId) => {
-    setFormData(prev => ({ ...prev, email_template_id: templateId }));
+    const actualId = templateId === 'none' ? null : templateId;
+    setFormData(prev => ({ ...prev, email_template_id: actualId }));
     
-    if (templateId) {
-      const template = emailTemplates.find(t => t.id === templateId);
+    if (actualId) {
+      const template = emailTemplates.find(t => t.id === actualId);
       if (template) {
         setFormData(prev => ({
           ...prev,
@@ -481,14 +482,14 @@ export default function EmailCampaigns() {
             <div className="space-y-2">
               <Label htmlFor="template">Email Template</Label>
               <Select
-                value={formData.email_template_id || ''}
+                value={formData.email_template_id || 'none'}
                 onValueChange={handleTemplateSelect}
               >
                 <SelectTrigger data-testid="select-template">
                   <SelectValue placeholder="Select a template (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No template</SelectItem>
+                  <SelectItem value="none">No template</SelectItem>
                   {emailTemplates.map(template => (
                     <SelectItem key={template.id} value={template.id}>
                       {template.name}
