@@ -3,7 +3,14 @@ import { getCampaign, generateTrackingToken, rewriteLinksForTracking } from '../
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 
-const APP_URL = process.env.APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000';
+const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+
+function getTenantBaseUrl(tenantSlug) {
+  if (!tenantSlug) {
+    return process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000');
+  }
+  return `https://${tenantSlug}.${APP_DOMAIN}`;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -51,7 +58,8 @@ export default async function handler(req, res) {
 
     html = rewriteLinksForTracking(html, campaignId, testRecipientId, tenantSlug);
 
-    const unsubscribeUrl = `${APP_URL}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, testRecipientId, 0)}`;
+    const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
+    const unsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, testRecipientId, 0)}`;
     if (!html.includes('{{unsubscribe_url}}')) {
       html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
         <a href="${unsubscribeUrl}" style="color: #666;">Unsubscribe from these emails</a>

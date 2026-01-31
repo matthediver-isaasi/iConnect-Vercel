@@ -2,7 +2,16 @@ import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
 import crypto from 'crypto';
 
-const APP_URL = process.env.APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000';
+const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+
+// Get tenant-specific base URL for tracking links
+function getTenantBaseUrl(tenantSlug) {
+  if (!tenantSlug) {
+    return process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000');
+  }
+  // Use tenant subdomain for production
+  return `https://${tenantSlug}.${APP_DOMAIN}`;
+}
 
 export async function getCampaigns(tenantId, options = {}) {
   if (!supabase || !tenantId) {
@@ -145,7 +154,7 @@ export function generateTrackingToken(campaignId, recipientId, linkIndex) {
 export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug) {
   if (!html) return html;
 
-  const baseUrl = APP_URL;
+  const baseUrl = getTenantBaseUrl(tenantSlug);
   let linkIndex = 0;
 
   const rewritten = html.replace(
@@ -507,7 +516,8 @@ export async function sendCampaign(campaignId, tenantId) {
 
         html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug);
 
-        const unsubscribeUrl = `${APP_URL}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
+        const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
+        const unsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
         if (!html.includes('{{unsubscribe_url}}')) {
           html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
             <a href="${unsubscribeUrl}" style="color: #666;">Unsubscribe from these emails</a>
