@@ -74,6 +74,7 @@ const builtInPages = [
   { value: "DiscountCodeManagement", label: "Discount Code Management" },
   { value: "DynamicDirectoryManagement", label: "Dynamic Directory Management" },
   { value: "DynamicPage", label: "Dynamic Page" },
+  { value: "EmailCampaignEdit", label: "Email Campaign Editor" },
   { value: "EmailTemplateManagement", label: "Email Templates" },
   { value: "EventDetails", label: "Event Details" },
   { value: "Events", label: "Events" },

@@ -463,6 +463,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "communication.management",
         label: "Communications Management"
+      },
+      {
+        id: "communication.emailcampaigneditor",
+        label: "Email Campaign Editor"
       }
     ]
   },
