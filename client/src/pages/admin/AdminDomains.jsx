@@ -524,55 +524,101 @@ export default function AdminDomains() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-2 p-3 bg-slate-700/50 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-slate-400" />
-                    <span className="font-mono text-sm text-white" data-testid="text-email-domain">{emailDomainName}</span>
-                    {emailDomain?.is_custom && (
-                      <Badge variant="outline" className="border-slate-500 text-slate-400 text-xs" data-testid="badge-email-custom">Custom</Badge>
+                {configuringEmailDomain ? (
+                  <form onSubmit={handleSubmitEmailDomain} className="space-y-4">
+                    <div className="p-3 bg-slate-700/50 rounded-lg">
+                      <div className="flex items-center gap-2 text-sm text-slate-400 mb-2">
+                        <span>Current domain:</span>
+                        <span className="font-mono text-white">{emailDomainName}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-white">New Email Domain (Optional)</Label>
+                      <Input
+                        placeholder="mail.example.com (leave blank for default)"
+                        value={newEmailDomain}
+                        onChange={(e) => setNewEmailDomain(e.target.value)}
+                        className="bg-slate-700 border-slate-600 text-white"
+                        data-testid="input-new-email-domain"
+                      />
+                      <p className="text-xs text-slate-400">
+                        Enter your custom domain for emails, or leave blank to use the default subdomain. 
+                        Custom domains require you to configure DNS records yourself.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        type="submit" 
+                        disabled={actionLoading.provisionEmail}
+                        data-testid="button-submit-new-email-domain"
+                      >
+                        {actionLoading.provisionEmail && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                        {newEmailDomain.trim() ? 'Set Custom Domain' : 'Use Default Domain'}
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => { setConfiguringEmailDomain(false); setNewEmailDomain(""); }}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-cancel-new-email-domain"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2 p-3 bg-slate-700/50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-slate-400" />
+                        <span className="font-mono text-sm text-white" data-testid="text-email-domain">{emailDomainName}</span>
+                        {emailDomain?.is_custom && (
+                          <Badge variant="outline" className="border-slate-500 text-slate-400 text-xs" data-testid="badge-email-custom">Custom</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {emailStatus === 'verified' ? (
+                          <Badge variant="secondary" className="bg-green-900 text-green-200">
+                            <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="bg-yellow-900 text-yellow-200">
+                            <Clock className="w-3 h-3 mr-1" /> Pending Verification
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {fromEmail && (
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <span>Sending from:</span>
+                        <span className="font-mono">{fromEmail}</span>
+                      </div>
                     )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {emailStatus === 'verified' ? (
-                      <Badge variant="secondary" className="bg-green-900 text-green-200">
-                        <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="bg-yellow-900 text-yellow-200">
-                        <Clock className="w-3 h-3 mr-1" /> Pending Verification
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                
-                {fromEmail && (
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <span>Sending from:</span>
-                    <span className="font-mono">{fromEmail}</span>
-                  </div>
+                    
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        onClick={handleVerifyEmailDomain}
+                        disabled={actionLoading.verifyEmail}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-verify-email-domain"
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${actionLoading.verifyEmail ? 'animate-spin' : ''}`} />
+                        Verify Status
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setConfiguringEmailDomain(true)}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-change-email-domain"
+                      >
+                        <Settings className="w-4 h-4 mr-2" />
+                        Change Domain
+                      </Button>
+                    </div>
+                  </>
                 )}
-                
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    variant="outline"
-                    onClick={handleVerifyEmailDomain}
-                    disabled={actionLoading.verifyEmail}
-                    className="border-slate-600 text-slate-300"
-                    data-testid="button-verify-email-domain"
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${actionLoading.verifyEmail ? 'animate-spin' : ''}`} />
-                    Verify Status
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfiguringEmailDomain(true)}
-                    className="border-slate-600 text-slate-300"
-                    data-testid="button-change-email-domain"
-                  >
-                    <Settings className="w-4 h-4 mr-2" />
-                    Change Domain
-                  </Button>
-                </div>
                 
                 {emailStatus !== 'verified' && emailDomain?.is_custom && emailDomain?.required_dns_records && (
                   <Alert className="bg-slate-700/50 border-slate-600" data-testid="alert-dns-records">
