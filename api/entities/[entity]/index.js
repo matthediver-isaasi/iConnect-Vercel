@@ -270,6 +270,9 @@ export default async function handler(req, res) {
       }
     }
     
+    // Store for use in query logic
+    tenantCtx.allowsTenantWideAccess = allowsTenantWideAccess;
+    
     if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.effectiveTenantId) && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
@@ -297,7 +300,7 @@ export default async function handler(req, res) {
           // Other ORGANIZATION-scoped entities restrict to member's own org unless they're tenant admin
           
           // Use the allowsTenantWideAccess flag computed earlier in the access pre-check
-          if (allowsTenantWideAccess) {
+          if (tenantCtx.allowsTenantWideAccess) {
             // Allow cross-org access within tenant for:
             // - OrganizationPreferenceValue: viewing org details
             // - Booking with event_id filter: viewing event attendees (access controlled by RBAC)
