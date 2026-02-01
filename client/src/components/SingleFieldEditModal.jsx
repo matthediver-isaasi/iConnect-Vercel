@@ -400,6 +400,16 @@ export default function SingleFieldEditModal({
               value={contactValue.email || ''}
               onChange={(e) => setValue({ ...contactValue, email: e.target.value })}
             />
+            <Input
+              placeholder="Job title"
+              value={contactValue.job_title || ''}
+              onChange={(e) => setValue({ ...contactValue, job_title: e.target.value })}
+            />
+            <Input
+              placeholder="Organisation"
+              value={contactValue.organization || ''}
+              onChange={(e) => setValue({ ...contactValue, organization: e.target.value })}
+            />
           </div>
         );
 
