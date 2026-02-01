@@ -149,21 +149,29 @@ async function createVercelDnsRecord(mailgunRecord, tenantSlug) {
   return { name, type: recordType, uid: data.uid, status: 'created' };
 }
 
-export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, currentSettings = {}) {
+export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, currentSettings = {}, customEmailDomain = null) {
   if (!MAILGUN_API_KEY) {
     console.log('[Email Domain] MAILGUN_API_KEY not configured - skipping email domain provisioning');
     return { success: false, error: 'MAILGUN_API_KEY not configured' };
   }
 
-  if (!VERCEL_API_TOKEN) {
+  const rootDomain = getRootDomain();
+  // Use custom email domain if provided, otherwise fall back to slug-based subdomain
+  const isCustomDomain = !!customEmailDomain;
+  const mailgunDomain = customEmailDomain 
+    ? customEmailDomain.toLowerCase().trim() 
+    : `${tenantSlug}.${rootDomain}`;
+
+  // For custom domains, we don't manage DNS - the user must configure it themselves
+  // For slug-based domains, we create DNS records in Vercel
+  const manageDns = !isCustomDomain;
+
+  if (manageDns && !VERCEL_API_TOKEN) {
     console.log('[Email Domain] VERCEL_API_TOKEN not configured - skipping email domain provisioning');
     return { success: false, error: 'VERCEL_API_TOKEN not configured' };
   }
 
-  const rootDomain = getRootDomain();
-  const mailgunDomain = `${tenantSlug}.${rootDomain}`;
-
-  console.log(`[Email Domain] Provisioning domain ${mailgunDomain} for tenant ${tenantSlug}`);
+  console.log(`[Email Domain] Provisioning domain ${mailgunDomain} for tenant ${tenantSlug} (customDomain: ${isCustomDomain})`);
 
   try {
     const mailgun = new Mailgun(formData);
@@ -214,70 +222,68 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
     });
 
     const createdDnsRecords = [];
-    for (const record of dnsRecords) {
-      try {
-        const vercelRecord = await createVercelDnsRecord(record, tenantSlug);
-        if (vercelRecord) {
-          createdDnsRecords.push(vercelRecord);
+    
+    // Only create DNS records if we're managing DNS (non-custom domain)
+    if (manageDns) {
+      for (const record of dnsRecords) {
+        try {
+          const vercelRecord = await createVercelDnsRecord(record, tenantSlug);
+          if (vercelRecord) {
+            createdDnsRecords.push(vercelRecord);
+          }
+        } catch (dnsError) {
+          console.error(`[Email Domain] DNS record creation failed:`, dnsError.message);
         }
-      } catch (dnsError) {
-        console.error(`[Email Domain] DNS record creation failed:`, dnsError.message);
       }
-    }
 
-    const hasSPF = dnsRecords.some(r => r.record_type === 'TXT' && r.value?.includes('spf'));
-    if (!hasSPF) {
+      const hasSPF = dnsRecords.some(r => r.record_type === 'TXT' && r.value?.includes('spf'));
+      if (!hasSPF) {
+        try {
+          await createVercelDnsRecord({
+            record_type: 'TXT',
+            name: tenantSlug,
+            value: 'v=spf1 include:mailgun.org ~all'
+          }, tenantSlug);
+        } catch (spfError) {
+          console.log('[Email Domain] SPF record may already exist');
+        }
+      }
+
+      // Add DMARC record for email authentication
       try {
-        await createVercelDnsRecord({
+        const dmarcRecordName = `_dmarc.${tenantSlug}`;
+        const dmarcValue = 'v=DMARC1; p=none; pct=100; fo=1; ri=3600; rua=mailto:fd56106c@dmarc.mailgun.org,mailto:980db2c4@inbox.ondmarc.com; ruf=mailto:fd56106c@dmarc.mailgun.org,mailto:980db2c4@inbox.ondmarc.com;';
+        
+        const dmarcRecord = await createVercelDnsRecord({
           record_type: 'TXT',
-          name: tenantSlug,
-          value: 'v=spf1 include:mailgun.org ~all'
+          name: dmarcRecordName,
+          value: dmarcValue
         }, tenantSlug);
-      } catch (spfError) {
-        console.log('[Email Domain] SPF record may already exist');
+        
+        if (dmarcRecord) {
+          createdDnsRecords.push(dmarcRecord);
+          console.log(`[Email Domain] Created DMARC record for ${tenantSlug}`);
+        }
+      } catch (dmarcError) {
+        console.log('[Email Domain] DMARC record may already exist:', dmarcError.message);
       }
-    }
 
-    // Add DMARC record for email authentication
-    // This is critical for deliverability - helps prevent emails from being marked as spam
-    // DMARC policy: p=none (monitor only), with reporting to Mailgun
-    try {
-      const dmarcRecordName = `_dmarc.${tenantSlug}`;
-      const dmarcValue = 'v=DMARC1; p=none; pct=100; fo=1; ri=3600; rua=mailto:fd56106c@dmarc.mailgun.org,mailto:980db2c4@inbox.ondmarc.com; ruf=mailto:fd56106c@dmarc.mailgun.org,mailto:980db2c4@inbox.ondmarc.com;';
-      
-      const dmarcRecord = await createVercelDnsRecord({
-        record_type: 'TXT',
-        name: dmarcRecordName,
-        value: dmarcValue
-      }, tenantSlug);
-      
-      if (dmarcRecord) {
-        createdDnsRecords.push(dmarcRecord);
-        console.log(`[Email Domain] Created DMARC record for ${tenantSlug}`);
+      // Add A record for web traffic
+      try {
+        const vercelARecord = await createVercelDnsRecord({
+          record_type: 'A',
+          name: tenantSlug,
+          value: '76.76.21.21'
+        }, tenantSlug);
+        if (vercelARecord) {
+          createdDnsRecords.push(vercelARecord);
+          console.log(`[Email Domain] Created A record for web traffic: ${tenantSlug} -> 76.76.21.21`);
+        }
+      } catch (aError) {
+        console.log('[Email Domain] A record may already exist:', aError.message);
       }
-    } catch (dmarcError) {
-      console.log('[Email Domain] DMARC record may already exist:', dmarcError.message);
-    }
-
-    // Add A and AAAA records for web traffic - this is critical!
-    // When we add explicit DNS records for the tenant subdomain (TXT, MX),
-    // it breaks the wildcard *.iconn.app resolution. We must add A/AAAA records
-    // pointing to Vercel's edge IPs so web traffic still works.
-    // Note: We use A/AAAA instead of CNAME/ALIAS because those cannot coexist with
-    // other record types (MX, TXT) at the same name - this is a DNS limitation.
-    // Vercel edge IP: 76.76.21.21 (IPv4)
-    try {
-      const vercelARecord = await createVercelDnsRecord({
-        record_type: 'A',
-        name: tenantSlug,
-        value: '76.76.21.21'
-      }, tenantSlug);
-      if (vercelARecord) {
-        createdDnsRecords.push(vercelARecord);
-        console.log(`[Email Domain] Created A record for web traffic: ${tenantSlug} -> 76.76.21.21`);
-      }
-    } catch (aError) {
-      console.log('[Email Domain] A record may already exist:', aError.message);
+    } else {
+      console.log(`[Email Domain] Custom domain - user must configure DNS records manually`);
     }
 
     let verificationResult = null;
@@ -294,11 +300,18 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       ...currentSettings,
       email_domain: {
         domain: mailgunDomain,
+        is_custom: isCustomDomain,
         status: emailDomainStatus,
         created_at: new Date().toISOString(),
         from_email: `noreply@${mailgunDomain}`,
         from_name: tenantName || 'ICONN',
         dns_records_created: createdDnsRecords.length,
+        required_dns_records: isCustomDomain ? dnsRecords.map(r => ({
+          type: r.record_type || r.type,
+          name: r.name,
+          value: r.value,
+          priority: r.priority
+        })) : null,
       }
     };
 
@@ -316,11 +329,20 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
     return {
       success: true,
       domain: mailgunDomain,
+      is_custom: isCustomDomain,
       status: emailDomainStatus,
       dns_records_created: createdDnsRecords.length,
+      required_dns_records: isCustomDomain ? dnsRecords.map(r => ({
+        type: r.record_type || r.type,
+        name: r.name,
+        value: r.value,
+        priority: r.priority
+      })) : null,
       message: emailDomainStatus === 'verified' 
         ? 'Email domain configured and verified successfully'
-        : 'Email domain created. DNS records added. Verification pending - may take up to 48 hours.',
+        : isCustomDomain
+          ? 'Email domain created. Please configure the required DNS records at your domain registrar.'
+          : 'Email domain created. DNS records added. Verification pending - may take up to 48 hours.',
     };
 
   } catch (error) {
@@ -330,6 +352,7 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       ...currentSettings,
       email_domain: {
         domain: mailgunDomain,
+        is_custom: isCustomDomain,
         status: 'error',
         error: error.message,
         created_at: new Date().toISOString(),

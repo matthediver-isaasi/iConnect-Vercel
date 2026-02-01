@@ -48,6 +48,7 @@ export default async function handler(req, res) {
   }
 
   const tenantId = tenantUser.tenant_id;
+  const { emailDomain: customEmailDomain } = req.body || {};
 
   try {
     const { data: tenant, error: tenantError } = await supabase
@@ -60,7 +61,15 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const result = await provisionEmailDomain(tenant.id, tenant.slug, tenant.name, tenant.settings);
+    // Validate custom email domain if provided
+    if (customEmailDomain) {
+      const cleanDomain = customEmailDomain.toLowerCase().trim();
+      if (!cleanDomain.includes('.') || cleanDomain.includes(' ')) {
+        return res.status(400).json({ error: 'Invalid email domain format' });
+      }
+    }
+
+    const result = await provisionEmailDomain(tenant.id, tenant.slug, tenant.name, tenant.settings, customEmailDomain);
 
     if (!result.success) {
       return res.status(500).json({ 

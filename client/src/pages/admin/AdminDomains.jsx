@@ -52,6 +52,8 @@ export default function AdminDomains() {
   const [domains, setDomains] = useState([]);
   const [newDomain, setNewDomain] = useState("");
   const [addingDomain, setAddingDomain] = useState(false);
+  const [newEmailDomain, setNewEmailDomain] = useState("");
+  const [configuringEmailDomain, setConfiguringEmailDomain] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
 
   useEffect(() => {
@@ -185,15 +187,21 @@ export default function AdminDomains() {
     }
   };
 
-  const handleProvisionEmailDomain = async () => {
+  const handleProvisionEmailDomain = async (customDomain = null) => {
     setActionLoading(prev => ({ ...prev, provisionEmail: true }));
     try {
-      await apiRequest('/api/functions/provision-mailgun-domain', {
+      const body = customDomain ? { emailDomain: customDomain } : {};
+      const result = await apiRequest('/api/functions/provision-mailgun-domain', {
         method: 'POST',
+        body: JSON.stringify(body),
       });
+      setNewEmailDomain("");
+      setConfiguringEmailDomain(false);
       toast({
         title: "Email domain provisioned",
-        description: "Mailgun domain and DNS records have been created. Verification may take a few minutes."
+        description: result.is_custom 
+          ? "Email domain created. Please configure the required DNS records at your domain registrar."
+          : "Mailgun domain and DNS records have been created. Verification may take a few minutes."
       });
       fetchDomainData();
     } catch (err) {
@@ -205,6 +213,24 @@ export default function AdminDomains() {
     } finally {
       setActionLoading(prev => ({ ...prev, provisionEmail: false }));
     }
+  };
+
+  const handleSubmitEmailDomain = (e) => {
+    e.preventDefault();
+    if (!newEmailDomain.trim()) {
+      handleProvisionEmailDomain();
+      return;
+    }
+    const domain = newEmailDomain.trim().toLowerCase();
+    if (!domain.includes('.') || domain.includes(' ')) {
+      toast({
+        title: "Invalid domain",
+        description: "Please enter a valid domain name (e.g., mail.example.com)",
+        variant: "destructive"
+      });
+      return;
+    }
+    handleProvisionEmailDomain(domain);
   };
 
   const handleVerifyEmailDomain = async () => {
@@ -442,24 +468,59 @@ export default function AdminDomains() {
           <CardContent className="space-y-4">
             {(!emailDomain || emailStatus === 'pending_setup' || !emailDomainName) ? (
               <div className="space-y-4">
-                <div className="text-center py-6 text-slate-400">
-                  <Mail className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Email domain not configured</p>
-                  <p className="text-sm">Set up a dedicated email domain for this workspace</p>
-                </div>
-                <Button
-                  onClick={handleProvisionEmailDomain}
-                  disabled={actionLoading.provisionEmail}
-                  className="w-full"
-                  data-testid="button-provision-email-domain"
-                >
-                  {actionLoading.provisionEmail ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Settings className="w-4 h-4 mr-2" />
-                  )}
-                  Provision Email Domain
-                </Button>
+                {configuringEmailDomain ? (
+                  <form onSubmit={handleSubmitEmailDomain} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-white">Email Domain (Optional)</Label>
+                      <Input
+                        placeholder="mail.example.com (leave blank for default)"
+                        value={newEmailDomain}
+                        onChange={(e) => setNewEmailDomain(e.target.value)}
+                        className="bg-slate-700 border-slate-600 text-white"
+                        data-testid="input-email-domain"
+                      />
+                      <p className="text-xs text-slate-400">
+                        Enter your custom domain for emails, or leave blank to use the default subdomain. 
+                        Custom domains require you to configure DNS records yourself.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        type="submit" 
+                        disabled={actionLoading.provisionEmail}
+                        data-testid="button-submit-email-domain"
+                      >
+                        {actionLoading.provisionEmail && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                        {newEmailDomain.trim() ? 'Set Custom Domain' : 'Use Default Domain'}
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => { setConfiguringEmailDomain(false); setNewEmailDomain(""); }}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-cancel-email-domain"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="text-center py-6 text-slate-400">
+                      <Mail className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>Email domain not configured</p>
+                      <p className="text-sm">Set up a dedicated email domain for this workspace</p>
+                    </div>
+                    <Button
+                      onClick={() => setConfiguringEmailDomain(true)}
+                      className="w-full"
+                      data-testid="button-configure-email-domain"
+                    >
+                      <Settings className="w-4 h-4 mr-2" />
+                      Configure Email Domain
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -467,6 +528,9 @@ export default function AdminDomains() {
                   <div className="flex items-center gap-2">
                     <Mail className="w-4 h-4 text-slate-400" />
                     <span className="font-mono text-sm text-white" data-testid="text-email-domain">{emailDomainName}</span>
+                    {emailDomain?.is_custom && (
+                      <Badge variant="outline" className="border-slate-500 text-slate-400 text-xs" data-testid="badge-email-custom">Custom</Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {emailStatus === 'verified' ? (
@@ -488,7 +552,7 @@ export default function AdminDomains() {
                   </div>
                 )}
                 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Button
                     variant="outline"
                     onClick={handleVerifyEmailDomain}
@@ -501,21 +565,56 @@ export default function AdminDomains() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={handleProvisionEmailDomain}
-                    disabled={actionLoading.provisionEmail}
+                    onClick={() => setConfiguringEmailDomain(true)}
                     className="border-slate-600 text-slate-300"
-                    data-testid="button-reprovision-email-domain"
+                    data-testid="button-change-email-domain"
                   >
-                    {actionLoading.provisionEmail ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Settings className="w-4 h-4 mr-2" />
-                    )}
-                    Re-provision Domain
+                    <Settings className="w-4 h-4 mr-2" />
+                    Change Domain
                   </Button>
                 </div>
                 
-                {emailStatus !== 'verified' && (
+                {emailStatus !== 'verified' && emailDomain?.is_custom && emailDomain?.required_dns_records && (
+                  <Alert className="bg-slate-700/50 border-slate-600" data-testid="alert-dns-records">
+                    <AlertCircle className="h-4 w-4 text-yellow-400" />
+                    <AlertTitle className="text-white">DNS Configuration Required</AlertTitle>
+                    <AlertDescription className="text-slate-300">
+                      <p className="mb-2">Add the following DNS records at your domain registrar:</p>
+                      <div className="space-y-2 font-mono text-xs overflow-x-auto">
+                        {emailDomain.required_dns_records.map((record, idx) => (
+                          <div key={idx} className="p-2 bg-slate-800/50 rounded flex flex-col gap-1" data-testid={`dns-record-${idx}`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400 w-12">{record.type}</span>
+                              <span className="text-white">{record.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 pl-14">
+                              <span className="text-slate-400">Value:</span>
+                              <span className="text-green-400 break-all">{record.value}</span>
+                              {record.priority && (
+                                <>
+                                  <span className="text-slate-400 ml-2">Priority:</span>
+                                  <span className="text-yellow-400">{record.priority}</span>
+                                </>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="self-end text-slate-400 hover:text-white h-6 px-2"
+                              onClick={() => copyToClipboard(record.value)}
+                              data-testid={`button-copy-dns-${idx}`}
+                            >
+                              <Copy className="w-3 h-3 mr-1" />
+                              Copy
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                {emailStatus !== 'verified' && !emailDomain?.is_custom && (
                   <Alert className="bg-slate-700/50 border-slate-600">
                     <AlertCircle className="h-4 w-4 text-yellow-400" />
                     <AlertTitle className="text-white">Verification In Progress</AlertTitle>
