@@ -1,13 +1,22 @@
 import { supabase } from '../../_lib/database.js';
+import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 
 const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, open_in_new_tab, release_date, author_name, tags, subcategories, tenant_id';
 
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { identifier, tenant: tenantParam } = req.query;
+  const { identifier } = req.query;
 
   if (!identifier) {
     return res.status(400).json({ error: 'Resource identifier is required' });
@@ -17,41 +26,11 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-  const subdomain = host.split('.')[0];
-  
-  const isRootDomain = !subdomain || subdomain === 'www' || subdomain === 'iconn';
-  const tenantIdentifier = tenantParam || (!isRootDomain ? subdomain : null);
-  
-  if (!tenantIdentifier) {
-    return res.status(400).json({ error: 'Tenant parameter is required for root domain requests' });
-  }
-
   try {
-    // Look up tenant by slug (primary identifier)
-    let tenantResult = await supabase
-      .from('tenant')
-      .select('id, slug, domain')
-      .eq('slug', tenantIdentifier)
-      .eq('status', 'active')
-      .single();
-    
-    // Fallback: try without status filter in case tenant is in different state
-    if (tenantResult.error || !tenantResult.data) {
-      tenantResult = await supabase
-        .from('tenant')
-        .select('id, slug, domain')
-        .eq('slug', tenantIdentifier)
-        .single();
-    }
+    const tenant = await resolveTenantFromRequest(req);
 
-    const { data: tenant, error: tenantError } = tenantResult;
-
-    if (tenantError || !tenant) {
-      console.error('[Public Resource API] Tenant lookup failed:', { 
-        tenantIdentifier, 
-        error: tenantError?.message || 'No tenant found'
-      });
+    if (!tenant) {
+      console.error('[Public Resource API] Tenant not found');
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
