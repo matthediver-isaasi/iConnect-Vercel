@@ -5,6 +5,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -235,7 +236,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent>
-              {(field.options || []).map((option, idx) => (
+              {(field.options || []).filter(opt => opt && opt.trim() !== '').map((option, idx) => (
                 <SelectItem key={idx} value={option}>{option}</SelectItem>
               ))}
             </SelectContent>
@@ -245,7 +246,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
       case 'radio':
         return (
           <RadioGroup value={value || ''} onValueChange={(val) => updateValue(field.id, val)}>
-            {(field.options || []).map((option, idx) => (
+            {(field.options || []).filter(opt => opt && opt.trim() !== '').map((option, idx) => (
               <div key={idx} className="flex items-center space-x-2">
                 <RadioGroupItem value={option} id={`${field.id}-${idx}`} />
                 <Label htmlFor={`${field.id}-${idx}`} className="font-normal">{option}</Label>
@@ -402,6 +403,9 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
       <DialogContent className="max-w-2xl max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>Manual Submission: {form?.name}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Enter submission data manually for historical records
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
