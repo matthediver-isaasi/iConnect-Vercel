@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy, FileSignature, Building2, Clock, Send } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy, FileSignature, Building2, Clock, Send, FilePlus } from "lucide-react";
+import ManualSubmissionDialog from "@/components/ManualSubmissionDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,6 +27,8 @@ export default function FormManagementPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingForm, setDeletingForm] = useState(null);
+  const [manualSubmissionOpen, setManualSubmissionOpen] = useState(false);
+  const [manualSubmissionForm, setManualSubmissionForm] = useState(null);
 
   const queryClient = useQueryClient();
 
@@ -237,6 +240,18 @@ export default function FormManagementPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => {
+              setManualSubmissionForm(form);
+              setManualSubmissionOpen(true);
+            }}
+            title="Add manual submission"
+            data-testid={`button-manual-submission-${form.id}`}
+          >
+            <FilePlus className="w-3 h-3" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => handleDuplicate(form)}
             disabled={duplicateFormMutation.isPending}
             title="Duplicate form"
@@ -370,6 +385,12 @@ export default function FormManagementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ManualSubmissionDialog
+        open={manualSubmissionOpen}
+        onOpenChange={setManualSubmissionOpen}
+        form={manualSubmissionForm}
+      />
     </div>
   );
 }
