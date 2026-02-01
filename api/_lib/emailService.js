@@ -255,15 +255,44 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       messageData.bcc = Array.isArray(bcc) ? bcc : [bcc];
     }
 
-    const response = await client.messages.create(domain, messageData);
-
-    console.log(`[Email Service] Email sent successfully. Message ID: ${response.id}`);
-
-    return {
-      success: true,
-      messageId: response.id,
-      domain: domain,
-    };
+    // Try sending with the tenant domain first
+    try {
+      const response = await client.messages.create(domain, messageData);
+      console.log(`[Email Service] Email sent successfully. Message ID: ${response.id}`);
+      return {
+        success: true,
+        messageId: response.id,
+        domain: domain,
+      };
+    } catch (primaryError) {
+      // If tenant domain fails with auth/domain error, fall back to default domain
+      const errorMsg = primaryError.message || primaryError.toString();
+      const isAuthError = errorMsg.includes('Unauthorized') || 
+                          errorMsg.includes('Forbidden') || 
+                          errorMsg.includes('Domain not found') ||
+                          primaryError.status === 401 ||
+                          primaryError.status === 403;
+      
+      if (isAuthError && domain !== DEFAULT_DOMAIN) {
+        console.warn(`[Email Service] Tenant domain ${domain} failed (${errorMsg}), falling back to ${DEFAULT_DOMAIN}`);
+        
+        // Update from address to use fallback domain
+        const fallbackFrom = from || DEFAULT_FROM;
+        messageData.from = fallbackFrom;
+        
+        const fallbackResponse = await client.messages.create(DEFAULT_DOMAIN, messageData);
+        console.log(`[Email Service] Email sent via fallback domain. Message ID: ${fallbackResponse.id}`);
+        return {
+          success: true,
+          messageId: fallbackResponse.id,
+          domain: DEFAULT_DOMAIN,
+          fallback: true,
+        };
+      }
+      
+      // Re-throw if not an auth error or already using default domain
+      throw primaryError;
+    }
   } catch (error) {
     console.error('[Email Service] Failed to send email:', error.message || error);
     return {
