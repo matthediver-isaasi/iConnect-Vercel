@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -30,42 +31,28 @@ export default async function handler(req, res) {
     const normalizedEmail = email.toLowerCase().trim();
     console.log('[Password Reset] Request for:', normalizedEmail);
 
-    // Extract tenant context from request host (subdomain)
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    let tenantSlugFromHost = null;
-    let tenantFromHost = null;
-    
-    // Parse subdomain from host (e.g., bnms.iconn.app -> bnms)
-    const hostParts = host.split('.');
-    if (hostParts.length >= 3 && hostParts[1] === 'iconn' && hostParts[2] === 'app') {
-      tenantSlugFromHost = hostParts[0];
-      console.log('[Password Reset] Detected tenant slug from host:', tenantSlugFromHost);
-      
-      // Look up tenant by slug
-      const { data: tenant } = await supabase
-        .from('tenant')
-        .select('id, name, slug')
-        .eq('slug', tenantSlugFromHost)
-        .single();
-      
-      if (tenant) {
-        tenantFromHost = tenant;
-        console.log('[Password Reset] Resolved tenant:', tenant.id, tenant.name);
-      }
-    }
-
-    // Build member query - if we have a tenant context, filter by it
-    let memberQuery = supabase
-      .from('member')
-      .select('id, email, first_name, tenant_id')
-      .eq('email', normalizedEmail);
+    // Use centralized tenant resolver (handles both subdomains and custom domains)
+    const tenantFromHost = await resolveTenantFromRequest(req);
     
     if (tenantFromHost) {
-      // Filter to the specific tenant from subdomain
-      memberQuery = memberQuery.eq('tenant_id', tenantFromHost.id);
+      console.log('[Password Reset] Resolved tenant:', tenantFromHost.id, tenantFromHost.name, tenantFromHost.slug);
+    } else {
+      console.log('[Password Reset] No tenant resolved from host');
     }
-    
-    const { data: members, error: memberError } = await memberQuery.limit(1);
+
+    // Build member query - ALWAYS require tenant context for security
+    if (!tenantFromHost) {
+      console.log('[Password Reset] No tenant context - cannot process reset request');
+      // Still return success to prevent email enumeration
+      return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
+    }
+
+    const { data: members, error: memberError } = await supabase
+      .from('member')
+      .select('id, email, first_name, tenant_id')
+      .eq('email', normalizedEmail)
+      .eq('tenant_id', tenantFromHost.id)
+      .limit(1);
 
     if (memberError) {
       console.error('[Password Reset] Error looking up member:', memberError);
@@ -73,28 +60,16 @@ export default async function handler(req, res) {
     }
 
     if (!members || members.length === 0) {
-      console.log('[Password Reset] No member found for:', normalizedEmail, 'in tenant:', tenantFromHost?.slug || 'any');
+      console.log('[Password Reset] No member found for:', normalizedEmail, 'in tenant:', tenantFromHost.slug);
       return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
     }
 
     const member = members[0];
     console.log('[Password Reset] Found member:', member.id, 'tenant:', member.tenant_id);
 
-    // Get tenant for branding (use host tenant if available, otherwise look up from member)
-    let tenantName = tenantFromHost?.name || 'Graduate Futures';
-    let tenantSlug = tenantFromHost?.slug || null;
-    
-    if (!tenantFromHost && member.tenant_id) {
-      const { data: tenant } = await supabase
-        .from('tenant')
-        .select('name, slug')
-        .eq('id', member.tenant_id)
-        .single();
-      if (tenant) {
-        tenantName = tenant.name;
-        tenantSlug = tenant.slug;
-      }
-    }
+    // Use tenant info from resolver
+    const tenantName = tenantFromHost.name || 'ICONN';
+    const tenantSlug = tenantFromHost.slug;
 
     // Check for tenant_identity record (unified auth system)
     let identity = null;
@@ -223,13 +198,16 @@ export default async function handler(req, res) {
       // Continue anyway - we have the token in tenant_membership_credentials
     }
 
-    // Build reset URL (reuse host from earlier)
+    // Build reset URL using the original request host (preserves custom domains)
+    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
     const protocol = host.includes('localhost') ? 'http' : 'https';
     
-    // Use tenant slug subdomain if available
+    // Use the original host (which could be a custom domain like graduatefutures.org)
+    // This ensures users get reset links for the domain they're using
     let resetHost = host;
-    if (tenantSlug && !host.includes('localhost')) {
-      resetHost = `${tenantSlug}.iconn.app`;
+    if (!host || host.includes('localhost') || host.includes('.repl.')) {
+      // Fallback to subdomain format for local development
+      resetHost = tenantSlug ? `${tenantSlug}.iconn.app` : 'iconn.app';
     }
     
     const resetUrl = `${protocol}://${resetHost}/Login?mode=set-password&token=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
