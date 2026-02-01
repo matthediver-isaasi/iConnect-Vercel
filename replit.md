@@ -34,7 +34,7 @@ The application is deployed on Vercel, utilizing `iconn.app` for tenant owner ma
 -   **Form Embedding:** Forms can be embedded on external websites via iFrame with a public API.
 -   **API Patterns:** Public API endpoints for unauthenticated access and authenticated endpoints using `getTenantContext(req)`.
 -   **Data Management:** Server-side pagination and a robust data migration system.
--   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant.
+-   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant, with support for custom email domains (users configure DNS records manually) or default auto-generated subdomains (DNS managed automatically).
 -   **Realtime Updates:** Supabase Realtime Subscriptions for frontend cache invalidation.
 -   **Booking System:** Agent booking system with tenant-scoped meeting templates.
 
