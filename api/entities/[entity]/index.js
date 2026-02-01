@@ -219,7 +219,9 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For organization-scoped entities, require a valid organization_id OR tenant admin with tenantId
-    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.tenantId)) {
+    // Exception: OrganizationPreferenceValue allows tenant-wide access for all users with tenantId
+    const allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.tenantId) && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, require a valid member_id (tenant admins can't bypass this)
@@ -241,38 +243,37 @@ export default async function handler(req, res) {
           query = query.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities filter by organization_id
-          // Tenant admins can access all orgs within their tenant using a join
-          if (isTenantAdmin && tenantCtx.tenantId) {
-            // OrganizationPreferenceValue needs special handling: use IN clause instead of inner join
-            // because the inner join approach breaks filter param application for this entity
-            if (entity === 'OrganizationPreferenceValue') {
-              console.log('[Entity GET] OrganizationPreferenceValue - tenantId:', tenantCtx.tenantId);
-              const { data: tenantOrgs, error: orgsError } = await supabase
-                .from('organization')
-                .select('id')
-                .eq('tenant_id', tenantCtx.tenantId);
-              
-              if (orgsError) {
-                console.error('[Entity GET] OrganizationPreferenceValue - error fetching orgs:', orgsError);
-              }
-              console.log('[Entity GET] OrganizationPreferenceValue - found', (tenantOrgs || []).length, 'orgs for tenant');
-              
-              const tenantOrgIds = (tenantOrgs || []).map(o => o.id);
-              if (tenantOrgIds.length === 0) {
-                console.log('[Entity GET] OrganizationPreferenceValue - no orgs found, returning empty');
-                return res.json([]);
-              }
-              query = query.in('organization_id', tenantOrgIds);
-            } else {
-              // Use inner join with organization table to filter by tenant_id
-              // This scales better than fetching org IDs and using IN clause
-              const selectClause = expand || '*';
-              query = supabase
-                .from(tableName)
-                .select(`${selectClause}, organization!inner(tenant_id)`)
-                .eq('organization.tenant_id', tenantCtx.tenantId);
+          // OrganizationPreferenceValue needs tenant-wide access for all users (to view org details)
+          // Other ORGANIZATION-scoped entities restrict to member's own org unless they're tenant admin
+          if (entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId) {
+            // OrganizationPreferenceValue: All users with tenantId can query across tenant
+            // This allows members to view organization details on the /organisations page
+            console.log('[Entity GET] OrganizationPreferenceValue - tenantId:', tenantCtx.tenantId);
+            const { data: tenantOrgs, error: orgsError } = await supabase
+              .from('organization')
+              .select('id')
+              .eq('tenant_id', tenantCtx.tenantId);
+            
+            if (orgsError) {
+              console.error('[Entity GET] OrganizationPreferenceValue - error fetching orgs:', orgsError);
             }
+            console.log('[Entity GET] OrganizationPreferenceValue - found', (tenantOrgs || []).length, 'orgs for tenant');
+            
+            const tenantOrgIds = (tenantOrgs || []).map(o => o.id);
+            if (tenantOrgIds.length === 0) {
+              console.log('[Entity GET] OrganizationPreferenceValue - no orgs found, returning empty');
+              return res.json([]);
+            }
+            query = query.in('organization_id', tenantOrgIds);
+          } else if (isTenantAdmin && tenantCtx.tenantId) {
+            // Tenant admins can access all orgs within their tenant using a join
+            const selectClause = expand || '*';
+            query = supabase
+              .from(tableName)
+              .select(`${selectClause}, organization!inner(tenant_id)`)
+              .eq('organization.tenant_id', tenantCtx.tenantId);
           } else {
+            // Members: restrict to their own organization for other ORGANIZATION-scoped entities
             query = query.eq('organization_id', tenantCtx.organizationId);
           }
         } else if (entity === 'Organization') {
