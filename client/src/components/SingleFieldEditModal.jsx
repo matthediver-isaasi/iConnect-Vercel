@@ -133,7 +133,7 @@ export default function SingleFieldEditModal({
 
   useEffect(() => {
     const resolveUrl = async () => {
-      if ((field?.type === 'file' || field?.type === 'image') && value?.file_url) {
+      if ((field?.type === 'file' || field?.type === 'image' || field?.type === 'logo') && value?.file_url) {
         try {
           const { resolveFileUrl } = await import('@/lib/tenantUpload');
           const url = await resolveFileUrl(value.file_url);
@@ -386,8 +386,9 @@ export default function SingleFieldEditModal({
 
       case 'file':
       case 'image':
+      case 'logo':
         const fileValue = value || {};
-        const isImageField = field?.type === 'image';
+        const isImageField = field?.type === 'image' || field?.type === 'logo';
         const acceptTypes = isImageField ? 'image/*' : undefined;
         return (
           <div className="space-y-3">
@@ -456,7 +457,7 @@ export default function SingleFieldEditModal({
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  {fileValue.file_name ? (isImageField ? 'Replace Image' : 'Replace File') : (isImageField ? 'Upload Image' : 'Upload File')}
+                  {fileValue.file_name ? (isImageField ? (field?.type === 'logo' ? 'Replace Logo' : 'Replace Image') : 'Replace File') : (isImageField ? (field?.type === 'logo' ? 'Upload Logo' : 'Upload Image') : 'Upload File')}
                 </>
               )}
             </Button>
