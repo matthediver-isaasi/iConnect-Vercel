@@ -133,7 +133,7 @@ export default function SingleFieldEditModal({
 
   useEffect(() => {
     const resolveUrl = async () => {
-      if (field?.type === 'file' && value?.file_url) {
+      if ((field?.type === 'file' || field?.type === 'image') && value?.file_url) {
         try {
           const { resolveFileUrl } = await import('@/lib/tenantUpload');
           const url = await resolveFileUrl(value.file_url);
@@ -385,10 +385,30 @@ export default function SingleFieldEditModal({
         );
 
       case 'file':
+      case 'image':
         const fileValue = value || {};
+        const isImageField = field?.type === 'image';
+        const acceptTypes = isImageField ? 'image/*' : undefined;
         return (
           <div className="space-y-3">
-            {fileValue.file_name && (
+            {isImageField && fileValue.file_url && (
+              <div className="relative">
+                <img 
+                  src={resolvedFileUrl || fileValue.file_url} 
+                  alt={fileValue.file_name || 'Uploaded image'}
+                  className="max-w-full h-auto max-h-48 rounded-md object-contain bg-muted"
+                />
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute top-2 right-2 h-6 w-6"
+                  onClick={() => setValue(null)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+            {!isImageField && fileValue.file_name && (
               <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
                 <FileText className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm flex-1 truncate">{fileValue.file_name}</span>
@@ -417,6 +437,7 @@ export default function SingleFieldEditModal({
               type="file"
               ref={fileInputRef}
               onChange={handleFileUpload}
+              accept={acceptTypes}
               className="hidden"
             />
             
@@ -435,7 +456,7 @@ export default function SingleFieldEditModal({
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  {fileValue.file_name ? 'Replace File' : 'Upload File'}
+                  {fileValue.file_name ? (isImageField ? 'Replace Image' : 'Replace File') : (isImageField ? 'Upload Image' : 'Upload File')}
                 </>
               )}
             </Button>
