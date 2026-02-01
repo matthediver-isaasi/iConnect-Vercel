@@ -219,9 +219,58 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For organization-scoped entities, require a valid organization_id OR tenant admin with tenantId
-    // Exception: OrganizationPreferenceValue allows tenant-wide access for all users with tenantId
-    const allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
-    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.tenantId) && !allowsTenantWideAccess) {
+    // Exceptions that allow tenant-wide access:
+    // - OrganizationPreferenceValue: for viewing org details on the /organisations page
+    // - Booking with event_id filter: for viewing all event attendees (access controlled by RBAC button visibility)
+    let allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    
+    // Resolve tenantId from organization if not present (for migration period)
+    // Do this once, outside of entity-specific logic
+    let effectiveTenantId = tenantCtx.tenantId;
+    if (!effectiveTenantId && tenantCtx.organizationId) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('tenant_id')
+        .eq('id', tenantCtx.organizationId)
+        .single();
+      if (org?.tenant_id) {
+        effectiveTenantId = org.tenant_id;
+        console.log('[Entity Access] Resolved tenant_id from organization:', effectiveTenantId);
+      }
+    }
+    // Store for use in query logic
+    tenantCtx.effectiveTenantId = effectiveTenantId;
+    
+    // Pre-parse filter for access checks (will reuse later for query filtering)
+    let parsedFilter = null;
+    const filter = req.query?.filter;
+    if (filter) {
+      if (typeof filter === 'string') {
+        try {
+          parsedFilter = JSON.parse(filter);
+        } catch (e) {
+          // Not valid JSON, skip
+        }
+      } else if (typeof filter === 'object') {
+        parsedFilter = filter;
+      }
+    }
+    // Store for reuse in query logic
+    tenantCtx.parsedFilter = parsedFilter;
+    
+    // Check if this is a Booking query with event_id filter
+    if (entity === 'Booking' && effectiveTenantId && parsedFilter?.event_id) {
+      const eventIdFilter = parsedFilter.event_id;
+      // Accept any truthy event_id value: string, object with eq/in, or array
+      if (typeof eventIdFilter === 'string' || 
+          (typeof eventIdFilter === 'object' && eventIdFilter !== null && 
+           (eventIdFilter.eq || eventIdFilter.in || Array.isArray(eventIdFilter)))) {
+        allowsTenantWideAccess = true;
+        console.log('[Entity Access] Booking with event_id filter - allowing cross-org access');
+      }
+    }
+    
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.effectiveTenantId) && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, require a valid member_id (tenant admins can't bypass this)
@@ -244,34 +293,38 @@ export default async function handler(req, res) {
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities filter by organization_id
           // OrganizationPreferenceValue needs tenant-wide access for all users (to view org details)
+          // Booking with event_id filter: Allow cross-org access since button visibility is role-controlled
           // Other ORGANIZATION-scoped entities restrict to member's own org unless they're tenant admin
-          if (entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId) {
-            // OrganizationPreferenceValue: All users with tenantId can query across tenant
-            // This allows members to view organization details on the /organisations page
-            console.log('[Entity GET] OrganizationPreferenceValue - tenantId:', tenantCtx.tenantId);
+          
+          // Use the allowsTenantWideAccess flag computed earlier in the access pre-check
+          if (allowsTenantWideAccess) {
+            // Allow cross-org access within tenant for:
+            // - OrganizationPreferenceValue: viewing org details
+            // - Booking with event_id filter: viewing event attendees (access controlled by RBAC)
+            console.log(`[Entity GET] ${entity} - allowing cross-org access via allowsTenantWideAccess, tenantId:`, tenantCtx.effectiveTenantId);
             const { data: tenantOrgs, error: orgsError } = await supabase
               .from('organization')
               .select('id')
-              .eq('tenant_id', tenantCtx.tenantId);
+              .eq('tenant_id', tenantCtx.effectiveTenantId);
             
             if (orgsError) {
-              console.error('[Entity GET] OrganizationPreferenceValue - error fetching orgs:', orgsError);
+              console.error(`[Entity GET] ${entity} - error fetching orgs:`, orgsError);
             }
-            console.log('[Entity GET] OrganizationPreferenceValue - found', (tenantOrgs || []).length, 'orgs for tenant');
             
             const tenantOrgIds = (tenantOrgs || []).map(o => o.id);
+            console.log(`[Entity GET] ${entity} - found ${tenantOrgIds.length} orgs for tenant`);
             if (tenantOrgIds.length === 0) {
-              console.log('[Entity GET] OrganizationPreferenceValue - no orgs found, returning empty');
+              console.log(`[Entity GET] ${entity} - no orgs found, returning empty`);
               return res.json([]);
             }
             query = query.in('organization_id', tenantOrgIds);
-          } else if (isTenantAdmin && tenantCtx.tenantId) {
+          } else if (isTenantAdmin && tenantCtx.effectiveTenantId) {
             // Tenant admins can access all orgs within their tenant using a join
             const selectClause = expand || '*';
             query = supabase
               .from(tableName)
               .select(`${selectClause}, organization!inner(tenant_id)`)
-              .eq('organization.tenant_id', tenantCtx.tenantId);
+              .eq('organization.tenant_id', tenantCtx.effectiveTenantId);
           } else {
             // Members: restrict to their own organization for other ORGANIZATION-scoped entities
             query = query.eq('organization_id', tenantCtx.organizationId);
@@ -520,8 +573,12 @@ export default async function handler(req, res) {
         query = query.not('email', 'ilike', 'deleted_%@deleted.local');
       }
 
-      if (filter) {
-        const filterObj = JSON.parse(filter);
+      // Use pre-parsed filter from tenantCtx if available, otherwise parse now
+      const filterObj = tenantCtx.parsedFilter || (filter ? (() => {
+        try { return JSON.parse(filter); } catch { return null; }
+      })() : null);
+      
+      if (filterObj) {
         Object.entries(filterObj).forEach(([key, value]) => {
           if (Array.isArray(value)) {
             query = query.in(key, value);
