@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -18,54 +19,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Support both 'slug' and 'tenant' query params for backward compatibility
-    const { slug, tenant: tenantParam, domain } = req.query;
-    const hostname = req.headers.host || req.headers['x-forwarded-host'];
-    
-    let tenantSlug = slug || tenantParam;
-    
-    if (!tenantSlug && hostname) {
-      if (hostname.endsWith('.iconn.app')) {
-        tenantSlug = hostname.replace('.iconn.app', '');
-      } else if (domain) {
-        const { data: tenantByDomain } = await supabase
-          .from('tenant')
-          .select('slug')
-          .eq('domain', domain)
-          .eq('status', 'active')
-          .single();
-        tenantSlug = tenantByDomain?.slug;
-      }
-    }
+    const tenantData = await resolveTenantFromRequest(req);
 
-    if (!tenantSlug) {
-      return res.status(400).json({ error: 'Tenant slug required' });
-    }
-
-    const { data: tenantData, error } = await supabase
-      .from('tenant')
-      .select(`
-        id,
-        name,
-        slug,
-        logo_url,
-        header_logo_url,
-        favicon_url,
-        primary_color,
-        secondary_color,
-        tagline,
-        header_config,
-        footer_config,
-        branding_config,
-        platform_branding,
-        settings
-      `)
-      .eq('slug', tenantSlug)
-      .eq('status', 'active')
-      .single();
-
-    if (error || !tenantData) {
-      console.log('[Tenant Branding] Tenant not found:', tenantSlug, error);
+    if (!tenantData) {
+      console.log('[Tenant Branding] Tenant not found');
       return res.status(404).json({ error: 'Tenant not found' });
     }
 

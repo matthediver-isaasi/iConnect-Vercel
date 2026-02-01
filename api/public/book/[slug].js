@@ -1,24 +1,7 @@
 import { supabase } from '../../_lib/database.js';
+import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
 import { formatInTimeZone } from 'date-fns-tz';
-
-// Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
-function getTenantSlugFromHost(host) {
-  if (!host) return null;
-  // Remove port if present
-  const hostname = host.split(':')[0];
-  // Check for subdomain pattern: {tenant}.iconn.app or {tenant}.{domain}
-  const parts = hostname.split('.');
-  if (parts.length >= 2) {
-    // First part is the tenant slug (e.g., 'gsf' from 'gsf.iconn.app')
-    const potentialSlug = parts[0];
-    // Exclude common non-tenant prefixes
-    if (!['www', 'api', 'localhost', '127'].includes(potentialSlug)) {
-      return potentialSlug;
-    }
-  }
-  return null;
-}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -39,32 +22,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Extract tenant from subdomain
-    const host = req.headers.host || req.headers['x-forwarded-host'];
-    const tenantSlug = getTenantSlugFromHost(host);
+    const tenant = await resolveTenantFromRequest(req);
     
-    console.log('[Booking] Host:', host, 'Tenant slug:', tenantSlug);
+    console.log('[Booking] Tenant resolved:', tenant?.slug);
 
-    // Find tenant by subdomain
-    let tenantId = null;
-    let tenant = null;
-    
-    if (tenantSlug) {
-      const { data: tenantData } = await supabase
-        .from('tenant')
-        .select('id, name, slug, logo_url, primary_color')
-        .eq('slug', tenantSlug)
-        .single();
-      
-      if (tenantData) {
-        tenantId = tenantData.id;
-        tenant = tenantData;
-      }
-    }
-
-    if (!tenantId) {
+    if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
+    
+    const tenantId = tenant.id;
 
     // Find member by handle (the slug is now the member's handle)
     console.log('[Booking] Looking up member by handle:', slug, 'tenant:', tenantId);

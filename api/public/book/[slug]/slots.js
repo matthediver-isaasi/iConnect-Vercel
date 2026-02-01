@@ -1,4 +1,5 @@
 import { supabase } from '../../../_lib/database.js';
+import { resolveTenantFromRequest } from '../../../_lib/tenantResolver.js';
 import { format, parse, addMinutes, isBefore, isAfter, startOfDay, addDays } from 'date-fns';
 import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { getBusyTimes, getOutlookConnectionForIdentity } from '../../../outlook/calendar.js';
@@ -11,20 +12,6 @@ function parseBusyTimeToUTC(timeStr, timeZone) {
   }
   // Otherwise, treat it as local time in the given timezone and convert to UTC
   return fromZonedTime(new Date(timeStr), timeZone);
-}
-
-// Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
-function getTenantSlugFromHost(host) {
-  if (!host) return null;
-  const hostname = host.split(':')[0];
-  const parts = hostname.split('.');
-  if (parts.length >= 2) {
-    const potentialSlug = parts[0];
-    if (!['www', 'api', 'localhost', '127'].includes(potentialSlug)) {
-      return potentialSlug;
-    }
-  }
-  return null;
 }
 
 function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, dateStr, existingBookings, calendarBusyTimes = []) {
@@ -141,30 +128,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Extract tenant from subdomain
-    const host = req.headers.host || req.headers['x-forwarded-host'];
-    const tenantSlug = getTenantSlugFromHost(host);
+    const tenant = await resolveTenantFromRequest(req);
     
-    console.log('[Slots] Host:', host, 'Tenant slug:', tenantSlug);
+    console.log('[Slots] Tenant resolved:', tenant?.slug);
 
-    // Find tenant by subdomain
-    let tenantId = null;
-    
-    if (tenantSlug) {
-      const { data: tenantData } = await supabase
-        .from('tenant')
-        .select('id')
-        .eq('slug', tenantSlug)
-        .single();
-      
-      if (tenantData) {
-        tenantId = tenantData.id;
-      }
-    }
-
-    if (!tenantId) {
+    if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
+    
+    const tenantId = tenant.id;
 
     // Look up agent by member handle (not tenant_identity.booking_slug)
     const { data: member } = await supabase

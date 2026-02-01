@@ -1,17 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-
-function getTenantSlugFromHost(host) {
-  if (!host) return null;
-  
-  const parts = host.split('.');
-  if (parts.length >= 2) {
-    const subdomain = parts[0];
-    if (subdomain && subdomain !== 'www' && subdomain !== 'iconn' && subdomain !== 'localhost') {
-      return subdomain;
-    }
-  }
-  return null;
-}
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,27 +25,16 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    const tenantSlug = req.query.tenant || getTenantSlugFromHost(host);
     const newsId = req.query.id;
     const newsSlug = req.query.slug;
-
-    if (!tenantSlug) {
-      return res.status(400).json({ error: 'Tenant not specified' });
-    }
 
     if (!newsId && !newsSlug) {
       return res.status(400).json({ error: 'News post ID or slug not specified' });
     }
 
-    const { data: tenant, error: tenantError } = await supabase
-      .from('tenant')
-      .select('id, name')
-      .eq('slug', tenantSlug)
-      .eq('status', 'active')
-      .single();
+    const tenant = await resolveTenantFromRequest(req);
 
-    if (tenantError || !tenant) {
+    if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 

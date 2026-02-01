@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { executeStageActions } from '../due-diligence/_stageActions.js';
 
 export default async function handler(req, res) {
@@ -33,36 +34,12 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    // Get tenant from query param or subdomain
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    const subdomain = host.split('.')[0];
-    const tenantIdentifier = tenant || subdomain;
+    const tenantData = await resolveTenantFromRequest(req);
+    // Use host from request, or derive from tenant domain if not available
+    const host = getHostFromRequest(req) || (tenantData?.domain) || `${tenantData?.slug}.iconn.app`;
 
-    if (!tenantIdentifier || tenantIdentifier === 'www' || tenantIdentifier === 'iconn') {
-      return res.status(400).json({ error: 'Invalid tenant context' });
-    }
-
-    // Get tenant ID - try slug first, then subdomain
-    let tenantResult = await supabase
-      .from('tenant')
-      .select('id')
-      .eq('slug', tenantIdentifier)
-      .eq('status', 'active')
-      .single();
-    
-    // If not found by slug, try subdomain (for backwards compatibility)
-    if (tenantResult.error || !tenantResult.data) {
-      tenantResult = await supabase
-        .from('tenant')
-        .select('id')
-        .eq('subdomain', tenantIdentifier)
-        .single();
-    }
-
-    const { data: tenantData, error: tenantError } = tenantResult;
-
-    if (tenantError || !tenantData) {
-      console.error('[Public Form Submission] Tenant not found:', { tenantIdentifier, error: tenantError?.message });
+    if (!tenantData) {
+      console.error('[Public Form Submission] Tenant not found');
       return res.status(404).json({ error: 'Tenant not found' });
     }
 

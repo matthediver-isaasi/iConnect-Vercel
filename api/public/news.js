@@ -1,14 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-
-function getTenantSlugFromHost(host) {
-  if (!host) return null;
-  const hostname = host.split(':')[0];
-  const parts = hostname.split('.');
-  if (parts.length >= 2) {
-    return parts[0];
-  }
-  return null;
-}
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -33,21 +24,9 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    const tenantSlug = req.query.tenant || getTenantSlugFromHost(host);
+    const tenant = await resolveTenantFromRequest(req);
 
-    if (!tenantSlug) {
-      return res.status(400).json({ error: 'Tenant not specified' });
-    }
-
-    const { data: tenant, error: tenantError } = await supabase
-      .from('tenant')
-      .select('id, name')
-      .eq('slug', tenantSlug)
-      .eq('status', 'active')
-      .single();
-
-    if (tenantError || !tenant) {
+    if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 
 // Fields safe to return publicly - excludes internal config like field_mappings
 const PUBLIC_FORM_FIELDS = [
@@ -14,21 +15,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { slug, tenant: tenantParam } = req.query;
+  const { slug } = req.query;
 
   if (!slug) {
     return res.status(400).json({ error: 'Form slug is required' });
-  }
-
-  // Detect tenant from subdomain OR query parameter (for embed contexts)
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-  const subdomain = host.split('.')[0];
-  
-  // Use tenant query param if provided (for embedded forms), otherwise use subdomain
-  const tenantIdentifier = tenantParam || subdomain;
-  
-  if (!tenantIdentifier || tenantIdentifier === 'www' || tenantIdentifier === 'iconn') {
-    return res.status(400).json({ error: 'Invalid tenant context' });
   }
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -41,32 +31,10 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    // First, get tenant ID from slug or subdomain parameter
-    // Try slug first (consistent with tenant-branding API), fallback to subdomain
-    let tenantResult = await supabase
-      .from('tenant')
-      .select('id')
-      .eq('slug', tenantIdentifier)
-      .eq('status', 'active')
-      .single();
-    
-    // If not found by slug, try subdomain for backwards compatibility
-    if (tenantResult.error || !tenantResult.data) {
-      tenantResult = await supabase
-        .from('tenant')
-        .select('id')
-        .eq('subdomain', tenantIdentifier)
-        .single();
-    }
+    const tenant = await resolveTenantFromRequest(req);
 
-    const { data: tenant, error: tenantError } = tenantResult;
-
-    if (tenantError || !tenant) {
-      console.error('[Public Form API] Tenant lookup failed:', { 
-        tenantIdentifier, 
-        error: tenantError?.message || 'No tenant found',
-        code: tenantError?.code 
-      });
+    if (!tenant) {
+      console.error('[Public Form API] Tenant not found');
       return res.status(404).json({ error: 'Tenant not found' });
     }
 

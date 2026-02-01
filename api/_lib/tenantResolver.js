@@ -43,7 +43,7 @@ export async function resolveTenantFromHost(hostname) {
     if (slug) {
       const { data, error } = await supabase
         .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, settings')
+        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, header_config, footer_config, branding_config, platform_branding, settings')
         .eq('slug', slug)
         .eq('status', 'active')
         .single();
@@ -54,7 +54,7 @@ export async function resolveTenantFromHost(hostname) {
     } else if (customDomain) {
       const { data, error } = await supabase
         .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, settings')
+        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, header_config, footer_config, branding_config, platform_branding, settings')
         .eq('domain', customDomain)
         .eq('status', 'active')
         .single();
@@ -82,6 +82,53 @@ export function getHostFromRequest(req) {
 }
 
 export async function resolveTenantFromRequest(req) {
+  const TENANT_FIELDS = 'id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, header_config, footer_config, branding_config, platform_branding, settings';
+  
+  // Support explicit tenant identifier from query or body for embedded contexts
+  const tenantParam = req.query?.tenant || req.body?.tenant || req.query?.slug;
+  const domainParam = req.query?.domain;
+  
+  if (tenantParam) {
+    // Try lookup by slug first
+    const { data: bySlug } = await supabase
+      .from('tenant')
+      .select(TENANT_FIELDS)
+      .eq('slug', tenantParam)
+      .eq('status', 'active')
+      .single();
+    
+    if (bySlug) {
+      return bySlug;
+    }
+    
+    // Fallback: try lookup by domain/subdomain
+    const { data: byDomain } = await supabase
+      .from('tenant')
+      .select(TENANT_FIELDS)
+      .eq('domain', tenantParam)
+      .eq('status', 'active')
+      .single();
+    
+    if (byDomain) {
+      return byDomain;
+    }
+  }
+  
+  // Support explicit domain parameter
+  if (domainParam) {
+    const { data: byDomain } = await supabase
+      .from('tenant')
+      .select(TENANT_FIELDS)
+      .eq('domain', domainParam)
+      .eq('status', 'active')
+      .single();
+    
+    if (byDomain) {
+      return byDomain;
+    }
+  }
+  
+  // Fall back to host-based resolution
   const hostname = getHostFromRequest(req);
   return resolveTenantFromHost(hostname);
 }

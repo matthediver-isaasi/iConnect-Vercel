@@ -1,18 +1,5 @@
 import { supabase } from '../../../_lib/database.js';
-
-// Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
-function getTenantSlugFromHost(host) {
-  if (!host) return null;
-  const hostname = host.split(':')[0];
-  const parts = hostname.split('.');
-  if (parts.length >= 2) {
-    const potentialSlug = parts[0];
-    if (!['www', 'api', 'localhost', '127'].includes(potentialSlug)) {
-      return potentialSlug;
-    }
-  }
-  return null;
-}
+import { resolveTenantFromRequest } from '../../../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -27,20 +14,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Extract tenant from subdomain (this is what the booking page uses)
-    const host = req.headers.host || req.headers['x-forwarded-host'];
-    const subdomainSlug = getTenantSlugFromHost(host);
-    
-    // Find tenant by subdomain
-    let subdomainTenant = null;
-    if (subdomainSlug) {
-      const { data: t } = await supabase
-        .from('tenant')
-        .select('id, name, slug')
-        .eq('slug', subdomainSlug)
-        .single();
-      subdomainTenant = t;
-    }
+    // Resolve tenant using centralized resolver (supports both subdomain and custom domain)
+    const subdomainTenant = await resolveTenantFromRequest(req);
 
     // Step 1: Find identity
     const { data: identity, error: identityError } = await supabase
