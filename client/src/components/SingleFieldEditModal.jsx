@@ -133,7 +133,11 @@ export default function SingleFieldEditModal({
 
   useEffect(() => {
     const resolveUrl = async () => {
-      if ((field?.type === 'file' || field?.type === 'image' || field?.type === 'logo') && value?.file_url) {
+      // Check if this is a file-type field or a custom_field with file data
+      const isFileField = field?.type === 'file' || field?.type === 'image' || field?.type === 'logo';
+      const isCustomFieldWithFile = field?.type === 'custom_field' && value && typeof value === 'object' && value.file_url;
+      
+      if ((isFileField || isCustomFieldWithFile) && value?.file_url) {
         try {
           const { resolveFileUrl } = await import('@/lib/tenantUpload');
           const url = await resolveFileUrl(value.file_url);
@@ -469,6 +473,104 @@ export default function SingleFieldEditModal({
           <div className="text-sm text-muted-foreground italic p-4 bg-muted rounded-md">
             Signature editing is not supported. Signatures must be captured through the form.
           </div>
+        );
+
+      case 'custom_field':
+        // Check if the value is a file-like object (has file_url or file_name)
+        const customValue = value || {};
+        const isFileValue = customValue && typeof customValue === 'object' && 
+          (customValue.file_url || customValue.file_name || customValue.storage_path);
+        
+        if (isFileValue) {
+          // Render file upload UI for custom field file uploads
+          return (
+            <div className="space-y-3">
+              {customValue.file_url && (
+                <div className="relative">
+                  {/* Try to show as image if it looks like an image file */}
+                  {/\.(jpg|jpeg|png|gif|webp|svg)$/i.test(customValue.file_name || customValue.file_url) ? (
+                    <>
+                      <img 
+                        src={resolvedFileUrl || customValue.file_url} 
+                        alt={customValue.file_name || 'Uploaded image'}
+                        className="max-w-full h-auto max-h-48 rounded-md object-contain bg-muted"
+                      />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 h-6 w-6"
+                        onClick={() => setValue(null)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
+                      <FileText className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm flex-1 truncate">{customValue.file_name || 'File'}</span>
+                      {(resolvedFileUrl || customValue.file_url) && (
+                        <a 
+                          href={resolvedFileUrl || customValue.file_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => setValue(null)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept="image/*"
+                className="hidden"
+              />
+              
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="w-full"
+                data-testid="button-upload-custom-file"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Uploading... {uploadProgress}%
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 mr-2" />
+                    {customValue.file_name ? 'Replace File' : 'Upload File'}
+                  </>
+                )}
+              </Button>
+            </div>
+          );
+        }
+        
+        // Fall through to default for non-file custom fields
+        return (
+          <Input
+            type="text"
+            value={typeof value === 'object' ? JSON.stringify(value) : (value || '')}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={field?.placeholder || ''}
+            data-testid="input-edit-custom-field"
+          />
         );
 
       default:
