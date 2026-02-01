@@ -246,13 +246,20 @@ export default async function handler(req, res) {
             // OrganizationPreferenceValue needs special handling: use IN clause instead of inner join
             // because the inner join approach breaks filter param application for this entity
             if (entity === 'OrganizationPreferenceValue') {
-              const { data: tenantOrgs } = await supabase
+              console.log('[Entity GET] OrganizationPreferenceValue - tenantId:', tenantCtx.tenantId);
+              const { data: tenantOrgs, error: orgsError } = await supabase
                 .from('organization')
                 .select('id')
                 .eq('tenant_id', tenantCtx.tenantId);
               
+              if (orgsError) {
+                console.error('[Entity GET] OrganizationPreferenceValue - error fetching orgs:', orgsError);
+              }
+              console.log('[Entity GET] OrganizationPreferenceValue - found', (tenantOrgs || []).length, 'orgs for tenant');
+              
               const tenantOrgIds = (tenantOrgs || []).map(o => o.id);
               if (tenantOrgIds.length === 0) {
+                console.log('[Entity GET] OrganizationPreferenceValue - no orgs found, returning empty');
                 return res.json([]);
               }
               query = query.in('organization_id', tenantOrgIds);
