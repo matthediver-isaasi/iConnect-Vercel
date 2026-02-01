@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionMember } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,25 +7,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    const member = await getSessionMember(req);
-    if (!member) {
+    const ctx = await getTenantContext(req);
+    if (!ctx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const { data: org } = await supabase
-      .from('organization')
-      .select('tenant_id')
-      .eq('id', member.organization_id)
-      .single();
-
-    if (!org?.tenant_id) {
+    const tenantId = ctx.tenantId;
+    if (!tenantId) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
     const { data: tenant } = await supabase
       .from('tenant')
       .select('id, name, slug, domain, status, settings')
-      .eq('id', org.tenant_id)
+      .eq('id', tenantId)
       .single();
 
     if (!tenant) {

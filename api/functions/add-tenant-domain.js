@@ -1,17 +1,30 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionMember } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import { getSessionTenantUser } from '../_lib/session.js';
 
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID;
 
-async function isAdministrator(member) {
-  if (!member?.role_id) return false;
+async function isAdministrator(ctx, req) {
+  if (ctx.isSuperAdmin) return true;
+  
+  // For tenant_user sessions, check their role
+  if (ctx.tenantUserId) {
+    const tenantUser = await getSessionTenantUser(req);
+    if (tenantUser) {
+      // Allow owner, admin, or no role set (legacy accounts)
+      return tenantUser.role === 'owner' || tenantUser.role === 'admin' || !tenantUser.role;
+    }
+  }
+  
+  // For member sessions, check role permissions
+  if (!ctx.roleId) return false;
   
   const { data: role } = await supabase
     .from('role')
     .select('name, excluded_features')
-    .eq('id', member.role_id)
+    .eq('id', ctx.roleId)
     .single();
   
   if (!role) return false;
@@ -40,23 +53,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const member = await getSessionMember(req);
-    if (!member) {
+    const ctx = await getTenantContext(req);
+    if (!ctx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const isAdmin = await isAdministrator(member);
+    const isAdmin = await isAdministrator(ctx, req);
     if (!isAdmin) {
       return res.status(403).json({ error: 'Administrator access required to manage domains' });
     }
 
-    const { data: org } = await supabase
-      .from('organization')
-      .select('tenant_id')
-      .eq('id', member.organization_id)
-      .single();
-
-    if (!org?.tenant_id) {
+    const tenantId = ctx.tenantId;
+    if (!tenantId) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
@@ -64,7 +72,7 @@ export default async function handler(req, res) {
       .from('tenant')
       .select('id')
       .eq('domain', cleanDomain)
-      .neq('id', org.tenant_id)
+      .neq('id', tenantId)
       .single();
 
     if (existingTenant) {
@@ -105,7 +113,7 @@ export default async function handler(req, res) {
     const { error: updateError } = await supabase
       .from('tenant')
       .update({ domain: cleanDomain })
-      .eq('id', org.tenant_id);
+      .eq('id', tenantId);
 
     if (updateError) {
       console.error('[Add Domain] Error updating tenant:', updateError);
