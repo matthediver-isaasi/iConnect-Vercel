@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSession } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,15 +7,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const sessionData = await getSession(req);
-    if (!sessionData || !sessionData.tenant_id) {
+    const context = await getTenantContext(req);
+    if (!context.isAuthenticated || !context.tenantId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
     
-    // Create session object for compatibility with both member and admin sessions
+    // Create session object for compatibility
     const session = {
-      tenant_id: sessionData.tenant_id,
-      email: sessionData.email || (sessionData.user_type === 'member' ? 'Member' : 'Admin')
+      tenant_id: context.tenantId,
+      email: context.email || (context.memberId ? 'Member' : 'Admin')
     };
 
     const { submission_id, field_id, value } = req.body;
