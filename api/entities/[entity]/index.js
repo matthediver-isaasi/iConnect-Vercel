@@ -243,14 +243,28 @@ export default async function handler(req, res) {
           // Organization-scoped entities filter by organization_id
           // Tenant admins can access all orgs within their tenant using a join
           if (isTenantAdmin && tenantCtx.tenantId) {
-            // Use inner join with organization table to filter by tenant_id
-            // This scales better than fetching org IDs and using IN clause
-            const selectClause = expand || '*';
-            // Rebuild query with join - add organization join for tenant filtering
-            query = supabase
-              .from(tableName)
-              .select(`${selectClause}, organization!inner(tenant_id)`)
-              .eq('organization.tenant_id', tenantCtx.tenantId);
+            // OrganizationPreferenceValue needs special handling: use IN clause instead of inner join
+            // because the inner join approach breaks filter param application for this entity
+            if (entity === 'OrganizationPreferenceValue') {
+              const { data: tenantOrgs } = await supabase
+                .from('organization')
+                .select('id')
+                .eq('tenant_id', tenantCtx.tenantId);
+              
+              const tenantOrgIds = (tenantOrgs || []).map(o => o.id);
+              if (tenantOrgIds.length === 0) {
+                return res.json([]);
+              }
+              query = query.in('organization_id', tenantOrgIds);
+            } else {
+              // Use inner join with organization table to filter by tenant_id
+              // This scales better than fetching org IDs and using IN clause
+              const selectClause = expand || '*';
+              query = supabase
+                .from(tableName)
+                .select(`${selectClause}, organization!inner(tenant_id)`)
+                .eq('organization.tenant_id', tenantCtx.tenantId);
+            }
           } else {
             query = query.eq('organization_id', tenantCtx.organizationId);
           }
