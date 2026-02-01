@@ -15,12 +15,9 @@ export function TenantBrandingProvider({ children }) {
   useEffect(() => {
     const fetchBranding = async () => {
       // Get tenant slug from publicClient's detection logic
+      // Note: slug may be null for custom domains - that's OK, the backend
+      // will resolve the tenant from the Host header
       const slug = publicClient.getTenantSlug();
-      
-      if (!slug) {
-        setLoading(false);
-        return;
-      }
 
       try {
         const data = await publicClient.getTenantBranding();
