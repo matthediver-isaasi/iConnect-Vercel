@@ -52,6 +52,7 @@ export default async function handler(req, res) {
           )
         `)
         .eq('tenant_id', tenantId)
+        .eq('membership_type', 'owner')
         .order('created_at', { ascending: true });
 
       if (error) {

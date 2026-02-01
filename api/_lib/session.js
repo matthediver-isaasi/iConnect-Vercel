@@ -639,6 +639,7 @@ export async function getSessionTenantUser(req) {
           .select('*, tenant:tenant_id(*)')
           .eq('identity_id', identity.id)
           .eq('tenant_id', session.data.tenantId)
+          .eq('membership_type', 'owner')
           .eq('status', 'active')
           .single();
         
