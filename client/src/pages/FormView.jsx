@@ -97,15 +97,8 @@ export default function FormViewPage() {
   const { data: form, isLoading, error: formError } = useQuery({
     queryKey: ['public-form-by-slug', formSlug],
     queryFn: async () => {
-      // Use public API endpoint that doesn't require authentication
-      const host = window.location.hostname;
-      const tenantSlug = host.split('.')[0];
-      const response = await fetch(`/api/public/form/${encodeURIComponent(formSlug)}?tenant=${tenantSlug}`);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to load form');
-      }
-      return response.json();
+      // Use publicClient which handles both subdomain and custom domain resolution
+      return publicClient.getForm(formSlug);
     },
     enabled: !!formSlug,
     retry: false
@@ -125,14 +118,8 @@ export default function FormViewPage() {
   const { data: draftData, isLoading: isDraftLoading } = useQuery({
     queryKey: ['form-draft', draftToken],
     queryFn: async () => {
-      const host = window.location.hostname;
-      const tenantSlug = host.split('.')[0];
-      const response = await fetch(`/api/public/form-draft?token=${encodeURIComponent(draftToken)}&tenant=${tenantSlug}`);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to load draft');
-      }
-      return response.json();
+      // Use publicClient which handles both subdomain and custom domain resolution
+      return publicClient.getFormDraft(draftToken);
     },
     enabled: !!draftToken && !draftLoaded,
     retry: false
@@ -141,13 +128,11 @@ export default function FormViewPage() {
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
-      const host = window.location.hostname;
-      const tenantSlug = host.split('.')[0];
-      
       // Try to find an email field value for contact
       const emailField = form?.fields?.find(f => f.type === 'email');
       const contactEmail = emailField ? formValues[emailField.id] : null;
       
+      // Use publicClient which handles tenant resolution via Host header
       const payload = {
         form_slug: formSlug,
         form_id: form?.id,
@@ -155,22 +140,11 @@ export default function FormViewPage() {
         current_page_index: currentPageIndex,
         contact_email: contactEmail,
         resume_token: resumeToken, // If we have one, update existing draft
-        tenant: tenantSlug,
         form_updated_at: form?.updated_at
       };
       
-      const response = await fetch('/api/public/form-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save draft');
-      }
-      
-      return response.json();
+      // Note: tenant param not needed - backend resolves from Host header
+      return publicClient.saveFormDraft(payload);
     },
     onSuccess: (result) => {
       console.log('[FormView] Draft saved:', result);

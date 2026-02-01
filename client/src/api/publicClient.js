@@ -369,6 +369,18 @@ class PublicClient {
     return this._fetch(`/api/public/form/${encodeURIComponent(slug)}`);
   }
   
+  async getFormDraft(token) {
+    if (!token) return null;
+    return this._fetch(`/api/public/form-draft?token=${encodeURIComponent(token)}`);
+  }
+  
+  async saveFormDraft(data) {
+    return this._fetch('/api/public/form-draft', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+  
   async submitForm(data) {
     // Include tenant in body for backend compatibility, but respect caller-provided values
     // This allows cross-tenant embedding to work correctly when tenantParam is specified

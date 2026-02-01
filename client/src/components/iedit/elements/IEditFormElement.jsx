@@ -291,14 +291,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const { data: draftData } = useQuery({
     queryKey: ['form-draft-embed', draftToken],
     queryFn: async () => {
-      const host = window.location.hostname;
-      const tenantSlug = host.split('.')[0];
-      const response = await fetch(`/api/public/form-draft?token=${encodeURIComponent(draftToken)}&tenant=${tenantSlug}`);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to load draft');
-      }
-      return response.json();
+      // Use publicClient which handles both subdomain and custom domain resolution
+      return publicClient.getFormDraft(draftToken);
     },
     enabled: !!draftToken && !draftLoaded,
     retry: false
@@ -327,13 +321,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     
     setIsSavingDraft(true);
     try {
-      const host = window.location.hostname;
-      const tenantSlug = host.split('.')[0];
-      
       // Try to find an email field value for contact
       const emailField = form?.fields?.find(f => f.type === 'email');
       const contactEmail = emailField ? formValues[emailField.id] : null;
       
+      // Use publicClient which handles tenant resolution via Host header
       const payload = {
         form_slug: formSlug,
         form_id: form?.id,
@@ -341,22 +333,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         current_page_index: currentPageIndex,
         contact_email: contactEmail,
         resume_token: resumeToken,
-        tenant: tenantSlug,
         form_updated_at: form?.updated_at
       };
       
-      const response = await fetch('/api/public/form-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save draft');
-      }
-      
-      const result = await response.json();
+      const result = await publicClient.saveFormDraft(payload);
       console.log('[IEditFormElement] Draft saved:', result);
       setResumeToken(result.resume_token);
       setShowResumeLink(true);

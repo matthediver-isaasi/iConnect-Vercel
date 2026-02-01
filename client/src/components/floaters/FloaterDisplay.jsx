@@ -9,7 +9,7 @@ import { supabase } from "@/api/supabaseClient";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 
 export default function FloaterDisplay({ location = "portal", memberInfo, organizationInfo }) {
-  // Get tenant_id for filtering - from memberInfo if authenticated, otherwise resolve from tenant slug
+  // Get tenant_id for filtering - from memberInfo if authenticated, otherwise resolve from tenant slug or host
   const [tenantId, setTenantId] = useState(memberInfo?.tenant_id || null);
   
   // Resolve tenant_id from slug if not available from memberInfo (for public pages)
@@ -33,9 +33,10 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
       }
     }
     
-    // For public pages, resolve tenant from slug
+    // For public pages, resolve tenant from slug (subdomains) or host (custom domains)
     const tenantSlug = getTenantSlugFromLocation();
     if (tenantSlug) {
+      // Standard subdomain case - lookup by slug
       supabase
         .from('tenant')
         .select('id')
@@ -45,6 +46,17 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
           if (data?.id) {
             setTenantId(data.id);
           }
+        });
+    } else {
+      // Custom domain case - use publicClient which resolves via Host header
+      publicClient.getTenantBranding()
+        .then((data) => {
+          if (data?.success && data?.branding?.id) {
+            setTenantId(data.branding.id);
+          }
+        })
+        .catch((err) => {
+          console.warn('[FloaterDisplay] Failed to resolve tenant from host:', err);
         });
     }
   }, [memberInfo?.tenant_id]);

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 // Generate a secure random token
 function generateResumeToken() {
@@ -32,34 +33,6 @@ export default async function handler(req, res) {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Helper to resolve tenant from request
-  async function resolveTenant(tenantSlug) {
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    const subdomain = host.split('.')[0];
-    const tenantIdentifier = tenantSlug || subdomain;
-
-    if (!tenantIdentifier || tenantIdentifier === 'www' || tenantIdentifier === 'iconn') {
-      return null;
-    }
-
-    let tenantResult = await supabase
-      .from('tenant')
-      .select('id')
-      .eq('slug', tenantIdentifier)
-      .eq('status', 'active')
-      .single();
-
-    if (tenantResult.error || !tenantResult.data) {
-      tenantResult = await supabase
-        .from('tenant')
-        .select('id')
-        .eq('subdomain', tenantIdentifier)
-        .single();
-    }
-
-    return tenantResult.data;
-  }
-
   try {
     // POST: Save or update a draft
     if (req.method === 'POST') {
@@ -82,10 +55,10 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Draft data is required' });
       }
 
-      const tenantData = await resolveTenant(tenantSlug);
+      // Use centralized tenant resolver (handles subdomains and custom domains)
+      const tenantData = await resolveTenantFromRequest(req);
       console.log('[Form Draft] Tenant resolution:', { 
-        tenantSlug, 
-        tenantData,
+        tenantData: tenantData ? { id: tenantData.id, slug: tenantData.slug } : null,
         host: req.headers['x-forwarded-host'] || req.headers.host 
       });
       
@@ -205,13 +178,14 @@ export default async function handler(req, res) {
 
     // GET: Fetch draft by resume token
     if (req.method === 'GET') {
-      const { token, tenant: tenantSlug } = req.query;
+      const { token } = req.query;
 
       if (!token) {
         return res.status(400).json({ error: 'Resume token is required' });
       }
 
-      const tenantData = await resolveTenant(tenantSlug);
+      // Use centralized tenant resolver (handles subdomains and custom domains)
+      const tenantData = await resolveTenantFromRequest(req);
       if (!tenantData) {
         return res.status(400).json({ error: 'Invalid tenant context' });
       }
@@ -281,13 +255,14 @@ export default async function handler(req, res) {
 
     // DELETE: Abandon/delete a draft
     if (req.method === 'DELETE') {
-      const { token, tenant: tenantSlug } = req.query;
+      const { token } = req.query;
 
       if (!token) {
         return res.status(400).json({ error: 'Resume token is required' });
       }
 
-      const tenantData = await resolveTenant(tenantSlug);
+      // Use centralized tenant resolver (handles subdomains and custom domains)
+      const tenantData = await resolveTenantFromRequest(req);
       if (!tenantData) {
         return res.status(400).json({ error: 'Invalid tenant context' });
       }
