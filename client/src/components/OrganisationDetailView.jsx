@@ -545,10 +545,30 @@ export default function OrganisationDetailView({
   // Sync customFieldValues with orgValues when they change (for realtime updates)
   // Only sync when not editing to preserve user edits
   useEffect(() => {
+    // DEBUG: Log orgCustomFields to verify correct tenant fields are loaded
+    console.log('[OrganisationDetailView DEBUG] orgCustomFields:', orgCustomFields.map(f => ({
+      id: f.id,
+      name: f.name,
+      label: f.label,
+      field_type: f.field_type,
+      options: f.options,
+      tenant_id: f.tenant_id
+    })));
+    console.log('[OrganisationDetailView DEBUG] orgValues:', orgValues.map(v => ({
+      field_id: v.field_id,
+      value: v.value
+    })));
+    
     if (!isEditing && orgCustomFields.length > 0) {
       const valuesMap = {};
       orgValues.forEach(pv => {
         const field = orgCustomFields.find(f => f.id === pv.field_id);
+        console.log('[OrganisationDetailView DEBUG] Processing value:', {
+          field_id: pv.field_id,
+          value: pv.value,
+          foundField: field ? { id: field.id, name: field.name, options: field.options } : null
+        });
+        
         if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
           try {
             const parsed = JSON.parse(pv.value);
@@ -564,6 +584,7 @@ export default function OrganisationDetailView({
           valuesMap[pv.field_id] = pv.value;
         }
       });
+      console.log('[OrganisationDetailView DEBUG] Final customFieldValues:', valuesMap);
       setCustomFieldValues(valuesMap);
     }
   }, [orgValues, orgCustomFields, isEditing]);
