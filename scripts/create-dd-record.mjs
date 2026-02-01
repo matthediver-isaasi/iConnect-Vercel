@@ -1,18 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+// Use DEV_ environment variables as per scratchpad note
+const supabaseUrl = process.env.DEV_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.DEV_SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+  console.error('Missing DEV_SUPABASE_URL/DEV_SUPABASE_SERVICE_KEY or SUPABASE_URL/SUPABASE_SERVICE_KEY');
   process.exit(1);
 }
 
+console.log('Using Supabase URL:', supabaseUrl.substring(0, 30) + '...');
+
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-const submissionId = '2cc0519c-0510-4c21-9006-3b9fbcd047d1';
+const submissionId = process.argv[2] || '2cc0519c-0510-4c21-9006-3b9fbcd047d1';
 
 async function createDDRecord() {
+  console.log('Looking for submission:', submissionId);
+
   // Get the form submission
   const { data: submission, error: subError } = await supabase
     .from('form_submission')
@@ -27,7 +32,6 @@ async function createDDRecord() {
 
   console.log('Found submission:', submission.id);
   console.log('Form ID:', submission.form_id);
-  console.log('Submission keys:', Object.keys(submission));
 
   // Get the form to get tenant_id
   const { data: form, error: formError } = await supabase
@@ -41,7 +45,6 @@ async function createDDRecord() {
     return;
   }
 
-  console.log('Form keys:', Object.keys(form));
   const tenantId = form.tenant_id;
   console.log('Tenant ID:', tenantId);
 
@@ -106,7 +109,7 @@ async function createDDRecord() {
   if (insertError) {
     console.error('Failed to create DD record:', insertError);
   } else {
-    console.log('Created DD record:', newRecord.id);
+    console.log('SUCCESS! Created DD record:', newRecord.id);
   }
 }
 
