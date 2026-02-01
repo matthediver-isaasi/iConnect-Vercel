@@ -283,8 +283,38 @@ export default async function handler(req, res) {
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
             
+            // Check if user is fetching their own organization specifically (by ID filter)
+            // If so, skip directory filtering - users should always be able to see their own org
+            let isFetchingOwnOrg = false;
+            if (tenantCtx.organizationId) {
+              if (filter) {
+                try {
+                  const filterObj = JSON.parse(filter);
+                  // Handle various filter formats: {id: 'xxx'}, {id: {eq: 'xxx'}}, {id: ['xxx']}
+                  const filterId = filterObj.id;
+                  if (filterId === tenantCtx.organizationId) {
+                    isFetchingOwnOrg = true;
+                  } else if (typeof filterId === 'object' && filterId !== null) {
+                    if (filterId.eq === tenantCtx.organizationId) {
+                      isFetchingOwnOrg = true;
+                    } else if (Array.isArray(filterId) && filterId.includes(tenantCtx.organizationId)) {
+                      isFetchingOwnOrg = true;
+                    } else if (Array.isArray(filterId.in) && filterId.in.includes(tenantCtx.organizationId)) {
+                      isFetchingOwnOrg = true;
+                    }
+                  }
+                } catch (e) {
+                  // Ignore parse errors, proceed with normal filtering
+                }
+              }
+              if (isFetchingOwnOrg) {
+                console.log('[Entity GET] Organization - user fetching own org, skipping directory filters');
+              }
+            }
+            
             // Apply directory filtering for non-admin users (application_status and excluded orgs)
-            if (!isTenantAdmin) {
+            // Skip directory filtering when user is fetching their own organization
+            if (!isTenantAdmin && !isFetchingOwnOrg) {
               // Check for org_directory_allowed_application_statuses setting
               const { data: statusSetting } = await supabase
                 .from('system_settings')
@@ -338,6 +368,13 @@ export default async function handler(req, res) {
                         })
                         .map(pv => pv.organization_id);
                       
+                      // Always include the user's own organization in the allowed list
+                      // Users should always be able to see their own org, regardless of directory filtering
+                      if (tenantCtx.organizationId && !allowedOrgIds.includes(tenantCtx.organizationId)) {
+                        allowedOrgIds.push(tenantCtx.organizationId);
+                        console.log('[Entity GET] Organization - added own org to allowed list:', tenantCtx.organizationId);
+                      }
+                      
                       console.log('[Entity GET] Organization - filtering by application_status, allowed org count:', allowedOrgIds.length);
                       
                       if (allowedOrgIds.length === 0) {
@@ -365,7 +402,14 @@ export default async function handler(req, res) {
                   const excludedOrgIds = JSON.parse(excludedSetting.setting_value);
                   // Validate UUIDs and filter out any invalid entries
                   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                  const validExcludedIds = excludedOrgIds.filter(id => typeof id === 'string' && uuidRegex.test(id));
+                  let validExcludedIds = excludedOrgIds.filter(id => typeof id === 'string' && uuidRegex.test(id));
+                  
+                  // Never exclude the user's own organization
+                  if (tenantCtx.organizationId && validExcludedIds.includes(tenantCtx.organizationId)) {
+                    validExcludedIds = validExcludedIds.filter(id => id !== tenantCtx.organizationId);
+                    console.log('[Entity GET] Organization - removed own org from exclusion list');
+                  }
+                  
                   if (Array.isArray(validExcludedIds) && validExcludedIds.length > 0) {
                     console.log('[Entity GET] Organization - excluding orgs:', validExcludedIds.length);
                     // Use Supabase's proper array syntax for NOT IN with UUIDs
