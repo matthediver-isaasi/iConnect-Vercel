@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { publicClient } from "@/api/publicClient";
 import {
   Dialog,
   DialogContent,
@@ -126,6 +127,20 @@ export default function SingleFieldEditModal({
   const fileInputRef = useRef(null);
   const queryClient = useQueryClient();
 
+  // Fetch custom field definition for custom_field types
+  const { data: customFieldDef } = useQuery({
+    queryKey: ['custom-field-def', field?.custom_field_id, formId],
+    queryFn: async () => {
+      try {
+        return await publicClient.getCustomField(field.custom_field_id, formId);
+      } catch {
+        return null;
+      }
+    },
+    enabled: open && field?.type === 'custom_field' && !!field?.custom_field_id,
+    staleTime: 5 * 60 * 1000
+  });
+
   useEffect(() => {
     setValue(currentValue);
     setResolvedFileUrl(null);
@@ -148,7 +163,7 @@ export default function SingleFieldEditModal({
       }
     };
     resolveUrl();
-  }, [value, field?.type]);
+  }, [value, field?.type, customFieldDef]);
 
   const updateMutation = useMutation({
     mutationFn: async (data) => {
@@ -476,12 +491,14 @@ export default function SingleFieldEditModal({
         );
 
       case 'custom_field':
-        // Check if the value is a file-like object (has file_url or file_name)
+        // Check if customFieldDef indicates this is a file upload type
         const customValue = value || {};
         const isFileValue = customValue && typeof customValue === 'object' && 
           (customValue.file_url || customValue.file_name || customValue.storage_path);
+        const isCustomFileField = customFieldDef?.field_type === 'file';
         
-        if (isFileValue) {
+        // Show file upload UI if the definition says it's a file OR if the value is file-like
+        if (isCustomFileField || isFileValue) {
           // Render file upload UI for custom field file uploads
           return (
             <div className="space-y-3">
