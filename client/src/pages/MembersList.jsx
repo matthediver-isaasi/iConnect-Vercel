@@ -432,7 +432,7 @@ export default function MembersListPage() {
             if (Array.isArray(parsed)) {
               return parsed.includes(filterValue);
             }
-            return memberFieldValue === filterValue;
+            return parsed === filterValue;
           } catch {
             return memberFieldValue === filterValue;
           }

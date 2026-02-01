@@ -430,7 +430,7 @@ export default function OrganisationsListPage() {
             if (Array.isArray(parsed)) {
               return parsed.includes(filterValue);
             }
-            return orgFieldValue === filterValue;
+            return parsed === filterValue;
           } catch {
             return orgFieldValue === filterValue;
           }
