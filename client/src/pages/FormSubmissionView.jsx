@@ -5,13 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
+import SingleFieldEditModal from "@/components/SingleFieldEditModal";
 import { format } from "date-fns";
 
 export default function FormSubmissionView() {
   const { submissionId } = useParams();
   const [expandedSections, setExpandedSections] = useState({});
+  const [editField, setEditField] = useState(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   const { data: submission, isLoading: submissionLoading, error: submissionError } = useQuery({
     queryKey: ['form-submission', submissionId],
@@ -106,10 +109,15 @@ export default function FormSubmissionView() {
     }
   };
 
+  const handleEditField = (field, value) => {
+    setEditField({ field, value });
+    setEditModalOpen(true);
+  };
+
   const renderField = (field) => {
     if (!field) return null;
     
-    // Instructions fields are display-only, render them directly
+    // Instructions fields are display-only, render them directly (no edit button)
     if (field.type === 'instructions') {
       return (
         <div key={field.id}>
@@ -124,24 +132,55 @@ export default function FormSubmissionView() {
     }
     
     const value = submissionData[field.id];
+    const isEditable = field.type !== 'page_break';
     
     if (value === undefined || value === null || value === '') {
       return (
         <div key={field.id} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{field.label || field.id}</p>
-          <p className="text-slate-400 dark:text-slate-500 italic">Not provided</p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{field.label || field.id}</p>
+              <p className="text-slate-400 dark:text-slate-500 italic">Not provided</p>
+            </div>
+            {isEditable && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={() => handleEditField(field, value)}
+                data-testid={`button-edit-${field.id}`}
+              >
+                <Pencil className="w-4 h-4 text-slate-400 hover:text-slate-600" />
+              </Button>
+            )}
+          </div>
         </div>
       );
     }
 
     return (
       <div key={field.id} className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-        <FormRenderer
-          field={field}
-          value={value}
-          onChange={() => {}}
-          disabled={true}
-        />
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <FormRenderer
+              field={field}
+              value={value}
+              onChange={() => {}}
+              disabled={true}
+            />
+          </div>
+          {isEditable && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 flex-shrink-0"
+              onClick={() => handleEditField(field, value)}
+              data-testid={`button-edit-${field.id}`}
+            >
+              <Pencil className="w-4 h-4 text-slate-400 hover:text-slate-600" />
+            </Button>
+          )}
+        </div>
       </div>
     );
   };
@@ -261,7 +300,7 @@ export default function FormSubmissionView() {
           <CardHeader>
             <CardTitle className="text-lg">Submitted Data</CardTitle>
             <CardDescription>
-              All fields from the original form submission (read-only)
+              Click the pencil icon next to any field to edit its value
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -290,6 +329,18 @@ export default function FormSubmissionView() {
           </CardContent>
         </Card>
       </div>
+
+      <SingleFieldEditModal
+        open={editModalOpen}
+        onOpenChange={(open) => {
+          setEditModalOpen(open);
+          if (!open) setEditField(null);
+        }}
+        field={editField?.field}
+        currentValue={editField?.value}
+        submissionId={submissionId}
+        formId={form?.id}
+      />
     </div>
   );
 }
