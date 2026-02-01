@@ -59,7 +59,7 @@ export default async function handler(req, res) {
 
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id')
+      .select('id, name, tenant_id, due_diligence_required')
       .eq('id', form_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -91,10 +91,63 @@ export default async function handler(req, res) {
 
     console.log('[Manual Form Submission] Created submission:', submission.id, 'for form:', form_id);
 
+    let ddRecordId = null;
+
+    if (form.due_diligence_required) {
+      console.log('[Manual Form Submission] Form requires DD, creating DD record (no stage actions)');
+      
+      const { data: ddConfig } = await supabase
+        .from('form_due_diligence_config')
+        .select('workflow_stages')
+        .eq('form_id', form_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      
+      const workflowStages = ddConfig?.workflow_stages || [];
+      const initialStage = workflowStages.find(s => s.is_initial) || workflowStages[0];
+      const initialStatus = initialStage?.id || 'new';
+      
+      const ddRecord = {
+        form_submission_id: submission.id,
+        tenant_id: tenantId,
+        application_uid: `DD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        original_form_values: submission_data || {},
+        reviewed_form_values: submission_data || {},
+        field_review_status: {},
+        workflow_status: initialStatus,
+        history_log: [{
+          timestamp: new Date().toISOString(),
+          event_type: 'manual_entry',
+          user_email: sessionMember.email || 'Admin',
+          details: {
+            form_submission_id: submission.id,
+            initial_status: initialStatus,
+            note: 'Manually added via admin interface - no stage actions triggered'
+          }
+        }]
+      };
+
+      const { data: newDDRecord, error: ddInsertError } = await supabase
+        .from('form_submission_due_diligence')
+        .insert(ddRecord)
+        .select('id')
+        .single();
+
+      if (ddInsertError) {
+        console.error('[Manual Form Submission] DD record insert error:', ddInsertError);
+      } else {
+        ddRecordId = newDDRecord.id;
+        console.log('[Manual Form Submission] Created DD record:', ddRecordId, '(no stage actions executed)');
+      }
+    }
+
     return res.status(200).json({ 
       success: true, 
       submission_id: submission.id,
-      message: 'Submission created successfully (no workflows triggered)'
+      dd_record_id: ddRecordId,
+      message: form.due_diligence_required 
+        ? 'Submission and DD record created successfully (no workflows or stage actions triggered)'
+        : 'Submission created successfully (no workflows triggered)'
     });
 
   } catch (error) {
