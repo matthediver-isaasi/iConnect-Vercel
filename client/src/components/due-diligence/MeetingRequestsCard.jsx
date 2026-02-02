@@ -73,7 +73,6 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
         {(request.booking || request.booked_at) && (
           <p className="text-xs text-green-600 mt-1">
             Booked: {format(new Date(request.booking?.starts_at || request.booked_at), 'MMM d, yyyy h:mm a')}
-            {request.manual_override && <span className="ml-1 text-muted-foreground">(manual)</span>}
           </p>
         )}
       </div>

@@ -56,9 +56,9 @@ export default async function handler(req, res) {
     }
 
     const submissionData = formSubmission.submission_data || {};
-    const fallbackEmail = recipientEmail || submissionData.email || submissionData.Email || 'migrated@manual-override.local';
-    const fallbackFirstName = recipientFirstName || submissionData.first_name || submissionData.firstName || submissionData.First_Name || null;
-    const fallbackLastName = recipientLastName || submissionData.last_name || submissionData.lastName || submissionData.Last_Name || null;
+    const fallbackEmail = recipientEmail || submissionData['Applicant Email'] || submissionData.email || submissionData.Email || 'migrated@manual-override.local';
+    const fallbackFirstName = recipientFirstName || submissionData['Applicant first name'] || submissionData.first_name || submissionData.firstName || submissionData.First_Name || null;
+    const fallbackLastName = recipientLastName || submissionData['Applicant last name'] || submissionData.last_name || submissionData.lastName || submissionData.Last_Name || null;
 
     const { data: meetingTemplate, error: templateError } = await supabase
       .from('meeting_template')
