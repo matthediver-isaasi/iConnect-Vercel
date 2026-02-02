@@ -152,6 +152,22 @@ export default function EmailCampaignEdit() {
     staleTime: 60000
   });
 
+  // Fetch forms that have a communication category linked (for newsletter targeting)
+  const { data: formsWithCategory = [] } = useQuery({
+    queryKey: ['forms-with-category'],
+    queryFn: async () => {
+      try {
+        const allForms = await base44.entities.Form.list();
+        // Only show forms that have a communication category assigned
+        return (allForms || []).filter(f => f.communication_category_id && f.is_active !== false);
+      } catch (e) {
+        console.error('Failed to fetch forms:', e);
+        return [];
+      }
+    },
+    staleTime: 60000
+  });
+
   useEffect(() => {
     const fetchRecipientCount = async () => {
       if (formData.target_type === 'all_members') {
@@ -546,6 +562,7 @@ export default function EmailCampaignEdit() {
                     <SelectItem value="communication_category">Communication Categories</SelectItem>
                     <SelectItem value="member_group">Member Groups</SelectItem>
                     <SelectItem value="role">Roles</SelectItem>
+                    <SelectItem value="form">Form Subscribers</SelectItem>
                     <SelectItem value="all_members">All Members</SelectItem>
                   </SelectContent>
                 </Select>
@@ -555,9 +572,41 @@ export default function EmailCampaignEdit() {
                 <div className="space-y-2">
                   <Label>
                     Select {formData.target_type === 'communication_category' ? 'Categories' : 
-                            formData.target_type === 'member_group' ? 'Groups' : 'Roles'}
+                            formData.target_type === 'member_group' ? 'Groups' : 
+                            formData.target_type === 'form' ? 'Forms' : 'Roles'}
                   </Label>
                   <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                    {formData.target_type === 'form' && (
+                      formsWithCategory.length === 0 ? (
+                        <div className="text-sm text-muted-foreground py-2">
+                          No forms with communication categories configured. 
+                          <br />
+                          <span className="text-xs">Link a form to a communication category in the Form Builder's Submission tab.</span>
+                        </div>
+                      ) : formsWithCategory.map(form => {
+                        const linkedCategory = categories.find(c => c.id === form.communication_category_id);
+                        return (
+                          <label key={form.id} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={formData.target_ids.includes(form.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, form.id] }));
+                                } else {
+                                  setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== form.id) }));
+                                }
+                              }}
+                              className="rounded"
+                            />
+                            <span className="text-sm">{form.name}</span>
+                            {linkedCategory && (
+                              <span className="text-xs text-muted-foreground ml-1">({linkedCategory.name})</span>
+                            )}
+                          </label>
+                        );
+                      })
+                    )}
                     {formData.target_type === 'communication_category' && categories.map(cat => (
                       <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
                         <input

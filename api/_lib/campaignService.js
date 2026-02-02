@@ -326,6 +326,73 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
       recipients = members.filter(m => 
         m.email && m.communications_opted_out_all !== true
       );
+    } else if (targetType === 'form' && targetIds.length > 0) {
+      // Get form(s) with their linked communication category
+      const { data: forms } = await supabase
+        .from('form')
+        .select('id, name, communication_category_id')
+        .eq('tenant_id', tenantId)
+        .in('id', targetIds);
+
+      if (forms && forms.length > 0) {
+        const categoryIds = [...new Set(forms.map(f => f.communication_category_id).filter(Boolean))];
+        const formIds = forms.map(f => f.id);
+
+        // 1. Get MEMBERS who have EXPLICITLY subscribed to the linked categories
+        // (members who have is_subscribed=true in member_communication_preference for these categories)
+        if (categoryIds.length > 0) {
+          // Get members who have explicitly opted-in to these categories (via form submission or otherwise)
+          const { data: memberPrefs } = await supabase
+            .from('member_communication_preference')
+            .select('member_id')
+            .in('category_id', categoryIds)
+            .eq('is_subscribed', true);
+
+          const subscribedMemberIds = [...new Set((memberPrefs || []).map(p => p.member_id))];
+
+          if (subscribedMemberIds.length > 0) {
+            // Fetch full member details for opted-in members
+            const { data: subscribedMembers } = await supabase
+              .from('member')
+              .select('id, email, first_name, last_name, communications_opted_out_all')
+              .eq('tenant_id', tenantId)
+              .in('id', subscribedMemberIds)
+              .eq('communications_opted_out_all', false);
+
+            // Filter to only those with email and not globally opted-out
+            const validMembers = (subscribedMembers || []).filter(m => m.email);
+
+            recipients = validMembers.map(m => ({
+              id: m.id,
+              member_id: m.id,
+              email: m.email,
+              first_name: m.first_name,
+              last_name: m.last_name
+            }));
+          }
+        }
+
+        // 2. Get NON-MEMBERS from email_subscriber who are subscribed to these categories/forms
+        const { data: subscribers } = await supabase
+          .from('email_subscriber')
+          .select('id, email, first_name, last_name, form_id, communication_category_id')
+          .eq('tenant_id', tenantId)
+          .eq('opted_out', false)
+          .in('form_id', formIds);
+
+        if (subscribers && subscribers.length > 0) {
+          // Add non-member subscribers (they don't have a member_id)
+          for (const sub of subscribers) {
+            recipients.push({
+              id: sub.id,
+              member_id: null, // Non-member
+              email: sub.email,
+              first_name: sub.first_name,
+              last_name: sub.last_name
+            });
+          }
+        }
+      }
     }
 
     // Get global unsubscribes

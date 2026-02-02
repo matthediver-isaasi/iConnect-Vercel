@@ -64,6 +64,7 @@ export default async function handler(req, res) {
 
     let memberPreferences = [];
     let member = null;
+    let subscriberOptedOut = false;
 
     if (recipient.member_id) {
       const { data: memberData } = await supabase
@@ -81,6 +82,18 @@ export default async function handler(req, res) {
           .eq('member_id', member.id);
         
         memberPreferences = prefs || [];
+      }
+    } else {
+      // Non-member: check email_subscriber table for opted_out status
+      const { data: subscriberRecords } = await supabase
+        .from('email_subscriber')
+        .select('opted_out')
+        .eq('tenant_id', tenantId)
+        .eq('email', recipient.email.toLowerCase())
+        .limit(1);
+      
+      if (subscriberRecords && subscriberRecords.length > 0) {
+        subscriberOptedOut = subscriberRecords[0].opted_out === true;
       }
     }
 
@@ -115,7 +128,7 @@ export default async function handler(req, res) {
       email: recipient.email,
       firstName: member?.first_name || '',
       lastName: member?.last_name || '',
-      optedOutAll: member?.communications_opted_out_all || false,
+      optedOutAll: member ? (member.communications_opted_out_all || false) : subscriberOptedOut,
       categories: categoriesWithStatus,
       campaignName: campaign.name,
       isMember: !!member,
@@ -141,10 +154,24 @@ async function handlePreferenceUpdate(req, res, context) {
 
     if (action === 'toggle_all') {
       if (member) {
+        // Member: update the communications_opted_out_all flag
         await supabase
           .from('member')
           .update({ communications_opted_out_all: optOutAll })
           .eq('id', member.id);
+      } else {
+        // Non-member: update email_subscriber.opted_out for all their subscriptions
+        await supabase
+          .from('email_subscriber')
+          .update({ 
+            opted_out: optOutAll,
+            opted_out_at: optOutAll ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('tenant_id', tenantId)
+          .eq('email', recipient.email.toLowerCase());
+        
+        console.log('[Preferences] Updated email_subscriber opted_out to:', optOutAll, 'for:', recipient.email);
       }
 
       if (optOutAll) {

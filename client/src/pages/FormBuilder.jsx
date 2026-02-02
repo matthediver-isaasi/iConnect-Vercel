@@ -3327,7 +3327,8 @@ export default function FormBuilderPage() {
       applicant_name_field: null, // Field ID from DD form for applicant's name
       applicant_email_field: null, // Field ID from DD form for applicant's email
       alternative_signer_form_id: null // Form where applicant provides new signer details
-    }
+    },
+    communication_category_id: null // Link form to a communication category for newsletter signups
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -3773,7 +3774,8 @@ export default function FormBuilderPage() {
           reminders: [],
           require_signature: true,
           signers: []
-        }
+        },
+        communication_category_id: existingForm.communication_category_id || null
       });
     }
   }, [existingForm]);
@@ -5141,6 +5143,57 @@ export default function FormBuilderPage() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Newsletter / Communication Category Subscription */}
+            <Card className="border-slate-200 mt-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Mail className="w-5 h-5" />
+                  Newsletter Subscription
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-1">
+                  Link this form to a communication category. When someone submits this form, they will be automatically subscribed to the selected category.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <Label className="text-sm font-medium w-48">Communication Category</Label>
+                    <Select
+                      value={formData.communication_category_id || "none"}
+                      onValueChange={(value) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          communication_category_id: value === "none" ? null : value
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="w-64" data-testid="select-communication-category">
+                        <SelectValue placeholder="Select category..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">-- No category (disabled) --</SelectItem>
+                        {communicationCategories.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {formData.communication_category_id && (
+                    <div className="text-xs text-slate-500 bg-blue-50 p-3 rounded-md border border-blue-100">
+                      <strong>How it works:</strong> When a form is submitted:
+                      <ul className="list-disc ml-4 mt-1 space-y-1">
+                        <li>Members will have their communication preference updated to receive this category</li>
+                        <li>Non-members will be added to the subscriber list for this category</li>
+                        <li>Previously opted-out users will be re-subscribed (their latest action takes precedence)</li>
+                      </ul>
                     </div>
                   )}
                 </div>
