@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
     console.log('[Public NewsPost] Query params:', {
       tenantId: tenant.id,
-      tenantSlug,
+      tenantSlug: tenant.slug,
       newsId,
       newsSlug,
       now
