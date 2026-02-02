@@ -15,30 +15,10 @@
  */
 
 /**
- * Get tenant slug from various sources
- * Priority: URL query param > localStorage > subdomain > VITE env var
- */
-function getTenantSlugFromSources() {
-  // Check URL query parameter first (for testing specific tenants)
-  const urlParams = new URLSearchParams(window.location.search);
-  const queryTenant = urlParams.get('tenant');
-  if (queryTenant) {
-    return queryTenant;
-  }
-  
-  // Check localStorage for tenant preference
-  const storedTenant = localStorage.getItem('tenant_slug');
-  if (storedTenant) {
-    return storedTenant;
-  }
-  
-  return null;
-}
-
-/**
  * Extract tenant slug from the current hostname's subdomain
  * e.g., "gsf.iconn.app" -> "gsf"
  * e.g., "bnms.iconn.app" -> "bnms"
+ * e.g., "gfi.dev.iconn.app" -> "gfi" (Vercel preview branch format)
  * 
  * Returns null if tenant cannot be determined from hostname
  */
@@ -49,17 +29,39 @@ function getTenantSlugFromSubdomain(hostname) {
   }
   
   // Extract subdomain from hostname
-  // Expected format: {tenant}.iconn.app or {tenant}.customdomain.com
+  // Expected formats:
+  // - {tenant}.iconn.app (production)
+  // - {tenant}.dev.iconn.app (Vercel preview branch)
+  // - {tenant}.customdomain.com
   const parts = hostname.split('.');
   
   // Need at least 3 parts for subdomain (e.g., gsf.iconn.app)
   if (parts.length >= 3) {
-    const subdomain = parts[0];
-    // Exclude common non-tenant subdomains
-    if (['www', 'api', 'app', 'admin', 'staging', 'dev'].includes(subdomain.toLowerCase())) {
+    const firstPart = parts[0];
+    
+    // Common non-tenant subdomains that should be skipped
+    const nonTenantSubdomains = ['www', 'api', 'app', 'admin', 'staging'];
+    
+    // Check if first part is 'dev' - this indicates Vercel preview format
+    // In this case, we can't determine tenant from subdomain alone
+    // as 'dev' is the environment indicator, not the tenant
+    if (firstPart.toLowerCase() === 'dev') {
       return null;
     }
-    return subdomain;
+    
+    // For {tenant}.dev.iconn.app format (4+ parts where second part is 'dev')
+    // The tenant is the first part
+    if (parts.length >= 4 && parts[1].toLowerCase() === 'dev') {
+      if (!nonTenantSubdomains.includes(firstPart.toLowerCase())) {
+        return firstPart;
+      }
+      return null;
+    }
+    
+    // Standard format: {tenant}.iconn.app
+    if (!nonTenantSubdomains.includes(firstPart.toLowerCase())) {
+      return firstPart;
+    }
   }
   
   return null;
@@ -69,23 +71,45 @@ function getTenantSlugFromSubdomain(hostname) {
  * Extract tenant slug from the current hostname's subdomain
  * Tries multiple sources in priority order
  * 
+ * Priority order:
+ * 1. URL query param (for testing specific tenants)
+ * 2. Subdomain detection (authoritative source for production/preview)
+ * 3. localStorage (only when subdomain detection fails, e.g., localhost)
+ * 4. VITE_DEFAULT_TENANT env var
+ * 
  * @returns {string|null} The tenant slug or null if not determinable
  */
 export function getTenantSlugFromLocation() {
   const hostname = window.location.hostname;
   
-  // Try query param or localStorage first
-  const configuredTenant = getTenantSlugFromSources();
-  if (configuredTenant) {
-    console.log('[publicClient] Using configured tenant:', configuredTenant);
-    return configuredTenant;
+  // Check URL query parameter first (for testing specific tenants)
+  const urlParams = new URLSearchParams(window.location.search);
+  const queryTenant = urlParams.get('tenant');
+  if (queryTenant) {
+    console.log('[publicClient] Using tenant from URL query param:', queryTenant);
+    return queryTenant;
   }
   
-  // Try subdomain detection
+  // Try subdomain detection - this is the authoritative source for production/preview
+  // This ensures {tenant}.dev.iconn.app correctly identifies the tenant
   const subdomainTenant = getTenantSlugFromSubdomain(hostname);
   if (subdomainTenant) {
     console.log('[publicClient] Detected tenant from subdomain:', subdomainTenant);
+    // Update localStorage to match current subdomain tenant
+    // This ensures consistency if user navigates between tenants
+    const storedTenant = localStorage.getItem('tenant_slug');
+    if (storedTenant && storedTenant !== subdomainTenant) {
+      console.log('[publicClient] Updating cached tenant from', storedTenant, 'to', subdomainTenant);
+      localStorage.setItem('tenant_slug', subdomainTenant);
+    }
     return subdomainTenant;
+  }
+  
+  // Check localStorage for tenant preference (fallback for local development)
+  const storedTenant = localStorage.getItem('tenant_slug');
+  if (storedTenant) {
+    console.log('[publicClient] Using cached tenant from localStorage:', storedTenant);
+    return storedTenant;
   }
   
   // Check Vite environment variable (build-time config)
