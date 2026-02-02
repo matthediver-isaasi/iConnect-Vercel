@@ -148,12 +148,30 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
   );
 }
 
-function ConfiguredMeetingItem({ config }) {
+function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplateIds }) {
+  const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  const [overrideDateTime, setOverrideDateTime] = useState('');
+  
   const statusConfig = STATUS_CONFIG.not_sent;
   const StatusIcon = statusConfig.icon;
   const agentNames = config.agents?.map(a => 
     [a.first_name, a.last_name].filter(Boolean).join(' ')
   ).filter(Boolean).join(', ') || 'No agents assigned';
+  
+  const firstAgent = config.agents?.[0];
+  const templateAlreadyBooked = bookedTemplateIds?.has(config.meeting_template?.id);
+  const canOverride = !templateAlreadyBooked && firstAgent;
+
+  const handleOverrideSubmit = () => {
+    if (!overrideDateTime || !firstAgent) return;
+    onOverride({
+      meetingTemplateId: config.meeting_template?.id,
+      agentIdentityId: firstAgent.id,
+      overrideDateTime
+    });
+    setIsOverrideOpen(false);
+    setOverrideDateTime('');
+  };
   
   return (
     <div 
@@ -184,6 +202,67 @@ function ConfiguredMeetingItem({ config }) {
           Will trigger on <span className="font-medium" style={{ color: config.stage_color || 'inherit' }}>{config.stage_name}</span> stage
         </p>
       </div>
+      {canOverride && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setIsOverrideOpen(true)}
+          className="flex-shrink-0"
+          data-testid={`button-override-configured-${config.config_id}`}
+        >
+          <Settings className="w-4 h-4 mr-1" />
+          Override
+        </Button>
+      )}
+      
+      <Dialog open={isOverrideOpen} onOpenChange={(open) => {
+        setIsOverrideOpen(open);
+        if (!open) setOverrideDateTime('');
+      }}>
+        <DialogContent className="max-w-sm" data-testid="configured-override-dialog">
+          <DialogHeader>
+            <DialogTitle>Manual Meeting Override</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Enter the date and time when this meeting was held:
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="configuredOverrideDateTime">Meeting Date & Time</Label>
+              <Input
+                id="configuredOverrideDateTime"
+                type="datetime-local"
+                value={overrideDateTime}
+                onChange={(e) => setOverrideDateTime(e.target.value)}
+                data-testid="input-configured-override-datetime"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsOverrideOpen(false)}
+                data-testid="button-cancel-configured-override"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleOverrideSubmit}
+                disabled={!overrideDateTime || isOverriding}
+                data-testid="button-confirm-configured-override"
+              >
+                {isOverriding ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Mark as Booked'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -245,6 +324,36 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
     manualOverrideMutation.mutate({ meetingRequestId: requestId, overrideDateTime: dateTime });
   };
 
+  const createBookedMutation = useMutation({
+    mutationFn: async ({ meetingTemplateId, agentIdentityId, overrideDateTime }) => {
+      return apiRequest('POST', `/api/dd-meeting-requests/create-booked`, {
+        formSubmissionId,
+        meetingTemplateId,
+        agentIdentityId,
+        overrideDateTime
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Meeting Marked as Booked",
+        description: "The meeting has been created and marked as booked.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/by-submission', formSubmissionId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/configured-by-form', formId] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create booked meeting.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleConfiguredOverride = (data) => {
+    createBookedMutation.mutate(data);
+  };
+
   const requests = sentData?.requests || [];
   const configuredMeetings = configuredData?.configured_meetings || [];
   
@@ -283,6 +392,7 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
   const unsent = configuredMeetings.filter(c => !sentTemplateIds.has(c.meeting_template?.id));
 
   const hasBookedRequest = requests.some(r => r.status === 'booked');
+  const bookedTemplateIds = new Set(requests.filter(r => r.status === 'booked').map(r => r.meeting_template_id));
 
   return (
     <>
@@ -297,6 +407,9 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
                 <ConfiguredMeetingItem 
                   key={config.config_id}
                   config={config}
+                  onOverride={handleConfiguredOverride}
+                  isOverriding={createBookedMutation.isPending}
+                  bookedTemplateIds={bookedTemplateIds}
                 />
               ))}
             </div>
