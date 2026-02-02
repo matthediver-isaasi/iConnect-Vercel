@@ -35,6 +35,7 @@ export default function EmailBuilder({
     return { ...defaultEmailDesign };
   });
   const [selectedBlockId, setSelectedBlockId] = useState(null);
+  const [selectedChildId, setSelectedChildId] = useState(null);
   const [activeId, setActiveId] = useState(null);
   const debounceRef = useRef(null);
 
@@ -50,6 +51,16 @@ export default function EmailBuilder({
   );
 
   const selectedBlock = design.blocks.find(b => b.id === selectedBlockId);
+  
+  const selectedChild = selectedChildId ? (() => {
+    for (const block of design.blocks) {
+      if (block.type === BLOCK_TYPES.SECTION && block.children) {
+        const child = block.children.find(c => c.id === selectedChildId);
+        if (child) return { child, parentId: block.id };
+      }
+    }
+    return null;
+  })() : null;
 
   const notifyChange = useCallback((newDesign) => {
     if (!onChange) return;
@@ -91,15 +102,31 @@ export default function EmailBuilder({
     if (!over) return;
 
     const activeData = active.data.current;
+    const overData = over.data.current;
 
     if (activeData?.fromPalette) {
       const newBlock = createBlock(activeData.type);
       
-      if (over.id === 'canvas-drop-area' || !design.blocks.find(b => b.id === over.id)) {
+      if (overData?.isSection && activeData.type !== BLOCK_TYPES.SECTION && activeData.type !== BLOCK_TYPES.COLUMNS) {
+        const sectionId = overData.sectionId;
+        updateDesign(prev => ({
+          ...prev,
+          blocks: prev.blocks.map(b => {
+            if (b.id === sectionId) {
+              return { ...b, children: [...(b.children || []), newBlock] };
+            }
+            return b;
+          }),
+        }));
+        setSelectedBlockId(sectionId);
+        setSelectedChildId(newBlock.id);
+      } else if (over.id === 'canvas-drop-area' || !design.blocks.find(b => b.id === over.id)) {
         updateDesign(prev => ({
           ...prev,
           blocks: [...prev.blocks, newBlock],
         }));
+        setSelectedBlockId(newBlock.id);
+        setSelectedChildId(null);
       } else {
         const overIndex = design.blocks.findIndex(b => b.id === over.id);
         updateDesign(prev => ({
@@ -110,8 +137,9 @@ export default function EmailBuilder({
             ...prev.blocks.slice(overIndex),
           ],
         }));
+        setSelectedBlockId(newBlock.id);
+        setSelectedChildId(null);
       }
-      setSelectedBlockId(newBlock.id);
       return;
     }
 
@@ -132,6 +160,84 @@ export default function EmailBuilder({
 
   const handleBlockSelect = (blockId) => {
     setSelectedBlockId(blockId);
+    setSelectedChildId(null);
+  };
+
+  const handleChildSelect = (childId) => {
+    setSelectedChildId(childId);
+  };
+
+  const handleChildDelete = (childId) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.type === BLOCK_TYPES.SECTION && b.children) {
+          return { ...b, children: b.children.filter(c => c.id !== childId) };
+        }
+        return b;
+      }),
+    }));
+    if (selectedChildId === childId) {
+      setSelectedChildId(null);
+    }
+  };
+
+  const handleChildDuplicate = (childId) => {
+    for (const block of design.blocks) {
+      if (block.type === BLOCK_TYPES.SECTION && block.children) {
+        const childIndex = block.children.findIndex(c => c.id === childId);
+        if (childIndex !== -1) {
+          const child = block.children[childIndex];
+          const newChild = {
+            ...JSON.parse(JSON.stringify(child)),
+            id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          };
+          updateDesign(prev => ({
+            ...prev,
+            blocks: prev.blocks.map(b => {
+              if (b.id === block.id) {
+                const newChildren = [...b.children];
+                newChildren.splice(childIndex + 1, 0, newChild);
+                return { ...b, children: newChildren };
+              }
+              return b;
+            }),
+          }));
+          setSelectedChildId(newChild.id);
+          break;
+        }
+      }
+    }
+  };
+
+  const handleChildUpdate = (updatedChild) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.type === BLOCK_TYPES.SECTION && b.children) {
+          return {
+            ...b,
+            children: b.children.map(c => c.id === updatedChild.id ? updatedChild : c),
+          };
+        }
+        return b;
+      }),
+    }));
+  };
+
+  const handleReorderChildren = (sectionId, fromIndex, toIndex) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.id === sectionId && b.children) {
+          const newChildren = [...b.children];
+          const [moved] = newChildren.splice(fromIndex, 1);
+          newChildren.splice(toIndex, 0, moved);
+          return { ...b, children: newChildren };
+        }
+        return b;
+      }),
+    }));
   };
 
   const handleBlockDelete = (blockId) => {
@@ -246,6 +352,11 @@ export default function EmailBuilder({
                       block={block}
                       isSelected={block.id === selectedBlockId}
                       onSelect={handleBlockSelect}
+                      onSelectChild={handleChildSelect}
+                      selectedChildId={selectedChildId}
+                      onDeleteChild={handleChildDelete}
+                      onDuplicateChild={handleChildDuplicate}
+                      onReorderChildren={handleReorderChildren}
                       onDelete={handleBlockDelete}
                       onDuplicate={handleBlockDuplicate}
                     />
@@ -273,10 +384,17 @@ export default function EmailBuilder({
             <h3 className="font-medium text-sm">Properties</h3>
           </div>
           <ScrollArea className="flex-1">
-            <BlockEditor 
-              block={selectedBlock} 
-              onChange={handleBlockUpdate} 
-            />
+            {selectedChild ? (
+              <BlockEditor 
+                block={selectedChild.child} 
+                onChange={handleChildUpdate} 
+              />
+            ) : (
+              <BlockEditor 
+                block={selectedBlock} 
+                onChange={handleBlockUpdate} 
+              />
+            )}
           </ScrollArea>
         </div>
       </DndContext>

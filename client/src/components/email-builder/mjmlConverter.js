@@ -11,8 +11,68 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
+const childBlockToMjml = (block) => {
+  switch (block.type) {
+    case BLOCK_TYPES.TEXT:
+      return `<mj-text 
+        font-size="${block.styles.fontSize || '14px'}"
+        font-weight="${block.styles.fontWeight || 'normal'}"
+        color="${block.styles.color || '#333333'}"
+        align="${block.styles.textAlign || 'left'}"
+        line-height="${block.styles.lineHeight || '1.5'}"
+        padding="${block.styles.padding || '10px 0'}"
+      >${block.content}</mj-text>`;
+    case BLOCK_TYPES.IMAGE:
+      if (!block.src) return '';
+      const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
+      return `<mj-image 
+        src="${escapeHtml(block.src)}"
+        alt="${escapeHtml(block.alt || 'Image')}"
+        width="${block.styles.maxWidth || '100%'}"
+        align="${block.styles.textAlign || 'center'}"
+        padding="${block.styles.padding || '10px 0'}"
+        ${imgHref}
+      />`;
+    case BLOCK_TYPES.BUTTON:
+      return `<mj-button 
+        href="${escapeHtml(block.href || '#')}"
+        background-color="${block.styles.backgroundColor || '#007bff'}"
+        color="${block.styles.color || '#ffffff'}"
+        font-size="${block.styles.fontSize || '16px'}"
+        font-weight="${block.styles.fontWeight || 'bold'}"
+        border-radius="${block.styles.borderRadius || '4px'}"
+        padding="${block.styles.padding || '12px 24px'}"
+        align="${block.styles.textAlign || 'center'}"
+      >${escapeHtml(block.content)}</mj-button>`;
+    case BLOCK_TYPES.DIVIDER:
+      return `<mj-divider 
+        border-color="${block.styles.borderColor || '#e0e0e0'}"
+        border-width="${block.styles.borderWidth || '1px'}"
+        border-style="${block.styles.borderStyle || 'solid'}"
+        padding="${block.styles.padding || '10px 0'}"
+      />`;
+    case BLOCK_TYPES.SPACER:
+      return `<mj-spacer height="${block.styles.height || '20px'}" />`;
+    default:
+      return '';
+  }
+};
+
 const blockToMjml = (block) => {
   switch (block.type) {
+    case BLOCK_TYPES.SECTION:
+      const sectionPadding = `${block.styles.paddingTop || '20px'} ${block.styles.paddingRight || '20px'} ${block.styles.paddingBottom || '20px'} ${block.styles.paddingLeft || '20px'}`;
+      const childrenMjml = (block.children || []).map(childBlockToMjml).filter(Boolean).join('\n');
+      return `
+        <mj-section 
+          background-color="${block.styles.backgroundColor || '#ffffff'}"
+          padding="${sectionPadding}"
+        >
+          <mj-column>
+            ${childrenMjml || '<mj-text></mj-text>'}
+          </mj-column>
+        </mj-section>
+      `;
     case BLOCK_TYPES.TEXT:
       return `
         <mj-section padding="${block.styles.padding || '10px 20px'}">

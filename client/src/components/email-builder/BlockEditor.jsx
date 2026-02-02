@@ -347,7 +347,101 @@ function ColumnsBlockEditor({ block, onChange }) {
   );
 }
 
+function SectionBlockEditor({ block, onChange }) {
+  const update = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Background Color</Label>
+        <Input
+          type="color"
+          value={block.styles.backgroundColor || '#ffffff'}
+          onChange={(e) => update('backgroundColor', e.target.value)}
+          className="h-9 p-1"
+          data-testid="editor-section-bg-color"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Padding</Label>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <span className="text-xs text-muted-foreground">Top</span>
+            <Select value={block.styles.paddingTop || '20px'} onValueChange={(v) => update('paddingTop', v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">0</SelectItem>
+                <SelectItem value="10px">10px</SelectItem>
+                <SelectItem value="20px">20px</SelectItem>
+                <SelectItem value="30px">30px</SelectItem>
+                <SelectItem value="40px">40px</SelectItem>
+                <SelectItem value="60px">60px</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-muted-foreground">Bottom</span>
+            <Select value={block.styles.paddingBottom || '20px'} onValueChange={(v) => update('paddingBottom', v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">0</SelectItem>
+                <SelectItem value="10px">10px</SelectItem>
+                <SelectItem value="20px">20px</SelectItem>
+                <SelectItem value="30px">30px</SelectItem>
+                <SelectItem value="40px">40px</SelectItem>
+                <SelectItem value="60px">60px</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-muted-foreground">Left</span>
+            <Select value={block.styles.paddingLeft || '20px'} onValueChange={(v) => update('paddingLeft', v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">0</SelectItem>
+                <SelectItem value="10px">10px</SelectItem>
+                <SelectItem value="20px">20px</SelectItem>
+                <SelectItem value="30px">30px</SelectItem>
+                <SelectItem value="40px">40px</SelectItem>
+                <SelectItem value="60px">60px</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs text-muted-foreground">Right</span>
+            <Select value={block.styles.paddingRight || '20px'} onValueChange={(v) => update('paddingRight', v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">0</SelectItem>
+                <SelectItem value="10px">10px</SelectItem>
+                <SelectItem value="20px">20px</SelectItem>
+                <SelectItem value="30px">30px</SelectItem>
+                <SelectItem value="40px">40px</SelectItem>
+                <SelectItem value="60px">60px</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Drag content blocks into this section to build your email layout.
+      </p>
+    </div>
+  );
+}
+
 const blockEditors = {
+  [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
   [BLOCK_TYPES.IMAGE]: ImageBlockEditor,
   [BLOCK_TYPES.BUTTON]: ButtonBlockEditor,

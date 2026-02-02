@@ -1,4 +1,5 @@
 export const BLOCK_TYPES = {
+  SECTION: 'section',
   TEXT: 'text',
   IMAGE: 'image',
   BUTTON: 'button',
@@ -11,6 +12,20 @@ export const createBlock = (type, props = {}) => {
   const id = `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
   switch (type) {
+    case BLOCK_TYPES.SECTION:
+      return {
+        id,
+        type,
+        children: props.children || [],
+        styles: {
+          backgroundColor: '#ffffff',
+          paddingTop: '20px',
+          paddingBottom: '20px',
+          paddingLeft: '20px',
+          paddingRight: '20px',
+          ...props.styles,
+        },
+      };
     case BLOCK_TYPES.TEXT:
       return {
         id,

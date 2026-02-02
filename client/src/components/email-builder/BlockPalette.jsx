@@ -1,14 +1,18 @@
 import { useDraggable } from '@dnd-kit/core';
-import { Type, Image, MousePointer2, Minus, MoveVertical, Columns } from 'lucide-react';
+import { Type, Image, MousePointer2, Minus, MoveVertical, Columns, SquareDashed } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 
-const paletteItems = [
+const structureItems = [
+  { type: BLOCK_TYPES.SECTION, icon: SquareDashed, label: 'Section' },
+  { type: BLOCK_TYPES.COLUMNS, icon: Columns, label: 'Columns' },
+];
+
+const contentItems = [
   { type: BLOCK_TYPES.TEXT, icon: Type, label: 'Text' },
   { type: BLOCK_TYPES.IMAGE, icon: Image, label: 'Image' },
   { type: BLOCK_TYPES.BUTTON, icon: MousePointer2, label: 'Button' },
   { type: BLOCK_TYPES.DIVIDER, icon: Minus, label: 'Divider' },
   { type: BLOCK_TYPES.SPACER, icon: MoveVertical, label: 'Spacer' },
-  { type: BLOCK_TYPES.COLUMNS, icon: Columns, label: 'Columns' },
 ];
 
 function DraggablePaletteItem({ type, icon: Icon, label }) {
@@ -36,9 +40,15 @@ function DraggablePaletteItem({ type, icon: Icon, label }) {
 export default function BlockPalette() {
   return (
     <div className="p-4 border-b">
-      <h3 className="text-sm font-medium mb-3">Blocks</h3>
+      <h3 className="text-sm font-medium mb-3">Structure</h3>
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {structureItems.map(item => (
+          <DraggablePaletteItem key={item.type} {...item} />
+        ))}
+      </div>
+      <h3 className="text-sm font-medium mb-3">Content</h3>
       <div className="grid grid-cols-3 gap-2">
-        {paletteItems.map(item => (
+        {contentItems.map(item => (
           <DraggablePaletteItem key={item.type} {...item} />
         ))}
       </div>
