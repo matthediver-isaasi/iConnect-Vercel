@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
-  Calendar, Check, Clock, User, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, ExternalLink
+  Calendar, Check, Clock, User, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, ExternalLink, Settings
 } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
@@ -21,7 +21,83 @@ const STATUS_CONFIG = {
   expired: { label: 'Expired', color: '#ef4444', bgColor: '#fee2e2', icon: AlertCircle }
 };
 
-function RequestRow({ request, onResend, isResending, hasBookedRequest }) {
+function ManualOverridePopover({ requestId, onSuccess, isOverriding, onOverride }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [dateTime, setDateTime] = useState('');
+
+  const handleSubmit = () => {
+    if (!dateTime) return;
+    onOverride(requestId, dateTime);
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    setDateTime('');
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      setIsOpen(open);
+      if (!open) setDateTime('');
+    }}>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setIsOpen(true)}
+        className="flex-shrink-0"
+        data-testid={`button-override-${requestId}`}
+      >
+        <Settings className="w-4 h-4 mr-1" />
+        Override
+      </Button>
+      <DialogContent className="max-w-sm" data-testid="manual-override-dialog">
+        <DialogHeader>
+          <DialogTitle>Manual Override</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 mt-4">
+          <p className="text-sm text-muted-foreground">
+            Mark this meeting as booked with a specific date and time. This is for data migration purposes and will not trigger any workflow actions.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="override-datetime">Meeting Date & Time</Label>
+            <Input
+              id="override-datetime"
+              type="datetime-local"
+              value={dateTime}
+              onChange={(e) => setDateTime(e.target.value)}
+              data-testid="input-override-datetime"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClose}
+              data-testid="button-cancel-override"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              disabled={!dateTime || isOverriding}
+              data-testid="button-confirm-override"
+            >
+              {isOverriding ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4 mr-2" />
+              )}
+              Mark as Booked
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RequestRow({ request, onResend, isResending, hasBookedRequest, onManualOverride, isOverriding }) {
   const statusConfig = STATUS_CONFIG[request.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const recipientName = [request.recipient_first_name, request.recipient_last_name].filter(Boolean).join(' ') || 'Unknown';
@@ -55,9 +131,10 @@ function RequestRow({ request, onResend, isResending, hasBookedRequest }) {
             {request.resend_count > 0 && ` (resent ${request.resend_count}x)`}
           </p>
         )}
-        {request.booking && (
+        {(request.booking || request.booked_at) && (
           <p className="text-xs text-green-600 mt-1">
-            Booked: {format(new Date(request.booking.starts_at), 'MMM d, yyyy h:mm a')}
+            Booked: {format(new Date(request.booking?.starts_at || request.booked_at), 'MMM d, yyyy h:mm a')}
+            {request.manual_override && <span className="ml-1 text-muted-foreground">(manual)</span>}
           </p>
         )}
       </div>
@@ -104,6 +181,13 @@ function RequestRow({ request, onResend, isResending, hasBookedRequest }) {
         >
           <ExternalLink className="w-4 h-4" />
         </Button>
+      )}
+      {request.status === 'pending' && !hasBookedRequest && (
+        <ManualOverridePopover
+          requestId={request.id}
+          onOverride={onManualOverride}
+          isOverriding={isOverriding}
+        />
       )}
     </div>
   );
@@ -275,6 +359,30 @@ export default function MeetingRequestDetailModal({
     }
   });
 
+  const manualOverrideMutation = useMutation({
+    mutationFn: async ({ meetingRequestId, overrideDateTime }) => {
+      return apiRequest('POST', `/api/dd-meeting-requests/manual-override`, {
+        meetingRequestId,
+        overrideDateTime
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Meeting Marked as Booked",
+        description: "The meeting has been manually marked as booked.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/by-submission', formSubmissionId] });
+      onClose();
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to override meeting request.",
+        variant: "destructive",
+      });
+    }
+  });
+
   const handleResend = (id) => {
     setResendingId(id);
     resendMutation.mutate(id);
@@ -282,6 +390,10 @@ export default function MeetingRequestDetailModal({
 
   const handleAddAlternative = (data) => {
     addAlternativeMutation.mutate(data);
+  };
+
+  const handleManualOverride = (requestId, dateTime) => {
+    manualOverrideMutation.mutate({ meetingRequestId: requestId, overrideDateTime: dateTime });
   };
 
   if (!request) return null;
@@ -330,6 +442,8 @@ export default function MeetingRequestDetailModal({
                       onResend={handleResend}
                       isResending={resendingId === req.id}
                       hasBookedRequest={hasBookedRequest}
+                      onManualOverride={handleManualOverride}
+                      isOverriding={manualOverrideMutation.isPending}
                     />
                   ))}
                 </div>
