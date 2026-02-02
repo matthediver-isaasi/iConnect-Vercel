@@ -12,7 +12,8 @@ export default function SignatureField({
   label = 'Signature'
 }) {
   const canvasRef = useRef(null);
-  const containerRef = useRef(null);
+  const canvasWrapperRef = useRef(null);
+  const cachedWidthRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(false);
   const [mode, setMode] = useState(() => {
@@ -28,20 +29,25 @@ export default function SignatureField({
     return '';
   });
 
-  const setupCanvas = useCallback(() => {
+  const setupCanvas = useCallback((forceWidthUpdate = false) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    const container = containerRef.current;
+    const container = canvasWrapperRef.current;
     if (!container) return;
     
-    const rect = container.getBoundingClientRect();
+    if (forceWidthUpdate || cachedWidthRef.current === null) {
+      const rect = container.getBoundingClientRect();
+      cachedWidthRef.current = rect.width;
+    }
+    
+    const width = cachedWidthRef.current;
     const dpr = window.devicePixelRatio || 1;
     
-    canvas.width = rect.width * dpr;
+    canvas.width = width * dpr;
     canvas.height = 150 * dpr;
-    canvas.style.width = `${rect.width}px`;
+    canvas.style.width = `${width}px`;
     canvas.style.height = '150px';
     
     ctx.scale(dpr, dpr);
@@ -52,50 +58,44 @@ export default function SignatureField({
   }, []);
 
   useEffect(() => {
-    setupCanvas();
+    setupCanvas(true);
     
-    if (value && canvasRef.current && containerRef.current) {
+    if (value && canvasRef.current && canvasWrapperRef.current) {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
-      const container = containerRef.current;
-      const rect = container.getBoundingClientRect();
+      const width = cachedWidthRef.current;
       
       const img = new Image();
       img.onload = () => {
-        ctx.drawImage(img, 0, 0, rect.width, 150);
+        ctx.drawImage(img, 0, 0, width, 150);
         setHasSignature(true);
       };
       img.src = value.data || value;
     }
 
-    window.addEventListener('resize', setupCanvas);
-    return () => window.removeEventListener('resize', setupCanvas);
+    const handleResize = () => setupCanvas(true);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, [value, setupCanvas]);
 
   const renderTypedSignature = useCallback((name) => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container || !name.trim()) return;
+    if (!canvas || !name.trim() || cachedWidthRef.current === null) return;
 
     const ctx = canvas.getContext('2d');
-    const rect = container.getBoundingClientRect();
+    const width = cachedWidthRef.current;
     const dpr = window.devicePixelRatio || 1;
     
-    canvas.width = rect.width * dpr;
-    canvas.height = 150 * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = '150px';
-    
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
-    
-    ctx.clearRect(0, 0, rect.width, 150);
+    ctx.clearRect(0, 0, width, 150);
     
     ctx.fillStyle = '#1e293b';
     ctx.font = '48px "Caveat", cursive';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    ctx.fillText(name, rect.width / 2, 75);
+    ctx.fillText(name, width / 2, 75);
     
     setHasSignature(true);
     
@@ -182,10 +182,9 @@ export default function SignatureField({
   const clearSignature = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    const container = containerRef.current;
     
-    if (container) {
-      ctx.clearRect(0, 0, container.getBoundingClientRect().width, 150);
+    if (cachedWidthRef.current !== null) {
+      ctx.clearRect(0, 0, cachedWidthRef.current, 150);
     }
     
     setHasSignature(false);
@@ -214,7 +213,7 @@ export default function SignatureField({
   };
 
   return (
-    <div className="space-y-3" ref={containerRef}>
+    <div className="space-y-3 w-full max-w-full">
       {!disabled && (
         <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
           <Button
@@ -252,13 +251,15 @@ export default function SignatureField({
       )}
       
       <div 
-        className={`relative border-2 rounded-lg overflow-hidden ${
+        ref={canvasWrapperRef}
+        className={`relative border-2 rounded-lg overflow-hidden h-[150px] w-full ${
           disabled ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : mode === 'draw' ? 'bg-white dark:bg-slate-900 cursor-crosshair' : 'bg-white dark:bg-slate-900'
         } ${hasSignature ? 'border-green-300 dark:border-green-700' : 'border-slate-300 dark:border-slate-600'}`}
       >
         <canvas
           ref={canvasRef}
-          className="touch-none"
+          className="touch-none w-full"
+          style={{ height: '150px' }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
