@@ -339,36 +339,48 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
         const formIds = forms.map(f => f.id);
 
         // 1. Get MEMBERS who have EXPLICITLY subscribed to the linked categories
-        // (members who have is_subscribed=true in member_communication_preference for these categories)
+        // Use a JOIN query to avoid .in() with thousands of IDs (which breaks with URL length limits)
         if (categoryIds.length > 0) {
-          // Get members who have explicitly opted-in to these categories (via form submission or otherwise)
-          const { data: memberPrefs } = await supabase
+          // Use member_communication_preference as base and join to member via !inner
+          // This fetches all subscribed members in a single efficient query
+          const { data: subscribedPrefs, error: prefError } = await supabase
             .from('member_communication_preference')
-            .select('member_id')
+            .select(`
+              member_id,
+              member!inner (
+                id,
+                email,
+                first_name,
+                last_name,
+                tenant_id,
+                communications_opted_out_all
+              )
+            `)
             .in('category_id', categoryIds)
-            .eq('is_subscribed', true);
+            .eq('is_subscribed', true)
+            .eq('member.tenant_id', tenantId)
+            .eq('member.communications_opted_out_all', false);
 
-          const subscribedMemberIds = [...new Set((memberPrefs || []).map(p => p.member_id))];
+          if (prefError) {
+            console.error('[CampaignService] Error fetching member subscriptions:', prefError);
+          }
 
-          if (subscribedMemberIds.length > 0) {
-            // Fetch full member details for opted-in members
-            const { data: subscribedMembers } = await supabase
-              .from('member')
-              .select('id, email, first_name, last_name, communications_opted_out_all')
-              .eq('tenant_id', tenantId)
-              .in('id', subscribedMemberIds)
-              .eq('communications_opted_out_all', false);
-
-            // Filter to only those with email and not globally opted-out
-            const validMembers = (subscribedMembers || []).filter(m => m.email);
-
-            recipients = validMembers.map(m => ({
-              id: m.id,
-              member_id: m.id,
-              email: m.email,
-              first_name: m.first_name,
-              last_name: m.last_name
-            }));
+          if (subscribedPrefs && subscribedPrefs.length > 0) {
+            // Extract unique members (a member might be subscribed to multiple categories)
+            const memberMap = new Map();
+            for (const pref of subscribedPrefs) {
+              const m = pref.member;
+              if (m && m.email && !memberMap.has(m.id)) {
+                memberMap.set(m.id, {
+                  id: m.id,
+                  member_id: m.id,
+                  email: m.email,
+                  first_name: m.first_name,
+                  last_name: m.last_name
+                });
+              }
+            }
+            recipients = Array.from(memberMap.values());
           }
         }
 
