@@ -1,9 +1,15 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Check, User, Loader2, Send, Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Calendar, Clock, Check, User, Loader2, Send, Info, Settings } from "lucide-react";
+import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/components/ui/use-toast";
 import MeetingRequestDetailModal from "./MeetingRequestDetailModal";
 
 const STATUS_CONFIG = {
@@ -14,16 +20,28 @@ const STATUS_CONFIG = {
   not_sent: { label: 'Not sent', color: '#94a3b8', icon: Send }
 };
 
-function MeetingRequestItem({ request, onClick }) {
+function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBookedRequest }) {
+  const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  const [overrideDateTime, setOverrideDateTime] = useState('');
+  
   const statusConfig = STATUS_CONFIG[request.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const recipientName = [request.recipient_first_name, request.recipient_last_name].filter(Boolean).join(' ') || request.recipient_email;
   const agentName = request.agent ? 
     [request.agent.first_name, request.agent.last_name].filter(Boolean).join(' ') : 'Unknown Agent';
+  const canOverride = request.status === 'pending' && !hasBookedRequest;
+  const isBooked = request.status === 'booked';
   
+  const handleOverrideSubmit = () => {
+    if (!overrideDateTime) return;
+    onOverride(request.id, overrideDateTime);
+    setIsOverrideOpen(false);
+    setOverrideDateTime('');
+  };
+
   return (
     <div 
-      className="flex items-center gap-3 p-3 rounded-lg border hover-elevate cursor-pointer"
+      className={`flex items-center gap-3 p-3 rounded-lg border hover-elevate cursor-pointer ${isBooked ? 'border-green-500 bg-green-50' : ''}`}
       data-testid={`meeting-request-item-${request.recipient_email}`}
       onClick={onClick}
     >
@@ -52,7 +70,80 @@ function MeetingRequestItem({ request, onClick }) {
             </span>
           )}
         </div>
+        {(request.booking || request.booked_at) && (
+          <p className="text-xs text-green-600 mt-1">
+            Booked: {format(new Date(request.booking?.starts_at || request.booked_at), 'MMM d, yyyy h:mm a')}
+            {request.manual_override && <span className="ml-1 text-muted-foreground">(manual)</span>}
+          </p>
+        )}
       </div>
+      {canOverride && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsOverrideOpen(true);
+          }}
+          className="flex-shrink-0"
+          data-testid={`button-override-${request.id}`}
+        >
+          <Settings className="w-4 h-4 mr-1" />
+          Override
+        </Button>
+      )}
+      
+      <Dialog open={isOverrideOpen} onOpenChange={(open) => {
+        setIsOverrideOpen(open);
+        if (!open) setOverrideDateTime('');
+      }}>
+        <DialogContent className="max-w-sm" data-testid="manual-override-dialog" onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Manual Override</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-muted-foreground">
+              Mark this meeting as booked with a specific date and time. This is for data migration purposes and will not trigger any workflow actions.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="override-datetime">Meeting Date & Time</Label>
+              <Input
+                id="override-datetime"
+                type="datetime-local"
+                value={overrideDateTime}
+                onChange={(e) => setOverrideDateTime(e.target.value)}
+                data-testid="input-override-datetime"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsOverrideOpen(false);
+                  setOverrideDateTime('');
+                }}
+                data-testid="button-cancel-override"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleOverrideSubmit}
+                disabled={!overrideDateTime || isOverriding}
+                data-testid="button-confirm-override"
+              >
+                {isOverriding ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4 mr-2" />
+                )}
+                Mark as Booked
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -100,6 +191,8 @@ function ConfiguredMeetingItem({ config }) {
 export default function MeetingRequestsCard({ formSubmissionId, formId }) {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   console.log('[MeetingRequestsCard] Props:', { formSubmissionId, formId });
 
@@ -124,6 +217,33 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
     queryFn: () => apiRequest('GET', `/api/dd-meeting-requests/configured-by-form?formId=${formId}`),
     enabled: !!formId
   });
+
+  const manualOverrideMutation = useMutation({
+    mutationFn: async ({ meetingRequestId, overrideDateTime }) => {
+      return apiRequest('POST', `/api/dd-meeting-requests/manual-override`, {
+        meetingRequestId,
+        overrideDateTime
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Meeting Marked as Booked",
+        description: "The meeting has been manually marked as booked.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/by-submission', formSubmissionId] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to override meeting request.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleManualOverride = (requestId, dateTime) => {
+    manualOverrideMutation.mutate({ meetingRequestId: requestId, overrideDateTime: dateTime });
+  };
 
   const requests = sentData?.requests || [];
   const configuredMeetings = configuredData?.configured_meetings || [];
@@ -189,6 +309,9 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
                   key={request.id}
                   request={request}
                   onClick={() => handleRequestClick(request)}
+                  onOverride={handleManualOverride}
+                  isOverriding={manualOverrideMutation.isPending}
+                  hasBookedRequest={hasBookedRequest}
                 />
               ))}
             </div>
