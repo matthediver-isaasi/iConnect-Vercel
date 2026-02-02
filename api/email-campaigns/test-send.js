@@ -118,7 +118,7 @@ export default async function handler(req, res) {
     html = rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug, requestHost);
 
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
-    const preferencesUrl = `${tenantBaseUrl}/api/email-preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
+    const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
     const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
     
     const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
