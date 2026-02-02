@@ -234,7 +234,6 @@ export default async function handler(req, res) {
         contract_instance_id: contractInstance.id,
         submission_data: fullSubmissionData,
         created_date: effectiveDateISO,
-        updated_date: new Date().toISOString(),
         status: 'submitted'
       })
       .select()
