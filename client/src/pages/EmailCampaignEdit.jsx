@@ -67,7 +67,15 @@ export default function EmailCampaignEdit() {
 
   useEffect(() => {
     if (campaign) {
-      const hasDesign = campaign.design_json && typeof campaign.design_json === 'object' && campaign.design_json.type;
+      let parsedDesign = campaign.design_json;
+      if (typeof parsedDesign === 'string') {
+        try {
+          parsedDesign = JSON.parse(parsedDesign);
+        } catch (e) {
+          parsedDesign = null;
+        }
+      }
+      const hasDesign = parsedDesign && typeof parsedDesign === 'object' && parsedDesign.type;
       setEditorMode(hasDesign ? 'visual' : (campaign.html_content ? 'html' : 'visual'));
       setFormData({
         name: campaign.name || '',
@@ -77,7 +85,7 @@ export default function EmailCampaignEdit() {
         reply_to: campaign.reply_to || '',
         email_template_id: campaign.email_template_id || '',
         html_content: campaign.html_content || '',
-        design_json: campaign.design_json || null,
+        design_json: parsedDesign || null,
         target_type: campaign.target_type || 'communication_category',
         target_ids: campaign.target_ids || [],
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
@@ -832,8 +840,8 @@ export default function EmailCampaignEdit() {
                     <Alert>
                       <AlertTriangle className="h-4 w-4" />
                       <AlertDescription>
-                        This campaign has visual editor data. Editing HTML directly will not update the visual design. 
-                        Switch back to Visual Builder to edit with drag-and-drop.
+                        This campaign has visual editor data saved. Changes you make here to the HTML will be used when sending, 
+                        but switching back to Visual Builder will restore your visual design (not the HTML edits you make here).
                       </AlertDescription>
                     </Alert>
                   )}
@@ -853,7 +861,7 @@ export default function EmailCampaignEdit() {
                     <TabsContent value="html" className="mt-3">
                       <textarea
                         value={formData.html_content}
-                        onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value, design_json: null }))}
+                        onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value }))}
                         placeholder="Enter raw HTML content..."
                         className="w-full min-h-[500px] p-4 font-mono text-sm border rounded-md bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
                         spellCheck={false}
