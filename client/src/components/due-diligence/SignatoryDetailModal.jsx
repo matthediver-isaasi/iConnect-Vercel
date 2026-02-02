@@ -413,7 +413,7 @@ export default function SignatoryDetailModal({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid="signatory-detail-modal">
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden" data-testid="signatory-detail-modal">
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-muted rounded-md">
@@ -426,8 +426,8 @@ export default function SignatoryDetailModal({
           </div>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 mt-4">
-          <div className="space-y-4 pr-4">
+        <ScrollArea className="flex-1 mt-4 min-h-0">
+          <div className="space-y-4 pr-4 overflow-hidden">
             {overrideSigner ? (
               <ManualContractOverrideForm
                 contractFormId={signatory?.contractFormId}

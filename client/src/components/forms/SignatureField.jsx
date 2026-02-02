@@ -40,7 +40,7 @@ export default function SignatureField({
     
     if (forceWidthUpdate || cachedWidthRef.current === null) {
       const rect = container.getBoundingClientRect();
-      cachedWidthRef.current = rect.width;
+      cachedWidthRef.current = Math.max(rect.width, 200);
     }
     
     const width = cachedWidthRef.current;
@@ -48,8 +48,6 @@ export default function SignatureField({
     
     canvas.width = width * dpr;
     canvas.height = 150 * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = '150px';
     
     ctx.scale(dpr, dpr);
     ctx.lineCap = 'round';
@@ -214,7 +212,7 @@ export default function SignatureField({
   };
 
   return (
-    <div className="space-y-3 w-full max-w-full">
+    <div className="space-y-3 w-full max-w-full overflow-hidden">
       {!disabled && (
         <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
           <Button
@@ -256,11 +254,12 @@ export default function SignatureField({
         className={`relative border-2 rounded-lg overflow-hidden h-[150px] w-full ${
           disabled ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : mode === 'draw' ? 'bg-white dark:bg-slate-900 cursor-crosshair' : 'bg-white dark:bg-slate-900'
         } ${hasSignature ? 'border-green-300 dark:border-green-700' : 'border-slate-300 dark:border-slate-600'}`}
+        style={{ contain: 'inline-size' }}
       >
         <canvas
           ref={canvasRef}
-          className="touch-none w-full"
-          style={{ height: '150px' }}
+          className="touch-none block"
+          style={{ width: '100%', height: '150px' }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
