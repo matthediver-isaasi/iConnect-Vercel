@@ -8,11 +8,12 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
-  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink, Eye
+  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink, Eye, FileEdit
 } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/components/ui/use-toast";
+import ManualContractOverrideForm from "./ManualContractOverrideForm";
 
 const STATUS_CONFIG = {
   not_sent: { label: 'Not Sent', color: '#6b7280', bgColor: '#f3f4f6', icon: Clock },
@@ -23,7 +24,7 @@ const STATUS_CONFIG = {
   expired: { label: 'Expired', color: '#ef4444', bgColor: '#fee2e2', icon: AlertCircle }
 };
 
-function SignerRow({ signer, onSend, onDownload, isSending, isDownloading, isFieldSigned, isLegacyAmbiguous }) {
+function SignerRow({ signer, onSend, onDownload, onManualOverride, isSending, isDownloading, isFieldSigned, isLegacyAmbiguous }) {
   const statusConfig = STATUS_CONFIG[signer.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const fullName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Unknown';
@@ -31,6 +32,7 @@ function SignerRow({ signer, onSend, onDownload, isSending, isDownloading, isFie
   const isNotSent = signer.status === 'not_sent' || signer.status === 'draft';
   const hasValidEmail = !!signer.email;
   const canSend = !isFieldSigned && !isLegacyAmbiguous && !isWinner && hasValidEmail;
+  const canManualOverride = !isFieldSigned && !isLegacyAmbiguous && !isWinner && hasValidEmail;
   const buttonLabel = isNotSent ? 'Send' : 'Resend';
   const canDownload = isWinner && signer.submission_id;
   
@@ -74,6 +76,18 @@ function SignerRow({ signer, onSend, onDownload, isSending, isDownloading, isFie
           ) : (
             <Eye className="w-4 h-4" />
           )}
+        </Button>
+      )}
+      {canManualOverride && (
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => onManualOverride(signer)}
+          className="flex-shrink-0 text-amber-600 hover:text-amber-700"
+          title="Manual Override - Enter contract details manually"
+          data-testid={`button-manual-override-${signer.email}`}
+        >
+          <FileEdit className="w-4 h-4" />
         </Button>
       )}
       {canSend ? (
@@ -213,6 +227,7 @@ export default function SignatoryDetailModal({
   const [sendingEmail, setSendingEmail] = useState(null);
   const [downloadingSubmissionId, setDownloadingSubmissionId] = useState(null);
   const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: null, fileName: null });
+  const [overrideSigner, setOverrideSigner] = useState(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -279,6 +294,38 @@ export default function SignatoryDetailModal({
     }
   });
 
+  const manualOverrideMutation = useMutation({
+    mutationFn: async ({ signer, submissionData, overrideDate }) => {
+      return apiRequest('POST', `/api/contracts/manual-override`, {
+        formSubmissionId,
+        fieldId: signatory?.fieldId,
+        contractFormId: signatory?.contractFormId,
+        signer: {
+          firstName: signer.firstName,
+          lastName: signer.lastName,
+          email: signer.email
+        },
+        submissionData,
+        overrideDate
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Manual Override Complete",
+        description: "The contract has been marked as signed with the provided details.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/contracts/by-submission', formSubmissionId] });
+      setOverrideSigner(null);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save manual override.",
+        variant: "destructive",
+      });
+    }
+  });
+
   const handleSend = (signer) => {
     setSendingEmail(signer.email);
     sendMutation.mutate(signer);
@@ -286,6 +333,22 @@ export default function SignatoryDetailModal({
 
   const handleAddSigner = (newSigner) => {
     addSignerMutation.mutate(newSigner);
+  };
+
+  const handleManualOverride = (signer) => {
+    setOverrideSigner(signer);
+  };
+
+  const handleManualOverrideSubmit = ({ submissionData, overrideDate }) => {
+    manualOverrideMutation.mutate({
+      signer: overrideSigner,
+      submissionData,
+      overrideDate
+    });
+  };
+
+  const handleCancelOverride = () => {
+    setOverrideSigner(null);
   };
 
   const handleDownload = async (submissionId) => {
@@ -340,9 +403,16 @@ export default function SignatoryDetailModal({
   const statusConfig = STATUS_CONFIG[signatory.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
 
+  const handleClose = (open) => {
+    if (!open) {
+      setOverrideSigner(null);
+    }
+    onClose(open);
+  };
+
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid="signatory-detail-modal">
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -358,46 +428,59 @@ export default function SignatoryDetailModal({
 
         <ScrollArea className="flex-1 mt-4">
           <div className="space-y-4 pr-4">
-            <div>
-              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                <User className="w-4 h-4" />
-                Signers
-              </h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                The first person to sign this document wins. All others will be locked out.
-              </p>
-              
-              {fieldSignerHistory.length > 0 ? (
-                <div className="space-y-2">
-                  {fieldSignerHistory.map((signer, index) => (
-                    <SignerRow 
-                      key={`${signer.contractId || 'no-contract'}-${signer.email}-${index}`}
-                      signer={signer}
-                      onSend={handleSend}
-                      onDownload={handleDownload}
-                      isSending={sendingEmail === signer.email}
-                      isDownloading={downloadingSubmissionId === signer.submission_id}
-                      isFieldSigned={isFieldSigned}
-                      isLegacyAmbiguous={isLegacyAmbiguous}
-                    />
-                  ))}
+            {overrideSigner ? (
+              <ManualContractOverrideForm
+                contractFormId={signatory?.contractFormId}
+                signer={overrideSigner}
+                onSubmit={handleManualOverrideSubmit}
+                onCancel={handleCancelOverride}
+                isSubmitting={manualOverrideMutation.isPending}
+              />
+            ) : (
+              <>
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <User className="w-4 h-4" />
+                    Signers
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    The first person to sign this document wins. All others will be locked out.
+                  </p>
+                  
+                  {fieldSignerHistory.length > 0 ? (
+                    <div className="space-y-2">
+                      {fieldSignerHistory.map((signer, index) => (
+                        <SignerRow 
+                          key={`${signer.contractId || 'no-contract'}-${signer.email}-${index}`}
+                          signer={signer}
+                          onSend={handleSend}
+                          onDownload={handleDownload}
+                          onManualOverride={handleManualOverride}
+                          isSending={sendingEmail === signer.email}
+                          isDownloading={downloadingSubmissionId === signer.submission_id}
+                          isFieldSigned={isFieldSigned}
+                          isLegacyAmbiguous={isLegacyAmbiguous}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-muted-foreground border rounded-lg">
+                      <User className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No signers have been added yet</p>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="text-center py-6 text-muted-foreground border rounded-lg">
-                  <User className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No signers have been added yet</p>
-                </div>
-              )}
-            </div>
 
-            <Separator />
+                <Separator />
 
-            <AddAlternativeSignerForm 
-              onSubmit={handleAddSigner}
-              isSubmitting={addSignerMutation.isPending}
-              isDisabled={isFieldSigned}
-              isLegacyAmbiguous={isLegacyAmbiguous}
-            />
+                <AddAlternativeSignerForm 
+                  onSubmit={handleAddSigner}
+                  isSubmitting={addSignerMutation.isPending}
+                  isDisabled={isFieldSigned}
+                  isLegacyAmbiguous={isLegacyAmbiguous}
+                />
+              </>
+            )}
           </div>
         </ScrollArea>
       </DialogContent>
