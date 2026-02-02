@@ -45,7 +45,7 @@ export default async function handler(req, res) {
   try {
     const { data: formSubmission, error: fsError } = await supabase
       .from('form_submission')
-      .select('id, form_values, email')
+      .select('id, submission_data')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantContext.tenantId)
       .single();
@@ -55,10 +55,10 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Form submission not found' });
     }
 
-    const formValues = formSubmission.form_values || {};
-    const fallbackEmail = recipientEmail || formSubmission.email || formValues.email || 'migrated@manual-override.local';
-    const fallbackFirstName = recipientFirstName || formValues.first_name || formValues.firstName || null;
-    const fallbackLastName = recipientLastName || formValues.last_name || formValues.lastName || null;
+    const submissionData = formSubmission.submission_data || {};
+    const fallbackEmail = recipientEmail || submissionData.email || submissionData.Email || 'migrated@manual-override.local';
+    const fallbackFirstName = recipientFirstName || submissionData.first_name || submissionData.firstName || submissionData.First_Name || null;
+    const fallbackLastName = recipientLastName || submissionData.last_name || submissionData.lastName || submissionData.Last_Name || null;
 
     const { data: meetingTemplate, error: templateError } = await supabase
       .from('meeting_template')
