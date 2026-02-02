@@ -119,12 +119,17 @@ export default async function handler(req, res) {
 
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
     const preferencesUrl = `${tenantBaseUrl}/api/email-preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
-    if (!html.includes('{{unsubscribe_url}}')) {
+    const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
+    
+    const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
+    
+    html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
+    html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
+    
+    if (!hasUnsubscribePlaceholder) {
       html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
         <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
       </p>`;
-    } else {
-      html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
     }
 
     const result = await sendEmail({
