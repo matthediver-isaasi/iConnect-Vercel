@@ -47,19 +47,85 @@ export default async function handler(req, res) {
       .single();
 
     const tenantSlug = tenant?.slug || '';
-    const testRecipientId = 'test-' + Date.now();
+
+    let recipientId;
+    let recipientMember = null;
+
+    const { data: memberResults, error: memberError } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, email')
+      .eq('tenant_id', tenantId)
+      .eq('email', emailToUse)
+      .limit(1);
+
+    if (memberError) {
+      console.error('[Test Send] Member lookup error:', memberError);
+      return res.status(500).json({ 
+        error: 'Failed to verify recipient. Please try again.' 
+      });
+    }
+
+    const existingMember = memberResults && memberResults.length > 0 ? memberResults[0] : null;
+
+    if (existingMember) {
+      recipientMember = existingMember;
+      
+      const { data: existingRecipients, error: recipientLookupError } = await supabase
+        .from('email_campaign_recipient')
+        .select('id')
+        .eq('campaign_id', campaignId)
+        .eq('member_id', existingMember.id)
+        .limit(1);
+
+      if (recipientLookupError) {
+        console.error('[Test Send] Recipient lookup error:', recipientLookupError);
+        return res.status(500).json({ 
+          error: 'Failed to check recipient status. Please try again.' 
+        });
+      }
+
+      if (existingRecipients && existingRecipients.length > 0) {
+        recipientId = existingRecipients[0].id;
+      } else {
+        const { data: newRecipient, error: insertError } = await supabase
+          .from('email_campaign_recipient')
+          .insert({
+            campaign_id: campaignId,
+            member_id: existingMember.id,
+            email: emailToUse,
+            first_name: existingMember.first_name,
+            last_name: existingMember.last_name,
+            status: 'test'
+          })
+          .select('id')
+          .single();
+
+        if (insertError) {
+          console.error('[Test Send] Failed to create recipient record:', insertError);
+          return res.status(500).json({ 
+            error: 'Failed to create test recipient record. Please try again.' 
+          });
+        }
+        recipientId = newRecipient.id;
+      }
+    } else {
+      recipientId = 'test-' + Date.now();
+    }
+
+    const firstName = recipientMember?.first_name || member?.first_name || 'Test';
+    const lastName = recipientMember?.last_name || member?.last_name || 'User';
 
     let html = campaign.html_content || '';
     let subject = `[TEST] ${campaign.subject || 'No Subject'}`;
 
-    html = html.replace(/\{\{first_name\}\}/gi, member?.first_name || 'Test');
-    html = html.replace(/\{\{last_name\}\}/gi, member?.last_name || 'User');
+    html = html.replace(/\{\{first_name\}\}/gi, firstName);
+    html = html.replace(/\{\{last_name\}\}/gi, lastName);
     html = html.replace(/\{\{email\}\}/gi, emailToUse);
 
-    html = rewriteLinksForTracking(html, campaignId, testRecipientId, tenantSlug);
+    html = rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug);
 
     const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
-    const unsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, testRecipientId, 0)}`;
+    const unsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
     if (!html.includes('{{unsubscribe_url}}')) {
       html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
         <a href="${unsubscribeUrl}" style="color: #666;">Unsubscribe from these emails</a>
