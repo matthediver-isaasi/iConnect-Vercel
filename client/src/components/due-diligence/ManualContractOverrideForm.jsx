@@ -132,10 +132,10 @@ export default function ManualContractOverrideForm({
         </p>
       </div>
 
-      <div className="border rounded-lg p-4 bg-muted/30 overflow-hidden">
+      <div className="border rounded-lg p-4 bg-muted/30">
         <h5 className="text-sm font-medium mb-4">Contract Fields</h5>
-        <ScrollArea className="max-h-[300px] pr-3">
-          <div className="space-y-4 overflow-hidden">
+        <ScrollArea className="h-[300px]">
+          <div className="space-y-4 pr-4">
             {renderableFields.length > 0 ? (
               renderableFields.map((field) => (
                 <FormRenderer
