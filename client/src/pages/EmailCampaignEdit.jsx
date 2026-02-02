@@ -16,7 +16,7 @@ import {
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 
-const EasyEmailEditor = lazy(() => import('@/components/EasyEmailEditor'));
+const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
 
 export default function EmailCampaignEdit() {
   const navigate = useNavigate();
@@ -76,7 +76,8 @@ export default function EmailCampaignEdit() {
           parsedDesign = null;
         }
       }
-      const hasDesign = parsedDesign && typeof parsedDesign === 'object' && parsedDesign.type;
+      const hasDesign = parsedDesign && typeof parsedDesign === 'object' && 
+        (parsedDesign.type === 'custom-email-builder' || Array.isArray(parsedDesign.blocks));
       setEditorMode(hasDesign ? 'visual' : (campaign.html_content ? 'html' : 'visual'));
       setFormData({
         name: campaign.name || '',
@@ -1114,7 +1115,7 @@ export default function EmailCampaignEdit() {
                   <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                 </div>
               }>
-                <EasyEmailEditor
+                <EmailBuilder
                   initialDesign={formData.design_json}
                   onChange={({ design, html }) => {
                     setFormData(prev => ({
