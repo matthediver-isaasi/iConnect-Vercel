@@ -339,49 +339,61 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
         const formIds = forms.map(f => f.id);
 
         // 1. Get MEMBERS who have EXPLICITLY subscribed to the linked categories
-        // Use a JOIN query to avoid .in() with thousands of IDs (which breaks with URL length limits)
+        // Use a JOIN query with pagination to handle large datasets
         if (categoryIds.length > 0) {
-          // Use member_communication_preference as base and join to member via !inner
-          // This fetches all subscribed members in a single efficient query
-          const { data: subscribedPrefs, error: prefError } = await supabase
-            .from('member_communication_preference')
-            .select(`
-              member_id,
-              member!inner (
-                id,
-                email,
-                first_name,
-                last_name,
-                tenant_id,
-                communications_opted_out_all
-              )
-            `)
-            .in('category_id', categoryIds)
-            .eq('is_subscribed', true)
-            .eq('member.tenant_id', tenantId)
-            .eq('member.communications_opted_out_all', false);
+          const memberMap = new Map();
+          const PAGE_SIZE = 1000;
+          let offset = 0;
+          let hasMore = true;
 
-          if (prefError) {
-            console.error('[CampaignService] Error fetching member subscriptions:', prefError);
-          }
+          while (hasMore) {
+            const { data: subscribedPrefs, error: prefError } = await supabase
+              .from('member_communication_preference')
+              .select(`
+                member_id,
+                member!inner (
+                  id,
+                  email,
+                  first_name,
+                  last_name,
+                  tenant_id,
+                  communications_opted_out_all
+                )
+              `)
+              .in('category_id', categoryIds)
+              .eq('is_subscribed', true)
+              .eq('member.tenant_id', tenantId)
+              .eq('member.communications_opted_out_all', false)
+              .range(offset, offset + PAGE_SIZE - 1);
 
-          if (subscribedPrefs && subscribedPrefs.length > 0) {
-            // Extract unique members (a member might be subscribed to multiple categories)
-            const memberMap = new Map();
-            for (const pref of subscribedPrefs) {
-              const m = pref.member;
-              if (m && m.email && !memberMap.has(m.id)) {
-                memberMap.set(m.id, {
-                  id: m.id,
-                  member_id: m.id,
-                  email: m.email,
-                  first_name: m.first_name,
-                  last_name: m.last_name
-                });
+            if (prefError) {
+              console.error('[CampaignService] Error fetching member subscriptions:', prefError);
+              break;
+            }
+
+            if (subscribedPrefs && subscribedPrefs.length > 0) {
+              // Extract unique members (a member might be subscribed to multiple categories)
+              for (const pref of subscribedPrefs) {
+                const m = pref.member;
+                if (m && m.email && !memberMap.has(m.id)) {
+                  memberMap.set(m.id, {
+                    id: m.id,
+                    member_id: m.id,
+                    email: m.email,
+                    first_name: m.first_name,
+                    last_name: m.last_name
+                  });
+                }
               }
             }
-            recipients = Array.from(memberMap.values());
+
+            // Check if we got a full page (more records might exist)
+            hasMore = subscribedPrefs && subscribedPrefs.length === PAGE_SIZE;
+            offset += PAGE_SIZE;
           }
+
+          recipients = Array.from(memberMap.values());
+          console.log(`[CampaignService] Found ${recipients.length} subscribed members for form targeting`);
         }
 
         // 2. Get NON-MEMBERS from email_subscriber who are subscribed to these categories/forms
