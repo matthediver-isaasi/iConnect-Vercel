@@ -112,6 +112,7 @@ function TextBlockPreview({ block }) {
       style={{
         fontSize: block.styles.fontSize,
         fontWeight: block.styles.fontWeight,
+        fontFamily: block.styles.fontFamily || 'inherit',
         color: block.styles.color,
         textAlign: block.styles.textAlign,
         lineHeight: block.styles.lineHeight,

@@ -23,6 +23,18 @@ import GlobalSettings from './GlobalSettings';
 import { BLOCK_TYPES, createBlock, defaultEmailDesign } from './types';
 import { designToHtml } from './mjmlConverter';
 
+const GOOGLE_FONTS_LINK = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&family=Montserrat:wght@400;700&family=Poppins:wght@400;700&family=Raleway:wght@400;700&family=Oswald:wght@400;700&family=Playfair+Display:wght@400;700&family=Merriweather:wght@400;700&family=Source+Sans+Pro:wght@400;700&display=swap';
+
+const loadGoogleFonts = () => {
+  if (typeof document !== 'undefined' && !document.getElementById('email-builder-google-fonts')) {
+    const link = document.createElement('link');
+    link.id = 'email-builder-google-fonts';
+    link.rel = 'stylesheet';
+    link.href = GOOGLE_FONTS_LINK;
+    document.head.appendChild(link);
+  }
+};
+
 export default function EmailBuilder({ 
   initialDesign, 
   onChange, 
@@ -76,6 +88,7 @@ export default function EmailBuilder({
   }, [onChange]);
 
   useEffect(() => {
+    loadGoogleFonts();
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);

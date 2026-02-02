@@ -14,9 +14,11 @@ const escapeHtml = (text) => {
 const childBlockToMjml = (block) => {
   switch (block.type) {
     case BLOCK_TYPES.TEXT:
+      const childFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
       return `<mj-text 
         font-size="${block.styles.fontSize || '14px'}"
         font-weight="${block.styles.fontWeight || 'normal'}"
+        ${childFontFamily}
         color="${block.styles.color || '#333333'}"
         align="${block.styles.textAlign || 'left'}"
         line-height="${block.styles.lineHeight || '1.5'}"
@@ -74,12 +76,14 @@ const blockToMjml = (block) => {
         </mj-section>
       `;
     case BLOCK_TYPES.TEXT:
+      const textFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
       return `
         <mj-section padding="${block.styles.padding || '10px 20px'}">
           <mj-column>
             <mj-text 
               font-size="${block.styles.fontSize || '14px'}"
               font-weight="${block.styles.fontWeight || 'normal'}"
+              ${textFontFamily}
               color="${block.styles.color || '#333333'}"
               align="${block.styles.textAlign || 'left'}"
               line-height="${block.styles.lineHeight || '1.5'}"
@@ -157,8 +161,10 @@ const blockToMjml = (block) => {
       const columnsContent = block.columns.map(col => {
         const colBlocks = col.blocks.map(b => {
           if (b.type === BLOCK_TYPES.TEXT) {
+            const colFontFamily = b.styles.fontFamily ? `font-family="${b.styles.fontFamily}"` : '';
             return `<mj-text 
               font-size="${b.styles.fontSize || '14px'}"
+              ${colFontFamily}
               color="${b.styles.color || '#333333'}"
               align="${b.styles.textAlign || 'left'}"
             >${b.content}</mj-text>`;
@@ -180,14 +186,55 @@ const blockToMjml = (block) => {
   }
 };
 
+const GOOGLE_FONTS = {
+  'Roboto': 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap',
+  'Open Sans': 'https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&display=swap',
+  'Lato': 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap',
+  'Montserrat': 'https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap',
+  'Poppins': 'https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap',
+  'Raleway': 'https://fonts.googleapis.com/css2?family=Raleway:wght@400;700&display=swap',
+  'Oswald': 'https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&display=swap',
+  'Playfair Display': 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&display=swap',
+  'Merriweather': 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap',
+  'Source Sans Pro': 'https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;700&display=swap',
+};
+
+const collectUsedFonts = (blocks) => {
+  const usedFonts = new Set();
+  
+  const checkBlock = (block) => {
+    if (block.type === BLOCK_TYPES.TEXT && block.styles?.fontFamily) {
+      const fontName = block.styles.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
+      if (GOOGLE_FONTS[fontName]) {
+        usedFonts.add(fontName);
+      }
+    }
+    if (block.children) {
+      block.children.forEach(checkBlock);
+    }
+    if (block.columns) {
+      block.columns.forEach(col => col.blocks?.forEach(checkBlock));
+    }
+  };
+  
+  blocks.forEach(checkBlock);
+  return usedFonts;
+};
+
 export const designToMjml = (design) => {
   const { blocks = [], globalStyles = {} } = design;
+  
+  const usedFonts = collectUsedFonts(blocks);
+  const fontImports = Array.from(usedFonts)
+    .map(font => `<mj-font name="${font}" href="${GOOGLE_FONTS[font]}" />`)
+    .join('\n        ');
   
   const mjmlBlocks = blocks.map(blockToMjml).join('\n');
   
   return `
     <mjml>
       <mj-head>
+        ${fontImports}
         <mj-attributes>
           <mj-all font-family="${globalStyles.fontFamily || 'Arial, sans-serif'}" />
           <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}" />

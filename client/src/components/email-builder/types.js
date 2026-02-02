@@ -34,6 +34,7 @@ export const createBlock = (type, props = {}) => {
         styles: {
           fontSize: '14px',
           fontWeight: 'normal',
+          fontFamily: '',
           color: '#333333',
           textAlign: 'left',
           padding: '10px 20px',

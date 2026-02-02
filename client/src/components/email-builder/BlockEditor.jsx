@@ -24,6 +24,24 @@ import {
 } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 
+const GOOGLE_FONT_OPTIONS = [
+  { value: '', label: 'Default (inherit)' },
+  { value: "'Roboto', sans-serif", label: 'Roboto' },
+  { value: "'Open Sans', sans-serif", label: 'Open Sans' },
+  { value: "'Lato', sans-serif", label: 'Lato' },
+  { value: "'Montserrat', sans-serif", label: 'Montserrat' },
+  { value: "'Poppins', sans-serif", label: 'Poppins' },
+  { value: "'Raleway', sans-serif", label: 'Raleway' },
+  { value: "'Oswald', sans-serif", label: 'Oswald' },
+  { value: "'Playfair Display', serif", label: 'Playfair Display' },
+  { value: "'Merriweather', serif", label: 'Merriweather' },
+  { value: "'Source Sans Pro', sans-serif", label: 'Source Sans Pro' },
+  { value: "Arial, sans-serif", label: 'Arial' },
+  { value: "Georgia, serif", label: 'Georgia' },
+  { value: "'Times New Roman', serif", label: 'Times New Roman' },
+  { value: "Verdana, sans-serif", label: 'Verdana' },
+];
+
 function TextBlockEditor({ block, onChange }) {
   const update = (key, value) => {
     if (key === 'content') {
@@ -46,6 +64,31 @@ function TextBlockEditor({ block, onChange }) {
         />
         <p className="text-xs text-muted-foreground">
           Supports: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label>Font Family</Label>
+        <Select 
+          value={block.styles.fontFamily || '__default__'} 
+          onValueChange={(v) => update('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="editor-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem 
+                key={font.value || '__default__'} 
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Google Fonts work in Gmail, Apple Mail, iOS. Outlook uses fallback.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
