@@ -517,13 +517,13 @@ export async function sendCampaign(campaignId, tenantId) {
         html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug);
 
         const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
-        const unsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
+        const preferencesUrl = `${tenantBaseUrl}/api/email-campaigns/preferences?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
         if (!html.includes('{{unsubscribe_url}}')) {
           html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
-            <a href="${unsubscribeUrl}" style="color: #666;">Unsubscribe from these emails</a>
+            <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
           </p>`;
         } else {
-          html = html.replace(/\{\{unsubscribe_url\}\}/gi, unsubscribeUrl);
+          html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
         }
 
         const result = await sendEmail({
