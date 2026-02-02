@@ -29,7 +29,7 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
   const recipientName = [request.recipient_first_name, request.recipient_last_name].filter(Boolean).join(' ') || request.recipient_email;
   const agentName = request.agent ? 
     [request.agent.first_name, request.agent.last_name].filter(Boolean).join(' ') : 'Unknown Agent';
-  const canOverride = request.status === 'pending' && !hasBookedRequest;
+  const canOverride = (request.status === 'pending' || request.status === 'not_sent') && !hasBookedRequest;
   const isBooked = request.status === 'booked';
   
   const handleOverrideSubmit = () => {
