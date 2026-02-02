@@ -789,10 +789,14 @@ export default function EmailCampaignEdit() {
 
             <div className="space-y-2">
               <Tabs value={editorTab} onValueChange={setEditorTab} className="w-full">
-                <TabsList className="w-full grid grid-cols-2">
+                <TabsList className="w-full grid grid-cols-3">
                   <TabsTrigger value="editor" className="flex items-center gap-2">
                     <Pencil className="w-4 h-4" />
                     Editor
+                  </TabsTrigger>
+                  <TabsTrigger value="html" className="flex items-center gap-2">
+                    <Code className="w-4 h-4" />
+                    HTML
                   </TabsTrigger>
                   <TabsTrigger value="preview" className="flex items-center gap-2">
                     <Eye className="w-4 h-4" />
@@ -814,7 +818,21 @@ export default function EmailCampaignEdit() {
                     />
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_url}}'}
+                    Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_link}}'}
+                  </p>
+                </TabsContent>
+                
+                <TabsContent value="html" className="mt-3">
+                  <textarea
+                    value={formData.html_content}
+                    onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value }))}
+                    placeholder="Enter raw HTML content..."
+                    className="w-full min-h-[400px] p-4 font-mono text-sm border rounded-md bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                    spellCheck={false}
+                    data-testid="textarea-html-content"
+                  />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_link}}'}
                   </p>
                 </TabsContent>
                 
