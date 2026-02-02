@@ -109,6 +109,7 @@ import NavigationManagement from "./NavigationManagement";
 
 import Preferences from "./Preferences";
 
+import EmailPreferences from "./EmailPreferences";
 
 import PublicArticles from "./PublicArticles";
 
@@ -921,6 +922,7 @@ function StandaloneRoutes() {
             <Route path="/embed/alternative-signer" element={<EmbedAlternativeSigner />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
+            <Route path="/email-preferences" element={<EmailPreferences />} />
         </Routes>
     );
 }
@@ -994,7 +996,7 @@ function AppRoutes() {
         return <SaasRoutes />;
     }
     
-    const standalonePages = ['/signup', '/register'];
+    const standalonePages = ['/signup', '/register', '/email-preferences'];
     const isStandalonePage = standalonePages.some(path => 
         location.pathname.toLowerCase() === path.toLowerCase()
     );

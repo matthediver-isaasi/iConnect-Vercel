@@ -14,18 +14,18 @@ export default async function handler(req, res) {
   const { t: token } = req.query;
 
   if (!token) {
-    return res.status(400).send(renderPage('error', { message: 'Invalid link' }));
+    return res.status(400).json({ success: false, error: 'Invalid link' });
   }
 
   const tokenData = decodeTrackingToken(token);
   if (!tokenData) {
-    return res.status(400).send(renderPage('error', { message: 'Invalid link' }));
+    return res.status(400).json({ success: false, error: 'Invalid link' });
   }
 
   const { campaignId, recipientId } = tokenData;
 
   if (!supabase) {
-    return res.status(500).send(renderPage('error', { message: 'Service temporarily unavailable' }));
+    return res.status(500).json({ success: false, error: 'Service temporarily unavailable' });
   }
 
   try {
@@ -36,11 +36,11 @@ export default async function handler(req, res) {
       .single();
 
     if (recipientError || !recipient) {
-      return res.status(400).send(renderPage('error', { message: 'Invalid or expired link' }));
+      return res.status(400).json({ success: false, error: 'Invalid or expired link' });
     }
 
     if (recipient.campaign_id !== campaignId) {
-      return res.status(400).send(renderPage('error', { message: 'Invalid link' }));
+      return res.status(400).json({ success: false, error: 'Invalid link' });
     }
 
     const { data: campaign } = await supabase
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
       .single();
 
     if (!campaign) {
-      return res.status(400).send(renderPage('error', { message: 'Campaign not found' }));
+      return res.status(400).json({ success: false, error: 'Campaign not found' });
     }
 
     const tenantId = campaign.tenant_id;
@@ -103,19 +103,28 @@ export default async function handler(req, res) {
       };
     });
 
-    return res.send(renderPage('preferences', {
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('id, slug')
+      .eq('id', tenantId)
+      .single();
+
+    return res.json({
+      success: true,
       token,
       email: recipient.email,
       firstName: member?.first_name || '',
+      lastName: member?.last_name || '',
       optedOutAll: member?.communications_opted_out_all || false,
       categories: categoriesWithStatus,
       campaignName: campaign.name,
-      isMember: !!member
-    }));
+      isMember: !!member,
+      tenantSlug: tenant?.slug || ''
+    });
 
   } catch (err) {
     console.error('[Preferences] Error:', err);
-    return res.status(500).send(renderPage('error', { message: 'An error occurred' }));
+    return res.status(500).json({ success: false, error: 'An error occurred' });
   }
 }
 
