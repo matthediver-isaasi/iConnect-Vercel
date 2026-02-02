@@ -1,5 +1,6 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { sendCampaign, getTargetRecipients, getCampaign, scheduleCampaign } from '../_lib/campaignService.js';
+import { getHostFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -78,7 +79,8 @@ export default async function handler(req, res) {
   }
 
   // Send immediately
-  const result = await sendCampaign(campaignId, tenantId);
+  const requestHost = getHostFromRequest(req);
+  const result = await sendCampaign(campaignId, tenantId, requestHost);
 
   if (!result.success) {
     return res.status(500).json({ error: result.error });

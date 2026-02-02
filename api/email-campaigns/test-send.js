@@ -1,16 +1,8 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getCampaign, generateTrackingToken, rewriteLinksForTracking } from '../_lib/campaignService.js';
+import { getCampaign, generateTrackingToken, rewriteLinksForTracking, getTenantBaseUrl } from '../_lib/campaignService.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
-
-const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
-
-function getTenantBaseUrl(tenantSlug) {
-  if (!tenantSlug) {
-    return process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000');
-  }
-  return `https://${tenantSlug}.${APP_DOMAIN}`;
-}
+import { getHostFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -122,10 +114,11 @@ export default async function handler(req, res) {
     html = html.replace(/\{\{last_name\}\}/gi, lastName);
     html = html.replace(/\{\{email\}\}/gi, emailToUse);
 
-    html = rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug);
+    const requestHost = getHostFromRequest(req);
+    html = rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug, requestHost);
 
-    const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
-    const preferencesUrl = `${tenantBaseUrl}/api/email-campaigns/preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
+    const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
+    const preferencesUrl = `${tenantBaseUrl}/api/email-preferences?t=${generateTrackingToken(campaignId, recipientId, 0)}`;
     if (!html.includes('{{unsubscribe_url}}')) {
       html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
         <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>

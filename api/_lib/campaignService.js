@@ -4,12 +4,13 @@ import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
-// Get tenant-specific base URL for tracking links
-function getTenantBaseUrl(tenantSlug) {
+export function getTenantBaseUrl(tenantSlug, requestHost = null) {
+  if (requestHost && !requestHost.includes('localhost') && !requestHost.includes('127.0.0.1')) {
+    return `https://${requestHost}`;
+  }
   if (!tenantSlug) {
     return process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5000');
   }
-  // Use tenant subdomain for production
   return `https://${tenantSlug}.${APP_DOMAIN}`;
 }
 
@@ -151,10 +152,10 @@ export function generateTrackingToken(campaignId, recipientId, linkIndex) {
   return Buffer.from(data).toString('base64url');
 }
 
-export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug) {
+export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlug, requestHost = null) {
   if (!html) return html;
 
-  const baseUrl = getTenantBaseUrl(tenantSlug);
+  const baseUrl = getTenantBaseUrl(tenantSlug, requestHost);
   let linkIndex = 0;
 
   const rewritten = html.replace(
@@ -446,7 +447,7 @@ export async function processScheduledCampaigns() {
   }
 }
 
-export async function sendCampaign(campaignId, tenantId) {
+export async function sendCampaign(campaignId, tenantId, requestHost = null) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -514,10 +515,10 @@ export async function sendCampaign(campaignId, tenantId) {
         html = html.replace(/\{\{email\}\}/gi, recipient.email || '');
         subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
 
-        html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug);
+        html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug, requestHost);
 
-        const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
-        const preferencesUrl = `${tenantBaseUrl}/api/email-campaigns/preferences?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
+        const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
+        const preferencesUrl = `${tenantBaseUrl}/api/email-preferences?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
         if (!html.includes('{{unsubscribe_url}}')) {
           html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
             <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>

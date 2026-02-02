@@ -25,6 +25,25 @@ A unified identity system (`tenant_identity` table) manages user authentication,
 ## Deployment & Domain Structure
 The application is deployed on Vercel, utilizing `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, enabled by cross-subdomain session cookies.
 
+## Tenant Resolver (`api/_lib/tenantResolver.js`)
+The tenant resolver handles domain-to-tenant mapping for incoming requests and URL building for outgoing links.
+
+### Key Functions
+- `resolveTenantFromHost(hostname)` - Resolves a hostname to a tenant object. Handles subdomain patterns (`{slug}.iconn.app`) and custom domains.
+- `resolveTenantFromRequest(req)` - Resolves tenant from a request, checking query params (`?tenant=` or `?slug=`) first, then falling back to host-based resolution.
+- `getHostFromRequest(req)` - Extracts the host from request headers (`x-forwarded-host` or `host`). Critical for preserving the current environment (e.g., testing vs production subdomains).
+
+### URL Building for Outgoing Links (Email Links)
+When building URLs for email links (tracking, unsubscribe, preferences), use `getHostFromRequest(req)` to capture the current host rather than constructing from tenant slug:
+```javascript
+import { getHostFromRequest } from '../_lib/tenantResolver.js';
+import { getTenantBaseUrl } from '../_lib/campaignService.js';
+
+const requestHost = getHostFromRequest(req);
+const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
+```
+This ensures links in emails point back to the same environment the request came from (e.g., `gfi.testing.iconn.app` stays as `gfi.testing.iconn.app`, not `gfi.iconn.app`).
+
 ## Key Features and Modules
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
 -   **Content Management:** Event/booking management, general content management, dynamic page builder, custom forms with conditional logic, and blog posts.
