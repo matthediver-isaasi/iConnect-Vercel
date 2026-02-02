@@ -43,6 +43,23 @@ export default async function handler(req, res) {
   }
 
   try {
+    const { data: formSubmission, error: fsError } = await supabase
+      .from('form_submission')
+      .select('id, form_values, email')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantContext.tenantId)
+      .single();
+
+    if (fsError || !formSubmission) {
+      console.error('[dd-meeting-requests/create-booked] Form submission fetch error:', fsError);
+      return res.status(404).json({ error: 'Form submission not found' });
+    }
+
+    const formValues = formSubmission.form_values || {};
+    const fallbackEmail = recipientEmail || formSubmission.email || formValues.email || 'migrated@manual-override.local';
+    const fallbackFirstName = recipientFirstName || formValues.first_name || formValues.firstName || null;
+    const fallbackLastName = recipientLastName || formValues.last_name || formValues.lastName || null;
+
     const { data: meetingTemplate, error: templateError } = await supabase
       .from('meeting_template')
       .select('id, name, duration_minutes')
@@ -78,9 +95,9 @@ export default async function handler(req, res) {
       form_submission_id: formSubmissionId,
       meeting_template_id: meetingTemplateId,
       agent_identity_id: agentIdentityId,
-      recipient_email: recipientEmail || null,
-      recipient_first_name: recipientFirstName || null,
-      recipient_last_name: recipientLastName || null,
+      recipient_email: fallbackEmail,
+      recipient_first_name: fallbackFirstName,
+      recipient_last_name: fallbackLastName,
       status: 'booked',
       booked_at: startsAt,
       manual_override: true,
