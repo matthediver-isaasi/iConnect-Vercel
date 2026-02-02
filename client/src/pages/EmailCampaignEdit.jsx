@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
-  Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2
+  Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2, X, Check
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -27,6 +27,7 @@ export default function EmailCampaignEdit() {
   const [saving, setSaving] = useState(false);
   const [testSending, setTestSending] = useState(false);
   const [editorTab, setEditorTab] = useState('html');
+  const [showVisualEditor, setShowVisualEditor] = useState(false);
   const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
   const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
@@ -813,24 +814,45 @@ export default function EmailCampaignEdit() {
               </div>
 
               {editorMode === 'visual' && (
-                <div className="space-y-2">
-                  <Suspense fallback={
-                    <div className="flex items-center justify-center min-h-[500px] border rounded-md bg-muted/10">
-                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                <div className="space-y-4">
+                  <div className="border rounded-md p-6 bg-muted/10 text-center space-y-4">
+                    <div className="flex flex-col items-center gap-2">
+                      <Wand2 className="w-12 h-12 text-primary/60" />
+                      <h3 className="text-lg font-medium">Visual Email Builder</h3>
+                      <p className="text-sm text-muted-foreground max-w-md">
+                        Design your email with drag-and-drop blocks including text, images, buttons, columns, and more.
+                      </p>
                     </div>
-                  }>
-                    <EasyEmailEditor
-                      initialDesign={formData.design_json}
-                      onChange={({ design, html }) => {
-                        setFormData(prev => ({
-                          ...prev,
-                          design_json: design,
-                          html_content: html || prev.html_content,
-                        }));
-                      }}
-                      height="600px"
-                    />
-                  </Suspense>
+                    
+                    {formData.design_json && (
+                      <p className="text-sm text-green-600 flex items-center justify-center gap-1">
+                        <Check className="w-4 h-4" />
+                        Design saved
+                      </p>
+                    )}
+                    
+                    <Button
+                      type="button"
+                      onClick={() => setShowVisualEditor(true)}
+                      className="gap-2"
+                      data-testid="button-open-visual-editor"
+                    >
+                      <Wand2 className="w-4 h-4" />
+                      {formData.design_json ? 'Edit Design' : 'Open Visual Builder'}
+                    </Button>
+                  </div>
+                  
+                  {formData.html_content && (
+                    <div className="space-y-2">
+                      <Label className="text-sm">Preview</Label>
+                      <div 
+                        className="border rounded-md p-4 max-h-[300px] overflow-auto bg-white prose prose-sm max-w-none"
+                        data-testid="visual-preview"
+                      >
+                        <div dangerouslySetInnerHTML={{ __html: formData.html_content }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1051,6 +1073,61 @@ export default function EmailCampaignEdit() {
               Send Test
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Full-screen Visual Email Editor Modal */}
+      <Dialog open={showVisualEditor} onOpenChange={setShowVisualEditor}>
+        <DialogContent className="max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 gap-0">
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-background">
+              <div className="flex items-center gap-3">
+                <Wand2 className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-semibold">Visual Email Builder</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowVisualEditor(false)}
+                  data-testid="button-cancel-visual-editor"
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    toast.success('Design saved');
+                    setShowVisualEditor(false);
+                  }}
+                  data-testid="button-save-visual-editor"
+                >
+                  <Check className="w-4 h-4 mr-1" />
+                  Save & Close
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-full bg-muted/10">
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                </div>
+              }>
+                <EasyEmailEditor
+                  initialDesign={formData.design_json}
+                  onChange={({ design, html }) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      design_json: design,
+                      html_content: html || prev.html_content,
+                    }));
+                  }}
+                  height="100%"
+                />
+              </Suspense>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
