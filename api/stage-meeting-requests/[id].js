@@ -1,23 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export default async function handler(req, res) {
-  const tenantUser = await getSessionTenantUser(req);
-  if (!tenantUser) {
+  const tenantCtx = await getTenantContext(req);
+  if (!tenantCtx.isAuthenticated) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
+  const tenantId = tenantCtx.tenantId;
   const { id } = req.query;
 
   if (!tenantId || tenantId === 'undefined') {
     console.error('[stage-meeting-requests] Invalid tenantId:', tenantId);
     return res.status(400).json({ error: 'Invalid tenant context' });
   }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   if (!id) {
     return res.status(400).json({ error: 'Meeting request ID is required' });
