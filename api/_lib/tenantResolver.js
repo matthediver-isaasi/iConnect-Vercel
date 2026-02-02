@@ -40,8 +40,25 @@ export async function resolveTenantFromHost(hostname) {
 
     if (host.endsWith('.iconn.app')) {
       const parts = host.replace('.iconn.app', '').split('.');
-      if (parts.length === 1 && parts[0] !== 'www' && parts[0] !== 'iconn') {
-        slug = parts[0];
+      
+      // Common non-tenant subdomains to skip
+      // Includes environment indicators that could appear as first-level subdomains
+      const nonTenantSubdomains = ['www', 'iconn', 'api', 'app', 'admin', 'staging', 'dev', 'testing', 'preview'];
+      
+      if (parts.length === 1) {
+        // Standard format: {tenant}.iconn.app
+        if (!nonTenantSubdomains.includes(parts[0].toLowerCase())) {
+          slug = parts[0];
+        }
+      } else if (parts.length === 2) {
+        // Preview/staging format: {tenant}.dev.iconn.app or {tenant}.testing.iconn.app
+        // First part is tenant, second part is environment indicator (dev, testing, etc.)
+        const environmentIndicators = ['dev', 'testing', 'preview', 'staging'];
+        if (environmentIndicators.includes(parts[1].toLowerCase()) && 
+            !nonTenantSubdomains.includes(parts[0].toLowerCase())) {
+          slug = parts[0];
+          console.log('[TenantResolver] Preview environment detected, environment:', parts[1]);
+        }
       }
       console.log('[TenantResolver] Subdomain detected, slug:', slug);
     } else if (!host.includes('.iconn.app')) {
