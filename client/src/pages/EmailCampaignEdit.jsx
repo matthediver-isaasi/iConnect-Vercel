@@ -1,8 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,35 +8,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
-  Loader2, TestTube2, Clock, Calendar, Search
+  Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 
-const quillModules = {
-  toolbar: [
-    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-    ['bold', 'italic', 'underline', 'strike'],
-    [{ 'color': [] }, { 'background': [] }],
-    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-    [{ 'align': [] }],
-    ['link', 'image'],
-    ['blockquote', 'code-block'],
-    ['clean']
-  ],
-};
-
-const quillFormats = [
-  'header',
-  'bold', 'italic', 'underline', 'strike',
-  'color', 'background',
-  'list', 'bullet',
-  'align',
-  'link', 'image',
-  'blockquote', 'code-block'
-];
+const EasyEmailEditor = lazy(() => import('@/components/EasyEmailEditor'));
 
 export default function EmailCampaignEdit() {
   const navigate = useNavigate();
@@ -48,7 +26,7 @@ export default function EmailCampaignEdit() {
 
   const [saving, setSaving] = useState(false);
   const [testSending, setTestSending] = useState(false);
-  const [editorTab, setEditorTab] = useState('editor');
+  const [editorTab, setEditorTab] = useState('html');
   const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
   const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
@@ -68,10 +46,12 @@ export default function EmailCampaignEdit() {
     reply_to: '',
     email_template_id: '',
     html_content: '',
+    design_json: null,
     target_type: 'communication_category',
     target_ids: [],
     scheduled_at: ''
   });
+  const [editorMode, setEditorMode] = useState('visual');
 
   const { data: campaign, isLoading: campaignLoading } = useQuery({
     queryKey: ['email-campaign', id],
@@ -87,6 +67,8 @@ export default function EmailCampaignEdit() {
 
   useEffect(() => {
     if (campaign) {
+      const hasDesign = campaign.design_json && typeof campaign.design_json === 'object' && campaign.design_json.type;
+      setEditorMode(hasDesign ? 'visual' : (campaign.html_content ? 'html' : 'visual'));
       setFormData({
         name: campaign.name || '',
         subject: campaign.subject || '',
@@ -95,6 +77,7 @@ export default function EmailCampaignEdit() {
         reply_to: campaign.reply_to || '',
         email_template_id: campaign.email_template_id || '',
         html_content: campaign.html_content || '',
+        design_json: campaign.design_json || null,
         target_type: campaign.target_type || 'communication_category',
         target_ids: campaign.target_ids || [],
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
@@ -787,85 +770,132 @@ export default function EmailCampaignEdit() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Tabs value={editorTab} onValueChange={setEditorTab} className="w-full">
-                <TabsList className="w-full grid grid-cols-3">
-                  <TabsTrigger value="editor" className="flex items-center gap-2">
-                    <Pencil className="w-4 h-4" />
-                    Editor
-                  </TabsTrigger>
-                  <TabsTrigger value="html" className="flex items-center gap-2">
-                    <Code className="w-4 h-4" />
-                    HTML
-                  </TabsTrigger>
-                  <TabsTrigger value="preview" className="flex items-center gap-2">
-                    <Eye className="w-4 h-4" />
-                    Preview
-                  </TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="editor" className="mt-3">
-                  <div className="border rounded-md">
-                    <ReactQuill
-                      theme="snow"
-                      value={formData.html_content}
-                      onChange={(content) => setFormData(prev => ({ ...prev, html_content: content }))}
-                      modules={quillModules}
-                      formats={quillFormats}
-                      placeholder="Enter your email content..."
-                      className="min-h-[400px]"
-                      data-testid="editor-html-content"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_link}}'}
-                  </p>
-                </TabsContent>
-                
-                <TabsContent value="html" className="mt-3">
-                  <textarea
-                    value={formData.html_content}
-                    onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value }))}
-                    placeholder="Enter raw HTML content..."
-                    className="w-full min-h-[400px] p-4 font-mono text-sm border rounded-md bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
-                    spellCheck={false}
-                    data-testid="textarea-html-content"
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_link}}'}
-                  </p>
-                </TabsContent>
-                
-                <TabsContent value="preview" className="mt-3">
-                  <div 
-                    className="border rounded-md p-4 min-h-[400px] bg-white prose prose-sm max-w-none"
-                    data-testid="preview-html-content"
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 pb-2 border-b">
+                <Label className="text-sm font-medium">Editor Mode:</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={editorMode === 'visual' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setEditorMode('visual')}
+                    className="flex items-center gap-2"
+                    data-testid="button-visual-mode"
                   >
-                    <div dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Switch to Editor tab to add content.</p>' }} />
-                    {footerData?.footer && (
-                      <>
-                        <hr className="my-4 border-gray-200" />
-                        <div 
-                          className="text-xs text-gray-500"
-                          dangerouslySetInnerHTML={{ __html: footerData.footer }}
-                        />
-                      </>
-                    )}
-                    {footerLoading && formData.html_content && (
-                      <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
-                        Loading email footer...
+                    <Wand2 className="w-4 h-4" />
+                    Visual Builder
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={editorMode === 'html' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      if (editorMode === 'visual' && formData.design_json) {
+                        toast.info('Switching to HTML mode. You can edit HTML directly, but switching back will lose visual editor changes.');
+                      }
+                      setEditorMode('html');
+                    }}
+                    className="flex items-center gap-2"
+                    data-testid="button-html-mode"
+                  >
+                    <Code className="w-4 h-4" />
+                    HTML Code
+                  </Button>
+                </div>
+              </div>
+
+              {editorMode === 'visual' && (
+                <div className="space-y-2">
+                  <Suspense fallback={
+                    <div className="flex items-center justify-center min-h-[500px] border rounded-md bg-muted/10">
+                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                    </div>
+                  }>
+                    <EasyEmailEditor
+                      initialDesign={formData.design_json}
+                      onChange={({ design, html }) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          design_json: design,
+                          html_content: html || prev.html_content,
+                        }));
+                      }}
+                      height="600px"
+                    />
+                  </Suspense>
+                </div>
+              )}
+
+              {editorMode === 'html' && (
+                <div className="space-y-2">
+                  {formData.design_json && (
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>
+                        This campaign has visual editor data. Editing HTML directly will not update the visual design. 
+                        Switch back to Visual Builder to edit with drag-and-drop.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  <Tabs value={editorTab} onValueChange={setEditorTab} className="w-full">
+                    <TabsList className="w-full grid grid-cols-2">
+                      <TabsTrigger value="html" className="flex items-center gap-2">
+                        <Code className="w-4 h-4" />
+                        HTML
+                      </TabsTrigger>
+                      <TabsTrigger value="preview" className="flex items-center gap-2">
+                        <Eye className="w-4 h-4" />
+                        Preview
+                      </TabsTrigger>
+                    </TabsList>
+                    
+                    <TabsContent value="html" className="mt-3">
+                      <textarea
+                        value={formData.html_content}
+                        onChange={(e) => setFormData(prev => ({ ...prev, html_content: e.target.value, design_json: null }))}
+                        placeholder="Enter raw HTML content..."
+                        className="w-full min-h-[500px] p-4 font-mono text-sm border rounded-md bg-muted/30 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                        spellCheck={false}
+                        data-testid="textarea-html-content"
+                      />
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Available placeholders: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}, {'{{unsubscribe_link}}'}
                       </p>
-                    )}
-                    {!footerLoading && !footerData?.footer && formData.html_content && (
-                      <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
-                        {footerData?.error 
-                          ? 'Unable to load email footer preview.'
-                          : 'Email footer will be added when the campaign is sent.'}
-                      </p>
-                    )}
-                  </div>
-                </TabsContent>
-              </Tabs>
+                    </TabsContent>
+                    
+                    <TabsContent value="preview" className="mt-3">
+                      <div 
+                        className="border rounded-md p-4 min-h-[500px] bg-white prose prose-sm max-w-none"
+                        data-testid="preview-html-content"
+                      >
+                        <div dangerouslySetInnerHTML={{ __html: formData.html_content || '<p class="text-muted-foreground italic">No content yet. Enter HTML in the HTML tab.</p>' }} />
+                        {footerData?.footer && (
+                          <>
+                            <hr className="my-4 border-gray-200" />
+                            <div 
+                              className="text-xs text-gray-500"
+                              dangerouslySetInnerHTML={{ __html: footerData.footer }}
+                            />
+                          </>
+                        )}
+                        {footerLoading && formData.html_content && (
+                          <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
+                            Loading email footer...
+                          </p>
+                        )}
+                        {!footerLoading && !footerData?.footer && formData.html_content && (
+                          <p className="text-xs text-muted-foreground italic mt-4 border-t pt-2">
+                            {footerData?.error 
+                              ? 'Unable to load email footer preview.'
+                              : 'Email footer will be added when the campaign is sent.'}
+                          </p>
+                        )}
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
