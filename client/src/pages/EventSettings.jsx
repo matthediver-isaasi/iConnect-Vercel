@@ -449,6 +449,7 @@ export default function EventSettingsPage() {
       }
       
       queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-system-settings'] });
       toast.success('Settings saved successfully');
     } catch (error) {
       toast.error('Failed to save settings: ' + error.message);
