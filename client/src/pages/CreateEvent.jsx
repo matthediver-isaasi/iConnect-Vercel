@@ -141,6 +141,7 @@ export default function CreateEvent() {
     event_type: "",
     start_date: "",
     end_date: "",
+    registration_closes_at: "",
     location: "",
     image_url: "",
     available_seats: "",
@@ -599,6 +600,7 @@ export default function CreateEvent() {
       // For TBC events, dates must be null
       start_date: isTbcEvent ? null : (formData.start_date || null),
       end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
+      registration_closes_at: formData.registration_closes_at || null,
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
@@ -1401,6 +1403,32 @@ export default function CreateEvent() {
                     data-testid="input-end-date"
                   />
                 </div>
+              </div>
+
+              {/* Registration Closes At - Optional */}
+              <div className="space-y-2 mt-4">
+                <Label htmlFor="registration_closes_at">Registration Closes On (Optional)</Label>
+                <Input
+                  id="registration_closes_at"
+                  type="datetime-local"
+                  value={formData.registration_closes_at ? format(new Date(formData.registration_closes_at), "yyyy-MM-dd'T'HH:mm") : ""}
+                  onChange={(e) => {
+                    const newValue = e.target.value ? new Date(e.target.value).toISOString() : '';
+                    // Validate: registration close cannot be after event end
+                    if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
+                      toast.error('Registration close date cannot be after the event end date');
+                      return;
+                    }
+                    handleInputChange('registration_closes_at', newValue);
+                  }}
+                  max={formData.end_date ? format(new Date(formData.end_date), "yyyy-MM-dd'T'HH:mm") : undefined}
+                  disabled={eventStatus === 'tbc'}
+                  className={eventStatus === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                  data-testid="input-registration-closes-at"
+                />
+                <p className="text-xs text-slate-500">
+                  If set, registration will automatically close at this time. Must be on or before the event end time.
+                </p>
               </div>
             </CardContent>
           </Card>

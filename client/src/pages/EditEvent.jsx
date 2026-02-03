@@ -156,6 +156,7 @@ export default function EditEvent() {
     program_tag: "",
     start_date: "",
     end_date: "",
+    registration_closes_at: "",
     location: "",
     image_url: "",
     image_focal_point: null,
@@ -582,6 +583,7 @@ export default function EditEvent() {
         program_tag: event.program_tag || "",
         start_date: isTbcEvent ? "" : (event.start_date || ""),
         end_date: isTbcEvent ? "" : (event.end_date || ""),
+        registration_closes_at: event.registration_closes_at || "",
         location: event.location || "",
         image_url: event.image_url || "",
         image_focal_point: event.image_focal_point || null,
@@ -889,6 +891,7 @@ export default function EditEvent() {
       // For TBC events, dates must be null
       start_date: isTbcEvent ? null : (formData.start_date || null),
       end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
+      registration_closes_at: formData.registration_closes_at || null,
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
       image_focal_point: formData.image_focal_point || null,
@@ -1513,6 +1516,32 @@ export default function EditEvent() {
                     <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
                   )}
                 </div>
+              </div>
+
+              {/* Registration Closes At - Optional */}
+              <div className="space-y-2 mt-4">
+                <Label htmlFor="registration_closes_at">Registration Closes On (Optional)</Label>
+                <Input
+                  id="registration_closes_at"
+                  type="datetime-local"
+                  value={formatDateForInput(formData.registration_closes_at)}
+                  onChange={(e) => {
+                    const newValue = e.target.value ? new Date(e.target.value).toISOString() : '';
+                    // Validate: registration close cannot be after event end
+                    if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
+                      toast.error('Registration close date cannot be after the event end date');
+                      return;
+                    }
+                    handleInputChange('registration_closes_at', newValue);
+                  }}
+                  max={formData.end_date ? formatDateForInput(formData.end_date) : undefined}
+                  disabled={eventStatus === 'tbc'}
+                  className={eventStatus === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                  data-testid="input-registration-closes-at"
+                />
+                <p className="text-xs text-slate-500">
+                  If set, registration will automatically close at this time. Must be on or before the event end time.
+                </p>
               </div>
             </CardContent>
           </Card>
