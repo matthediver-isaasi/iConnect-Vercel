@@ -85,13 +85,15 @@ export default function PendingPurchaseOrdersReport() {
   }, [transactions]);
 
   const pendingPOTransactions = useMemo(() => {
-    return transactions.filter(t => 
-      t.xero_invoice_id && 
-      t.xero_invoice_id.trim() !== '' &&
-      (!t.purchase_order_number || t.purchase_order_number.trim() === '') &&
-      t.transaction_type === 'purchase' &&
-      t.status !== 'cancelled'
-    );
+    return transactions.filter(t => {
+      const hasInvoice = (t.xero_invoice_id && t.xero_invoice_id.trim() !== '') || 
+                         (t.xero_invoice_number && t.xero_invoice_number.trim() !== '');
+      const missingPO = !t.purchase_order_number || t.purchase_order_number.trim() === '';
+      const isPurchase = t.transaction_type === 'purchase';
+      const isActive = t.status !== 'cancelled';
+      
+      return hasInvoice && missingPO && isPurchase && isActive;
+    });
   }, [transactions]);
 
   const filteredAndSortedData = useMemo(() => {

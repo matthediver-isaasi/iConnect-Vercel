@@ -156,6 +156,7 @@ const builtInPages = [
   { value: "TeamMemberManagement", label: "Team Member Management" },
   { value: "TeamSettings", label: "Team Settings" },
   { value: "TicketSalesAnalytics", label: "Ticket Sales Analytics" },
+  { value: "PendingPurchaseOrdersReport", label: "Pending Purchase Orders" },
   { value: "TourManagement", label: "Tour Management" },
   { value: "TrainingFundManagement", label: "Training Fund Management" },
   { value: "UnpackedInternationalEmployability", label: "Unpacked International Employability" },
