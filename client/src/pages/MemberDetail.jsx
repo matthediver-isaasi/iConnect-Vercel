@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -36,7 +36,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 export default function MemberDetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isAdmin, isAccessReady, isFeatureExcluded, memberRole } = useMemberAccess();
+  
+  // DEBUG: Log to verify deployment and feature access
+  console.log('[MemberDetail DEBUG] Component loaded', {
+    memberId: id,
+    isAccessReady,
+    memberRoleLoaded: !!memberRole,
+    passwordResetExcluded: isFeatureExcluded ? isFeatureExcluded('crm.members.password_reset') : 'fn not available',
+  });
   const { formatDate } = useDateFormat();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -76,6 +84,38 @@ export default function MemberDetail() {
   
   // Communications state
   const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
+  
+  // Password reset state
+  const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
+  
+  // Handler for generating password reset link
+  const handleGenerateResetLink = async () => {
+    if (!member?.id) return;
+    
+    setIsGeneratingResetLink(true);
+    try {
+      const response = await fetch(`/api/admin/members/${member.id}/generate-reset-link`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate reset link');
+      }
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(data.resetUrl);
+      toast.success('Password reset link copied to clipboard! Valid for 24 hours.');
+    } catch (error) {
+      console.error('Error generating reset link:', error);
+      toast.error(error.message || 'Failed to generate password reset link');
+    } finally {
+      setIsGeneratingResetLink(false);
+    }
+  };
 
   // Data queries
   const { data: member, isLoading: memberLoading } = useQuery({
@@ -677,6 +717,33 @@ export default function MemberDetail() {
                         <p className="text-sm">{member.job_title || '-'}</p>
                       </div>
                     </div>
+                    {/* Password Reset Button - DEBUG visible banner */}
+                    <div className="bg-yellow-100 dark:bg-yellow-900 p-2 text-xs mb-2">
+                      DEBUG: isAccessReady={String(isAccessReady)} | 
+                      isFeatureExcluded={String(isFeatureExcluded ? isFeatureExcluded('crm.members.password_reset') : 'loading')}
+                    </div>
+                    {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.password_reset') && (
+                      <>
+                        <Separator />
+                        <div className="pt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleGenerateResetLink}
+                            disabled={isGeneratingResetLink}
+                            className="w-full"
+                            data-testid="button-generate-reset-link"
+                          >
+                            {isGeneratingResetLink ? (
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                              <Key className="w-4 h-4 mr-2" />
+                            )}
+                            Generate Reset Password Link
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </CardContent>
