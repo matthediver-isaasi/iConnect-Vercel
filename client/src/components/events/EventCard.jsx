@@ -543,6 +543,11 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   TBC
                 </Badge>
               )}
+              {event.status === 'closed' && (
+                <Badge variant="secondary" className="bg-red-100/95 text-red-700 border-red-200 shadow-sm" data-testid={`badge-closed-event-${event.id}`}>
+                  Closed
+                </Badge>
+              )}
               {isEventPast && (
                 <Badge variant="secondary" className="bg-slate-200/95 text-slate-600 border-slate-300 shadow-sm">
                   Past Event
@@ -767,14 +772,16 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 ) : (() => {
                   const ctaConfig = getCtaButtonConfig(systemSettings);
                   const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
-                  const buttonLabel = isSoldOut ? "Sold Out" : ctaConfig.label;
+                  const isRegistrationClosed = event.status === 'closed';
+                  const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
                   const isGradient = ctaConfig.style === 'gradient';
                   
                   return (
                     <Button 
-                      className={`w-full ${isGradient 
-                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 text-white shadow-lg' 
-                        : 'bg-blue-600 hover:bg-blue-700'}`}
+                      variant={isRegistrationClosed ? "secondary" : "default"}
+                      className={`w-full ${!isRegistrationClosed && isGradient 
+                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-lg' 
+                        : !isRegistrationClosed ? 'bg-blue-600' : ''}`}
                       disabled={isSoldOut}
                       onClick={() => {
                         if (event.cta_override_url) {

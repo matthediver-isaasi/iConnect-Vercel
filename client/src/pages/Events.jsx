@@ -189,8 +189,8 @@ export default function EventsPage({
         // Only show drafts if user has permission AND toggle is on
         return canToggleDrafts && showDraftEvents;
       }
-      // Show published and tbc events
-      return status === 'published' || status === 'tbc';
+      // Show published, tbc, and closed events (closed events are visible but registration is disabled)
+      return status === 'published' || status === 'tbc' || status === 'closed';
     });
     
     return filtered;

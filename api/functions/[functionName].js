@@ -984,6 +984,12 @@ const functionHandlers = {
     
     console.log('[createBooking] Found event:', event.id, event.title);
 
+    // Block registration for closed events
+    if (event.status === 'closed') {
+      console.log('[createBooking] Blocking registration - event is closed:', eventId);
+      return { success: false, error: 'Registration is closed for this event' };
+    }
+
     if (!programTag || !event.program_tag) {
       return { success: false, error: 'This event does not have a program association' };
     }
@@ -1566,6 +1572,12 @@ const functionHandlers = {
     if (eventError || !event) {
       console.error('[createOneOffEventBooking] Event query error:', eventError);
       return { success: false, error: 'Event not found' };
+    }
+
+    // Block registration for closed events
+    if (event.status === 'closed') {
+      console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
+      return { success: false, error: 'Registration is closed for this event' };
     }
 
     // Verify Stripe payment if card payment was used

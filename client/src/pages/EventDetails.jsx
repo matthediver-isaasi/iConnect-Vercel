@@ -922,6 +922,9 @@ export default function EventDetailsPage() {
   // Check if event is sold out (not unlimited and available_seats <= 0)
   const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
   
+  // Check if registration is closed (event status is 'closed')
+  const isRegistrationClosed = event?.status === 'closed';
+  
   // Check if any attendees are missing required name fields
   const hasAttendeesWithMissingNames = attendees.some((a) => {
     const needsManualName = !a.isSelf && (
@@ -935,7 +938,7 @@ export default function EventDetailsPage() {
   // Also disable if sold out or if attendees are missing required names
   // Note: termsRequirementMet is checked separately for program events button, 
   // and passed to PaymentOptions for one-off events
-  const canConfirmBooking = !isSoldOut && !hasAttendeesWithMissingNames && (isOneOffEvent 
+  const canConfirmBooking = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && (isOneOffEvent 
     ? paymentCanProceed
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
@@ -1626,12 +1629,15 @@ export default function EventDetailsPage() {
                               disabled={!canConfirmBooking || !termsRequirementMet}
                               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                               size="lg"
+                              data-testid="button-confirm-booking"
                             >
                               {submitting ? (
                                 <>
                                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                                   Processing...
                                 </>
+                              ) : isRegistrationClosed ? (
+                                'Registration Closed'
                               ) : isSoldOut ? (
                                 'Sold Out'
                               ) : (
@@ -1668,8 +1674,25 @@ export default function EventDetailsPage() {
           </div>
 
           <div className="lg:col-span-1 space-y-6">
+            {/* Registration closed notice */}
+            {isRegistrationClosed && (
+              <Card className="border-red-200 bg-red-50 shadow-sm mb-4" data-testid="notice-registration-closed">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3">
+                    <Lock className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="font-medium text-red-800" data-testid="text-registration-closed-title">Registration Closed</h3>
+                      <p className="text-sm text-red-700 mt-1" data-testid="text-registration-closed-message">
+                        Registration for this event has closed. You can still view the event details.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* No tickets available for role message */}
-            {isOneOffEvent && noTicketsForRole && (
+            {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && (
               <Card className="border-amber-200 bg-amber-50 shadow-sm mb-4">
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
@@ -1926,6 +1949,7 @@ export default function EventDetailsPage() {
               guestInfo={guestInfo}
               noTicketsForRole={noTicketsForRole}
               isSoldOut={isSoldOut}
+              isRegistrationClosed={isRegistrationClosed}
               hasAttendeesWithMissingNames={hasAttendeesWithMissingNames}
               hasBookingTerms={hasBookingTerms}
               bookingTerms={bookingTerms}

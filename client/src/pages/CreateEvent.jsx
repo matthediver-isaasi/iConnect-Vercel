@@ -734,7 +734,7 @@ export default function CreateEvent() {
               <RadioGroup
                 value={eventStatus}
                 onValueChange={handleStatusChange}
-                className="grid grid-cols-3 gap-4"
+                className="grid grid-cols-2 md:grid-cols-4 gap-4"
                 data-testid="radio-event-status"
               >
                 <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -756,6 +756,13 @@ export default function CreateEvent() {
                   <Label htmlFor="status-tbc" className="cursor-pointer flex-1">
                     <span className="font-medium">To Be Confirmed</span>
                     <p className="text-xs text-slate-500">Dates shown as TBC</p>
+                  </Label>
+                </div>
+                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'closed' ? 'border-red-500 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <RadioGroupItem value="closed" id="status-closed" data-testid="radio-status-closed" />
+                  <Label htmlFor="status-closed" className="cursor-pointer flex-1">
+                    <span className="font-medium">Closed</span>
+                    <p className="text-xs text-slate-500">Registration closed</p>
                   </Label>
                 </div>
               </RadioGroup>

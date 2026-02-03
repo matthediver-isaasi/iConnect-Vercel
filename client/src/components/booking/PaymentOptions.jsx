@@ -129,6 +129,7 @@ export default function PaymentOptions({
   guestInfo = null,
   noTicketsForRole = false,
   isSoldOut = false,
+  isRegistrationClosed = false,
   hasAttendeesWithMissingNames = false,
   hasBookingTerms = false,
   bookingTerms = '',
@@ -919,7 +920,7 @@ export default function PaymentOptions({
   // Also block if event is sold out or if attendees are missing required names
   // Also require terms acceptance if terms exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
-  const canProceed = !isSoldOut && !hasAttendeesWithMissingNames && termsRequirementMet && (isOneOffEvent 
+  const canProceed = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (isOneOffEvent 
     ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
@@ -997,6 +998,8 @@ export default function PaymentOptions({
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                 Processing...
               </>
+            ) : isRegistrationClosed ? (
+              'Registration Closed'
             ) : isSoldOut ? (
               'Sold Out'
             ) : isOneOffEvent ? (
