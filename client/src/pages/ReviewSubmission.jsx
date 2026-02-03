@@ -324,7 +324,7 @@ const DEFAULT_LIGHT_OPTIONS = [
   { id: 'red', label: 'Red', color: '#ef4444', score: 0 }
 ];
 
-function StaticQuestionReview({ questions, responses, notes, onResponseChange, onNoteChange, hideCompleted = false }) {
+function StaticQuestionReview({ questions, responses, notes, notApplicable = {}, onResponseChange, onNoteChange, onNotApplicableChange, hideCompleted = false }) {
   if (!questions || questions.length === 0) return null;
   
   const questionNumbers = useMemo(() => {
@@ -378,16 +378,31 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
         
         const response = responses[item.id] || '';
         const note = notes[item.id] || '';
+        const isNA = notApplicable[item.id] || false;
         const options = item.options || DEFAULT_LIGHT_OPTIONS;
         const questionNumber = questionNumbers[item.id];
         
         return (
-          <div key={item.id} className="space-y-4 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
-            <p className="text-sm font-medium pb-1">
-              <span className="text-muted-foreground mr-2">Q{questionNumber}.</span>
-              {item.question}
-            </p>
-            <div className="flex items-center justify-center gap-3">
+          <div 
+            key={item.id} 
+            className={`space-y-4 p-3 rounded-lg transition-opacity ${isNA ? 'bg-muted/30 opacity-50' : 'bg-muted/50'}`} 
+            data-testid={`static-question-${index}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className={`text-sm font-medium pb-1 flex-1 ${isNA ? 'line-through text-muted-foreground' : ''}`}>
+                <span className="text-muted-foreground mr-2">Q{questionNumber}.</span>
+                {item.question}
+              </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-muted-foreground">N/A</span>
+                <Switch
+                  checked={isNA}
+                  onCheckedChange={(checked) => onNotApplicableChange?.(item.id, checked)}
+                  data-testid={`switch-na-${item.id}`}
+                />
+              </div>
+            </div>
+            <div className={`flex items-center justify-center gap-3 ${isNA ? 'pointer-events-none' : ''}`}>
               {options.map((opt) => {
                 const optColor = opt.color || '#6b7280';
                 const isSelected = response === opt.id;
@@ -396,25 +411,25 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
                   <div
                     key={opt.id}
                     role="button"
-                    tabIndex={0}
-                    onClick={() => onResponseChange(item.id, opt.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onResponseChange(item.id, opt.id); }}
-                    className="relative flex flex-col items-center gap-2 cursor-pointer"
+                    tabIndex={isNA ? -1 : 0}
+                    onClick={() => !isNA && onResponseChange(item.id, opt.id)}
+                    onKeyDown={(e) => { if (!isNA && (e.key === 'Enter' || e.key === ' ')) onResponseChange(item.id, opt.id); }}
+                    className={`relative flex flex-col items-center gap-2 ${isNA ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                     data-testid={`light-${opt.id}-${item.id}`}
                   >
                     <div
-                      className={`flex items-center justify-center text-white font-bold text-sm ${isSelected ? '' : 'opacity-60'}`}
+                      className={`flex items-center justify-center text-white font-bold text-sm ${isSelected && !isNA ? '' : 'opacity-60'} ${isNA ? 'grayscale' : ''}`}
                       style={{ 
                         width: '48px',
                         height: '48px',
                         borderRadius: '50%',
                         backgroundColor: optColor,
-                        boxShadow: isSelected ? `0 0 0 4px white, 0 0 0 6px ${optColor}, 0 0 16px 4px ${optColor}` : `0 2px 4px rgba(0,0,0,0.2)`
+                        boxShadow: isSelected && !isNA ? `0 0 0 4px white, 0 0 0 6px ${optColor}, 0 0 16px 4px ${optColor}` : `0 2px 4px rgba(0,0,0,0.2)`
                       }}
                     >
                       {scoreValue !== '' ? scoreValue : ''}
                     </div>
-                    <span className={`text-xs ${isSelected ? 'font-semibold' : 'text-muted-foreground'}`}>
+                    <span className={`text-xs ${isSelected && !isNA ? 'font-semibold' : 'text-muted-foreground'}`}>
                       {opt.label || 'Option'}
                     </span>
                   </div>
@@ -426,6 +441,7 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
               onChange={(e) => onNoteChange(item.id, e.target.value)}
               placeholder="Optional note..."
               className="text-xs"
+              disabled={isNA}
               data-testid={`input-note-${item.id}`}
             />
           </div>
@@ -1092,6 +1108,7 @@ export default function ReviewSubmissionPage() {
   const [fieldNotes, setFieldNotes] = useState({});
   const [staticQuestionResponses, setStaticQuestionResponses] = useState({});
   const [staticQuestionNotes, setStaticQuestionNotes] = useState({});
+  const [staticQuestionNotApplicable, setStaticQuestionNotApplicable] = useState({});
   const [workflowStatus, setWorkflowStatus] = useState('');
   const [isProcessingStatusChange, setIsProcessingStatusChange] = useState(false);
   const [notes, setNotes] = useState('');
@@ -1231,6 +1248,7 @@ export default function ReviewSubmissionPage() {
       setFieldNotes(ddSubmission.field_notes || {});
       setStaticQuestionResponses(ddSubmission.static_question_responses || {});
       setStaticQuestionNotes(ddSubmission.static_question_notes || {});
+      setStaticQuestionNotApplicable(ddSubmission.static_question_not_applicable || {});
       setWorkflowStatus(ddSubmission.workflow_status || 'new');
       setNotes(ddSubmission.notes || '');
       setHasInitialized(true);
@@ -1287,6 +1305,11 @@ export default function ReviewSubmissionPage() {
 
   const handleStaticNoteChange = useCallback((questionId, note) => {
     setStaticQuestionNotes(prev => ({ ...prev, [questionId]: note }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleStaticNotApplicableChange = useCallback((questionId, isNA) => {
+    setStaticQuestionNotApplicable(prev => ({ ...prev, [questionId]: isNA }));
     setHasUnsavedChanges(true);
   }, []);
 
@@ -1380,6 +1403,7 @@ export default function ReviewSubmissionPage() {
       fieldNotes,
       staticQuestionResponses,
       staticQuestionNotes,
+      staticQuestionNotApplicable,
       notes
       // NOTE: workflowStatus is NOT sent here - use the Status dropdown which calls update-status endpoint
     });
@@ -2501,8 +2525,10 @@ export default function ReviewSubmissionPage() {
                 questions={ddConfig?.static_questions || []}
                 responses={staticQuestionResponses}
                 notes={staticQuestionNotes}
+                notApplicable={staticQuestionNotApplicable}
                 onResponseChange={handleStaticResponseChange}
                 onNoteChange={handleStaticNoteChange}
+                onNotApplicableChange={handleStaticNotApplicableChange}
                 hideCompleted={hideCompletedQuestions}
               />
             </div>

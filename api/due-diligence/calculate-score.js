@@ -60,7 +60,8 @@ export default async function handler(req, res) {
     if (approach === 'static_traffic_light') {
       result = calculateTrafficLightScore(
         ddSubmission.static_question_responses || {},
-        ddConfig.static_questions || []
+        ddConfig.static_questions || [],
+        ddSubmission.static_question_not_applicable || {}
       );
     } else {
       result = calculateDynamicScore(
@@ -158,17 +159,33 @@ function calculateDynamicScore(formValues, scoringRules) {
   };
 }
 
-function calculateTrafficLightScore(responses, staticQuestions) {
+function calculateTrafficLightScore(responses, staticQuestions, notApplicable = {}) {
   const breakdown = [];
   let greenCount = 0;
   let amberCount = 0;
   let redCount = 0;
   let totalQuestions = 0;
+  let naCount = 0;
 
   const questions = staticQuestions.filter(q => q.type !== 'header');
 
   for (const question of questions) {
+    const isNA = notApplicable[question.id] === true;
     const response = responses[question.id];
+    
+    // Skip N/A questions from scoring (but still include in breakdown)
+    if (isNA) {
+      naCount++;
+      breakdown.push({
+        question_id: question.id,
+        question: question.question || question.label,
+        response: 'not_applicable',
+        weight: 0,
+        excluded: true
+      });
+      continue;
+    }
+    
     totalQuestions++;
 
     if (response === 'green') {
@@ -198,7 +215,7 @@ function calculateTrafficLightScore(responses, staticQuestions) {
   return {
     score: Math.min(100, Math.max(0, score)),
     breakdown,
-    counts: { green: greenCount, amber: amberCount, red: redCount, total: totalQuestions }
+    counts: { green: greenCount, amber: amberCount, red: redCount, total: totalQuestions, not_applicable: naCount }
   };
 }
 

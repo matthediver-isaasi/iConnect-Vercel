@@ -30,6 +30,7 @@ export default async function handler(req, res) {
       fieldNotes,
       staticQuestionResponses,
       staticQuestionNotes,
+      staticQuestionNotApplicable,
       notes
       // NOTE: workflowStatus is NOT accepted here - use update-status endpoint for status changes
     } = req.body;
@@ -74,6 +75,9 @@ export default async function handler(req, res) {
     }
     if (staticQuestionNotes !== undefined) {
       updateData.static_question_notes = staticQuestionNotes;
+    }
+    if (staticQuestionNotApplicable !== undefined) {
+      updateData.static_question_not_applicable = staticQuestionNotApplicable;
     }
     if (notes !== undefined) {
       updateData.notes = notes;
