@@ -585,9 +585,12 @@ export default function DueDiligenceDashboardPage() {
 
   const riskLevels = DEFAULT_RISK_LEVELS;
 
-  // Reset status filter when form changes and current stage is not in the new form's stages
+  // Reset status filter when form changes to 'all' or current stage is not in the new form's stages
   useEffect(() => {
-    if (statusFilter !== 'all') {
+    if (selectedFormId === 'all') {
+      // Disable stage filtering when "All Forms" is selected
+      setStatusFilter('all');
+    } else if (statusFilter !== 'all') {
       const stageExists = availableStages.some(s => s.id === statusFilter);
       if (!stageExists) {
         setStatusFilter('all');
@@ -783,9 +786,14 @@ export default function DueDiligenceDashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter} data-testid="select-status">
+              <Select 
+                value={statusFilter} 
+                onValueChange={setStatusFilter} 
+                disabled={selectedFormId === 'all'}
+                data-testid="select-status"
+              >
                 <SelectTrigger className="w-36">
-                  <SelectValue placeholder="All Statuses" />
+                  <SelectValue placeholder={selectedFormId === 'all' ? 'Select a form first' : 'All Statuses'} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
