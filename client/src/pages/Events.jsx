@@ -762,7 +762,7 @@ export default function EventsPage({
             )}
             
             {/* Toggle Row for Past Events and Drafts */}
-            {(pastEventsCount > 0 || (canToggleDrafts && draftEventsCount > 0)) && (
+            {(pastEventsCount > 0 || canToggleDrafts) && (
               <div className="flex flex-wrap items-center gap-6 mt-4 pt-4 border-t border-slate-200">
                 {/* Show Past Events Toggle */}
                 {pastEventsCount > 0 && (
@@ -783,8 +783,8 @@ export default function EventsPage({
                   </div>
                 )}
                 
-                {/* Show Drafts Toggle - only visible to users with toggle-drafts permission */}
-                {canToggleDrafts && draftEventsCount > 0 && (
+                {/* Show Drafts Toggle - always visible to users with toggle-drafts permission */}
+                {canToggleDrafts && (
                   <div className="flex items-center gap-3">
                     <Switch
                       id="show-draft-events"
@@ -797,7 +797,7 @@ export default function EventsPage({
                       className="text-sm text-slate-600 cursor-pointer flex items-center gap-2"
                     >
                       <FileEdit className="w-4 h-4" />
-                      Show drafts ({draftEventsCount})
+                      Show drafts{draftEventsCount > 0 ? ` (${draftEventsCount})` : ''}
                     </Label>
                   </div>
                 )}
