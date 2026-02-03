@@ -1,5 +1,56 @@
 <!-- IMPORTANT: This application is deployed on Vercel. Server-side logs are NOT visible in Replit's console. To debug production issues, check Vercel's function logs or add client-side console logging. -->
 
+<!-- ⚠️ CRITICAL: DO NOT REMOVE THIS SECTION - Database Connection Instructions ⚠️ -->
+# Database Connection Instructions
+
+**⚠️ NEVER REMOVE THIS SECTION - These instructions are essential for database access ⚠️**
+
+This project uses Supabase PostgreSQL databases. **Direct psql commands and execute_sql_tool DO NOT WORK** on Replit due to IPv6 connectivity issues.
+
+## Available Database Secrets
+
+| Secret | Database | Purpose |
+|--------|----------|---------|
+| `SOURCE_DATABASE_URL` | Legacy single-tenant Supabase | Original data source for migrations |
+| `DEST_DATABASE_URL` | New multi-tenant Supabase | Production destination database |
+| `DEST_SUPABASE_KEY` | New multi-tenant Supabase | Service role key for Supabase client |
+
+## How to Query the Database
+
+**USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool**
+
+Create a script or run inline Node.js:
+
+```javascript
+import { createClient } from '@supabase/supabase-js';
+
+// For destination (multi-tenant) database:
+const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY; // Service role key
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Example query
+const { data, error } = await supabase
+  .from('member')
+  .select('*')
+  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
+  .limit(10);
+
+console.log(data);
+```
+
+Run with: `node scripts/debug-query.mjs` or inline with `node -e "..."`
+
+## Important Notes
+
+- **Replit's built-in database tools won't work** - The `execute_sql_tool` and `psql` fail due to IPv6 routing issues
+- **Always use Supabase client** - Use `@supabase/supabase-js` for all database operations
+- **Tenant ID for migrations:** `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+- See `scripts/debug-tenant.mjs` for a working example of database queries
+
+<!-- ⚠️ END CRITICAL SECTION - DO NOT REMOVE ⚠️ -->
+
 # Overview
 
 This project is a multi-tenant SaaS membership management platform providing organizations with a comprehensive solution for managing members, events, bookings, resources, and blog posts. It aims to consolidate various organizational management functions into a single, efficient platform, offering significant market potential. Key capabilities include a unified identity system, a dynamic page builder, custom forms, workflow automation, and a robust Due Diligence process. The platform supports a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) with strong access control and data isolation.
