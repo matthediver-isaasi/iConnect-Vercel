@@ -552,8 +552,48 @@ export default function DueDiligenceDashboardPage() {
     });
   }, [submissions, searchQuery, cardReferenceFieldByFormId]);
 
-  const workflowStages = DEFAULT_WORKFLOW_STAGES;
+  // Derive available stages based on selected form
+  const availableStages = useMemo(() => {
+    if (selectedFormId !== 'all') {
+      // Use form-specific stages if available, otherwise fall back to defaults
+      return workflowStagesByFormId[selectedFormId] || DEFAULT_WORKFLOW_STAGES;
+    }
+    
+    // When "all" forms selected, aggregate unique stages from all forms
+    const allFormStages = Object.values(workflowStagesByFormId);
+    if (allFormStages.length === 0) {
+      return DEFAULT_WORKFLOW_STAGES;
+    }
+    
+    // Combine all stages, keeping unique by id
+    const stageMap = new Map();
+    allFormStages.forEach(stages => {
+      stages.forEach(stage => {
+        if (!stageMap.has(stage.id)) {
+          stageMap.set(stage.id, stage);
+        }
+      });
+    });
+    
+    // If no custom stages found, use defaults
+    if (stageMap.size === 0) {
+      return DEFAULT_WORKFLOW_STAGES;
+    }
+    
+    return Array.from(stageMap.values());
+  }, [selectedFormId, workflowStagesByFormId]);
+
   const riskLevels = DEFAULT_RISK_LEVELS;
+
+  // Reset status filter when form changes and current stage is not in the new form's stages
+  useEffect(() => {
+    if (statusFilter !== 'all') {
+      const stageExists = availableStages.some(s => s.id === statusFilter);
+      if (!stageExists) {
+        setStatusFilter('all');
+      }
+    }
+  }, [selectedFormId, availableStages, statusFilter]);
 
   const handleRowClick = (submissionId) => {
     navigate(`/ReviewSubmission?id=${submissionId}`);
@@ -749,7 +789,7 @@ export default function DueDiligenceDashboardPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Statuses</SelectItem>
-                  {workflowStages.map(stage => (
+                  {availableStages.map(stage => (
                     <SelectItem key={stage.id} value={stage.id}>
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }} />
@@ -803,7 +843,7 @@ export default function DueDiligenceDashboardPage() {
                   {filteredSubmissions.map((submission) => {
                     const formId = submission.form_submission?.form_id;
                     const refField = formId ? cardReferenceFieldByFormId[formId] : null;
-                    const formWorkflowStages = (formId && workflowStagesByFormId[formId]) || workflowStages;
+                    const formWorkflowStages = (formId && workflowStagesByFormId[formId]) || DEFAULT_WORKFLOW_STAGES;
                     return (
                       <SubmissionRow
                         key={submission.id}
