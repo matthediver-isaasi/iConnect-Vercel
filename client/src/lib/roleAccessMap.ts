@@ -60,7 +60,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
         features: [
           { id: "events.browse-events.search-filters", label: "Search & Filters" },
           { id: "events.browse-events.create", label: "Create, Edit & Delete Events" },
-          { id: "events.browse-events.view-attendees", label: "View Attendees" }
+          { id: "events.browse-events.view-attendees", label: "View Attendees" },
+          { id: "events.browse-events.toggle-drafts", label: "Toggle Draft Events Visibility" }
         ]
       },
       {

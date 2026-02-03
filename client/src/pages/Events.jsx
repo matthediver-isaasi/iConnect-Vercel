@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin, FileEdit } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -62,6 +62,7 @@ export default function EventsPage({
   const [selectedEventType, setSelectedEventType] = useState("all");
   const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
   const [showPastEvents, setShowPastEvents] = useState(false);
+  const [showDraftEvents, setShowDraftEvents] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
 
@@ -168,24 +169,32 @@ export default function EventsPage({
   // Build filter tag key map for display and filtering
   const filterTagKeyMap = useMemo(() => buildFilterTagKeyMap(eventCategories), [eventCategories]);
 
+  // Check if user can toggle draft visibility
+  const canToggleDrafts = !hookIsFeatureExcluded('events.browse-events.toggle-drafts');
+
   // Filter events by status and access level
-  // - Admins see all events (including drafts)
-  // - Everyone else (members and non-logged-in users) sees published and tbc events
+  // - Draft events are hidden by default for everyone
+  // - Users with toggle-drafts permission can enable draft visibility
+  // - Everyone sees published and tbc events
   // - Non-logged-in users can view member-only events but tickets will be locked
   //   This allows advertising member-only events to encourage membership signup
   const accessibleEvents = useMemo(() => {
     let filtered = events;
     
-    // Filter by status based on admin status
-    // Admins see all events, everyone else sees only published and tbc
-    if (!isAdmin) {
-      filtered = filtered.filter(event => 
-        event.status === 'published' || event.status === 'tbc' || !event.status
-      );
-    }
+    // Filter by status - drafts are hidden by default, shown only when toggle is on
+    // Published and TBC events are always shown
+    filtered = filtered.filter(event => {
+      const status = event.status || 'published';
+      if (status === 'draft') {
+        // Only show drafts if user has permission AND toggle is on
+        return canToggleDrafts && showDraftEvents;
+      }
+      // Show published and tbc events
+      return status === 'published' || status === 'tbc';
+    });
     
     return filtered;
-  }, [events, isAdmin]);
+  }, [events, canToggleDrafts, showDraftEvents]);
 
   // Helper to check if event is in the past (timezone-aware)
   const isEventPast = (event) => {
@@ -312,6 +321,41 @@ export default function EventsPage({
     
     return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && isEventPast(event);
   }).length;
+
+  // Count draft events for the toggle label (only count if user has permission)
+  const draftEventsCount = canToggleDrafts ? events.filter(event => {
+    const status = event.status || 'published';
+    if (status !== 'draft') return false;
+    
+    const matchesSearch =
+      event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.location?.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    let matchesFilterTag = true;
+    if (selectedFilterTags.length > 0 && categoriesLoaded) {
+      const rawEventTags = event.filter_tags || [];
+      const normalizedEventTags = normalizeFilterTags(rawEventTags, eventCategories);
+      matchesFilterTag = selectedFilterTags.some(tag => normalizedEventTags.includes(tag));
+    }
+    
+    let matchesEventType = true;
+    if (selectedEventType !== "all") {
+      matchesEventType = event.event_type === selectedEventType;
+    }
+    
+    let matchesDeliveryMode = true;
+    if (selectedDeliveryMode !== "all") {
+      const eventIsOnline = event.is_online === true;
+      if (selectedDeliveryMode === "online") {
+        matchesDeliveryMode = eventIsOnline;
+      } else if (selectedDeliveryMode === "offline") {
+        matchesDeliveryMode = !eventIsOnline;
+      }
+    }
+    
+    return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode;
+  }).length : 0;
 
   // Update member tour status via base44 client
   const updateMemberTourStatus = async (tourKey) => {
@@ -717,22 +761,46 @@ export default function EventsPage({
               </div>
             )}
             
-            {/* Show Past Events Toggle */}
-            {pastEventsCount > 0 && (
-              <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-200">
-                <Switch
-                  id="show-past-events"
-                  checked={showPastEvents}
-                  onCheckedChange={setShowPastEvents}
-                  data-testid="switch-show-past-events"
-                />
-                <Label 
-                  htmlFor="show-past-events" 
-                  className="text-sm text-slate-600 cursor-pointer flex items-center gap-2"
-                >
-                  <History className="w-4 h-4" />
-                  Show past events ({pastEventsCount})
-                </Label>
+            {/* Toggle Row for Past Events and Drafts */}
+            {(pastEventsCount > 0 || (canToggleDrafts && draftEventsCount > 0)) && (
+              <div className="flex flex-wrap items-center gap-6 mt-4 pt-4 border-t border-slate-200">
+                {/* Show Past Events Toggle */}
+                {pastEventsCount > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="show-past-events"
+                      checked={showPastEvents}
+                      onCheckedChange={setShowPastEvents}
+                      data-testid="switch-show-past-events"
+                    />
+                    <Label 
+                      htmlFor="show-past-events" 
+                      className="text-sm text-slate-600 cursor-pointer flex items-center gap-2"
+                    >
+                      <History className="w-4 h-4" />
+                      Show past events ({pastEventsCount})
+                    </Label>
+                  </div>
+                )}
+                
+                {/* Show Drafts Toggle - only visible to users with toggle-drafts permission */}
+                {canToggleDrafts && draftEventsCount > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="show-draft-events"
+                      checked={showDraftEvents}
+                      onCheckedChange={setShowDraftEvents}
+                      data-testid="switch-show-draft-events"
+                    />
+                    <Label 
+                      htmlFor="show-draft-events" 
+                      className="text-sm text-slate-600 cursor-pointer flex items-center gap-2"
+                    >
+                      <FileEdit className="w-4 h-4" />
+                      Show drafts ({draftEventsCount})
+                    </Label>
+                  </div>
+                )}
               </div>
             )}
           </div>
