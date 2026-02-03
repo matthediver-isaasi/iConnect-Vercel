@@ -43,13 +43,8 @@ export default function SubmissionStatsBar() {
     return null;
   }
 
-  // Hide if nothing to show
-  const hasNewSubmissions = stats.new > 0;
-  const hasPendingJobs = stats.pending_jobs > 0;
-  
-  if (!hasNewSubmissions && !hasPendingJobs) {
-    return null;
-  }
+  const newSubmissions = stats.new || 0;
+  const pendingJobs = stats.pending_jobs || 0;
 
   const handleSubmissionsClick = () => {
     navigate(createPageUrl("FormSubmissions"));
@@ -65,80 +60,70 @@ export default function SubmissionStatsBar() {
       <div className="px-3 py-2 group-data-[collapsible=icon]:hidden">
         <div className="grid grid-cols-2 gap-2">
           {/* New Submissions Card */}
-          {hasNewSubmissions && (
-            <div 
-              onClick={handleSubmissionsClick}
-              className="flex flex-col items-center gap-1 p-3 rounded-md bg-blue-50 hover-elevate active-elevate-2 transition-colors border border-blue-200 cursor-pointer"
-              data-testid="link-new-submissions"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmissionsClick()}
-            >
-              <FileText className="w-5 h-5 text-blue-600" />
-              <span className="text-lg font-bold text-blue-700" data-testid="text-new-submissions-count">{stats.new}</span>
-              <span className="text-xs text-blue-600" data-testid="text-new-submissions-label">New</span>
-            </div>
-          )}
+          <div 
+            onClick={handleSubmissionsClick}
+            className="flex flex-col items-center gap-1 p-2 rounded-md bg-blue-50 hover-elevate active-elevate-2 transition-colors border border-blue-200 cursor-pointer"
+            data-testid="link-new-submissions"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmissionsClick()}
+          >
+            <FileText className="w-4 h-4 text-blue-600" />
+            <span className="text-base font-bold text-blue-700" data-testid="text-new-submissions-count">{newSubmissions}</span>
+          </div>
           
           {/* Pending Jobs Card */}
-          {hasPendingJobs && (
-            <div 
-              onClick={handleJobsClick}
-              className="flex flex-col items-center gap-1 p-3 rounded-md bg-amber-50 hover-elevate active-elevate-2 transition-colors border border-amber-200 cursor-pointer"
-              data-testid="link-pending-jobs"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
-            >
-              <Briefcase className="w-5 h-5 text-amber-600" />
-              <span className="text-lg font-bold text-amber-700" data-testid="text-pending-jobs-count">{stats.pending_jobs}</span>
-              <span className="text-xs text-amber-600" data-testid="text-pending-jobs-label">Pending</span>
-            </div>
-          )}
+          <div 
+            onClick={handleJobsClick}
+            className="flex flex-col items-center gap-1 p-2 rounded-md bg-amber-50 hover-elevate active-elevate-2 transition-colors border border-amber-200 cursor-pointer"
+            data-testid="link-pending-jobs"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
+          >
+            <Briefcase className="w-4 h-4 text-amber-600" />
+            <span className="text-base font-bold text-amber-700" data-testid="text-pending-jobs-count">{pendingJobs}</span>
+          </div>
         </div>
       </div>
       
       {/* Collapsed view - stacked icons with counts */}
       <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-2 py-2">
-        {hasNewSubmissions && (
-          <Tooltip>
-            <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
-              <div 
-                onClick={handleSubmissionsClick}
-                className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover-elevate active-elevate-2 transition-colors cursor-pointer"
-                data-testid="link-new-submissions-collapsed"
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmissionsClick()}
-              >
-                <span className="text-white text-xs font-bold" data-testid="text-new-submissions-count-collapsed">{stats.new}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {stats.new} new submission{stats.new !== 1 ? 's' : ''}
-            </TooltipContent>
-          </Tooltip>
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <div 
+              onClick={handleSubmissionsClick}
+              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              data-testid="link-new-submissions-collapsed"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmissionsClick()}
+            >
+              <span className="text-white text-xs font-bold" data-testid="text-new-submissions-count-collapsed">{newSubmissions}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {newSubmissions} new submission{newSubmissions !== 1 ? 's' : ''}
+          </TooltipContent>
+        </Tooltip>
         
-        {hasPendingJobs && (
-          <Tooltip>
-            <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
-              <div 
-                onClick={handleJobsClick}
-                className="relative flex items-center justify-center w-8 h-8 rounded-md bg-amber-500 hover-elevate active-elevate-2 transition-colors cursor-pointer"
-                data-testid="link-pending-jobs-collapsed"
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
-              >
-                <span className="text-white text-xs font-bold" data-testid="text-pending-jobs-count-collapsed">{stats.pending_jobs}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {stats.pending_jobs} pending job{stats.pending_jobs !== 1 ? 's' : ''}
-            </TooltipContent>
-          </Tooltip>
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <div 
+              onClick={handleJobsClick}
+              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-amber-500 hover-elevate active-elevate-2 transition-colors cursor-pointer"
+              data-testid="link-pending-jobs-collapsed"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && handleJobsClick()}
+            >
+              <span className="text-white text-xs font-bold" data-testid="text-pending-jobs-count-collapsed">{pendingJobs}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {pendingJobs} pending job{pendingJobs !== 1 ? 's' : ''}
+          </TooltipContent>
+        </Tooltip>
       </div>
     </>
   );
