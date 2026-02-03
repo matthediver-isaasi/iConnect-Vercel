@@ -24,6 +24,12 @@ class EntityProxy {
       if (options.limit) params.set('limit', options.limit);
       if (options.offset) params.set('offset', options.offset);
       if (options.expand) params.set('expand', options.expand);
+      // Support additional custom query parameters
+      if (options.queryParams) {
+        Object.entries(options.queryParams).forEach(([key, value]) => {
+          params.set(key, value);
+        });
+      }
     }
     
     const queryString = params.toString();

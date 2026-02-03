@@ -146,7 +146,10 @@ export default function OrganisationsListPage() {
     queryKey: ['organizations-crm-list'],
     enabled: accessChecked,
     queryFn: async () => {
-      return await base44.entities.Organization.list('name');
+      return await base44.entities.Organization.list({
+        sort: { name: 'asc' },
+        queryParams: { skipDirectoryFilters: 'true' }
+      });
     }
   });
 

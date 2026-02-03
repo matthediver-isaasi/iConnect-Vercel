@@ -1,7 +1,7 @@
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions } from '../../_lib/tenantContext.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -370,7 +370,14 @@ export default async function handler(req, res) {
             
             // Apply directory filtering for non-admin users (application_status and excluded orgs)
             // Skip directory filtering when user is fetching their own organization
-            if (!isTenantAdmin && !isFetchingOwnOrg) {
+            // Also skip when skipDirectoryFilters=true is passed (for CRM page) - requires tenant admin or org management access
+            let skipDirectoryFilters = isTenantAdmin;
+            if (!skipDirectoryFilters && req.query.skipDirectoryFilters === 'true' && tenantCtx.roleId) {
+              // Check if user's role has access to organizations management (CRM)
+              const { hasCrossOrgAccess } = await checkCrossOrgPermissions(tenantCtx.roleId);
+              skipDirectoryFilters = hasCrossOrgAccess;
+            }
+            if (!skipDirectoryFilters && !isFetchingOwnOrg) {
               // Check for org_directory_allowed_application_statuses setting
               const { data: statusSetting } = await supabase
                 .from('system_settings')
