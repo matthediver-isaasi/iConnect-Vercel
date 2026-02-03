@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { COUNTRIES } from "@/data/countries";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
@@ -26,6 +27,8 @@ const FIELD_TYPES = [
   { value: 'decimal', label: 'Decimal Number' },
   { value: 'picklist', label: 'Picklist (Multiple Selection)' },
   { value: 'dropdown', label: 'Dropdown (Single Selection)' },
+  { value: 'country', label: 'Country (Single Selection)' },
+  { value: 'countries', label: 'Countries (Multi-Select)' },
   { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'file', label: 'File Upload' }
 ];
@@ -154,6 +157,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [minSelections, setMinSelections] = useState('');
   const [maxSelections, setMaxSelections] = useState('');
   const [allowedFileTypes, setAllowedFileTypes] = useState([]);
+  // Country field configuration
+  const [allCountries, setAllCountries] = useState(true);
+  const [selectedCountries, setSelectedCountries] = useState([]);
+  const [defaultCountry, setDefaultCountry] = useState('');
+  const [defaultCountries, setDefaultCountries] = useState([]);
   // Visibility toggles for organization fields
   const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
   const [showInDirectoryCard, setShowInDirectoryCard] = useState(true);
@@ -266,6 +274,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setMinSelections('');
     setMaxSelections('');
     setAllowedFileTypes([]);
+    // Reset country configuration
+    setAllCountries(true);
+    setSelectedCountries([]);
+    setDefaultCountry('');
+    setDefaultCountries([]);
     // Reset visibility toggles to default (all visible)
     setShowInMyOrganisation(true);
     setShowInDirectoryCard(true);
@@ -302,6 +315,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       }
     }
     setAllowedFileTypes(parsedFileTypes);
+    // Load country field configuration
+    setAllCountries(field.all_countries !== false);
+    setSelectedCountries(field.selected_countries || []);
+    setDefaultCountry(field.default_country || '');
+    setDefaultCountries(field.default_countries || []);
     // Load visibility settings (default to true for backward compatibility)
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
     setShowInDirectoryCard(field.show_in_directory_card !== false);
@@ -356,10 +374,15 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       display_order: editingField ? editingField.display_order : preferenceFields.length,
       is_active: true,
       entity_scope: entityScope,
-      is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown') ? fieldFilterable : false,
+      is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries') ? fieldFilterable : false,
       min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
       max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null,
       allowed_file_types: fieldType === 'file' ? allowedFileTypes : null,
+      // Country field configuration
+      all_countries: (fieldType === 'country' || fieldType === 'countries') ? allCountries : null,
+      selected_countries: (fieldType === 'country' || fieldType === 'countries') && !allCountries ? selectedCountries : null,
+      default_country: fieldType === 'country' ? defaultCountry : null,
+      default_countries: fieldType === 'countries' ? defaultCountries : null,
       // Visibility settings (only relevant for organization fields)
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
       show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
@@ -651,6 +674,156 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                     Selected: {allowedFileTypes.map(t => ALLOWED_FILE_TYPES.find(ft => ft.value === t)?.label).filter(Boolean).join(', ')}
                   </p>
                 )}
+              </div>
+            )}
+
+            {fieldType === 'country' && (
+              <div className="space-y-3">
+                <Label className="text-xs font-medium">Country Options</Label>
+                
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="all-countries"
+                    checked={allCountries}
+                    onCheckedChange={(checked) => {
+                      setAllCountries(checked);
+                      if (checked) setSelectedCountries([]);
+                    }}
+                    data-testid="checkbox-all-countries"
+                  />
+                  <Label htmlFor="all-countries" className="text-xs">
+                    Include all countries
+                  </Label>
+                </div>
+
+                {!allCountries && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                    <div className="max-h-[200px] overflow-y-auto border rounded-lg p-2 space-y-1">
+                      {COUNTRIES.map((country) => (
+                        <div key={country.code} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`country-${country.code}`}
+                            checked={selectedCountries.includes(country.code)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedCountries([...selectedCountries, country.code]);
+                              } else {
+                                setSelectedCountries(selectedCountries.filter(c => c !== country.code));
+                              }
+                            }}
+                            data-testid={`checkbox-country-${country.code}`}
+                          />
+                          <Label htmlFor={`country-${country.code}`} className="text-xs">
+                            {country.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {selectedCountries.length} countries selected
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Default Country</Label>
+                  <Select
+                    value={defaultCountry || '__none__'}
+                    onValueChange={(value) => setDefaultCountry(value === '__none__' ? '' : value)}
+                  >
+                    <SelectTrigger data-testid="select-default-country">
+                      <SelectValue placeholder="No default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No default</SelectItem>
+                      {(allCountries ? COUNTRIES : COUNTRIES.filter(c => selectedCountries.includes(c.code))).map((country) => (
+                        <SelectItem key={country.code} value={country.code}>
+                          {country.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {fieldType === 'countries' && (
+              <div className="space-y-3">
+                <Label className="text-xs font-medium">Countries Options (Multi-Select)</Label>
+                
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="all-countries-multi"
+                    checked={allCountries}
+                    onCheckedChange={(checked) => {
+                      setAllCountries(checked);
+                      if (checked) setSelectedCountries([]);
+                    }}
+                    data-testid="checkbox-all-countries-multi"
+                  />
+                  <Label htmlFor="all-countries-multi" className="text-xs">
+                    Include all countries
+                  </Label>
+                </div>
+
+                {!allCountries && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                    <div className="max-h-[200px] overflow-y-auto border rounded-lg p-2 space-y-1">
+                      {COUNTRIES.map((country) => (
+                        <div key={country.code} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`countries-${country.code}`}
+                            checked={selectedCountries.includes(country.code)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedCountries([...selectedCountries, country.code]);
+                              } else {
+                                setSelectedCountries(selectedCountries.filter(c => c !== country.code));
+                              }
+                            }}
+                            data-testid={`checkbox-countries-${country.code}`}
+                          />
+                          <Label htmlFor={`countries-${country.code}`} className="text-xs">
+                            {country.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {selectedCountries.length} countries selected
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Default Countries</Label>
+                  <div className="max-h-[150px] overflow-y-auto border rounded-lg p-2 space-y-1">
+                    {(allCountries ? COUNTRIES : COUNTRIES.filter(c => selectedCountries.includes(c.code))).map((country) => (
+                      <div key={country.code} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`default-countries-${country.code}`}
+                          checked={defaultCountries.includes(country.code)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setDefaultCountries([...defaultCountries, country.code]);
+                            } else {
+                              setDefaultCountries(defaultCountries.filter(c => c !== country.code));
+                            }
+                          }}
+                          data-testid={`checkbox-default-countries-${country.code}`}
+                        />
+                        <Label htmlFor={`default-countries-${country.code}`} className="text-xs">
+                          {country.name}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {defaultCountries.length} default countries selected
+                  </p>
+                </div>
               </div>
             )}
 
