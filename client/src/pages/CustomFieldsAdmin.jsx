@@ -315,11 +315,19 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       }
     }
     setAllowedFileTypes(parsedFileTypes);
-    // Load country field configuration
+    // Load country field configuration (normalize JSON strings to arrays)
     setAllCountries(field.all_countries !== false);
-    setSelectedCountries(field.selected_countries || []);
+    let parsedSelectedCountries = field.selected_countries || [];
+    if (typeof parsedSelectedCountries === 'string') {
+      try { parsedSelectedCountries = JSON.parse(parsedSelectedCountries); } catch { parsedSelectedCountries = []; }
+    }
+    setSelectedCountries(Array.isArray(parsedSelectedCountries) ? parsedSelectedCountries : []);
     setDefaultCountry(field.default_country || '');
-    setDefaultCountries(field.default_countries || []);
+    let parsedDefaultCountries = field.default_countries || [];
+    if (typeof parsedDefaultCountries === 'string') {
+      try { parsedDefaultCountries = JSON.parse(parsedDefaultCountries); } catch { parsedDefaultCountries = []; }
+    }
+    setDefaultCountries(Array.isArray(parsedDefaultCountries) ? parsedDefaultCountries : []);
     // Load visibility settings (default to true for backward compatibility)
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
     setShowInDirectoryCard(field.show_in_directory_card !== false);
@@ -362,8 +370,22 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       return;
     }
 
+    // Validate country fields have at least one country selected when not using all
+    if ((fieldType === 'country' || fieldType === 'countries') && !allCountries && selectedCountries.length === 0) {
+      toast.error('Please select at least one country or enable "Include all countries"');
+      return;
+    }
+
     // Note: We no longer require options for picklist/dropdown fields
     // This allows creating fields where options are added per-record (e.g., approved domains per organisation)
+
+    // Filter defaults to only include valid selected countries
+    const validDefaultCountry = fieldType === 'country' && defaultCountry 
+      ? (allCountries || selectedCountries.includes(defaultCountry) ? defaultCountry : '') 
+      : null;
+    const validDefaultCountries = fieldType === 'countries' && defaultCountries.length > 0
+      ? (allCountries ? defaultCountries : defaultCountries.filter(c => selectedCountries.includes(c)))
+      : null;
 
     const fieldData = {
       name: fieldName.trim().toLowerCase().replace(/\s+/g, '_'),
@@ -381,8 +403,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       // Country field configuration
       all_countries: (fieldType === 'country' || fieldType === 'countries') ? allCountries : null,
       selected_countries: (fieldType === 'country' || fieldType === 'countries') && !allCountries ? selectedCountries : null,
-      default_country: fieldType === 'country' ? defaultCountry : null,
-      default_countries: fieldType === 'countries' ? defaultCountries : null,
+      default_country: validDefaultCountry,
+      default_countries: validDefaultCountries,
       // Visibility settings (only relevant for organization fields)
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
       show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
