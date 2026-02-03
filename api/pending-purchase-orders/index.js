@@ -320,7 +320,10 @@ export default async function handler(req, res) {
               updated: true 
             });
           } else {
-            return res.json({ found: false, message: 'No reference/PO number found in Xero invoice' });
+            const message = isTBC 
+              ? 'PO reference is TBC (ignored)' 
+              : 'No PO reference found in Xero invoice';
+            return res.json({ found: false, message });
           }
           
         } catch (xeroError) {

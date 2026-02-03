@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Loader2 } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -30,7 +30,7 @@ export default function PendingPurchaseOrdersReport() {
   const [sortBy, setSortBy] = useState("date_desc");
   const [editingRecord, setEditingRecord] = useState(null);
   const [poNumber, setPoNumber] = useState("");
-  const [verifyingRecords, setVerifyingRecords] = useState({});
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -179,109 +179,61 @@ export default function PendingPurchaseOrdersReport() {
     link.click();
   };
 
-  const handleVerifyWithXero = async (record) => {
-    if (!record.xero_invoice_id) {
-      toast({
-        title: "Cannot Verify",
-        description: "No Xero invoice ID available for this record.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const recordKey = `${record.entityType}-${record.id}`;
-    setVerifyingRecords(prev => ({ ...prev, [recordKey]: true }));
-
-    try {
-      const response = await fetch('/api/pending-purchase-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          action: 'verify',
-          entityType: record.entityType,
-          entityId: record.id,
-          xeroInvoiceId: record.xero_invoice_id,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Verification failed');
-      }
-
-      if (result.found && result.updated) {
-        toast({
-          title: "PO Found",
-          description: `PO number "${result.purchase_order_number}" found in Xero and saved.`,
-        });
-        queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
-      } else {
-        toast({
-          title: "No PO Found",
-          description: result.message || "No purchase order reference found in Xero for this invoice.",
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Verification Error",
-        description: error.message || "Failed to verify with Xero.",
-        variant: "destructive",
-      });
-    } finally {
-      setVerifyingRecords(prev => ({ ...prev, [recordKey]: false }));
-    }
-  };
-
-  const handleVerifyAll = async () => {
+  const handleSyncWithXero = async () => {
+    if (isSyncing) return;
+    
     const recordsWithInvoiceId = filteredAndSortedData.filter(r => r.xero_invoice_id);
     
     if (recordsWithInvoiceId.length === 0) {
       toast({
         title: "No Records",
-        description: "No records with Xero invoice IDs to verify.",
+        description: "No records with Xero invoice IDs to sync.",
       });
       return;
     }
 
+    setIsSyncing(true);
     toast({
-      title: "Verifying...",
-      description: `Checking ${recordsWithInvoiceId.length} invoices with Xero...`,
+      title: "Syncing with Xero...",
+      description: `Checking ${recordsWithInvoiceId.length} invoices for PO numbers...`,
     });
 
     let foundCount = 0;
-    for (const record of recordsWithInvoiceId) {
-      try {
-        const response = await fetch('/api/pending-purchase-orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            action: 'verify',
-            entityType: record.entityType,
-            entityId: record.id,
-            xeroInvoiceId: record.xero_invoice_id,
-          }),
-        });
+    try {
+      for (const record of recordsWithInvoiceId) {
+        try {
+          const response = await fetch('/api/pending-purchase-orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              action: 'verify',
+              entityType: record.entityType,
+              entityId: record.id,
+              xeroInvoiceId: record.xero_invoice_id,
+            }),
+          });
 
-        const result = await response.json();
-        if (result.found && result.updated) {
-          foundCount++;
+          const result = await response.json();
+          if (result.found && result.updated) {
+            foundCount++;
+          }
+        } catch (error) {
+          console.error('Sync error for record:', record.id, error);
         }
-      } catch (error) {
-        console.error('Verify error for record:', record.id, error);
       }
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
-    
-    toast({
-      title: "Verification Complete",
-      description: foundCount > 0 
-        ? `Found and updated ${foundCount} PO number${foundCount !== 1 ? 's' : ''} from Xero.`
-        : "No new PO numbers found in Xero.",
-    });
+      queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
+      
+      toast({
+        title: "Sync Complete",
+        description: foundCount > 0 
+          ? `Found and updated ${foundCount} PO number${foundCount !== 1 ? 's' : ''} from Xero.`
+          : "No new PO numbers found in Xero (TBC references are ignored).",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleDownloadInvoice = async (transaction) => {
@@ -380,14 +332,14 @@ export default function PendingPurchaseOrdersReport() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            onClick={handleVerifyAll}
+            onClick={handleSyncWithXero}
             variant="outline"
             className="flex items-center gap-2"
-            disabled={filteredAndSortedData.length === 0}
-            data-testid="button-verify-all"
+            disabled={filteredAndSortedData.length === 0 || isSyncing}
+            data-testid="button-sync-xero"
           >
-            <RefreshCw className="h-4 w-4" />
-            Verify All with Xero
+            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : 'Sync with Xero'}
           </Button>
           <Button
             onClick={handleExportCSV}
@@ -461,7 +413,6 @@ export default function PendingPurchaseOrdersReport() {
                 const orgName = organizations[record.organization_id] || 'Unknown Organisation';
                 const TypeIcon = record.source_type === 'Event' ? Ticket : GraduationCap;
                 const recordKey = `${record.entityType}-${record.id}`;
-                const isVerifying = verifyingRecords[recordKey];
                 return (
                   <div
                     key={recordKey}
