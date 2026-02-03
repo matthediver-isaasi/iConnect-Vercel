@@ -1334,7 +1334,9 @@ export default function DueDiligenceConfigPage() {
                                     className={cn(
                                       (stage.stage_actions?.send_contracts?.length > 0 || 
                                         stageMeetingRequests.some(mr => mr.due_diligence_stage_id === stage.id) ||
-                                        stageEmailActions.some(ea => ea.due_diligence_stage_id === stage.id)) &&
+                                        stageEmailActions.some(ea => ea.due_diligence_stage_id === stage.id) ||
+                                        stageMemberActions.some(ma => ma.due_diligence_stage_id === stage.id) ||
+                                        stageFieldMappingActions.some(fa => fa.due_diligence_stage_id === stage.id)) &&
                                         openStageSection[index] !== 'actions' &&
                                         "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:border-green-800 dark:text-green-300"
                                     )}
