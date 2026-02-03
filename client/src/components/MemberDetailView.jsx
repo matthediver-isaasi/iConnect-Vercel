@@ -1039,7 +1039,19 @@ export default function MemberDetailView({
                           <p className="text-sm">{member.job_title || '-'}</p>
                         </div>
                       </div>
-                      {!isFeatureExcluded('crm.members.password_reset') && (
+                      {(() => {
+                        const isExcluded = isFeatureExcluded('crm.members.password_reset');
+                        const crmExcluded = isFeatureExcluded('crm');
+                        const crmMembersExcluded = isFeatureExcluded('crm.members');
+                        console.log('[PasswordReset Debug] Feature check:', {
+                          'crm.members.password_reset excluded': isExcluded,
+                          'crm module excluded': crmExcluded,
+                          'crm.members page excluded': crmMembersExcluded,
+                          memberInfo: memberInfo?.id,
+                          roleId: memberInfo?.role_id,
+                        });
+                        return !isExcluded;
+                      })() && (
                         <>
                           <Separator />
                           <div className="pt-2">
