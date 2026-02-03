@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -36,15 +36,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 export default function MemberDetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
-  const { isAdmin, isAccessReady, isFeatureExcluded, memberRole } = useMemberAccess();
-  
-  // DEBUG: Log to verify deployment and feature access
-  console.log('[MemberDetail DEBUG] Component loaded', {
-    memberId: id,
-    isAccessReady,
-    memberRoleLoaded: !!memberRole,
-    passwordResetExcluded: isFeatureExcluded ? isFeatureExcluded('crm.members.password_reset') : 'fn not available',
-  });
+  const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { formatDate } = useDateFormat();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -87,12 +79,16 @@ export default function MemberDetail() {
   
   // Password reset state
   const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
+  const [generatedResetLink, setGeneratedResetLink] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
   
   // Handler for generating password reset link
   const handleGenerateResetLink = async () => {
     if (!member?.id) return;
     
     setIsGeneratingResetLink(true);
+    setGeneratedResetLink('');
+    setLinkCopied(false);
     try {
       const response = await fetch(`/api/admin/members/${member.id}/generate-reset-link`, {
         method: 'POST',
@@ -106,14 +102,26 @@ export default function MemberDetail() {
         throw new Error(data.error || 'Failed to generate reset link');
       }
       
-      // Copy to clipboard
-      await navigator.clipboard.writeText(data.resetUrl);
-      toast.success('Password reset link copied to clipboard! Valid for 24 hours.');
+      setGeneratedResetLink(data.resetUrl);
+      toast.success('Password reset link generated! Valid for 24 hours.');
     } catch (error) {
       console.error('Error generating reset link:', error);
       toast.error(error.message || 'Failed to generate password reset link');
     } finally {
       setIsGeneratingResetLink(false);
+    }
+  };
+  
+  // Handler for copying reset link to clipboard
+  const handleCopyResetLink = async () => {
+    if (!generatedResetLink) return;
+    try {
+      await navigator.clipboard.writeText(generatedResetLink);
+      setLinkCopied(true);
+      toast.success('Link copied to clipboard!');
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch (error) {
+      toast.error('Failed to copy link');
     }
   };
 
@@ -717,15 +725,11 @@ export default function MemberDetail() {
                         <p className="text-sm">{member.job_title || '-'}</p>
                       </div>
                     </div>
-                    {/* Password Reset Button - DEBUG visible banner */}
-                    <div className="bg-yellow-100 dark:bg-yellow-900 p-2 text-xs mb-2">
-                      DEBUG: isAccessReady={String(isAccessReady)} | 
-                      isFeatureExcluded={String(isFeatureExcluded ? isFeatureExcluded('crm.members.password_reset') : 'loading')}
-                    </div>
+                    {/* Password Reset Section */}
                     {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.password_reset') && (
                       <>
                         <Separator />
-                        <div className="pt-2">
+                        <div className="pt-3 space-y-3">
                           <Button
                             variant="outline"
                             size="sm"
@@ -741,6 +745,32 @@ export default function MemberDetail() {
                             )}
                             Generate Reset Password Link
                           </Button>
+                          
+                          {generatedResetLink && (
+                            <div className="space-y-1">
+                              <p className="text-xs text-slate-500">Password Reset Link (valid for 24 hours)</p>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  readOnly
+                                  value={generatedResetLink}
+                                  className="text-xs font-mono"
+                                  data-testid="input-reset-link"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={handleCopyResetLink}
+                                  data-testid="button-copy-reset-link"
+                                >
+                                  {linkCopied ? (
+                                    <Check className="w-4 h-4 text-green-600" />
+                                  ) : (
+                                    <Copy className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
