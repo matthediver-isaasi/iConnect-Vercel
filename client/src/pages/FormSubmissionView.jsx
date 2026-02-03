@@ -1,17 +1,25 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, FileText, Calendar, User, Building2, ChevronDown, ChevronUp, Pencil } from "lucide-react";
+import { toast } from "sonner";
 import FormRenderer from "../components/forms/FormRenderer";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
 import { format } from "date-fns";
 
+const SUBMISSION_STATUSES = [
+  { value: 'new', label: 'New', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
+  { value: 'actioned', label: 'Actioned', className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
+  { value: 'junk', label: 'Junk', className: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300' },
+];
+
 export default function FormSubmissionView() {
   const { submissionId } = useParams();
+  const queryClient = useQueryClient();
   const [expandedSections, setExpandedSections] = useState({});
   const [editField, setEditField] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -45,6 +53,24 @@ export default function FormSubmissionView() {
       ...prev,
       [sectionId]: !prev[sectionId]
     }));
+  };
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async (newStatus) => {
+      return await base44.entities.FormSubmission.update(submissionId, { status: newStatus });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-submission', submissionId] });
+      queryClient.invalidateQueries({ queryKey: ['form-submissions'] });
+      toast.success('Status updated successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to update status: ' + error.message);
+    }
+  });
+
+  const handleStatusChange = (newStatus) => {
+    updateStatusMutation.mutate(newStatus);
   };
 
   if (submissionLoading || formLoading) {
@@ -96,18 +122,6 @@ export default function FormSubmissionView() {
     return visibleFields.filter(f => f.page_id === page.id);
   };
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'new':
-        return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">New</Badge>;
-      case 'junk':
-        return <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">Junk</Badge>;
-      case 'actioned':
-        return <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Actioned</Badge>;
-      default:
-        return <Badge variant="secondary">{status || 'New'}</Badge>;
-    }
-  };
 
   const handleEditField = (field, value) => {
     setEditField({ field, value });
@@ -250,7 +264,29 @@ export default function FormSubmissionView() {
                 <p className="text-slate-600 dark:text-slate-400 mt-1">{form.description}</p>
               )}
             </div>
-            {getStatusBadge(submission.status)}
+            <Select
+              value={submission.status || 'new'}
+              onValueChange={handleStatusChange}
+              disabled={updateStatusMutation.isPending}
+            >
+              <SelectTrigger 
+                className="w-[140px]" 
+                data-testid="select-submission-status"
+              >
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                {SUBMISSION_STATUSES.map((status) => (
+                  <SelectItem 
+                    key={status.value} 
+                    value={status.value}
+                    data-testid={`select-status-${status.value}`}
+                  >
+                    {status.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
