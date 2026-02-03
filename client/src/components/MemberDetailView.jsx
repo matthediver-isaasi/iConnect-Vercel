@@ -97,6 +97,9 @@ export default function MemberDetailView({
     memberRoleLoaded: !!memberRole,
     excludedFeatures: memberRole?.excluded_features,
   });
+  
+  // DEBUG UI: Visible element to verify deployment
+  const DEBUG_DEPLOYMENT = true;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -826,6 +829,12 @@ export default function MemberDetailView({
 
   return (
     <div className="bg-slate-50">
+      {DEBUG_DEPLOYMENT && (
+        <div className="bg-yellow-400 text-black p-2 text-center font-bold">
+          DEBUG: MemberDetailView v2 loaded | Role: {memberRole?.name || 'loading...'} | 
+          Password Reset Excluded: {String(isFeatureExcluded('crm.members.password_reset'))}
+        </div>
+      )}
       <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
