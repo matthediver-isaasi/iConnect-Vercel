@@ -86,7 +86,7 @@ export default function MemberDetailView({
   onCreated,
   defaultOrganizationId = ''
 }) {
-  const { isAdmin, memberInfo } = useMemberAccess();
+  const { isAdmin, memberInfo, isFeatureExcluded } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -1039,7 +1039,7 @@ export default function MemberDetailView({
                           <p className="text-sm">{member.job_title || '-'}</p>
                         </div>
                       </div>
-                      {isAdmin && (
+                      {!isFeatureExcluded('page_MembersList') && (
                         <>
                           <Separator />
                           <div className="pt-2">
