@@ -1039,7 +1039,7 @@ export default function MemberDetailView({
                           <p className="text-sm">{member.job_title || '-'}</p>
                         </div>
                       </div>
-                      {!isFeatureExcluded('page_MembersList') && (
+                      {!isFeatureExcluded('crm.members.password_reset') && (
                         <>
                           <Separator />
                           <div className="pt-2">

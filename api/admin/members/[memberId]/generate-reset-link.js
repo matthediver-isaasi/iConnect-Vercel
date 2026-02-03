@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Check if user has access to Members page (same permission as viewing member details)
+    // Check if user has access to password reset feature
     const roleId = sessionMember.role_id;
     if (roleId) {
       const { data: role, error: roleError } = await supabase
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
 
       if (!roleError && role) {
         const excludedFeatures = role.excluded_features || [];
-        if (excludedFeatures.includes('page_MembersList')) {
+        if (excludedFeatures.includes('crm.members.password_reset')) {
           return res.status(403).json({ success: false, error: 'Access denied' });
         }
       }

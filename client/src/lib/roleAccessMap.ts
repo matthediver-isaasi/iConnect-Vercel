@@ -557,7 +557,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       },
       {
         id: "crm.members",
-        label: "Members"
+        label: "Members",
+        features: [
+          { id: "crm.members.password_reset", label: "Generate Password Reset Link" }
+        ]
       }
     ]
   },
