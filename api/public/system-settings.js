@@ -37,6 +37,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'wall_of_fame_photo_size',
   'date_display_format',
   'event_types',
+  'event_time_format_24h',
   'job_types',
   'job_hours',
 ];
