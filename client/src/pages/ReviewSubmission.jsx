@@ -1805,13 +1805,20 @@ export default function ReviewSubmissionPage() {
     if (ddConfig?.scoring_approach !== 'static_traffic_light') return null;
     
     const questions = (ddConfig?.static_questions || []).filter(q => q.type !== 'header');
-    if (questions.length === 0) return { score: 0, percentage: 0, maxScore: 0, riskLevel: null, answeredCount: 0, totalQuestions: 0 };
+    if (questions.length === 0) return { score: 0, percentage: 0, maxScore: 0, riskLevel: null, answeredCount: 0, totalQuestions: 0, naCount: 0 };
     
     let actualScore = 0;
     let maxPossibleScore = 0;
     let answeredCount = 0;
+    let naCount = 0;
     
     for (const question of questions) {
+      // Skip N/A questions from scoring
+      if (staticQuestionNotApplicable[question.id] === true) {
+        naCount++;
+        continue;
+      }
+      
       const options = question.light_options || question.options || [];
       
       // Calculate max possible score for this question (highest option score)
@@ -1857,15 +1864,20 @@ export default function ReviewSubmissionPage() {
       }
     }
     
+    // Applicable questions = total minus N/A
+    const applicableQuestions = questions.length - naCount;
+    
     return { 
       score: actualScore, 
       maxScore: maxPossibleScore, 
       percentage, 
       riskLevel, 
       answeredCount, 
-      totalQuestions: questions.length 
+      totalQuestions: questions.length,
+      applicableQuestions,
+      naCount
     };
-  }, [ddConfig, staticQuestionResponses]);
+  }, [ddConfig, staticQuestionResponses, staticQuestionNotApplicable]);
 
   // Compute condition status for each stage
   const stageConditionStatus = useMemo(() => {
