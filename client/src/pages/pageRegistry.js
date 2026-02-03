@@ -24,6 +24,7 @@ export const PAGE_NAMES = [
   "TourManagement",
   "History",
   "TicketSalesAnalytics",
+  "PendingPurchaseOrdersReport",
   "Resources",
   "PublicResources",
   "ResourceSettings",

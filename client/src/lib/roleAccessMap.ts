@@ -89,6 +89,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Ticket Sales Analytics"
       },
       {
+        id: "events.pending-purchase-orders",
+        label: "Pending Purchase Orders Report"
+      },
+      {
         id: "events.discount-codes",
         label: "Discount Codes"
       },
@@ -718,6 +722,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_DiscountCodeManagement": "events.discount-codes",
   "page_admin_EventSettings": "events.event-settings",
   "page_admin_TicketSalesAnalytics": "events.ticket-analytics",
+  "page_admin_PendingPurchaseOrdersReport": "events.pending-purchase-orders",
   "page_admin_AwardManagement": "membership.awards",
   "page_admin_CategoryManagement": "content.categories",
   "page_admin_ResourceSettings": "content.resource-settings",
@@ -810,6 +815,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_DiscountCodeManagement": "events.discount-codes",
   "page_EventSettings": "events.event-settings",
   "page_TicketSalesAnalytics": "events.ticket-analytics",
+  "page_PendingPurchaseOrdersReport": "events.pending-purchase-orders",
   "page_AwardManagement": "membership.awards",
   "page_JobPostingManagement": "jobs.job-management",
   "page_JobBoardSettings": "jobs.job-settings",

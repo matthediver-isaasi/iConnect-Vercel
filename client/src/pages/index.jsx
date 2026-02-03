@@ -69,6 +69,8 @@ import History from "./History";
 
 import TicketSalesAnalytics from "./TicketSalesAnalytics";
 
+import PendingPurchaseOrdersReport from "./PendingPurchaseOrdersReport";
+
 import Resources from "./Resources";
 
 import PublicResources from "./PublicResources";
@@ -389,6 +391,7 @@ const PAGES = {
     History: History,
     
     TicketSalesAnalytics: TicketSalesAnalytics,
+    PendingPurchaseOrdersReport: PendingPurchaseOrdersReport,
     
     Resources: Resources,
     
@@ -693,6 +696,7 @@ function PagesContent() {
                 <Route path="/History" element={<History />} />
                 
                 <Route path="/TicketSalesAnalytics" element={<TicketSalesAnalytics />} />
+                <Route path="/PendingPurchaseOrdersReport" element={<PendingPurchaseOrdersReport />} />
                 
                 <Route path="/Resources" element={<Resources />} />
                 
