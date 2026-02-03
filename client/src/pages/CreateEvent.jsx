@@ -44,6 +44,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
+import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
@@ -711,7 +712,7 @@ export default function CreateEvent() {
   const formatWebinarDateTime = (webinar) => {
     if (!webinar.start_time) return '';
     const date = new Date(webinar.start_time);
-    return format(date, "MMM d, yyyy 'at' h:mm a");
+    return formatEventDateTime(date, systemSettings);
   };
 
   return (

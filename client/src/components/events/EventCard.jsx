@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
+import { formatEventTime, formatEventDate, is24HourFormat } from "@/utils/timeFormat";
 import { base44 } from "@/api/base44Client";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { toast } from "sonner";
@@ -35,51 +35,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const DEFAULT_TIMEZONE = "Europe/London";
+// formatEventTime, formatEventDate, and is24HourFormat are imported from @/utils/timeFormat
 
-// Helper function to format date in event's timezone
-const formatEventDate = (dateStr, timezone = DEFAULT_TIMEZONE, formatStr = "MMM d, yyyy") => {
-  if (!dateStr) return null;
-  try {
-    const date = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
-    return formatInTimeZone(date, timezone, formatStr);
-  } catch (e) {
-    console.error('Error formatting date:', e);
-    return format(new Date(dateStr), formatStr);
-  }
-};
-
-// Helper function to format time in event's timezone
-const formatEventTime = (dateStr, timezone = DEFAULT_TIMEZONE) => {
-  if (!dateStr) return null;
-  try {
-    const date = typeof dateStr === 'string' ? parseISO(dateStr) : dateStr;
-    return formatInTimeZone(date, timezone, "h:mm a");
-  } catch (e) {
-    console.error('Error formatting time:', e);
-    return format(new Date(dateStr), "h:mm a");
-  }
-};
-
-// Helper to get timezone abbreviation for a specific date (handles DST correctly)
-const getTimezoneAbbr = (dateStr, timezone = DEFAULT_TIMEZONE) => {
-  try {
-    // Use the event date to get the correct DST-aware abbreviation
-    const eventDate = dateStr ? (typeof dateStr === 'string' ? parseISO(dateStr) : dateStr) : new Date();
-    const formatter = new Intl.DateTimeFormat('en-GB', {
-      timeZone: timezone,
-      timeZoneName: 'short'
-    });
-    const parts = formatter.formatToParts(eventDate);
-    const tzPart = parts.find(p => p.type === 'timeZoneName');
-    return tzPart ? tzPart.value : timezone;
-  } catch {
-    return timezone;
-  }
-};
-
-// Check if event is past using timezone-aware comparison
-const isEventInPast = (event, timezone = DEFAULT_TIMEZONE) => {
+// Check if event is past by comparing dates
+const isEventInPast = (event) => {
   if (!event.start_date) return false;
   try {
     const eventDate = typeof event.start_date === 'string' 
@@ -384,15 +343,11 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     setShowAttendeesModal(true);
   };
   
-  // Get the event's timezone (default to Europe/London for UK events)
-  const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
-  // Pass event date to get correct DST-aware abbreviation (GMT vs BST)
-  // For TBC events, don't compute timezone abbr since there's no date
+  // For TBC events, we don't show dates
   const isTbcEvent = event.status === 'tbc';
-  const timezoneAbbr = isTbcEvent ? '' : getTimezoneAbbr(event.start_date, eventTimezone);
   
-  // Check if event is in the past using timezone-aware comparison
-  const isEventPast = isEventInPast(event, eventTimezone);
+  // Check if event is in the past
+  const isEventPast = isEventInPast(event);
 
   const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
 
@@ -627,9 +582,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {event.start_date && (
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Calendar className="w-4 h-4 text-slate-400" />
-                  <span>{formatEventDate(event.start_date, eventTimezone)}</span>
+                  <span>{formatEventDate(event.start_date)}</span>
                   {event.end_date && event.start_date !== event.end_date && (
-                    <span className="text-slate-400">- {formatEventDate(event.end_date, eventTimezone)}</span>
+                    <span className="text-slate-400">- {formatEventDate(event.end_date)}</span>
                   )}
                 </div>
               )}
@@ -637,8 +592,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {event.start_date && (
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Clock className="w-4 h-4 text-slate-400" />
-                  <span>{formatEventTime(event.start_date, eventTimezone)}</span>
-                  <span className="text-slate-400 text-xs">({timezoneAbbr})</span>
+                  <span>{formatEventTime(event.start_date, systemSettings)}</span>
                 </div>
               )}
             </>

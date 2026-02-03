@@ -84,6 +84,9 @@ export default function EventSettingsPage() {
   const [ctaButtonLabel, setCtaButtonLabel] = useState("View Details");
   const [savingCtaConfig, setSavingCtaConfig] = useState(false);
   
+  // Time format setting (12 or 24 hour)
+  const [use24HourFormat, setUse24HourFormat] = useState(false);
+  
   // Default VAT rate for ticket classes
   const [defaultVatRate, setDefaultVatRate] = useState(null); // Stores { taxType, name, effectiveRate }
   
@@ -229,6 +232,12 @@ export default function EventSettingsPage() {
     const bookingTermsSetting = settings.find(s => s.setting_key === 'event_booking_terms');
     if (bookingTermsSetting?.setting_value) {
       setBookingTerms(bookingTermsSetting.setting_value);
+    }
+    
+    // Load time format setting (12 or 24 hour)
+    const timeFormatSetting = settings.find(s => s.setting_key === 'event_time_format_24h');
+    if (timeFormatSetting) {
+      setUse24HourFormat(timeFormatSetting.setting_value === 'true');
     }
   }, [settings]);
 
@@ -420,6 +429,22 @@ export default function EventSettingsPage() {
           setting_key: 'event_default_vat_rate',
           setting_value: vatRateValue,
           description: 'Default VAT rate for new event ticket classes'
+        });
+      }
+      
+      // Save time format setting (12 or 24 hour)
+      const timeFormatSetting = settings.find(s => s.setting_key === 'event_time_format_24h');
+      
+      if (timeFormatSetting) {
+        await base44.entities.SystemSettings.update(timeFormatSetting.id, {
+          setting_value: use24HourFormat.toString(),
+          description: 'Use 24-hour time format for event times'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_time_format_24h',
+          setting_value: use24HourFormat.toString(),
+          description: 'Use 24-hour time format for event times'
         });
       }
       
@@ -1481,6 +1506,47 @@ export default function EventSettingsPage() {
                     disabled={isSaving}
                     size="sm"
                     data-testid="button-save-prices-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Time Settings Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-cyan-600" />
+              <CardTitle>Time Settings</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="use-24-hour-format" className="font-medium">
+                    Use 24-Hour Time Format
+                  </Label>
+                  <p className="text-sm text-slate-500">
+                    When ON, times display in 24-hour format (e.g., 14:00). When OFF, times display in 12-hour format (e.g., 2:00 PM).
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="use-24-hour-format"
+                    checked={use24HourFormat}
+                    onCheckedChange={setUse24HourFormat}
+                    data-testid="switch-use-24-hour-format"
+                  />
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-time-format-settings"
                   >
                     <Save className="w-4 h-4 mr-2" />
                     Save
