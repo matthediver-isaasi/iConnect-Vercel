@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Image, FileSpreadsheet, File, Check, X, Clock, Loader2 } from "lucide-react";
+import { FileText, Image, FileSpreadsheet, File, Check, X, Clock, Loader2, Upload } from "lucide-react";
 
 async function apiRequest(method, url, body = null) {
   const options = { method, credentials: 'include', headers: {} };
@@ -48,6 +48,25 @@ function DocumentItem({ document, onClick }) {
   const StatusIcon = statusConfig.icon;
   const FileIcon = getFileIcon(document.mime_type || document.original_file_name);
   const hasUrl = !!document.file_url;
+  const isEmpty = document.isEmpty;
+  
+  // Empty placeholder for fields with no data
+  if (isEmpty) {
+    return (
+      <div 
+        className="flex items-center gap-3 p-3 rounded-lg border border-dashed opacity-60"
+        data-testid={`document-item-empty-${document.id}`}
+      >
+        <div className="p-2 bg-muted rounded-md">
+          <Upload className="w-5 h-5 text-muted-foreground" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-muted-foreground mb-0.5">{document.label}</p>
+          <p className="text-sm font-medium text-muted-foreground italic">No file uploaded</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div 
@@ -109,9 +128,88 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
     enabled: !!formSubmissionId
   });
 
+  // Collect all custom_field type fields that have a custom_field_id
+  const customFieldIds = useMemo(() => {
+    if (!formSchema) return [];
+    
+    const schema = formSchema.schema || formSchema;
+    const ids = [];
+    
+    const collectCustomFieldIds = (fields) => {
+      if (!fields) return;
+      fields.forEach(field => {
+        if (field.type === 'custom_field' && field.custom_field_id) {
+          ids.push({
+            customFieldId: field.custom_field_id,
+            formFieldId: field.id,
+            formFieldName: field.name,
+            label: field.label
+          });
+        }
+      });
+    };
+    
+    if (schema.pages && schema.pages.length > 0) {
+      schema.pages.forEach(page => {
+        if (page.fields) collectCustomFieldIds(page.fields);
+      });
+    }
+    if (schema.fields) {
+      collectCustomFieldIds(schema.fields);
+    }
+    
+    console.log('[DocumentsCard] Found custom_field type fields:', ids.length, ids.map(cf => ({ id: cf.customFieldId, label: cf.label })));
+    return ids;
+  }, [formSchema]);
+
+  // Fetch custom field definitions to check which ones are file types
+  const customFieldQueries = useQueries({
+    queries: customFieldIds.map(cf => ({
+      queryKey: ['public-custom-field', cf.customFieldId, formSchema?.id],
+      queryFn: async () => {
+        try {
+          const response = await fetch(`/api/public/custom-field/${cf.customFieldId}?form_id=${formSchema?.id || ''}`, {
+            credentials: 'include'
+          });
+          if (!response.ok) return null;
+          const data = await response.json();
+          return { ...data, formFieldId: cf.formFieldId, formFieldName: cf.formFieldName, formFieldLabel: cf.label };
+        } catch {
+          return null;
+        }
+      },
+      enabled: !!cf.customFieldId,
+      staleTime: 60000 // Cache for 1 minute
+    }))
+  });
+
+  // Map of custom field IDs to their definitions (for file type detection)
+  const fileTypeCustomFields = useMemo(() => {
+    const fileFields = new Map();
+    customFieldQueries.forEach(query => {
+      if (query.data && query.data.field_type === 'file') {
+        const fieldKey = query.data.formFieldName || query.data.formFieldId;
+        console.log('[DocumentsCard] File-type custom field found:', {
+          customFieldId: query.data.id,
+          label: query.data.label || query.data.formFieldLabel,
+          fieldKey,
+          field_type: query.data.field_type
+        });
+        fileFields.set(fieldKey, {
+          customFieldId: query.data.id,
+          label: query.data.formFieldLabel || query.data.label,
+          fieldKey
+        });
+      }
+    });
+    return fileFields;
+  }, [customFieldQueries]);
+
+  const customFieldsLoading = customFieldQueries.some(q => q.isLoading);
+
   const fileFieldsFromForm = useMemo(() => {
-    if (!formSchema || !submissionData) {
-      console.log('[DocumentsCard] fileFieldsFromForm: Early return - missing data');
+    if (!formSchema) {
+      console.log('[DocumentsCard] fileFieldsFromForm: Early return - missing formSchema');
       return [];
     }
     
@@ -123,41 +221,44 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       hasSchemaPages: !!schema.pages,
       schemaPagesCount: schema.pages?.length,
       allFieldTypes: schema.fields?.map(f => f.type) || [],
-      pageFieldTypes: schema.pages?.flatMap(p => p.fields?.map(f => f.type) || []) || []
+      pageFieldTypes: schema.pages?.flatMap(p => p.fields?.map(f => f.type) || []),
+      fileTypeCustomFieldsCount: fileTypeCustomFields.size
     });
     if (!schema.fields && !schema.pages) return [];
     
     const files = [];
+    const processedKeys = new Set();
+    
     const processFields = (fields) => {
       if (!fields) return;
       fields.forEach(field => {
         const fieldKey = field.name || field.id;
-        // DEBUG: Log all file type fields and their matching
+        if (!fieldKey || processedKeys.has(fieldKey)) return;
+        
+        let rawValue = submissionData ? submissionData[fieldKey] : null;
+        let fileData = null;
+        let isFileField = false;
+        let isEmpty = false;
+        
+        // Check if this is a native file type field
         if (field.type === 'file') {
-          console.log('[DocumentsCard] File field found:', {
+          console.log('[DocumentsCard] Native file field found:', {
             fieldName: field.name,
             fieldId: field.id,
             fieldKey,
-            hasMatch: !!submissionData[fieldKey],
-            submissionValue: submissionData[fieldKey] ? 'present' : 'missing',
-            allSubmissionKeys: Object.keys(submissionData || {})
+            hasMatch: !!rawValue,
+            submissionValue: rawValue ? 'present' : 'missing'
           });
-        }
-        if (!fieldKey || !submissionData[fieldKey]) return;
-        
-        let rawValue = submissionData[fieldKey];
-        let fileData = null;
-        let isFileField = false;
-        
-        // Check if this is a file type field
-        if (field.type === 'file') {
+          
           isFileField = true;
-          if (typeof rawValue === 'string') {
+          if (!rawValue) {
+            isEmpty = true;
+            fileData = { file_name: null, file_url: null };
+          } else if (typeof rawValue === 'string') {
             try {
               if (rawValue.startsWith('{')) {
                 fileData = JSON.parse(rawValue);
               } else if (rawValue) {
-                // Plain filename - still include it (might be useful to show)
                 fileData = { file_name: rawValue, file_url: null };
               }
             } catch {
@@ -168,26 +269,63 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
           }
         }
         
-        // Also check custom_field types that might contain file upload data
-        if (field.type === 'custom_field' && typeof rawValue === 'string' && rawValue.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(rawValue);
-            // Check if it looks like file upload data
-            if (parsed.file_url || parsed.file_name) {
-              isFileField = true;
-              fileData = parsed;
+        // Check if this is a custom_field that's a file upload type
+        if (field.type === 'custom_field' && fileTypeCustomFields.has(fieldKey)) {
+          const customFieldInfo = fileTypeCustomFields.get(fieldKey);
+          console.log('[DocumentsCard] Custom field file upload detected:', {
+            fieldKey,
+            customFieldInfo,
+            hasValue: !!rawValue
+          });
+          
+          isFileField = true;
+          if (!rawValue) {
+            isEmpty = true;
+            fileData = { file_name: null, file_url: null };
+          } else if (typeof rawValue === 'string') {
+            try {
+              if (rawValue.startsWith('{')) {
+                fileData = JSON.parse(rawValue);
+              } else if (rawValue) {
+                fileData = { file_name: rawValue, file_url: null };
+              }
+            } catch {
+              fileData = { file_name: rawValue, file_url: null };
             }
-          } catch {
-            // Not JSON, skip
+          } else if (typeof rawValue === 'object') {
+            fileData = rawValue;
           }
         }
         
-        if (isFileField && fileData) {
-          console.log('[DocumentsCard] Found file field:', { fieldKey, type: field.type, fileData });
+        // Also handle custom_field types where the value looks like file data (fallback)
+        if (!isFileField && field.type === 'custom_field' && rawValue) {
+          // Handle string JSON values
+          if (typeof rawValue === 'string' && rawValue.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(rawValue);
+              if (parsed.file_url || parsed.file_name) {
+                isFileField = true;
+                fileData = parsed;
+              }
+            } catch {
+              // Not JSON, skip
+            }
+          }
+          // Handle object values directly (fallback if custom field definition fetch failed)
+          else if (typeof rawValue === 'object' && (rawValue.file_url || rawValue.file_name)) {
+            isFileField = true;
+            fileData = rawValue;
+          }
+        }
+        
+        if (isFileField) {
+          processedKeys.add(fieldKey);
+          console.log('[DocumentsCard] Adding file field:', { fieldKey, type: field.type, isEmpty, hasData: !!fileData?.file_url });
           files.push({
             fieldName: fieldKey,
             label: field.label || fieldKey,
-            fileData
+            fileData: fileData || { file_name: null, file_url: null },
+            isEmpty
           });
         }
       });
@@ -203,9 +341,9 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       processFields(schema.fields);
     }
     
-    console.log('[DocumentsCard] fileFieldsFromForm result:', files.length, 'files found');
+    console.log('[DocumentsCard] fileFieldsFromForm result:', files.length, 'files found', files.map(f => ({ key: f.fieldName, label: f.label, isEmpty: f.isEmpty })));
     return files;
-  }, [formSchema, submissionData]);
+  }, [formSchema, submissionData, fileTypeCustomFields]);
 
   const documents = useMemo(() => {
     const dbDocMap = new Map();
@@ -218,8 +356,26 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
     return fileFieldsFromForm.map(fileField => {
       const dbDoc = dbDocMap.get(fileField.fieldName);
       if (dbDoc) {
-        return { ...dbDoc, label: fileField.label };
+        return { ...dbDoc, label: fileField.label, isEmpty: false };
       }
+      
+      // If field has no data (isEmpty), show placeholder
+      if (fileField.isEmpty) {
+        return {
+          id: `empty-${fileField.fieldName}`,
+          field_name: fileField.fieldName,
+          original_file_name: null,
+          file_url: null,
+          file_name: null,
+          status: 'pending',
+          version: 1,
+          is_current_version: true,
+          label: fileField.label,
+          isFromForm: true,
+          isEmpty: true
+        };
+      }
+      
       return {
         id: `form-${fileField.fieldName}`,
         field_name: fileField.fieldName,
@@ -232,12 +388,13 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
         version: 1,
         is_current_version: true,
         label: fileField.label,
-        isFromForm: true
+        isFromForm: true,
+        isEmpty: false
       };
     });
   }, [fileFieldsFromForm, dbDocuments]);
 
-  if (dbLoading) {
+  if (dbLoading || customFieldsLoading) {
     return (
       <Card className="shadow-lg">
         <CardHeader>
