@@ -2459,8 +2459,13 @@ export default function DueDiligenceConfigPage() {
                                                                 <SelectItem value="email">Email</SelectItem>
                                                                 <SelectItem value="phone">Phone</SelectItem>
                                                                 <SelectItem value="website">Website</SelectItem>
-                                                                <SelectItem value="address">Address</SelectItem>
                                                                 <SelectItem value="description">Description</SelectItem>
+                                                                <SelectItem value="address.line1">Address Line 1</SelectItem>
+                                                                <SelectItem value="address.line2">Address Line 2</SelectItem>
+                                                                <SelectItem value="address.city">Town/City</SelectItem>
+                                                                <SelectItem value="address.region">Region</SelectItem>
+                                                                <SelectItem value="address.postcode">Post Code</SelectItem>
+                                                                <SelectItem value="address.country">Country</SelectItem>
                                                               </SelectContent>
                                                             </Select>
                                                           )}

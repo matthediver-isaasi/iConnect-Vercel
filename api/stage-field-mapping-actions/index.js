@@ -68,7 +68,24 @@ export default async function handler(req, res) {
       }
 
       // Valid core fields for organization
-      const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'address', 'description'];
+      const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'description'];
+      // Composite core fields (stored as JSONB with sub-fields)
+      const COMPOSITE_CORE_FIELDS = {
+        address: ['line1', 'line2', 'city', 'region', 'postcode', 'country']
+      };
+      
+      // Helper to validate core field (including composite sub-fields like "address.line1")
+      const isValidCoreField = (fieldName) => {
+        if (VALID_CORE_FIELDS.includes(fieldName)) return true;
+        // Check for composite fields like "address.line1"
+        if (fieldName.includes('.')) {
+          const [parent, subField] = fieldName.split('.');
+          if (COMPOSITE_CORE_FIELDS[parent] && COMPOSITE_CORE_FIELDS[parent].includes(subField)) {
+            return true;
+          }
+        }
+        return false;
+      };
       
       // Validate each mapping has required fields
       for (const mapping of field_mappings) {
@@ -82,8 +99,9 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Each mapping requires a target_field' });
         }
         // Validate core fields against allowlist
-        if (mapping.target_type === 'core' && !VALID_CORE_FIELDS.includes(mapping.target_field)) {
-          return res.status(400).json({ error: `Invalid core field: ${mapping.target_field}. Valid options: ${VALID_CORE_FIELDS.join(', ')}` });
+        if (mapping.target_type === 'core' && !isValidCoreField(mapping.target_field)) {
+          const allValidFields = [...VALID_CORE_FIELDS, ...Object.keys(COMPOSITE_CORE_FIELDS).flatMap(k => COMPOSITE_CORE_FIELDS[k].map(sf => `${k}.${sf}`))];
+          return res.status(400).json({ error: `Invalid core field: ${mapping.target_field}. Valid options: ${allValidFields.join(', ')}` });
         }
       }
 

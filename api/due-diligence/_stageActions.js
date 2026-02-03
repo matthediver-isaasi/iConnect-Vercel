@@ -1539,38 +1539,98 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
           continue;
         }
         
-        // Convert value to string for storage
+        // Check if this is a composite field (e.g., "address.line1") for core type
+        const isCompositeField = target_type === 'core' && target_field.includes('.');
+        
+        // Convert value for storage
+        // For composite fields (stored in JSONB), keep native types; for others, stringify
         let storedValue = sourceValue;
-        if (typeof sourceValue === 'object') {
+        if (isCompositeField) {
+          // For composite JSONB fields, use raw value (JSONB handles native types)
+          // If sourceValue is a string, keep it as is; if object, store as-is in JSONB
+          storedValue = sourceValue;
+        } else if (typeof sourceValue === 'object') {
           storedValue = JSON.stringify(sourceValue);
         } else {
           storedValue = String(sourceValue);
         }
         
         if (target_type === 'core') {
-          // Validate core field is in allowlist
-          const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'address', 'description'];
-          if (!VALID_CORE_FIELDS.includes(target_field)) {
+          // Valid core fields for organization
+          const VALID_CORE_FIELDS = ['name', 'email', 'phone', 'website', 'description'];
+          // Composite core fields (stored as JSONB with sub-fields)
+          const COMPOSITE_CORE_FIELDS = {
+            address: ['line1', 'line2', 'city', 'region', 'postcode', 'country']
+          };
+          
+          // Parse composite field parts
+          let parentField = null;
+          let subField = null;
+          
+          if (isCompositeField) {
+            [parentField, subField] = target_field.split('.');
+            if (!COMPOSITE_CORE_FIELDS[parentField] || !COMPOSITE_CORE_FIELDS[parentField].includes(subField)) {
+              console.warn(`[DD Field Mapping] Invalid composite core field ${target_field}, skipping`);
+              mappingResults.push({ field: target_field, status: 'error', error: 'Invalid composite core field' });
+              continue;
+            }
+          } else if (!VALID_CORE_FIELDS.includes(target_field)) {
             console.warn(`[DD Field Mapping] Invalid core field ${target_field}, skipping`);
             mappingResults.push({ field: target_field, status: 'error', error: 'Invalid core field' });
             continue;
           }
           
-          // Update core organization field
-          const updateData = {};
-          updateData[target_field] = storedValue;
-          
-          const { error: updateError } = await supabase
-            .from('organization')
-            .update(updateData)
-            .eq('id', organizationId)
-            .eq('tenant_id', tenantId);
-          
-          if (updateError) {
-            console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
-            mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+          if (isCompositeField) {
+            // Handle composite field - fetch existing, merge, and update
+            const { data: existingOrg, error: fetchError } = await supabase
+              .from('organization')
+              .select(parentField)
+              .eq('id', organizationId)
+              .eq('tenant_id', tenantId)
+              .single();
+            
+            if (fetchError) {
+              console.error(`[DD Field Mapping] Error fetching org for composite field ${target_field}:`, fetchError);
+              mappingResults.push({ field: target_field, status: 'error', error: fetchError.message });
+              continue;
+            }
+            
+            // Merge the new value into the existing JSON object
+            const existingValue = existingOrg?.[parentField] || {};
+            const mergedValue = { ...existingValue, [subField]: storedValue };
+            
+            const updateData = {};
+            updateData[parentField] = mergedValue;
+            
+            const { error: updateError } = await supabase
+              .from('organization')
+              .update(updateData)
+              .eq('id', organizationId)
+              .eq('tenant_id', tenantId);
+            
+            if (updateError) {
+              console.error(`[DD Field Mapping] Error updating composite core field ${target_field}:`, updateError);
+              mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+            } else {
+              mappingResults.push({ field: target_field, status: 'updated', type: 'core', composite: true });
+            }
           } else {
-            mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+            // Update simple core organization field
+            const updateData = {};
+            updateData[target_field] = storedValue;
+            
+            const { error: updateError } = await supabase
+              .from('organization')
+              .update(updateData)
+              .eq('id', organizationId)
+              .eq('tenant_id', tenantId);
+            
+            if (updateError) {
+              console.error(`[DD Field Mapping] Error updating core field ${target_field}:`, updateError);
+              mappingResults.push({ field: target_field, status: 'error', error: updateError.message });
+            } else {
+              mappingResults.push({ field: target_field, status: 'updated', type: 'core' });
+            }
           }
         } else if (target_type === 'custom') {
           // Update custom organization preference field
