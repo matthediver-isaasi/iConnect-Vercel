@@ -104,7 +104,7 @@ export default async function handler(req, res) {
     const host = req.headers.host;
     const resetUrl = `${protocol}://${host}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(member.email)}`;
     
-    console.log(`[Reset Link] Generated for ${member.email} by member ${sessionMember.id}`);
+    console.log(`[Reset Link] Generated for ${member.email} by member ${sessionMember.id} in tenant ${sessionMember.tenant_id}`);
 
     return res.json({ 
       success: true, 
