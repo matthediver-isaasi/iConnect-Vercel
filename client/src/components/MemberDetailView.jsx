@@ -1043,7 +1043,7 @@ export default function MemberDetailView({
                         const isExcluded = isFeatureExcluded('crm.members.password_reset');
                         const crmExcluded = isFeatureExcluded('crm');
                         const crmMembersExcluded = isFeatureExcluded('crm.members');
-                        console.log('[PasswordReset Debug v2] Feature check:', {
+                        console.log('[PasswordReset Debug v3 - TESTING DEP1] Feature check:', {
                           'crm.members.password_reset excluded': isExcluded,
                           'crm module excluded': crmExcluded,
                           'crm.members page excluded': crmMembersExcluded,
