@@ -154,13 +154,13 @@ export default function DueDiligenceConfigPage() {
   const emailTemplates = emailTemplatesData || [];
 
   const { data: stageMemberActionsData, refetch: refetchStageMemberActions } = useQuery({
-    queryKey: ['stage-member-actions'],
+    queryKey: ['stage-member-actions', formId],
     queryFn: async () => {
-      const response = await fetch('/api/stage-member-actions');
+      const response = await fetch(`/api/stage-member-actions?formId=${formId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch stage member actions');
       return response.json();
     },
-    enabled: accessChecked
+    enabled: !!formId && accessChecked
   });
   const stageMemberActions = stageMemberActionsData || [];
 
@@ -324,7 +324,8 @@ export default function DueDiligenceConfigPage() {
           email_field: emailField,
           role_id: roleId || null,
           welcome_email_template_id: welcomeEmailTemplateId || null,
-          field_mappings: fieldMappings || { core: {}, custom: {} }
+          field_mappings: fieldMappings || { core: {}, custom: {} },
+          form_id: formId
         })
       });
       if (!response.ok) throw new Error('Failed to add member action');
@@ -373,9 +374,9 @@ export default function DueDiligenceConfigPage() {
   };
 
   const { data: stageFieldMappingActionsData, refetch: refetchStageFieldMappingActions } = useQuery({
-    queryKey: ['stage-field-mapping-actions'],
+    queryKey: ['stage-field-mapping-actions', formId],
     queryFn: async () => {
-      const response = await fetch('/api/stage-field-mapping-actions', { credentials: 'include' });
+      const response = await fetch(`/api/stage-field-mapping-actions?formId=${formId}`, { credentials: 'include' });
       if (!response.ok) return [];
       const data = await response.json();
       return data.field_mapping_actions || [];
@@ -392,7 +393,8 @@ export default function DueDiligenceConfigPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           due_diligence_stage_id: stageId,
-          field_mappings: mappings
+          field_mappings: mappings,
+          form_id: formId
         })
       });
       if (!response.ok) throw new Error('Failed to add field mapping action');

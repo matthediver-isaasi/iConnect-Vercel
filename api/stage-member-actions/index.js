@@ -20,7 +20,7 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const { stage_id } = req.query;
+      const { stage_id, formId } = req.query;
       
       let query = supabase
         .from('stage_member_action')
@@ -30,6 +30,10 @@ export default async function handler(req, res) {
       
       if (stage_id) {
         query = query.eq('due_diligence_stage_id', stage_id);
+      }
+      
+      if (formId && formId !== 'undefined') {
+        query = query.eq('form_id', formId);
       }
       
       const { data, error } = await query;
@@ -50,7 +54,8 @@ export default async function handler(req, res) {
         field_mappings,
         role_id,
         welcome_email_template_id,
-        sort_order 
+        sort_order,
+        form_id 
       } = req.body;
       
       if (!due_diligence_stage_id) {
@@ -71,7 +76,8 @@ export default async function handler(req, res) {
         role_id: role_id || null,
         welcome_email_template_id: welcome_email_template_id || null,
         sort_order: sort_order || 0,
-        is_active: true
+        is_active: true,
+        form_id: form_id || null
       };
       
       const { data, error } = await supabase
