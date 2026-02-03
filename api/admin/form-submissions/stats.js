@@ -98,9 +98,22 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to get new submission count' });
     }
 
+    // Get pending job postings count (status = 'pending_approval')
+    const { count: pendingJobsCount, error: pendingJobsError } = await supabase
+      .from('job_posting')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending_approval');
+
+    if (pendingJobsError) {
+      console.error('[FormSubmissionStats] Error getting pending jobs count:', pendingJobsError);
+      // Don't fail the whole request, just set to 0
+    }
+
     return res.json({ 
       total: totalCount || 0, 
       new: newCount || 0,
+      pending_jobs: pendingJobsCount || 0,
       allowed_roles: allowedRoles
     });
   } catch (error) {
