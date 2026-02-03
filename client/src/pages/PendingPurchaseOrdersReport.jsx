@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -30,6 +30,7 @@ export default function PendingPurchaseOrdersReport() {
   const [sortBy, setSortBy] = useState("date_desc");
   const [editingRecord, setEditingRecord] = useState(null);
   const [poNumber, setPoNumber] = useState("");
+  const [verifyingRecords, setVerifyingRecords] = useState({});
 
   useEffect(() => {
     if (isAccessReady) {
@@ -41,55 +42,47 @@ export default function PendingPurchaseOrdersReport() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: transactions = [], isLoading: loadingTransactions } = useQuery({
-    queryKey: ['all-transactions-for-po-report'],
-    queryFn: () => base44.entities.ProgramTicketTransaction.list(),
+  const { data: reportData, isLoading, error, refetch } = useQuery({
+    queryKey: ['pending-purchase-orders-report'],
+    queryFn: async () => {
+      const response = await fetch('/api/pending-purchase-orders', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch report data');
+      }
+      return response.json();
+    },
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const { data: bookings = [], isLoading: loadingBookings } = useQuery({
-    queryKey: ['all-bookings-for-po-report'],
-    queryFn: () => base44.entities.Booking.list(),
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  const { data: events = [], isLoading: loadingEvents } = useQuery({
-    queryKey: ['all-events-for-po-report'],
-    queryFn: () => base44.entities.Event.list(),
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  const { data: organizations = [], isLoading: loadingOrganizations } = useQuery({
-    queryKey: ['all-organizations'],
-    queryFn: () => base44.entities.Organization.list(),
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  const { data: members = [], isLoading: loadingMembers } = useQuery({
-    queryKey: ['all-members-for-po-report'],
-    queryFn: () => base44.entities.Member.list(),
-    staleTime: 0,
-    refetchOnMount: true,
-  });
+  const pendingPORecords = reportData?.records || [];
+  const organizations = reportData?.organizations || {};
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ id, entityType, purchase_order_number }) => {
-      if (entityType === 'booking') {
-        return await base44.entities.Booking.update(id, { 
-          purchase_order_number,
-          po_to_follow: false 
-        });
-      } else {
-        return await base44.entities.ProgramTicketTransaction.update(id, { purchase_order_number });
+      const response = await fetch('/api/pending-purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'update_po',
+          entityType,
+          entityId: id,
+          purchaseOrderNumber: purchase_order_number,
+        }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update');
       }
+      return result;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['all-transactions-for-po-report'] });
-      queryClient.invalidateQueries({ queryKey: ['all-bookings-for-po-report'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
       toast({
         title: "Success",
         description: "Purchase order number has been saved.",
@@ -106,75 +99,13 @@ export default function PendingPurchaseOrdersReport() {
     },
   });
 
-  const isLoading = loadingTransactions || loadingBookings || loadingEvents || loadingOrganizations || loadingMembers;
-
-  const pendingPORecords = useMemo(() => {
-    const records = [];
-    
-    transactions.forEach(t => {
-      const hasInvoice = (t.xero_invoice_id && t.xero_invoice_id.trim() !== '') || 
-                         (t.xero_invoice_number && t.xero_invoice_number.trim() !== '');
-      const missingPO = !t.purchase_order_number || t.purchase_order_number.trim() === '';
-      const isPurchase = t.transaction_type === 'purchase';
-      const isActive = t.status !== 'cancelled';
-      
-      if (hasInvoice && missingPO && isPurchase && isActive) {
-        records.push({
-          id: t.id,
-          entityType: 'transaction',
-          organization_id: t.organization_id,
-          source_name: t.program_name || 'Program',
-          source_type: 'Program',
-          xero_invoice_id: t.xero_invoice_id,
-          xero_invoice_number: t.xero_invoice_number,
-          xero_invoice_pdf_uri: t.xero_invoice_pdf_uri,
-          created_date: t.created_date,
-          quantity: t.quantity,
-          total_cost: t.total_cost_before_discount,
-          member_email: t.member_email,
-        });
-      }
-    });
-    
-    bookings.forEach(b => {
-      const hasInvoice = (b.xero_invoice_id && b.xero_invoice_id.trim() !== '') || 
-                         (b.xero_invoice_number && b.xero_invoice_number.trim() !== '');
-      const missingPO = !b.purchase_order_number || b.purchase_order_number.trim() === '';
-      const isAccountPayment = b.payment_method === 'account' || b.po_to_follow === true;
-      const isActive = b.status !== 'cancelled';
-      
-      if (hasInvoice && missingPO && isAccountPayment && isActive) {
-        const event = events.find(e => e.id === b.event_id);
-        const member = members.find(m => m.id === b.member_id);
-        
-        records.push({
-          id: b.id,
-          entityType: 'booking',
-          organization_id: b.organization_id || member?.organization_id,
-          source_name: event?.title || b.event_name || 'Event',
-          source_type: 'Event',
-          xero_invoice_id: b.xero_invoice_id,
-          xero_invoice_number: b.xero_invoice_number,
-          xero_invoice_pdf_uri: null,
-          created_date: b.created_date,
-          quantity: 1,
-          total_cost: b.ticket_price,
-          member_email: b.attendee_email || member?.email,
-          booking_group_reference: b.booking_group_reference,
-        });
-      }
-    });
-    
-    return records;
-  }, [transactions, bookings, events, members]);
-
   const sourceTypes = useMemo(() => {
     const types = [...new Set(pendingPORecords.map(r => r.source_type))];
     return types.sort();
   }, [pendingPORecords]);
 
   const filteredAndSortedData = useMemo(() => {
-    let filtered = pendingPORecords;
+    let filtered = [...pendingPORecords];
 
     if (selectedSource !== 'all') {
       filtered = filtered.filter(r => r.source_type === selectedSource);
@@ -183,8 +114,7 @@ export default function PendingPurchaseOrdersReport() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(r => {
-        const org = organizations.find(o => o.id === r.organization_id);
-        const orgName = org?.name || '';
+        const orgName = organizations[r.organization_id] || '';
         return (
           orgName.toLowerCase().includes(query) ||
           (r.xero_invoice_number || '').toLowerCase().includes(query) ||
@@ -201,13 +131,13 @@ export default function PendingPurchaseOrdersReport() {
         case 'date_asc':
           return new Date(a.created_date || 0) - new Date(b.created_date || 0);
         case 'org_asc': {
-          const orgA = organizations.find(o => o.id === a.organization_id)?.name || '';
-          const orgB = organizations.find(o => o.id === b.organization_id)?.name || '';
+          const orgA = organizations[a.organization_id] || '';
+          const orgB = organizations[b.organization_id] || '';
           return orgA.localeCompare(orgB);
         }
         case 'org_desc': {
-          const orgA = organizations.find(o => o.id === a.organization_id)?.name || '';
-          const orgB = organizations.find(o => o.id === b.organization_id)?.name || '';
+          const orgA = organizations[a.organization_id] || '';
+          const orgB = organizations[b.organization_id] || '';
           return orgB.localeCompare(orgA);
         }
         case 'invoice_asc':
@@ -225,9 +155,8 @@ export default function PendingPurchaseOrdersReport() {
   const handleExportCSV = () => {
     const headers = ['Organisation', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
     const rows = filteredAndSortedData.map(r => {
-      const org = organizations.find(o => o.id === r.organization_id);
       return [
-        org?.name || 'Unknown',
+        organizations[r.organization_id] || 'Unknown',
         r.source_type,
         r.source_name || '',
         r.xero_invoice_number || '',
@@ -248,6 +177,111 @@ export default function PendingPurchaseOrdersReport() {
     link.href = URL.createObjectURL(blob);
     link.download = `pending-purchase-orders-${format(new Date(), 'yyyy-MM-dd')}.csv`;
     link.click();
+  };
+
+  const handleVerifyWithXero = async (record) => {
+    if (!record.xero_invoice_id) {
+      toast({
+        title: "Cannot Verify",
+        description: "No Xero invoice ID available for this record.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const recordKey = `${record.entityType}-${record.id}`;
+    setVerifyingRecords(prev => ({ ...prev, [recordKey]: true }));
+
+    try {
+      const response = await fetch('/api/pending-purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'verify',
+          entityType: record.entityType,
+          entityId: record.id,
+          xeroInvoiceId: record.xero_invoice_id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Verification failed');
+      }
+
+      if (result.found && result.updated) {
+        toast({
+          title: "PO Found",
+          description: `PO number "${result.purchase_order_number}" found in Xero and saved.`,
+        });
+        queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
+      } else {
+        toast({
+          title: "No PO Found",
+          description: result.message || "No purchase order reference found in Xero for this invoice.",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Verification Error",
+        description: error.message || "Failed to verify with Xero.",
+        variant: "destructive",
+      });
+    } finally {
+      setVerifyingRecords(prev => ({ ...prev, [recordKey]: false }));
+    }
+  };
+
+  const handleVerifyAll = async () => {
+    const recordsWithInvoiceId = filteredAndSortedData.filter(r => r.xero_invoice_id);
+    
+    if (recordsWithInvoiceId.length === 0) {
+      toast({
+        title: "No Records",
+        description: "No records with Xero invoice IDs to verify.",
+      });
+      return;
+    }
+
+    toast({
+      title: "Verifying...",
+      description: `Checking ${recordsWithInvoiceId.length} invoices with Xero...`,
+    });
+
+    let foundCount = 0;
+    for (const record of recordsWithInvoiceId) {
+      try {
+        const response = await fetch('/api/pending-purchase-orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            action: 'verify',
+            entityType: record.entityType,
+            entityId: record.id,
+            xeroInvoiceId: record.xero_invoice_id,
+          }),
+        });
+
+        const result = await response.json();
+        if (result.found && result.updated) {
+          foundCount++;
+        }
+      } catch (error) {
+        console.error('Verify error for record:', record.id, error);
+      }
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
+    
+    toast({
+      title: "Verification Complete",
+      description: foundCount > 0 
+        ? `Found and updated ${foundCount} PO number${foundCount !== 1 ? 's' : ''} from Xero.`
+        : "No new PO numbers found in Xero.",
+    });
   };
 
   const handleDownloadInvoice = async (transaction) => {
@@ -312,6 +346,26 @@ export default function PendingPurchaseOrdersReport() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-medium" data-testid="text-error-title">Failed to Load Report</h3>
+            <p className="text-muted-foreground mt-2" data-testid="text-error-message">
+              {error.message || 'An error occurred while fetching the report data.'}
+            </p>
+            <Button onClick={() => refetch()} className="mt-4" data-testid="button-retry">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -324,16 +378,28 @@ export default function PendingPurchaseOrdersReport() {
             Invoices awaiting purchase order numbers
           </p>
         </div>
-        <Button
-          onClick={handleExportCSV}
-          variant="outline"
-          className="flex items-center gap-2"
-          disabled={filteredAndSortedData.length === 0}
-          data-testid="button-export-csv"
-        >
-          <Download className="h-4 w-4" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleVerifyAll}
+            variant="outline"
+            className="flex items-center gap-2"
+            disabled={filteredAndSortedData.length === 0}
+            data-testid="button-verify-all"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Verify All with Xero
+          </Button>
+          <Button
+            onClick={handleExportCSV}
+            variant="outline"
+            className="flex items-center gap-2"
+            disabled={filteredAndSortedData.length === 0}
+            data-testid="button-export-csv"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -392,20 +458,22 @@ export default function PendingPurchaseOrdersReport() {
           ) : (
             <div className="space-y-3">
               {filteredAndSortedData.map((record) => {
-                const org = organizations.find(o => o.id === record.organization_id);
+                const orgName = organizations[record.organization_id] || 'Unknown Organisation';
                 const TypeIcon = record.source_type === 'Event' ? Ticket : GraduationCap;
+                const recordKey = `${record.entityType}-${record.id}`;
+                const isVerifying = verifyingRecords[recordKey];
                 return (
                   <div
-                    key={`${record.entityType}-${record.id}`}
+                    key={recordKey}
                     className="border rounded-lg p-4 hover-elevate"
-                    data-testid={`card-record-${record.entityType}-${record.id}`}
+                    data-testid={`card-record-${recordKey}`}
                   >
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Building2 className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium" data-testid={`text-org-name-${record.id}`}>
-                            {org?.name || 'Unknown Organisation'}
+                            {orgName}
                           </span>
                           <Badge variant="secondary" className="flex items-center gap-1" data-testid={`badge-source-${record.id}`}>
                             <TypeIcon className="h-3 w-3" />
@@ -448,6 +516,22 @@ export default function PendingPurchaseOrdersReport() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
+                        {record.xero_invoice_id && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleVerifyWithXero(record)}
+                            disabled={isVerifying}
+                            data-testid={`button-verify-${record.id}`}
+                          >
+                            {isVerifying ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-4 w-4 mr-1" />
+                            )}
+                            Verify
+                          </Button>
+                        )}
                         {record.xero_invoice_pdf_uri && (
                           <Button
                             variant="outline"
@@ -484,7 +568,7 @@ export default function PendingPurchaseOrdersReport() {
           {editingRecord && (
             <div className="space-y-4 py-4">
               <div className="text-sm text-muted-foreground">
-                <p><strong>Organisation:</strong> {organizations.find(o => o.id === editingRecord.organization_id)?.name || 'Unknown'}</p>
+                <p><strong>Organisation:</strong> {organizations[editingRecord.organization_id] || 'Unknown'}</p>
                 <p><strong>Invoice:</strong> {editingRecord.xero_invoice_number}</p>
                 <p><strong>{editingRecord.source_type}:</strong> {editingRecord.source_name}</p>
               </div>
