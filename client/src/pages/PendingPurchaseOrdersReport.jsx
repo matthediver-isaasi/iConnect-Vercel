@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -26,9 +26,9 @@ export default function PendingPurchaseOrdersReport() {
   const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedProgram, setSelectedProgram] = useState("all");
+  const [selectedSource, setSelectedSource] = useState("all");
   const [sortBy, setSortBy] = useState("date_desc");
-  const [editingTransaction, setEditingTransaction] = useState(null);
+  const [editingRecord, setEditingRecord] = useState(null);
   const [poNumber, setPoNumber] = useState("");
 
   useEffect(() => {
@@ -48,6 +48,20 @@ export default function PendingPurchaseOrdersReport() {
     refetchOnMount: true,
   });
 
+  const { data: bookings = [], isLoading: loadingBookings } = useQuery({
+    queryKey: ['all-bookings-for-po-report'],
+    queryFn: () => base44.entities.Booking.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: events = [], isLoading: loadingEvents } = useQuery({
+    queryKey: ['all-events-for-po-report'],
+    queryFn: () => base44.entities.Event.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
   const { data: organizations = [], isLoading: loadingOrganizations } = useQuery({
     queryKey: ['all-organizations'],
     queryFn: () => base44.entities.Organization.list(),
@@ -55,17 +69,32 @@ export default function PendingPurchaseOrdersReport() {
     refetchOnMount: true,
   });
 
+  const { data: members = [], isLoading: loadingMembers } = useQuery({
+    queryKey: ['all-members-for-po-report'],
+    queryFn: () => base44.entities.Member.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
   const updateTransactionMutation = useMutation({
-    mutationFn: async ({ id, purchase_order_number }) => {
-      return await base44.entities.ProgramTicketTransaction.update(id, { purchase_order_number });
+    mutationFn: async ({ id, entityType, purchase_order_number }) => {
+      if (entityType === 'booking') {
+        return await base44.entities.Booking.update(id, { 
+          purchase_order_number,
+          po_to_follow: false 
+        });
+      } else {
+        return await base44.entities.ProgramTicketTransaction.update(id, { purchase_order_number });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-transactions-for-po-report'] });
+      queryClient.invalidateQueries({ queryKey: ['all-bookings-for-po-report'] });
       toast({
         title: "Success",
         description: "Purchase order number has been saved.",
       });
-      setEditingTransaction(null);
+      setEditingRecord(null);
       setPoNumber("");
     },
     onError: (error) => {
@@ -77,42 +106,90 @@ export default function PendingPurchaseOrdersReport() {
     },
   });
 
-  const isLoading = loadingTransactions || loadingOrganizations;
+  const isLoading = loadingTransactions || loadingBookings || loadingEvents || loadingOrganizations || loadingMembers;
 
-  const programs = useMemo(() => {
-    const uniquePrograms = [...new Set(transactions.map(t => t.program_name).filter(Boolean))];
-    return uniquePrograms.sort();
-  }, [transactions]);
-
-  const pendingPOTransactions = useMemo(() => {
-    return transactions.filter(t => {
+  const pendingPORecords = useMemo(() => {
+    const records = [];
+    
+    transactions.forEach(t => {
       const hasInvoice = (t.xero_invoice_id && t.xero_invoice_id.trim() !== '') || 
                          (t.xero_invoice_number && t.xero_invoice_number.trim() !== '');
       const missingPO = !t.purchase_order_number || t.purchase_order_number.trim() === '';
       const isPurchase = t.transaction_type === 'purchase';
       const isActive = t.status !== 'cancelled';
       
-      return hasInvoice && missingPO && isPurchase && isActive;
+      if (hasInvoice && missingPO && isPurchase && isActive) {
+        records.push({
+          id: t.id,
+          entityType: 'transaction',
+          organization_id: t.organization_id,
+          source_name: t.program_name || 'Program',
+          source_type: 'Program',
+          xero_invoice_id: t.xero_invoice_id,
+          xero_invoice_number: t.xero_invoice_number,
+          xero_invoice_pdf_uri: t.xero_invoice_pdf_uri,
+          created_date: t.created_date,
+          quantity: t.quantity,
+          total_cost: t.total_cost_before_discount,
+          member_email: t.member_email,
+        });
+      }
     });
-  }, [transactions]);
+    
+    bookings.forEach(b => {
+      const hasInvoice = (b.xero_invoice_id && b.xero_invoice_id.trim() !== '') || 
+                         (b.xero_invoice_number && b.xero_invoice_number.trim() !== '');
+      const missingPO = !b.purchase_order_number || b.purchase_order_number.trim() === '';
+      const isAccountPayment = b.payment_method === 'account' || b.po_to_follow === true;
+      const isActive = b.status !== 'cancelled';
+      
+      if (hasInvoice && missingPO && isAccountPayment && isActive) {
+        const event = events.find(e => e.id === b.event_id);
+        const member = members.find(m => m.id === b.member_id);
+        
+        records.push({
+          id: b.id,
+          entityType: 'booking',
+          organization_id: b.organization_id || member?.organization_id,
+          source_name: event?.title || b.event_name || 'Event',
+          source_type: 'Event',
+          xero_invoice_id: b.xero_invoice_id,
+          xero_invoice_number: b.xero_invoice_number,
+          xero_invoice_pdf_uri: null,
+          created_date: b.created_date,
+          quantity: 1,
+          total_cost: b.ticket_price,
+          member_email: b.attendee_email || member?.email,
+          booking_group_reference: b.booking_group_reference,
+        });
+      }
+    });
+    
+    return records;
+  }, [transactions, bookings, events, members]);
+
+  const sourceTypes = useMemo(() => {
+    const types = [...new Set(pendingPORecords.map(r => r.source_type))];
+    return types.sort();
+  }, [pendingPORecords]);
 
   const filteredAndSortedData = useMemo(() => {
-    let filtered = pendingPOTransactions;
+    let filtered = pendingPORecords;
 
-    if (selectedProgram !== 'all') {
-      filtered = filtered.filter(t => t.program_name === selectedProgram);
+    if (selectedSource !== 'all') {
+      filtered = filtered.filter(r => r.source_type === selectedSource);
     }
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(t => {
-        const org = organizations.find(o => o.id === t.organization_id);
+      filtered = filtered.filter(r => {
+        const org = organizations.find(o => o.id === r.organization_id);
         const orgName = org?.name || '';
         return (
           orgName.toLowerCase().includes(query) ||
-          (t.xero_invoice_number || '').toLowerCase().includes(query) ||
-          (t.program_name || '').toLowerCase().includes(query) ||
-          (t.member_email || '').toLowerCase().includes(query)
+          (r.xero_invoice_number || '').toLowerCase().includes(query) ||
+          (r.source_name || '').toLowerCase().includes(query) ||
+          (r.member_email || '').toLowerCase().includes(query)
         );
       });
     }
@@ -143,20 +220,21 @@ export default function PendingPurchaseOrdersReport() {
     });
 
     return filtered;
-  }, [pendingPOTransactions, organizations, searchQuery, selectedProgram, sortBy]);
+  }, [pendingPORecords, organizations, searchQuery, selectedSource, sortBy]);
 
   const handleExportCSV = () => {
-    const headers = ['Organisation', 'Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
-    const rows = filteredAndSortedData.map(t => {
-      const org = organizations.find(o => o.id === t.organization_id);
+    const headers = ['Organisation', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
+    const rows = filteredAndSortedData.map(r => {
+      const org = organizations.find(o => o.id === r.organization_id);
       return [
         org?.name || 'Unknown',
-        t.program_name || '',
-        t.xero_invoice_number || '',
-        t.created_date ? format(new Date(t.created_date), 'yyyy-MM-dd') : '',
-        t.quantity || 0,
-        t.total_cost_before_discount || 0,
-        t.member_email || ''
+        r.source_type,
+        r.source_name || '',
+        r.xero_invoice_number || '',
+        r.created_date ? format(new Date(r.created_date), 'yyyy-MM-dd') : '',
+        r.quantity || 0,
+        r.total_cost || 0,
+        r.member_email || ''
       ];
     });
 
@@ -200,8 +278,8 @@ export default function PendingPurchaseOrdersReport() {
     }
   };
 
-  const handleAddPO = (transaction) => {
-    setEditingTransaction(transaction);
+  const handleAddPO = (record) => {
+    setEditingRecord(record);
     setPoNumber("");
   };
 
@@ -216,7 +294,8 @@ export default function PendingPurchaseOrdersReport() {
     }
 
     updateTransactionMutation.mutate({
-      id: editingTransaction.id,
+      id: editingRecord.id,
+      entityType: editingRecord.entityType,
       purchase_order_number: poNumber.trim()
     });
   };
@@ -278,14 +357,14 @@ export default function PendingPurchaseOrdersReport() {
                 data-testid="input-search"
               />
             </div>
-            <Select value={selectedProgram} onValueChange={setSelectedProgram}>
-              <SelectTrigger className="w-[200px]" data-testid="select-program">
-                <SelectValue placeholder="All Programs" />
+            <Select value={selectedSource} onValueChange={setSelectedSource}>
+              <SelectTrigger className="w-[200px]" data-testid="select-source">
+                <SelectValue placeholder="All Types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Programs</SelectItem>
-                {programs.map(program => (
-                  <SelectItem key={program} value={program}>{program}</SelectItem>
+                <SelectItem value="all">All Types</SelectItem>
+                {sourceTypes.map(type => (
+                  <SelectItem key={type} value={type}>{type}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -312,64 +391,69 @@ export default function PendingPurchaseOrdersReport() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredAndSortedData.map((transaction) => {
-                const org = organizations.find(o => o.id === transaction.organization_id);
+              {filteredAndSortedData.map((record) => {
+                const org = organizations.find(o => o.id === record.organization_id);
+                const TypeIcon = record.source_type === 'Event' ? Ticket : GraduationCap;
                 return (
                   <div
-                    key={transaction.id}
+                    key={`${record.entityType}-${record.id}`}
                     className="border rounded-lg p-4 hover-elevate"
-                    data-testid={`card-transaction-${transaction.id}`}
+                    data-testid={`card-record-${record.entityType}-${record.id}`}
                   >
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Building2 className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium" data-testid={`text-org-name-${transaction.id}`}>
+                          <span className="font-medium" data-testid={`text-org-name-${record.id}`}>
                             {org?.name || 'Unknown Organisation'}
                           </span>
-                          <Badge variant="secondary" data-testid={`badge-program-${transaction.id}`}>
-                            {transaction.program_name}
+                          <Badge variant="secondary" className="flex items-center gap-1" data-testid={`badge-source-${record.id}`}>
+                            <TypeIcon className="h-3 w-3" />
+                            {record.source_name}
+                          </Badge>
+                          <Badge variant="outline" data-testid={`badge-type-${record.id}`}>
+                            {record.source_type}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
                             <FileText className="h-3 w-3" />
-                            <span data-testid={`text-invoice-${transaction.id}`}>
-                              Invoice: {transaction.xero_invoice_number || 'N/A'}
+                            <span data-testid={`text-invoice-${record.id}`}>
+                              Invoice: {record.xero_invoice_number || 'N/A'}
                             </span>
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            <span data-testid={`text-date-${transaction.id}`}>
-                              {transaction.created_date 
-                                ? format(new Date(transaction.created_date), 'dd MMM yyyy')
+                            <span data-testid={`text-date-${record.id}`}>
+                              {record.created_date 
+                                ? format(new Date(record.created_date), 'dd MMM yyyy')
                                 : 'Unknown date'}
                             </span>
                           </span>
-                          {transaction.quantity && (
-                            <span data-testid={`text-quantity-${transaction.id}`}>
-                              Qty: {transaction.quantity}
+                          {record.quantity && (
+                            <span data-testid={`text-quantity-${record.id}`}>
+                              Qty: {record.quantity}
                             </span>
                           )}
-                          {transaction.total_cost_before_discount > 0 && (
-                            <span className="font-medium" data-testid={`text-cost-${transaction.id}`}>
-                              £{transaction.total_cost_before_discount.toLocaleString()}
+                          {record.total_cost > 0 && (
+                            <span className="font-medium" data-testid={`text-cost-${record.id}`}>
+                              £{record.total_cost.toLocaleString()}
                             </span>
                           )}
                         </div>
-                        {transaction.member_email && (
-                          <div className="text-sm text-muted-foreground" data-testid={`text-email-${transaction.id}`}>
-                            Booked by: {transaction.member_email}
+                        {record.member_email && (
+                          <div className="text-sm text-muted-foreground" data-testid={`text-email-${record.id}`}>
+                            Booked by: {record.member_email}
                           </div>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {transaction.xero_invoice_pdf_uri && (
+                        {record.xero_invoice_pdf_uri && (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleDownloadInvoice(transaction)}
-                            data-testid={`button-download-invoice-${transaction.id}`}
+                            onClick={() => handleDownloadInvoice(record)}
+                            data-testid={`button-download-invoice-${record.id}`}
                           >
                             <ExternalLink className="h-4 w-4 mr-1" />
                             View Invoice
@@ -377,8 +461,8 @@ export default function PendingPurchaseOrdersReport() {
                         )}
                         <Button
                           size="sm"
-                          onClick={() => handleAddPO(transaction)}
-                          data-testid={`button-add-po-${transaction.id}`}
+                          onClick={() => handleAddPO(record)}
+                          data-testid={`button-add-po-${record.id}`}
                         >
                           Add PO Number
                         </Button>
@@ -392,17 +476,17 @@ export default function PendingPurchaseOrdersReport() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!editingTransaction} onOpenChange={() => setEditingTransaction(null)}>
+      <Dialog open={!!editingRecord} onOpenChange={() => setEditingRecord(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Purchase Order Number</DialogTitle>
           </DialogHeader>
-          {editingTransaction && (
+          {editingRecord && (
             <div className="space-y-4 py-4">
               <div className="text-sm text-muted-foreground">
-                <p><strong>Organisation:</strong> {organizations.find(o => o.id === editingTransaction.organization_id)?.name || 'Unknown'}</p>
-                <p><strong>Invoice:</strong> {editingTransaction.xero_invoice_number}</p>
-                <p><strong>Program:</strong> {editingTransaction.program_name}</p>
+                <p><strong>Organisation:</strong> {organizations.find(o => o.id === editingRecord.organization_id)?.name || 'Unknown'}</p>
+                <p><strong>Invoice:</strong> {editingRecord.xero_invoice_number}</p>
+                <p><strong>{editingRecord.source_type}:</strong> {editingRecord.source_name}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="po-number">Purchase Order Number</Label>
@@ -417,7 +501,7 @@ export default function PendingPurchaseOrdersReport() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingTransaction(null)} data-testid="button-cancel-po">
+            <Button variant="outline" onClick={() => setEditingRecord(null)} data-testid="button-cancel-po">
               Cancel
             </Button>
             <Button 
