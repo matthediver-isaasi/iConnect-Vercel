@@ -922,9 +922,10 @@ export default function EventDetailsPage() {
   // Check if event is sold out (not unlimited and available_seats <= 0)
   const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
   
-  // Check if registration is closed (event status is 'closed')
-  // Registration is closed if status is 'closed' OR if registration_closes_at has passed
-  const isRegistrationClosed = event?.status === 'closed' || 
+  // Check if registration is closed (event_state is 'closed')
+  // Registration is closed if event_state is 'closed' (or legacy status='closed' when event_state is null) OR if registration_closes_at has passed
+  const isRegistrationClosed = event?.event_state === 'closed' || 
+    (!event?.event_state && event?.status === 'closed') ||
     (event?.registration_closes_at && new Date() > new Date(event.registration_closes_at));
   
   // Check if any attendees are missing required name fields

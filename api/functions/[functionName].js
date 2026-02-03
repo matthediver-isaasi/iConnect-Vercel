@@ -984,8 +984,8 @@ const functionHandlers = {
     
     console.log('[createBooking] Found event:', event.id, event.title);
 
-    // Block registration for closed events (status or past registration deadline)
-    if (event.status === 'closed') {
+    // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
+    if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
       console.log('[createBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
     }
@@ -1579,8 +1579,8 @@ const functionHandlers = {
       return { success: false, error: 'Event not found' };
     }
 
-    // Block registration for closed events (status or past registration deadline)
-    if (event.status === 'closed') {
+    // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
+    if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
       console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
     }

@@ -543,7 +543,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   TBC
                 </Badge>
               )}
-              {(event.status === 'closed' || (event.registration_closes_at && new Date() > new Date(event.registration_closes_at))) && (
+              {(event.event_state === 'closed' || (!event.event_state && event.status === 'closed') || (event.registration_closes_at && new Date() > new Date(event.registration_closes_at))) && (
                 <Badge variant="secondary" className="bg-red-100/95 text-red-700 border-red-200 shadow-sm" data-testid={`badge-closed-event-${event.id}`}>
                   Registration Closed
                 </Badge>
@@ -772,8 +772,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 ) : (() => {
                   const ctaConfig = getCtaButtonConfig(systemSettings);
                   const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
-                  // Registration is closed if status is 'closed' OR if registration_closes_at has passed
-                  const isRegistrationClosed = event.status === 'closed' || 
+                  // Registration is closed if event_state is 'closed' (or legacy status='closed' when event_state is null) OR if registration_closes_at has passed
+                  const isRegistrationClosed = event.event_state === 'closed' || 
+                    (!event.event_state && event.status === 'closed') ||
                     (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
                   const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
                   const isGradient = ctaConfig.style === 'gradient';

@@ -98,8 +98,10 @@ export default function EditEvent() {
   const [zoomType, setZoomType] = useState("webinar");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
   
-  // Event status: draft, published, tbc
-  const [eventStatus, setEventStatus] = useState("published");
+  // Event timing: published or tbc - affects date requirements
+  const [eventTiming, setEventTiming] = useState("published");
+  // Event state: active, draft, or closed - affects visibility/registration
+  const [eventState, setEventState] = useState("active");
   
   // Unlimited seats toggle
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
@@ -108,9 +110,9 @@ export default function EditEvent() {
   const [showSeatCount, setShowSeatCount] = useState(true);
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
   
-  // Handler for status changes - clears TBC-incompatible fields synchronously
-  const handleStatusChange = (newStatus) => {
-    if (newStatus === 'tbc') {
+  // Handler for timing changes - clears TBC-incompatible fields synchronously
+  const handleTimingChange = (newTiming) => {
+    if (newTiming === 'tbc') {
       // Clear dates, registration deadline and webinar/meeting when switching to TBC (but keep online mode available)
       setSelectedMeetingId("");
       setFormData(prev => ({
@@ -122,7 +124,7 @@ export default function EditEvent() {
         zoom_meeting_id: null
       }));
     }
-    setEventStatus(newStatus);
+    setEventTiming(newTiming);
   };
 
   // Ticket classes state for one-off events
@@ -725,8 +727,23 @@ export default function EditEvent() {
         setSelectedSpeakers([]);
       }
       
-      // Load status from event (default to 'published' for backwards compatibility)
-      setEventStatus(event.status || 'published');
+      // Load timing and state from event with migration for old status values
+      // Old values: draft, published, tbc, closed -> New: timing (published/tbc) + state (active/draft/closed)
+      const oldStatus = event.status || 'published';
+      if (oldStatus === 'draft') {
+        setEventTiming('published');
+        setEventState('draft');
+      } else if (oldStatus === 'closed') {
+        setEventTiming('published');
+        setEventState('closed');
+      } else if (oldStatus === 'tbc') {
+        setEventTiming('tbc');
+        setEventState(event.event_state || 'active');
+      } else {
+        // published or any new timing value
+        setEventTiming(oldStatus);
+        setEventState(event.event_state || 'active');
+      }
     }
   }, [event?.id, initialDataLoaded]);
   
@@ -781,7 +798,7 @@ export default function EditEvent() {
     }
     
     // Only require start_date for non-TBC events
-    if (eventStatus !== 'tbc' && !formData.start_date) {
+    if (eventTiming !== 'tbc' && !formData.start_date) {
       toast.error('Please set a start date');
       return;
     }
@@ -886,7 +903,7 @@ export default function EditEvent() {
     }
 
     // For TBC events, explicitly null out dates and Zoom webinar
-    const isTbcEvent = eventStatus === 'tbc';
+    const isTbcEvent = eventTiming === 'tbc';
     
     const eventData = {
       title: formData.title,
@@ -921,7 +938,8 @@ export default function EditEvent() {
       cta_override_url: formData.cta_override_url || null,
       // TBC events can still be online, but webinar is optional
       is_online: isOnlineEvent,
-      status: eventStatus
+      status: eventTiming,
+      event_state: eventState
     };
 
     // Add ticket classes for one-off events
@@ -1067,49 +1085,74 @@ export default function EditEvent() {
                 <Eye className="h-5 w-5 text-purple-600" />
                 Event Status
               </CardTitle>
-              <CardDescription>Set the visibility status of this event</CardDescription>
+              <CardDescription>Configure when and how members can access this event</CardDescription>
             </CardHeader>
-            <CardContent>
-              <RadioGroup
-                value={eventStatus}
-                onValueChange={handleStatusChange}
-                className="grid grid-cols-2 md:grid-cols-4 gap-4"
-                data-testid="radio-event-status"
-              >
-                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <RadioGroupItem value="draft" id="status-draft" data-testid="radio-status-draft" />
-                  <Label htmlFor="status-draft" className="cursor-pointer flex-1">
-                    <span className="font-medium">Draft</span>
-                    <p className="text-xs text-slate-500">Hidden from members</p>
-                  </Label>
-                </div>
-                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'published' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <RadioGroupItem value="published" id="status-published" data-testid="radio-status-published" />
-                  <Label htmlFor="status-published" className="cursor-pointer flex-1">
-                    <span className="font-medium">Published</span>
-                    <p className="text-xs text-slate-500">Visible to members</p>
-                  </Label>
-                </div>
-                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <RadioGroupItem value="tbc" id="status-tbc" data-testid="radio-status-tbc" />
-                  <Label htmlFor="status-tbc" className="cursor-pointer flex-1">
-                    <span className="font-medium">To Be Confirmed</span>
-                    <p className="text-xs text-slate-500">Dates shown as TBC</p>
-                  </Label>
-                </div>
-                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'closed' ? 'border-red-500 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}>
-                  <RadioGroupItem value="closed" id="status-closed" data-testid="radio-status-closed" />
-                  <Label htmlFor="status-closed" className="cursor-pointer flex-1">
-                    <span className="font-medium">Closed</span>
-                    <p className="text-xs text-slate-500">Registration closed</p>
-                  </Label>
-                </div>
-              </RadioGroup>
-              {eventStatus === 'tbc' && (
-                <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
-                  Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
-                </p>
-              )}
+            <CardContent className="space-y-6">
+              {/* Event Timing - affects date requirements */}
+              <div>
+                <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>
+                <RadioGroup
+                  value={eventTiming}
+                  onValueChange={handleTimingChange}
+                  className="grid grid-cols-2 gap-4"
+                  data-testid="radio-event-timing"
+                >
+                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'published' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <RadioGroupItem value="published" id="timing-published" data-testid="radio-timing-published" />
+                    <Label htmlFor="timing-published" className="cursor-pointer flex-1">
+                      <span className="font-medium">Scheduled</span>
+                      <p className="text-xs text-slate-500">Event has confirmed dates</p>
+                    </Label>
+                  </div>
+                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <RadioGroupItem value="tbc" id="timing-tbc" data-testid="radio-timing-tbc" />
+                    <Label htmlFor="timing-tbc" className="cursor-pointer flex-1">
+                      <span className="font-medium">To Be Confirmed</span>
+                      <p className="text-xs text-slate-500">Dates not yet set</p>
+                    </Label>
+                  </div>
+                </RadioGroup>
+                {eventTiming === 'tbc' && (
+                  <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                    Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
+                  </p>
+                )}
+              </div>
+
+              {/* Event State - affects visibility and registration */}
+              <div>
+                <Label className="text-sm font-medium mb-3 block">Event State</Label>
+                <p className="text-xs text-slate-500 mb-3">Controls visibility and whether members can register</p>
+                <RadioGroup
+                  value={eventState}
+                  onValueChange={setEventState}
+                  className="grid grid-cols-3 gap-4"
+                  data-testid="radio-event-state"
+                >
+                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventState === 'active' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <RadioGroupItem value="active" id="state-active" data-testid="radio-state-active" />
+                    <Label htmlFor="state-active" className="cursor-pointer flex-1">
+                      <span className="font-medium">Active</span>
+                      <p className="text-xs text-slate-500">Visible, accepting registrations</p>
+                    </Label>
+                  </div>
+                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventState === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <RadioGroupItem value="draft" id="state-draft" data-testid="radio-state-draft" />
+                    <Label htmlFor="state-draft" className="cursor-pointer flex-1">
+                      <span className="font-medium">Draft</span>
+                      <p className="text-xs text-slate-500">Hidden from members</p>
+                    </Label>
+                  </div>
+                  <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventState === 'closed' ? 'border-red-500 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <RadioGroupItem value="closed" id="state-closed" data-testid="radio-state-closed" />
+                    <Label htmlFor="state-closed" className="cursor-pointer flex-1">
+                      <span className="font-medium">Closed</span>
+                      <p className="text-xs text-slate-500">Visible, registration closed</p>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
             </CardContent>
           </Card>
 
@@ -1491,22 +1534,22 @@ export default function EditEvent() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="start_date">
-                    Start Date & Time {eventStatus !== 'tbc' && '*'}
+                    Start Date & Time {eventTiming !== 'tbc' && '*'}
                   </Label>
                   <Input
                     id="start_date"
                     type="datetime-local"
                     value={formatDateForInput(formData.start_date)}
                     onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
-                    required={eventStatus !== 'tbc'}
-                    disabled={eventStatus === 'tbc' || isOnlineEvent}
-                    className={(eventStatus === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    required={eventTiming !== 'tbc'}
+                    disabled={eventTiming === 'tbc' || isOnlineEvent}
+                    className={(eventTiming === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
-                  {eventStatus === 'tbc' && (
+                  {eventTiming === 'tbc' && (
                     <p className="text-xs text-blue-600">Date disabled for TBC events</p>
                   )}
-                  {isOnlineEvent && eventStatus !== 'tbc' && (
+                  {isOnlineEvent && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
                   )}
                 </div>
@@ -1517,11 +1560,11 @@ export default function EditEvent() {
                     type="datetime-local"
                     value={formatDateForInput(formData.end_date)}
                     onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
-                    disabled={eventStatus === 'tbc' || isOnlineEvent}
-                    className={(eventStatus === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    disabled={eventTiming === 'tbc' || isOnlineEvent}
+                    className={(eventTiming === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
-                  {isOnlineEvent && eventStatus !== 'tbc' && (
+                  {isOnlineEvent && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
                   )}
                 </div>
@@ -1544,8 +1587,8 @@ export default function EditEvent() {
                     handleInputChange('registration_closes_at', newValue);
                   }}
                   max={formData.end_date ? formatDateForInput(formData.end_date) : undefined}
-                  disabled={eventStatus === 'tbc'}
-                  className={eventStatus === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                  disabled={eventTiming === 'tbc'}
+                  className={eventTiming === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
                   data-testid="input-registration-closes-at"
                 />
                 <p className="text-xs text-slate-500">
