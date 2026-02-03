@@ -80,7 +80,7 @@ export default async function handler(req, res) {
 
       const { data: bookingsWithOrg, error: bookingError } = await supabase
         .from('booking')
-        .select('id, organization_id, member_id, event_id, event_name, xero_invoice_id, xero_invoice_number, created_date, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+        .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
         .in('organization_id', tenantOrgIds);
       
       if (bookingError) {
@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       if (memberIdsInTenant.length > 0) {
         const { data: nullOrgBookings } = await supabase
           .from('booking')
-          .select('id, organization_id, member_id, event_id, event_name, xero_invoice_id, xero_invoice_number, created_date, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+          .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
           .is('organization_id', null)
           .in('member_id', memberIdsInTenant);
         
@@ -180,12 +180,12 @@ export default async function handler(req, res) {
             id: b.id,
             entityType: 'booking',
             organization_id: orgId,
-            source_name: eventMap[b.event_id] || b.event_name || 'Event',
+            source_name: eventMap[b.event_id] || 'Event',
             source_type: 'Event',
             xero_invoice_id: b.xero_invoice_id,
             xero_invoice_number: b.xero_invoice_number,
             xero_invoice_pdf_uri: null,
-            created_date: b.created_date,
+            created_date: b.created_at,
             quantity: 1,
             total_cost: b.ticket_price,
             member_email: b.attendee_email || member?.email,
