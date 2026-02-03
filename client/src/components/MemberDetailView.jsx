@@ -86,8 +86,17 @@ export default function MemberDetailView({
   onCreated,
   defaultOrganizationId = ''
 }) {
-  const { isAdmin, memberInfo, isFeatureExcluded } = useMemberAccess();
+  const { isAdmin, memberInfo, isFeatureExcluded, memberRole } = useMemberAccess();
   const { formatDate } = useDateFormat();
+  
+  // DEBUG: Log at component mount to verify deployment
+  console.log('[MemberDetailView TESTING DEP1] Component loaded', {
+    memberId: member?.id,
+    memberInfoId: memberInfo?.id,
+    roleId: memberInfo?.role_id,
+    memberRoleLoaded: !!memberRole,
+    excludedFeatures: memberRole?.excluded_features,
+  });
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
