@@ -118,4 +118,4 @@ The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (R
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending domains, email delivery, and a native Email Marketing System (EMS) with full tracking capabilities (campaign management, audience targeting, recipient filtering, link/open tracking, bounce handling, unsubscribe management, click heatmap, analytics).
--   **Zoho Campaigns:** Integrations for syncing member communication preferences, supporting multi-tenant deployments with encrypted credentials and background sync jobs.
+-   **Zoho Campaigns:** Integrations for syncing member communication preferences, supporting multi-tenant deployments with encrypted credentials and background sync jobs.!!
