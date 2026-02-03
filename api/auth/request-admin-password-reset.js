@@ -35,7 +35,7 @@ export default async function handler(req, res) {
     const { data: identity, error: identityError } = await supabase
       .from('tenant_identity')
       .select('id, email, first_name, last_name')
-      .eq('email', normalizedEmail)
+      .ilike('email', normalizedEmail)
       .single();
 
     if (identityError || !identity) {

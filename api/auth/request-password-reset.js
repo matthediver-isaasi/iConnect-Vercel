@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     const { data: members, error: memberError } = await supabase
       .from('member')
       .select('id, email, first_name, tenant_id')
-      .eq('email', normalizedEmail)
+      .ilike('email', normalizedEmail)
       .eq('tenant_id', tenantFromHost.id)
       .limit(1);
 
