@@ -181,16 +181,18 @@ export default function EventsPage({
   const accessibleEvents = useMemo(() => {
     let filtered = events;
     
-    // Filter by status - drafts are hidden by default, shown only when toggle is on
-    // Published and TBC events are always shown
+    // Filter by event_state - drafts are hidden by default, shown only when toggle is on
+    // Active and closed events are always shown (closed = visible but registration disabled)
+    // Note: event.status now stores timing (published/tbc), event_state stores visibility (active/draft/closed)
     filtered = filtered.filter(event => {
-      const status = event.status || 'published';
-      if (status === 'draft') {
+      // Check if event is a draft (new field or legacy fallback)
+      const isDraft = event.event_state === 'draft' || (!event.event_state && event.status === 'draft');
+      if (isDraft) {
         // Only show drafts if user has permission AND toggle is on
         return canToggleDrafts && showDraftEvents;
       }
-      // Show published, tbc, and closed events (closed events are visible but registration is disabled)
-      return status === 'published' || status === 'tbc' || status === 'closed';
+      // Show all non-draft events (active, closed, or legacy published/tbc)
+      return true;
     });
     
     return filtered;
@@ -323,9 +325,10 @@ export default function EventsPage({
   }).length;
 
   // Count draft events for the toggle label (only count if user has permission)
+  // Check event_state for new events, with backward compatibility for legacy events
   const draftEventsCount = canToggleDrafts ? events.filter(event => {
-    const status = event.status || 'published';
-    if (status !== 'draft') return false;
+    const isDraft = event.event_state === 'draft' || (!event.event_state && event.status === 'draft');
+    if (!isDraft) return false;
     
     const matchesSearch =
       event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
