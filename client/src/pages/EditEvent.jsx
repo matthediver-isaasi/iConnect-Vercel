@@ -111,12 +111,13 @@ export default function EditEvent() {
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
-      // Clear dates and webinar/meeting when switching to TBC (but keep online mode available)
+      // Clear dates, registration deadline and webinar/meeting when switching to TBC (but keep online mode available)
       setSelectedMeetingId("");
       setFormData(prev => ({
         ...prev,
         start_date: '',
         end_date: '',
+        registration_closes_at: '',
         zoom_webinar_id: null,
         zoom_meeting_id: null
       }));
@@ -872,6 +873,14 @@ export default function EditEvent() {
       const seats = parseInt(formData.available_seats);
       if (!formData.available_seats || isNaN(seats) || seats < 1) {
         toast.error('Please enter a valid number of seats (or enable "Unlimited")');
+        return;
+      }
+    }
+
+    // Validate registration_closes_at is not after end_date
+    if (formData.registration_closes_at && formData.end_date) {
+      if (new Date(formData.registration_closes_at) > new Date(formData.end_date)) {
+        toast.error('Registration close date cannot be after the event end date');
         return;
       }
     }

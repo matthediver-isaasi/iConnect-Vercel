@@ -984,10 +984,15 @@ const functionHandlers = {
     
     console.log('[createBooking] Found event:', event.id, event.title);
 
-    // Block registration for closed events
+    // Block registration for closed events (status or past registration deadline)
     if (event.status === 'closed') {
       console.log('[createBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
+    }
+    
+    if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
+      console.log('[createBooking] Blocking registration - past registration deadline:', eventId);
+      return { success: false, error: 'Registration deadline has passed for this event' };
     }
 
     if (!programTag || !event.program_tag) {
@@ -1574,10 +1579,15 @@ const functionHandlers = {
       return { success: false, error: 'Event not found' };
     }
 
-    // Block registration for closed events
+    // Block registration for closed events (status or past registration deadline)
     if (event.status === 'closed') {
       console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
       return { success: false, error: 'Registration is closed for this event' };
+    }
+    
+    if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
+      console.log('[createOneOffEventBooking] Blocking registration - past registration deadline:', eventId);
+      return { success: false, error: 'Registration deadline has passed for this event' };
     }
 
     // Verify Stripe payment if card payment was used
