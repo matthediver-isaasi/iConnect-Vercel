@@ -296,8 +296,9 @@ export default async function handler(req, res) {
           }
           
           const xeroReference = invoice.Reference || '';
+          const isTBC = xeroReference.trim().toUpperCase() === 'TBC';
           
-          if (xeroReference && xeroReference.trim() !== '') {
+          if (xeroReference && xeroReference.trim() !== '' && !isTBC) {
             const updateData = { purchase_order_number: xeroReference.trim() };
             if (entityType === 'booking') {
               updateData.po_to_follow = false;

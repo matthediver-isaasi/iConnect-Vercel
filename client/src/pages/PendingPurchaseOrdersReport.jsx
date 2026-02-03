@@ -516,22 +516,6 @@ export default function PendingPurchaseOrdersReport() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {record.xero_invoice_id && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleVerifyWithXero(record)}
-                            disabled={isVerifying}
-                            data-testid={`button-verify-${record.id}`}
-                          >
-                            {isVerifying ? (
-                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-4 w-4 mr-1" />
-                            )}
-                            Verify
-                          </Button>
-                        )}
                         {record.xero_invoice_pdf_uri && (
                           <Button
                             variant="outline"
