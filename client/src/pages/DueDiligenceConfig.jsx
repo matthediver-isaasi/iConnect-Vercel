@@ -2455,17 +2455,21 @@ export default function DueDiligenceConfigPage() {
                                                                 <SelectValue placeholder="Core field..." />
                                                               </SelectTrigger>
                                                               <SelectContent>
-                                                                <SelectItem value="name">Organisation Name</SelectItem>
-                                                                <SelectItem value="email">Email</SelectItem>
-                                                                <SelectItem value="phone">Phone</SelectItem>
-                                                                <SelectItem value="website">Website</SelectItem>
-                                                                <SelectItem value="description">Description</SelectItem>
-                                                                <SelectItem value="address.line1">Address Line 1</SelectItem>
-                                                                <SelectItem value="address.line2">Address Line 2</SelectItem>
-                                                                <SelectItem value="address.city">Town/City</SelectItem>
-                                                                <SelectItem value="address.region">Region</SelectItem>
-                                                                <SelectItem value="address.postcode">Post Code</SelectItem>
-                                                                <SelectItem value="address.country">Country</SelectItem>
+                                                                {[
+                                                                  { value: 'address.city', label: 'Address - City' },
+                                                                  { value: 'address.country', label: 'Address - Country' },
+                                                                  { value: 'address.line1', label: 'Address - Line 1' },
+                                                                  { value: 'address.line2', label: 'Address - Line 2' },
+                                                                  { value: 'address.postcode', label: 'Address - Post Code' },
+                                                                  { value: 'address.region', label: 'Address - Region' },
+                                                                  { value: 'description', label: 'Description' },
+                                                                  { value: 'email', label: 'Email' },
+                                                                  { value: 'name', label: 'Organisation Name' },
+                                                                  { value: 'phone', label: 'Phone' },
+                                                                  { value: 'website', label: 'Website' },
+                                                                ].map(opt => (
+                                                                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                                                ))}
                                                               </SelectContent>
                                                             </Select>
                                                           )}
@@ -2488,11 +2492,13 @@ export default function DueDiligenceConfigPage() {
                                                                 {organizationCustomFields.length === 0 ? (
                                                                   <SelectItem value="__none__" disabled>No custom fields available</SelectItem>
                                                                 ) : (
-                                                                  organizationCustomFields.map(cf => (
-                                                                    <SelectItem key={cf.id} value={cf.id}>
-                                                                      {cf.label}
-                                                                    </SelectItem>
-                                                                  ))
+                                                                  [...organizationCustomFields]
+                                                                    .sort((a, b) => (a.label || '').localeCompare(b.label || ''))
+                                                                    .map(cf => (
+                                                                      <SelectItem key={cf.id} value={cf.id}>
+                                                                        {cf.label}
+                                                                      </SelectItem>
+                                                                    ))
                                                                 )}
                                                               </SelectContent>
                                                             </Select>
