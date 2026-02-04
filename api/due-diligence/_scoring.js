@@ -53,12 +53,15 @@ export function calculateTrafficLightScore(responses, staticQuestions, notApplic
   let redCount = 0;
   let totalQuestions = 0;
   let naCount = 0;
+  let totalWeightedScore = 0;
+  let totalWeight = 0;
 
   const questions = staticQuestions.filter(q => q.type !== 'header');
 
   for (const question of questions) {
     const isNA = notApplicable[question.id] === true;
     const response = responses[question.id];
+    const weight = question.weight || 1;
     
     if (isNA) {
       naCount++;
@@ -73,29 +76,51 @@ export function calculateTrafficLightScore(responses, staticQuestions, notApplic
     }
     
     totalQuestions++;
+    totalWeight += weight;
 
+    // Handle both formats: literal green/amber/red OR option IDs
+    let responseLabel = response;
+    let optionScore = 0;
+    
     if (response === 'green') {
       greenCount++;
+      optionScore = 100;
     } else if (response === 'amber') {
       amberCount++;
+      optionScore = 50;
     } else if (response === 'red') {
       redCount++;
+      optionScore = 0;
+    } else if (response && question.options) {
+      // Look up the option by ID to get its score and label
+      const selectedOption = question.options.find(opt => opt.id === response);
+      if (selectedOption) {
+        responseLabel = selectedOption.label?.toLowerCase() || response;
+        // Use option's score (typically 10/5/0 for green/amber/red) - normalize to 0-100 scale
+        // Standard: green=10, amber=5, red=0 -> scale to 100/50/0
+        const rawScore = selectedOption.score ?? 0;
+        optionScore = rawScore * 10; // 10 -> 100, 5 -> 50, 0 -> 0
+        
+        if (responseLabel === 'green') greenCount++;
+        else if (responseLabel === 'amber') amberCount++;
+        else if (responseLabel === 'red') redCount++;
+      }
     }
+
+    totalWeightedScore += optionScore * weight;
 
     breakdown.push({
       question_id: question.id,
       question: question.question || question.label,
-      response: response || 'unanswered',
-      weight: question.weight || 1
+      response: responseLabel || 'unanswered',
+      weight: weight,
+      score: optionScore
     });
   }
 
   let score = 0;
-  if (totalQuestions > 0) {
-    const greenScore = greenCount * 100;
-    const amberScore = amberCount * 50;
-    const redScore = redCount * 0;
-    score = Math.round((greenScore + amberScore + redScore) / totalQuestions);
+  if (totalWeight > 0) {
+    score = Math.round(totalWeightedScore / totalWeight);
   }
 
   return {
