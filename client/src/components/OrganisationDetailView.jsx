@@ -210,6 +210,7 @@ export default function OrganisationDetailView({
   const [noteToDelete, setNoteToDelete] = useState(null);
   const [noteSearchTerm, setNoteSearchTerm] = useState('');
   const [notesPage, setNotesPage] = useState(1);
+  const [memberRoleFilter, setMemberRoleFilter] = useState('all');
   const [newNoteAttachments, setNewNoteAttachments] = useState([]);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const notesPerPage = 5;
@@ -323,8 +324,8 @@ export default function OrganisationDetailView({
   });
 
   const { data: roles = [] } = useQuery({
-    queryKey: ['roles-for-member-create'],
-    enabled: isCreatingMember,
+    queryKey: ['roles-for-org-members'],
+    enabled: !!organization?.id,
     queryFn: async () => {
       try {
         const rolesList = await base44.entities.Role.list() || [];
@@ -334,6 +335,28 @@ export default function OrganisationDetailView({
       }
     }
   });
+
+  // Compute roles that have at least one member assigned (for dynamic filtering)
+  const availableRolesForFilter = useMemo(() => {
+    const roleIdsWithMembers = new Set(orgMembers.map(m => String(m.role_id)).filter(id => id && id !== 'null' && id !== 'undefined'));
+    return roles.filter(role => roleIdsWithMembers.has(String(role.id)));
+  }, [roles, orgMembers]);
+
+  // Reset filter if selected role is no longer available
+  useEffect(() => {
+    if (memberRoleFilter !== 'all') {
+      const stillAvailable = availableRolesForFilter.some(role => String(role.id) === memberRoleFilter);
+      if (!stillAvailable) {
+        setMemberRoleFilter('all');
+      }
+    }
+  }, [availableRolesForFilter, memberRoleFilter]);
+
+  // Filter members by selected role
+  const filteredOrgMembers = useMemo(() => {
+    if (memberRoleFilter === 'all') return orgMembers;
+    return orgMembers.filter(m => String(m.role_id) === memberRoleFilter);
+  }, [orgMembers, memberRoleFilter]);
 
   // Organization Notes query
   const { data: orgNotes = [], isLoading: notesLoading } = useQuery({
@@ -1298,17 +1321,34 @@ export default function OrganisationDetailView({
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-blue-600" />
-                  Organisation Members ({orgMembers.length})
+                  Organisation Members ({filteredOrgMembers.length}{memberRoleFilter !== 'all' ? ` of ${orgMembers.length}` : ''})
                 </CardTitle>
-                {isAdmin && (
-                  <Button 
-                    onClick={() => setIsCreatingMember(true)}
-                    data-testid="button-add-org-member"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Member
-                  </Button>
-                )}
+                <div className="flex items-center gap-2">
+                  {availableRolesForFilter.length > 0 && (
+                    <Select value={memberRoleFilter} onValueChange={setMemberRoleFilter}>
+                      <SelectTrigger className="w-[180px]" data-testid="select-role-filter">
+                        <SelectValue placeholder="Filter by Role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Roles</SelectItem>
+                        {availableRolesForFilter.map(role => (
+                          <SelectItem key={role.id} value={String(role.id)}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {isAdmin && (
+                    <Button 
+                      onClick={() => setIsCreatingMember(true)}
+                      data-testid="button-add-org-member"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Member
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -1320,6 +1360,11 @@ export default function OrganisationDetailView({
                 <div className="text-center py-12 text-slate-500">
                   <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                   <p>No members in this organisation</p>
+                </div>
+              ) : filteredOrgMembers.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No members match the selected role filter</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -1333,7 +1378,7 @@ export default function OrganisationDetailView({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {orgMembers.map(member => (
+                      {filteredOrgMembers.map(member => (
                         <tr key={member.id} className="hover:bg-slate-50" data-testid={`row-member-${member.id}`}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
