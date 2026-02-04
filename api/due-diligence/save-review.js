@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { executeStageActions } from './_stageActions.js';
+import { calculateTrafficLightScore, calculateDynamicScore, determineRiskLevel } from './_scoring.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -99,6 +100,62 @@ export default async function handler(req, res) {
     await addHistoryLogEntry(submissionId, tenantCtx.tenantId, 'submission_updated', member.email, {
       fields_updated: Object.keys(updateData).filter(k => k !== 'updated_at')
     });
+
+    // Recalculate score and risk_level if relevant data was updated
+    let calculatedScore = null;
+    let calculatedRiskLevel = null;
+    const shouldRecalculateScore = 
+      staticQuestionResponses !== undefined || 
+      staticQuestionNotApplicable !== undefined || 
+      reviewedFormValues !== undefined;
+
+    if (shouldRecalculateScore && ddSubmission.form_submission?.form_id) {
+      try {
+        const { data: ddConfig } = await supabase
+          .from('form_due_diligence_config')
+          .select('static_questions, custom_risk_levels, scoring_approach, scoring_rules')
+          .eq('form_id', ddSubmission.form_submission.form_id)
+          .eq('tenant_id', tenantCtx.tenantId)
+          .single();
+
+        if (ddConfig) {
+          let result;
+          const approach = ddConfig.scoring_approach || 'dynamic';
+          
+          if (approach === 'static_traffic_light') {
+            const mergedResponses = { ...(ddSubmission.static_question_responses || {}), ...(staticQuestionResponses || {}) };
+            const mergedNA = { ...(ddSubmission.static_question_not_applicable || {}), ...(staticQuestionNotApplicable || {}) };
+            
+            result = calculateTrafficLightScore(
+              mergedResponses,
+              ddConfig.static_questions || [],
+              mergedNA
+            );
+          } else {
+            const mergedFormValues = { ...(ddSubmission.reviewed_form_values || {}), ...(reviewedFormValues || {}) };
+            result = calculateDynamicScore(mergedFormValues, ddConfig.scoring_rules || {});
+          }
+          
+          calculatedScore = result.score;
+          calculatedRiskLevel = determineRiskLevel(calculatedScore, ddConfig.custom_risk_levels || []);
+          
+          // Update the submission with the new score and risk level
+          await supabase
+            .from('form_submission_due_diligence')
+            .update({
+              due_diligence_score: calculatedScore,
+              risk_level: calculatedRiskLevel,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', submissionId)
+            .eq('tenant_id', tenantCtx.tenantId);
+
+          console.log(`[DD Review] Score recalculated (${approach}): score=${calculatedScore}, risk_level=${calculatedRiskLevel}`);
+        }
+      } catch (scoreErr) {
+        console.error('[DD Review] Score calculation error:', scoreErr);
+      }
+    }
 
     let firstEditTransition = null;
 
