@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera, Plus, Trash2, Trophy } from "lucide-react";
+import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera, Plus, Trash2, Trophy, ChevronDown, ChevronUp } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
@@ -120,7 +120,15 @@ export default function MyOrganisationPage() {
   const [originalFormData, setOriginalFormData] = useState(defaultFormData);
   const [originalCustomFieldValues, setOriginalCustomFieldValues] = useState({});
   const [dataReady, setDataReady] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState({});
   const { toast } = useToast();
+
+  const toggleSection = (sectionId) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
+  };
 
   useEffect(() => {
     if (isAccessReady) {
@@ -354,13 +362,15 @@ export default function MyOrganisationPage() {
             />
           </div>
         ) : (
-          <div key="phone" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-            <Phone className="w-5 h-5 text-slate-500 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Phone Number</p>
-              <p className="text-sm font-medium text-slate-900" data-testid="text-phone">
-                {organization?.phone || <span className="text-slate-400 italic font-normal">Not set</span>}
-              </p>
+          <div key="phone" className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-slate-500" />
+              Phone Number
+            </Label>
+            <div className="flex items-center min-h-9 px-3 py-2 border border-slate-200 rounded-md bg-slate-50">
+              <span className={`text-sm ${organization?.phone ? 'text-slate-900' : 'text-slate-400 italic'}`} data-testid="text-phone">
+                {organization?.phone || 'Not set'}
+              </span>
             </div>
           </div>
         );
@@ -381,23 +391,25 @@ export default function MyOrganisationPage() {
             />
           </div>
         ) : (
-          <div key="website_url" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-            <Globe className="w-5 h-5 text-slate-500 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Website</p>
+          <div key="website_url" className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-slate-500" />
+              Website
+            </Label>
+            <div className="flex items-center min-h-9 px-3 py-2 border border-slate-200 rounded-md bg-slate-50">
               {organization?.website_url ? (
                 <a 
                   href={organization.website_url.startsWith('http') ? organization.website_url : `https://${organization.website_url}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  className="text-sm text-primary flex items-center gap-1"
                   data-testid="link-website"
                 >
                   {organization.website_url}
                   <ExternalLink className="w-3 h-3" />
                 </a>
               ) : (
-                <p className="text-sm text-slate-400 italic" data-testid="text-website-empty">Not set</p>
+                <span className="text-sm text-slate-400 italic" data-testid="text-website-empty">Not set</span>
               )}
             </div>
           </div>
@@ -420,20 +432,22 @@ export default function MyOrganisationPage() {
             />
           </div>
         ) : (
-          <div key="invoicing_email" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-            <Mail className="w-5 h-5 text-slate-500 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Email</p>
+          <div key="invoicing_email" className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Mail className="w-4 h-4 text-slate-500" />
+              Invoicing Email
+            </Label>
+            <div className="flex items-center min-h-9 px-3 py-2 border border-slate-200 rounded-md bg-slate-50">
               {organization?.invoicing_email ? (
                 <a 
                   href={`mailto:${organization.invoicing_email}`}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                  className="text-sm text-primary"
                   data-testid="link-invoicing-email"
                 >
                   {organization.invoicing_email}
                 </a>
               ) : (
-                <p className="text-sm text-slate-400 italic" data-testid="text-invoicing-email-empty">Not set</p>
+                <span className="text-sm text-slate-400 italic" data-testid="text-invoicing-email-empty">Not set</span>
               )}
             </div>
           </div>
@@ -456,13 +470,15 @@ export default function MyOrganisationPage() {
             />
           </div>
         ) : (
-          <div key="invoicing_address" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-            <MapPin className="w-5 h-5 text-slate-500 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Address</p>
-              <p className="text-sm font-medium text-slate-900 whitespace-pre-line" data-testid="text-invoicing-address">
-                {organization?.invoicing_address || <span className="text-slate-400 italic font-normal">Not set</span>}
-              </p>
+          <div key="invoicing_address" className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-slate-500" />
+              Invoicing Address
+            </Label>
+            <div className="flex items-start min-h-[80px] px-3 py-2 border border-slate-200 rounded-md bg-slate-50">
+              <span className={`text-sm whitespace-pre-line ${organization?.invoicing_address ? 'text-slate-900' : 'text-slate-400 italic'}`} data-testid="text-invoicing-address">
+                {organization?.invoicing_address || 'Not set'}
+              </span>
             </div>
           </div>
         );
@@ -1130,13 +1146,24 @@ export default function MyOrganisationPage() {
             {/* Organisation Awards Section */}
             {organisationAwardAssignments.length > 0 && (
               <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Trophy className="w-5 h-5 text-amber-500" />
-                    Organisation Awards
+                <CardHeader 
+                  className="cursor-pointer select-none"
+                  onClick={() => toggleSection('awards')}
+                  data-testid="header-awards-section"
+                >
+                  <CardTitle className="text-lg flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Trophy className="w-5 h-5 text-amber-500" />
+                      Organisation Awards
+                    </span>
+                    {collapsedSections.awards ? (
+                      <ChevronDown className="w-5 h-5 text-slate-400" />
+                    ) : (
+                      <ChevronUp className="w-5 h-5 text-slate-400" />
+                    )}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                {!collapsedSections.awards && <CardContent>
                   {awardsLoading ? (
                     <div className="flex items-center justify-center py-4">
                       <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
@@ -1187,78 +1214,104 @@ export default function MyOrganisationPage() {
                       })}
                     </div>
                   )}
-                </CardContent>
+                </CardContent>}
               </Card>
             )}
 
             {/* Contact & Invoicing Details */}
             <Card className="border-slate-200">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <ClipboardList className="w-5 h-5 text-blue-600" />
-                  Contact & Invoicing Details
+              <CardHeader 
+                className="cursor-pointer select-none"
+                onClick={() => toggleSection('contact')}
+                data-testid="header-contact-section"
+              >
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5 text-blue-600" />
+                    Contact & Invoicing Details
+                  </span>
+                  {collapsedSections.contact ? (
+                    <ChevronDown className="w-5 h-5 text-slate-400" />
+                  ) : (
+                    <ChevronUp className="w-5 h-5 text-slate-400" />
+                  )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {orderedContactFieldKeys.map(fieldKey => renderCoreField(fieldKey))}
-                </div>
-              </CardContent>
+              {!collapsedSections.contact && (
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {orderedContactFieldKeys.map(fieldKey => renderCoreField(fieldKey))}
+                  </div>
+                </CardContent>
+              )}
             </Card>
 
             {/* Custom Fields Section */}
             {orderedCustomFields.filter(f => isFieldVisible(f.id)).length > 0 && (
               <Card className="border-slate-200">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <ClipboardList className="w-5 h-5 text-blue-600" />
-                    Additional Information
+                <CardHeader 
+                  className="cursor-pointer select-none"
+                  onClick={() => toggleSection('customFields')}
+                  data-testid="header-custom-fields-section"
+                >
+                  <CardTitle className="text-lg flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <ClipboardList className="w-5 h-5 text-blue-600" />
+                      Additional Information
+                    </span>
+                    {collapsedSections.customFields ? (
+                      <ChevronDown className="w-5 h-5 text-slate-400" />
+                    ) : (
+                      <ChevronUp className="w-5 h-5 text-slate-400" />
+                    )}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  {valuesLoading ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {orderedCustomFields.filter(f => isFieldVisible(f.id)).map((field) => {
-                        const valueRecord = orgValues.find(v => v.field_id === field.id);
-                        const displayValue = getCustomFieldDisplayValue(field, valueRecord);
-                        
-                        if (canEditField(field.id)) {
+                {!collapsedSections.customFields && (
+                  <CardContent>
+                    {valuesLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {orderedCustomFields.filter(f => isFieldVisible(f.id)).map((field) => {
+                          const valueRecord = orgValues.find(v => v.field_id === field.id);
+                          const displayValue = getCustomFieldDisplayValue(field, valueRecord);
+                          
+                          if (canEditField(field.id)) {
+                            return (
+                              <div key={field.id} className="space-y-2">
+                                <Label htmlFor={`field-${field.id}`} className="text-sm font-medium text-slate-700">
+                                  {field.label}
+                                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                                </Label>
+                                {field.description && (
+                                  <p className="text-xs text-slate-500">{field.description}</p>
+                                )}
+                                {renderCustomFieldInput(field)}
+                              </div>
+                            );
+                          }
+                          
                           return (
-                            <div key={field.id} className="space-y-2">
-                              <Label htmlFor={`field-${field.id}`} className="text-sm font-medium text-slate-700">
-                                {field.label}
-                                {field.required && <span className="text-red-500 ml-1">*</span>}
-                              </Label>
-                              {field.description && (
-                                <p className="text-xs text-slate-500">{field.description}</p>
-                              )}
-                              {renderCustomFieldInput(field)}
+                            <div key={field.id} className="flex justify-between items-start gap-4 p-3 bg-slate-50 rounded-lg">
+                              <span className="text-sm text-slate-600">{field.label}</span>
+                              <div className="text-sm font-medium text-slate-900 text-right" data-testid={`text-custom-field-${field.id}`}>
+                                {field.field_type === 'list' ? (
+                                  <ListFieldDisplay items={displayValue} />
+                                ) : field.field_type === 'file' ? (
+                                  <CustomFieldFileDisplay value={displayValue} />
+                                ) : (
+                                  displayValue || <span className="text-slate-400 italic font-normal">Not set</span>
+                                )}
+                              </div>
                             </div>
                           );
-                        }
-                        
-                        return (
-                          <div key={field.id} className="flex justify-between items-start gap-4 p-3 bg-slate-50 rounded-lg">
-                            <span className="text-sm text-slate-600">{field.label}</span>
-                            <div className="text-sm font-medium text-slate-900 text-right" data-testid={`text-custom-field-${field.id}`}>
-                              {field.field_type === 'list' ? (
-                                <ListFieldDisplay items={displayValue} />
-                              ) : field.field_type === 'file' ? (
-                                <CustomFieldFileDisplay value={displayValue} />
-                              ) : (
-                                displayValue || <span className="text-slate-400 italic font-normal">Not set</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CardContent>
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                )}
               </Card>
             )}
           </div>
