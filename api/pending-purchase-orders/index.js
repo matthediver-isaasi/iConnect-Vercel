@@ -232,7 +232,73 @@ export default async function handler(req, res) {
         }
       });
 
-      return res.json({ records, organizations: orgMap });
+      // Check Xero for invoice payment status and exclude paid invoices
+      let filteredRecords = records;
+      let xeroCheckPerformed = false;
+      let xeroError = null;
+      
+      const invoiceIdsToCheck = [...new Set(records.map(r => r.xero_invoice_id).filter(Boolean))];
+      
+      if (invoiceIdsToCheck.length > 0) {
+        try {
+          const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+          
+          // Xero allows fetching multiple invoices by IDs (comma-separated)
+          // Batch in groups of 50 to avoid URL length limits
+          const paidInvoiceIds = new Set();
+          const batchSize = 50;
+          
+          for (let i = 0; i < invoiceIdsToCheck.length; i += batchSize) {
+            const batch = invoiceIdsToCheck.slice(i, i + batchSize);
+            const idsParam = batch.join(',');
+            
+            const invoiceResponse = await fetch(
+              `https://api.xero.com/api.xro/2.0/Invoices?IDs=${encodeURIComponent(idsParam)}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'xero-tenant-id': xeroTenantId,
+                  'Accept': 'application/json'
+                }
+              }
+            );
+            
+            if (invoiceResponse.ok) {
+              const invoiceData = await invoiceResponse.json();
+              const invoices = invoiceData.Invoices || [];
+              
+              invoices.forEach(inv => {
+                if (inv.Status === 'PAID') {
+                  paidInvoiceIds.add(inv.InvoiceID);
+                }
+              });
+            } else {
+              console.error('[PendingPO] Xero batch fetch error:', invoiceResponse.status);
+            }
+          }
+          
+          // Filter out records with paid invoices
+          filteredRecords = records.filter(r => !paidInvoiceIds.has(r.xero_invoice_id));
+          xeroCheckPerformed = true;
+          
+          console.log(`[PendingPO] Xero check: ${records.length} records, ${paidInvoiceIds.size} paid, ${filteredRecords.length} remaining`);
+          
+        } catch (xeroErr) {
+          console.error('[PendingPO] Xero status check error:', xeroErr.message);
+          xeroError = xeroErr.message;
+          // Continue with unfiltered records if Xero check fails
+        }
+      }
+
+      return res.json({ 
+        records: filteredRecords, 
+        organizations: orgMap,
+        xeroCheckPerformed,
+        xeroError,
+        totalBeforeFilter: records.length,
+        paidExcluded: records.length - filteredRecords.length
+      });
       
     } else if (req.method === 'POST') {
       const { action, entityType, entityId, xeroInvoiceId, purchaseOrderNumber, reminderDays, emailTemplateId } = req.body;

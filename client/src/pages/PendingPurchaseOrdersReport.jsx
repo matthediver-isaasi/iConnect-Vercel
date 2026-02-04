@@ -42,7 +42,7 @@ export default function PendingPurchaseOrdersReport() {
   const [sortBy, setSortBy] = useState("date_desc");
   const [editingRecord, setEditingRecord] = useState(null);
   const [poNumber, setPoNumber] = useState("");
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedDays, setSelectedDays] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
@@ -111,6 +111,9 @@ export default function PendingPurchaseOrdersReport() {
 
   const pendingPORecords = reportData?.records || [];
   const organizations = reportData?.organizations || {};
+  const xeroCheckPerformed = reportData?.xeroCheckPerformed || false;
+  const xeroError = reportData?.xeroError || null;
+  const paidExcluded = reportData?.paidExcluded || 0;
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ id, entityType, purchase_order_number }) => {
@@ -241,60 +244,24 @@ export default function PendingPurchaseOrdersReport() {
     link.click();
   };
 
-  const handleSyncWithXero = async () => {
-    if (isSyncing) return;
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
     
-    const recordsWithInvoiceId = filteredAndSortedData.filter(r => r.xero_invoice_id);
-    
-    if (recordsWithInvoiceId.length === 0) {
-      toast({
-        title: "No Records",
-        description: "No records with Xero invoice IDs to sync.",
-      });
-      return;
-    }
-
-    setIsSyncing(true);
-    toast({
-      title: "Syncing with Xero...",
-      description: `Checking ${recordsWithInvoiceId.length} invoices for PO numbers...`,
-    });
-
-    let foundCount = 0;
+    setIsRefreshing(true);
     try {
-      for (const record of recordsWithInvoiceId) {
-        try {
-          const response = await fetch('/api/pending-purchase-orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              action: 'verify',
-              entityType: record.entityType,
-              entityId: record.id,
-              xeroInvoiceId: record.xero_invoice_id,
-            }),
-          });
-
-          const result = await response.json();
-          if (result.found && result.updated) {
-            foundCount++;
-          }
-        } catch (error) {
-          console.error('Sync error for record:', record.id, error);
-        }
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-report'] });
-      
+      await refetch();
       toast({
-        title: "Sync Complete",
-        description: foundCount > 0 
-          ? `Found and updated ${foundCount} PO number${foundCount !== 1 ? 's' : ''} from Xero.`
-          : "No new PO numbers found in Xero (TBC references are ignored).",
+        title: "Refreshed",
+        description: "Report data has been updated with latest Xero invoice status.",
+      });
+    } catch (error) {
+      toast({
+        title: "Refresh Failed",
+        description: error.message || "Failed to refresh report data.",
+        variant: "destructive",
       });
     } finally {
-      setIsSyncing(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -398,7 +365,14 @@ export default function PendingPurchaseOrdersReport() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" data-testid="loading-spinner"></div>
+        <div className="text-center space-y-4" data-testid="loading-container">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" data-testid="loading-spinner"></div>
+          <div className="space-y-2">
+            <p className="font-medium text-lg">Loading Pending Purchase Orders</p>
+            <p className="text-muted-foreground text-sm">Checking invoice status with Xero...</p>
+            <p className="text-muted-foreground text-xs">Paid invoices will be automatically excluded</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -434,17 +408,38 @@ export default function PendingPurchaseOrdersReport() {
           <p className="text-muted-foreground mt-1" data-testid="text-page-description">
             Invoices awaiting purchase order numbers
           </p>
+          {xeroCheckPerformed && (
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <Badge variant="outline" className="text-xs" data-testid="badge-xero-status">
+                <Check className="h-3 w-3 mr-1" />
+                Xero synced
+              </Badge>
+              {paidExcluded > 0 && (
+                <Badge variant="secondary" className="text-xs" data-testid="badge-paid-excluded">
+                  {paidExcluded} paid invoice{paidExcluded !== 1 ? 's' : ''} excluded
+                </Badge>
+              )}
+            </div>
+          )}
+          {xeroError && (
+            <div className="flex items-center gap-2 mt-2">
+              <Badge variant="destructive" className="text-xs" data-testid="badge-xero-error">
+                <AlertCircle className="h-3 w-3 mr-1" />
+                Xero check failed
+              </Badge>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Button
-            onClick={handleSyncWithXero}
+            onClick={handleRefresh}
             variant="outline"
             className="flex items-center gap-2"
-            disabled={filteredAndSortedData.length === 0 || isSyncing}
-            data-testid="button-sync-xero"
+            disabled={isRefreshing}
+            data-testid="button-refresh"
           >
-            <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            {isSyncing ? 'Syncing...' : 'Sync with Xero'}
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
           <Button
             onClick={handleExportCSV}
