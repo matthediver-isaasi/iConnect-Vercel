@@ -711,7 +711,8 @@ export default async function handler(req, res) {
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle',
             'ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction', 'BlogPost',
-            'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson'
+            'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
+            'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided
