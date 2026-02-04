@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail, ChevronDown, Send } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -47,6 +48,8 @@ export default function PendingPurchaseOrdersReport() {
   const [selectedDays, setSelectedDays] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sendingReminderId, setSendingReminderId] = useState(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -341,6 +344,54 @@ export default function PendingPurchaseOrdersReport() {
     }
   };
 
+  const handleSendReminder = async (record) => {
+    if (!selectedTemplateId) {
+      toast({
+        title: "No Template Selected",
+        description: "Please select an email template in the Reminder Settings first.",
+        variant: "destructive",
+      });
+      setSettingsOpen(true);
+      return;
+    }
+
+    const recordKey = `${record.entityType}-${record.id}`;
+    setSendingReminderId(recordKey);
+    
+    try {
+      const response = await fetch('/api/pending-purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'send_reminder',
+          recordId: record.id,
+          entityType: record.entityType,
+          emailTemplateId: selectedTemplateId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to send reminder');
+      }
+
+      const orgName = organizations[record.organization_id] || 'the organisation';
+      toast({
+        title: "Reminder Sent",
+        description: `PO reminder email sent to ${orgName}.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send reminder email.",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingReminderId(null);
+    }
+  };
+
   const handleSavePO = () => {
     if (!poNumber.trim()) {
       toast({
@@ -454,68 +505,77 @@ export default function PendingPurchaseOrdersReport() {
         </div>
       </div>
 
-      <Card data-testid="card-reminder-settings">
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>Reminder Settings</CardTitle>
-          </div>
-          <CardDescription>
-            Configure automated email reminders for pending purchase orders
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Send reminders on</Label>
-            <div className="flex flex-wrap gap-2">
-              {DAYS_OF_WEEK.map(day => (
-                <Button
-                  key={day.value}
-                  type="button"
-                  variant={selectedDays.includes(day.value) ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => toggleDay(day.value)}
-                  data-testid={`button-day-${day.label.toLowerCase()}`}
-                >
-                  {day.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Email template</Label>
-            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-              <SelectTrigger className="w-full md:w-[400px]" data-testid="select-email-template">
-                <SelectValue placeholder="Select an email template..." />
-              </SelectTrigger>
-              <SelectContent>
-                {emailTemplates.length === 0 ? (
-                  <SelectItem value="no-templates" disabled>No email templates available</SelectItem>
+      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <Card data-testid="card-reminder-settings">
+          <CollapsibleTrigger asChild>
+            <CardHeader className="pb-4 cursor-pointer hover-elevate">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle>Reminder Settings</CardTitle>
+                </div>
+                <ChevronDown className={`h-5 w-5 text-muted-foreground transition-transform ${settingsOpen ? 'rotate-180' : ''}`} />
+              </div>
+              <CardDescription>
+                Configure automated email reminders for pending purchase orders
+              </CardDescription>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Send reminders on</Label>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS_OF_WEEK.map(day => (
+                    <Button
+                      key={day.value}
+                      type="button"
+                      variant={selectedDays.includes(day.value) ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleDay(day.value)}
+                      data-testid={`button-day-${day.label.toLowerCase()}`}
+                    >
+                      {day.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Email template</Label>
+                <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                  <SelectTrigger className="w-full md:w-[400px]" data-testid="select-email-template">
+                    <SelectValue placeholder="Select an email template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emailTemplates.length === 0 ? (
+                      <SelectItem value="no-templates" disabled>No email templates available</SelectItem>
+                    ) : (
+                      emailTemplates.map(template => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={handleSaveSettings}
+                disabled={isSavingSettings}
+                className="flex items-center gap-2"
+                data-testid="button-save-settings"
+              >
+                {isSavingSettings ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
                 ) : (
-                  emailTemplates.map(template => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))
+                  <Mail className="h-4 w-4" />
                 )}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            onClick={handleSaveSettings}
-            disabled={isSavingSettings}
-            className="flex items-center gap-2"
-            data-testid="button-save-settings"
-          >
-            {isSavingSettings ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Mail className="h-4 w-4" />
-            )}
-            {isSavingSettings ? 'Saving...' : 'Save Reminder Settings'}
-          </Button>
-        </CardContent>
-      </Card>
+                {isSavingSettings ? 'Saving...' : 'Save Reminder Settings'}
+              </Button>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       <Card>
         <CardHeader className="pb-4">
@@ -641,6 +701,20 @@ export default function PendingPurchaseOrdersReport() {
                             View Invoice
                           </Button>
                         )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSendReminder(record)}
+                          disabled={sendingReminderId === `${record.entityType}-${record.id}`}
+                          data-testid={`button-send-reminder-${record.id}`}
+                        >
+                          {sendingReminderId === `${record.entityType}-${record.id}` ? (
+                            <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4 mr-1" />
+                          )}
+                          {sendingReminderId === `${record.entityType}-${record.id}` ? 'Sending...' : 'Send Reminder'}
+                        </Button>
                         <Button
                           size="sm"
                           onClick={() => handleAddPO(record)}

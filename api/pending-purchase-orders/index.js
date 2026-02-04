@@ -1,6 +1,8 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../_lib/tenantContext.js';
 import { getValidXeroAccessToken } from '../_lib/xero.js';
+import { sendTenantEmail } from '../_lib/tenantEmailService.js';
+import { replacePlaceholders } from '../_lib/emailService.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -344,6 +346,178 @@ export default async function handler(req, res) {
         }
         
         return res.json({ success: true, settings: updatedSettings.poReminderSettings });
+      }
+      
+      // Handle send_reminder action
+      if (action === 'send_reminder') {
+        const { recordId, entityType: reminderEntityType, emailTemplateId: reminderTemplateId } = req.body;
+        
+        if (!recordId || !reminderEntityType || !reminderTemplateId) {
+          return res.status(400).json({ error: 'recordId, entityType, and emailTemplateId are required' });
+        }
+        
+        // Validate entityType strictly
+        if (!['booking', 'transaction'].includes(reminderEntityType)) {
+          return res.status(400).json({ error: 'Invalid entityType. Must be "booking" or "transaction"' });
+        }
+        
+        // Fetch email template
+        const { data: template, error: templateError } = await supabase
+          .from('email_template')
+          .select('id, name, subject, body')
+          .eq('id', reminderTemplateId)
+          .eq('tenant_id', tenantId)
+          .single();
+        
+        if (templateError || !template) {
+          console.error('[PendingPO] Template not found:', templateError);
+          return res.status(404).json({ error: 'Email template not found' });
+        }
+        
+        // Fetch the record details based on entity type
+        const tableName = reminderEntityType === 'booking' ? 'booking' : 'program_ticket_transaction';
+        const { data: record, error: recordError } = await supabase
+          .from(tableName)
+          .select(`
+            id, organization_id, member_id, xero_invoice_number, xero_invoice_id,
+            ${reminderEntityType === 'booking' 
+              ? 'event_id, created_at, total, number_of_tickets' 
+              : 'program_ticket_id, amount, quantity, created_at'}
+          `)
+          .eq('id', recordId)
+          .single();
+        
+        if (recordError || !record) {
+          console.error('[PendingPO] Record not found:', recordError);
+          return res.status(404).json({ error: 'Record not found' });
+        }
+        
+        // Verify record belongs to tenant
+        const { data: org, error: orgError } = await supabase
+          .from('organization')
+          .select('id, name, tenant_id')
+          .eq('id', record.organization_id)
+          .single();
+        
+        if (orgError || !org || org.tenant_id !== tenantId) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        // Check if invoice is already paid in Xero before sending reminder
+        if (record.xero_invoice_id) {
+          try {
+            const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+            
+            const invoiceResponse = await fetch(
+              `https://api.xero.com/api.xro/2.0/Invoices/${record.xero_invoice_id}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'xero-tenant-id': xeroTenantId,
+                  'Accept': 'application/json'
+                }
+              }
+            );
+            
+            if (invoiceResponse.ok) {
+              const invoiceData = await invoiceResponse.json();
+              const invoice = invoiceData.Invoices?.[0];
+              
+              if (invoice?.Status === 'PAID') {
+                return res.status(400).json({ 
+                  error: 'Cannot send reminder - this invoice has already been paid in Xero' 
+                });
+              }
+            }
+          } catch (xeroErr) {
+            console.error('[PendingPO] Xero check error for reminder:', xeroErr.message);
+            // Continue if Xero check fails - we still want to allow manual reminders
+          }
+        }
+        
+        // Get member details if available
+        let memberData = null;
+        if (record.member_id) {
+          const { data: member } = await supabase
+            .from('member')
+            .select('id, email, first_name, last_name')
+            .eq('id', record.member_id)
+            .single();
+          memberData = member;
+        }
+        
+        // Get event or program name
+        let sourceName = 'Unknown';
+        if (reminderEntityType === 'booking' && record.event_id) {
+          const { data: event } = await supabase
+            .from('event')
+            .select('title')
+            .eq('id', record.event_id)
+            .single();
+          sourceName = event?.title || 'Unknown Event';
+        } else if (reminderEntityType === 'transaction' && record.program_ticket_id) {
+          const { data: ticket } = await supabase
+            .from('program_ticket')
+            .select('name, program:program_id(name)')
+            .eq('id', record.program_ticket_id)
+            .single();
+          sourceName = ticket?.program?.name || ticket?.name || 'Unknown Program';
+        }
+        
+        // Determine recipient email - use organization's primary contact or booker's email
+        const { data: orgContacts } = await supabase
+          .from('member')
+          .select('email, first_name, last_name')
+          .eq('organization_id', record.organization_id)
+          .eq('is_primary_contact', true)
+          .limit(1);
+        
+        const recipientEmail = orgContacts?.[0]?.email || memberData?.email;
+        
+        if (!recipientEmail) {
+          return res.status(400).json({ error: 'No recipient email found for this organization' });
+        }
+        
+        // Build placeholder data
+        const placeholderData = {
+          organization_name: org.name,
+          invoice_number: record.xero_invoice_number || 'N/A',
+          invoice_date: record.created_at ? new Date(record.created_at).toLocaleDateString() : 'N/A',
+          source_name: sourceName,
+          source_type: reminderEntityType === 'booking' ? 'Event' : 'Program',
+          member_email: memberData?.email || '',
+          member_first_name: memberData?.first_name || '',
+          member_last_name: memberData?.last_name || '',
+          member_name: memberData ? `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim() : '',
+          amount: reminderEntityType === 'booking' 
+            ? (record.total || 0) 
+            : (record.amount || 0),
+          quantity: reminderEntityType === 'booking'
+            ? (record.number_of_tickets || 1)
+            : (record.quantity || 1),
+        };
+        
+        // Process placeholders in subject and body
+        const processedSubject = replacePlaceholders(template.subject, 'record', placeholderData);
+        const processedBody = replacePlaceholders(template.body, 'record', placeholderData);
+        
+        // Send email
+        try {
+          await sendTenantEmail({
+            tenantId,
+            to: recipientEmail,
+            subject: processedSubject,
+            html: processedBody,
+          });
+          
+          console.log(`[PendingPO] Reminder sent to ${recipientEmail} for ${reminderEntityType} ${recordId}`);
+          return res.json({ success: true, sentTo: recipientEmail });
+          
+        } catch (emailError) {
+          console.error('[PendingPO] Email send error:', emailError);
+          return res.status(500).json({ error: 'Failed to send reminder email' });
+        }
       }
       
       const { data: tenantOrgs } = await supabase
