@@ -1081,7 +1081,11 @@ export default function OrganisationDetailView({
     );
   };
 
-  const hiddenFields = evaluateVisibilityRules(rulesConfig, formData, orgCustomFields);
+  const hiddenFields = evaluateVisibilityRules(
+    rulesConfig, 
+    { ...formData, custom_field_values: customFieldValues }, 
+    orgCustomFields
+  );
 
   const renderLayoutCard = (card) => {
     if (card.fields.length === 0) return null;
