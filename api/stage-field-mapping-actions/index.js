@@ -89,8 +89,16 @@ export default async function handler(req, res) {
       
       // Validate each mapping has required fields
       for (const mapping of field_mappings) {
-        if (!mapping.source_field_id) {
-          return res.status(400).json({ error: 'Each mapping requires a source_field_id' });
+        // For static mappings, require static_value; for field mappings, require source_field_id
+        const isStaticMapping = mapping.source_type === 'static';
+        if (isStaticMapping) {
+          if (!mapping.static_value && mapping.static_value !== 0 && mapping.static_value !== false) {
+            return res.status(400).json({ error: 'Static mappings require a static_value' });
+          }
+        } else {
+          if (!mapping.source_field_id) {
+            return res.status(400).json({ error: 'Field mappings require a source_field_id' });
+          }
         }
         if (!mapping.target_type || !['core', 'custom'].includes(mapping.target_type)) {
           return res.status(400).json({ error: 'Each mapping requires target_type of "core" or "custom"' });
