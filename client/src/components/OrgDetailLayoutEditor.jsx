@@ -14,7 +14,9 @@ import {
   Save, 
   Settings2,
   Loader2,
-  LayoutGrid
+  LayoutGrid,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { toast } from "sonner";
@@ -32,6 +34,14 @@ export default function OrgDetailLayoutEditor({
 }) {
   const [editedLayout, setEditedLayout] = useState(null);
   const [editingCardId, setEditingCardId] = useState(null);
+  const [collapsedCards, setCollapsedCards] = useState({});
+  
+  const toggleCardCollapse = (cardId) => {
+    setCollapsedCards(prev => ({
+      ...prev,
+      [cardId]: !prev[cardId]
+    }));
+  };
 
   useEffect(() => {
     if (layout) {
@@ -303,7 +313,19 @@ export default function OrgDetailLayoutEditor({
                                   </div>
                                 ) : (
                                   <>
-                                    <span className="flex-1 font-medium text-sm">{card.title}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleCardCollapse(card.id)}
+                                      className="flex items-center gap-1 flex-1 text-left"
+                                      data-testid={`button-toggle-card-${card.id}`}
+                                    >
+                                      {collapsedCards[card.id] ? (
+                                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                                      ) : (
+                                        <ChevronUp className="w-4 h-4 text-slate-400" />
+                                      )}
+                                      <span className="font-medium text-sm">{card.title}</span>
+                                    </button>
                                     <Badge variant="secondary" className="text-xs">
                                       {card.columns} {card.columns === 1 ? 'column' : 'columns'}
                                     </Badge>
@@ -329,69 +351,71 @@ export default function OrgDetailLayoutEditor({
                                 )}
                               </div>
 
-                              <div className={`grid gap-2 p-3 ${
-                                card.columns === 1 ? 'grid-cols-1' : 
-                                card.columns === 2 ? 'grid-cols-2' : 'grid-cols-3'
-                              }`}>
-                                {Array.from({ length: card.columns }).map((_, colIndex) => {
-                                  const colFields = card.fields.filter(f => f.columnIndex === colIndex);
-                                  return (
-                                    <Droppable 
-                                      key={colIndex} 
-                                      droppableId={`${card.id}:col:${colIndex}`} 
-                                      type="FIELD"
-                                    >
-                                      {(provided, snapshot) => (
-                                        <div
-                                          ref={provided.innerRef}
-                                          {...provided.droppableProps}
-                                          className={`
-                                            space-y-2 p-2 rounded-md min-h-[60px]
-                                            ${snapshot.isDraggingOver ? 'bg-blue-100 border-blue-300' : 'bg-slate-100/50'}
-                                            ${colIndex < card.columns - 1 ? 'border-r border-slate-200' : ''}
-                                            border border-dashed border-slate-300
-                                          `}
-                                        >
-                                          <div className="text-xs text-slate-400 font-medium text-center pb-1 border-b border-slate-200">
-                                            Column {colIndex + 1}
+                              {!collapsedCards[card.id] && (
+                                <div className={`grid gap-2 p-3 ${
+                                  card.columns === 1 ? 'grid-cols-1' : 
+                                  card.columns === 2 ? 'grid-cols-2' : 'grid-cols-3'
+                                }`}>
+                                  {Array.from({ length: card.columns }).map((_, colIndex) => {
+                                    const colFields = card.fields.filter(f => f.columnIndex === colIndex);
+                                    return (
+                                      <Droppable 
+                                        key={colIndex} 
+                                        droppableId={`${card.id}:col:${colIndex}`} 
+                                        type="FIELD"
+                                      >
+                                        {(provided, snapshot) => (
+                                          <div
+                                            ref={provided.innerRef}
+                                            {...provided.droppableProps}
+                                            className={`
+                                              space-y-2 p-2 rounded-md min-h-[60px]
+                                              ${snapshot.isDraggingOver ? 'bg-blue-100 border-blue-300' : 'bg-slate-100/50'}
+                                              ${colIndex < card.columns - 1 ? 'border-r border-slate-200' : ''}
+                                              border border-dashed border-slate-300
+                                            `}
+                                          >
+                                            <div className="text-xs text-slate-400 font-medium text-center pb-1 border-b border-slate-200">
+                                              Column {colIndex + 1}
+                                            </div>
+                                            {colFields.length === 0 ? (
+                                              <p className="text-xs text-slate-400 text-center py-2">
+                                                Drop here
+                                              </p>
+                                            ) : (
+                                              colFields.map((field, fieldIndex) => (
+                                                <Draggable 
+                                                  key={field.id} 
+                                                  draggableId={field.id} 
+                                                  index={fieldIndex}
+                                                >
+                                                  {(provided, snapshot) => (
+                                                    <div
+                                                      ref={provided.innerRef}
+                                                      {...provided.draggableProps}
+                                                      {...provided.dragHandleProps}
+                                                      className={`
+                                                        px-3 py-2 rounded-md text-sm flex items-center gap-2
+                                                        ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
+                                                        ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
+                                                        cursor-grab hover:shadow-sm transition-shadow
+                                                      `}
+                                                    >
+                                                      <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                                      <span className="truncate">{getFieldLabel(field)}</span>
+                                                    </div>
+                                                  )}
+                                                </Draggable>
+                                              ))
+                                            )}
+                                            {provided.placeholder}
                                           </div>
-                                          {colFields.length === 0 ? (
-                                            <p className="text-xs text-slate-400 text-center py-2">
-                                              Drop here
-                                            </p>
-                                          ) : (
-                                            colFields.map((field, fieldIndex) => (
-                                              <Draggable 
-                                                key={field.id} 
-                                                draggableId={field.id} 
-                                                index={fieldIndex}
-                                              >
-                                                {(provided, snapshot) => (
-                                                  <div
-                                                    ref={provided.innerRef}
-                                                    {...provided.draggableProps}
-                                                    {...provided.dragHandleProps}
-                                                    className={`
-                                                      px-3 py-2 rounded-md text-sm flex items-center gap-2
-                                                      ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
-                                                      ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
-                                                      cursor-grab hover:shadow-sm transition-shadow
-                                                    `}
-                                                  >
-                                                    <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                                    <span className="truncate">{getFieldLabel(field)}</span>
-                                                  </div>
-                                                )}
-                                              </Draggable>
-                                            ))
-                                          )}
-                                          {provided.placeholder}
-                                        </div>
-                                      )}
-                                    </Droppable>
-                                  );
-                                })}
-                              </div>
+                                        )}
+                                      </Droppable>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           )}
                         </Draggable>

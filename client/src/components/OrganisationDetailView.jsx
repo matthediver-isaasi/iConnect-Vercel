@@ -57,6 +57,8 @@ import {
   Paperclip,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   FileIcon,
   Image as ImageIcon,
   File as FileGenericIcon,
@@ -225,6 +227,16 @@ export default function OrganisationDetailView({
     training_fund_balance: 0
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
+  
+  // Collapsible card sections state
+  const [collapsedSections, setCollapsedSections] = useState({});
+  
+  const toggleSection = (sectionId) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
+  };
 
   // Sync formData with organization prop when it changes (for realtime updates)
   useEffect(() => {
@@ -893,7 +905,9 @@ export default function OrganisationDetailView({
             data-testid={`input-custom-date-${field.id}`}
           />
         ) : (
-          <p className="text-sm">{formatDate(value)}</p>
+          <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center">
+            {formatDate(value) || '-'}
+          </div>
         );
       case 'email':
         return isEditing ? (
@@ -904,11 +918,11 @@ export default function OrganisationDetailView({
             data-testid={`input-custom-email-${field.id}`}
           />
         ) : (
-          <p className="text-sm">
+          <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center">
             {value ? (
               <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a>
             ) : '-'}
-          </p>
+          </div>
         );
       case 'url':
         return isEditing ? (
@@ -920,13 +934,13 @@ export default function OrganisationDetailView({
             data-testid={`input-custom-url-${field.id}`}
           />
         ) : (
-          <p className="text-sm">
+          <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center">
             {value ? (
               <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">
                 {value} <ExternalLink className="w-3 h-3" />
               </a>
             ) : '-'}
-          </p>
+          </div>
         );
       default:
         return (
@@ -958,7 +972,9 @@ export default function OrganisationDetailView({
               data-testid={`textarea-${fieldKey}`}
             />
           ) : (
-            <p className="text-slate-700">{value || 'No description provided'}</p>
+            <div className="min-h-[80px] px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 text-slate-700">
+              {value || 'No description provided'}
+            </div>
           )}
         </div>
       );
@@ -978,7 +994,9 @@ export default function OrganisationDetailView({
               data-testid={`textarea-${fieldKey}`}
             />
           ) : (
-            <p className="whitespace-pre-line">{value || '-'}</p>
+            <div className="min-h-[60px] px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 whitespace-pre-line">
+              {value || '-'}
+            </div>
           )}
         </div>
       );
@@ -996,13 +1014,15 @@ export default function OrganisationDetailView({
               onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
               data-testid={`input-${fieldKey}`}
             />
-          ) : value ? (
-            <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-              {value}
-              <ExternalLink className="w-3 h-3" />
-            </a>
           ) : (
-            <p>-</p>
+            <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center">
+              {value ? (
+                <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
+                  {value}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : '-'}
+            </div>
           )}
         </div>
       );
@@ -1015,7 +1035,9 @@ export default function OrganisationDetailView({
           <Label className="text-slate-500 flex items-center gap-1">
             <Calendar className="w-3 h-3" /> {label}
           </Label>
-          <p>{formatDate(dateValue)}</p>
+          <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center">
+            {formatDate(dateValue)}
+          </div>
         </div>
       );
     }
@@ -1039,7 +1061,9 @@ export default function OrganisationDetailView({
             data-testid={`input-${fieldKey}`}
           />
         ) : (
-          <p className={fieldKey === 'name' ? 'font-medium' : ''}>{value || '-'}</p>
+          <div className={`min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center ${fieldKey === 'name' ? 'font-medium' : ''}`}>
+            {value || '-'}
+          </div>
         )}
       </div>
     );
@@ -1069,28 +1093,43 @@ export default function OrganisationDetailView({
       }
     };
     
+    const isCollapsed = collapsedSections[card.id];
+    
     return (
       <Card key={card.id}>
-        <CardHeader>
+        <CardHeader 
+          className="cursor-pointer select-none"
+          onClick={() => toggleSection(card.id)}
+          data-testid={`card-header-${card.id}`}
+        >
           <CardTitle className="text-base flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-blue-600" />
             {card.title}
+            <span className="ml-auto">
+              {isCollapsed ? (
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              ) : (
+                <ChevronUp className="w-4 h-4 text-slate-400" />
+              )}
+            </span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className={`grid ${gridCols} gap-4`}>
-            {Array.from({ length: card.columns }).map((_, colIndex) => {
-              const colFields = card.fields.filter(f => 
-                f.columnIndex !== undefined ? f.columnIndex === colIndex : (card.fields.indexOf(f) % card.columns === colIndex)
-              );
-              return (
-                <div key={colIndex} className="space-y-4">
-                  {colFields.map(field => renderField(field))}
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
+        {!isCollapsed && (
+          <CardContent>
+            <div className={`grid ${gridCols} gap-4`}>
+              {Array.from({ length: card.columns }).map((_, colIndex) => {
+                const colFields = card.fields.filter(f => 
+                  f.columnIndex !== undefined ? f.columnIndex === colIndex : (card.fields.indexOf(f) % card.columns === colIndex)
+                );
+                return (
+                  <div key={colIndex} className="space-y-4">
+                    {colFields.map(field => renderField(field))}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   };
