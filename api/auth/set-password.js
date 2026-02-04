@@ -38,10 +38,11 @@ export default async function handler(req, res) {
     console.log('[Auth SetPassword] Tenant context:', requestTenantId, requestTenant?.slug);
 
     // Find member - filter by tenant if available
+    // Use ilike for case-insensitive email matching
     let memberQuery = supabase
       .from('member')
       .select('id, email, tenant_id, organization_id')
-      .eq('email', email.toLowerCase());
+      .ilike('email', email.toLowerCase());
     
     if (requestTenantId) {
       memberQuery = memberQuery.eq('tenant_id', requestTenantId);
