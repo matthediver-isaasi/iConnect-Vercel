@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer, Info, User, FileText, PenLine } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar, Mail, AlertTriangle, FileSignature, Bell, CalendarClock, XCircle, CheckCircle2, Timer, Info, User, FileText, PenLine, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -1127,6 +1127,7 @@ export default function ReviewSubmissionPage() {
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [customMessageModal, setCustomMessageModal] = useState({ open: false, pendingStatus: null, emailActions: [], pendingAgentId: null });
   const [customMessageText, setCustomMessageText] = useState('');
+  const [stageActionResultsModal, setStageActionResultsModal] = useState({ open: false, results: [] });
 
   useEffect(() => {
     if (isAccessReady) {
@@ -1385,6 +1386,19 @@ export default function ReviewSubmissionPage() {
             toast.error(`Failed to send meeting invitation: ${result.error}`);
           }
         });
+
+        // Check for skipped member creation actions and show modal warning
+        const memberCreationResults = data.stage_actions_results.filter(r => r.action === 'create_member');
+        const skippedMembers = memberCreationResults.filter(r => r.status === 'skipped');
+        const successfulMembers = memberCreationResults.filter(r => r.status === 'success');
+        
+        if (successfulMembers.length > 0) {
+          toast.success(`${successfulMembers.length} member(s) created successfully`);
+        }
+        
+        if (skippedMembers.length > 0) {
+          setStageActionResultsModal({ open: true, results: skippedMembers });
+        }
       }
     },
     onError: (error) => {
@@ -2484,6 +2498,42 @@ export default function ReviewSubmissionPage() {
             </Button>
             <Button variant="destructive" onClick={handleConfirmSkipWarning} data-testid="button-confirm-skip">
               Skip Actions & Proceed
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={stageActionResultsModal.open} onOpenChange={(open) => !open && setStageActionResultsModal({ open: false, results: [] })}>
+        <DialogContent className="max-w-lg" data-testid="dialog-stage-action-results">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="w-5 h-5" />
+              Member Creation Warning
+            </DialogTitle>
+            <DialogDescription>
+              Some members could not be created during this stage transition. The stage change was successful, but the following members were skipped:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4 max-h-[300px] overflow-y-auto">
+            {stageActionResultsModal.results.map((result, idx) => (
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-amber-50 dark:bg-amber-950/30">
+                <UserPlus className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-foreground">
+                    {result.reason || 'Member could not be created'}
+                  </div>
+                  {result.existing_member_id && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      A member with this email already exists in the system
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setStageActionResultsModal({ open: false, results: [] })} data-testid="button-close-action-results">
+              Understood
             </Button>
           </DialogFooter>
         </DialogContent>
