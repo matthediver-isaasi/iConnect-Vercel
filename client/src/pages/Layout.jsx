@@ -542,7 +542,7 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
             {memberInfo.first_name} {memberInfo.last_name}
           </span>
         </div>
-        <p className="text-xs text-slate-500 pl-6">{memberInfo.email}</p>
+        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email}>{memberInfo.email}</p>
         {memberRole && (
           <div className="pl-6 mt-2">
             <Badge className="bg-purple-100 text-purple-700 text-xs">
@@ -2316,7 +2316,7 @@ useEffect(() => {
                             {memberInfo.first_name} {memberInfo.last_name}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 pl-6">{memberInfo.email}</p>
+                        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email}>{memberInfo.email}</p>
                         {memberRole && (
                           <div className="pl-6 mt-2">
                             <Badge className="bg-purple-100 text-purple-700 text-xs">
