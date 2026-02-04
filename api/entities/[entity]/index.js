@@ -657,12 +657,10 @@ export default async function handler(req, res) {
           // Member-scoped entities: always force member_id to current member
           sanitizedBody.member_id = tenantCtx.memberId;
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
-          // Organization-scoped entities: force organization_id from session
-          // For tenant admins, preserve the organization_id from request if valid
-          if (tenantCtx.organizationId) {
-            sanitizedBody.organization_id = tenantCtx.organizationId;
-          } else if (tenantCtx.tenantId && sanitizedBody.organization_id) {
-            // Tenant admin: verify the provided organization_id belongs to their tenant
+          // Organization-scoped entities: use organization_id from request if user has tenant access
+          // For users with tenant access, validate the provided organization_id belongs to their tenant
+          if (tenantCtx.tenantId && sanitizedBody.organization_id) {
+            // Validate the provided organization_id belongs to the user's tenant
             const { data: org } = await supabase
               .from('organization')
               .select('tenant_id')
@@ -673,6 +671,9 @@ export default async function handler(req, res) {
               return res.status(403).json({ error: 'Organization does not belong to your tenant' });
             }
             // Keep the organization_id from request - it's validated
+          } else if (tenantCtx.organizationId) {
+            // Fall back to member's own organization if no request org_id provided
+            sanitizedBody.organization_id = tenantCtx.organizationId;
           } else if (!sanitizedBody.organization_id) {
             return res.status(400).json({ error: 'organization_id is required for this entity' });
           }

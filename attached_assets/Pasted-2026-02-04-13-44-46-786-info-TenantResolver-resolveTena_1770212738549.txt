@@ -1,0 +1,29 @@
+2026-02-04 13:44:46.786 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-04 13:44:46.786 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-04 13:44:46.786 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-02-04 13:44:46.786 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-02-04 13:44:46.786 [info] [TenantResolver] Cache hit for: gsf.dev.iconn.app
+2026-02-04 13:44:46.786 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-04 13:44:46.786 [info] [Session] getSession: Looking up session: bf8c9996
+2026-02-04 13:44:46.926 [info] [Session] getSession: Session found, userType: member
+2026-02-04 13:44:46.926 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"bf8c9996","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-02-04 13:44:46.926 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-04 13:44:47.171 [info] [Session] No tenant_user record found for identity promotion
+2026-02-04 13:44:47.171 [info] [Session] Member session promotion failed
+2026-02-04 13:44:47.171 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-04 13:44:47.171 [info] [TenantContext] Checking for member session...
+2026-02-04 13:44:47.171 [info] [Session] getSession: Looking up session: bf8c9996
+2026-02-04 13:44:47.302 [info] [Session] getSession: Session found, userType: member
+2026-02-04 13:44:47.302 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"bf8c9996","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-04 13:44:47.425 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-02-04 13:44:47.425 [info] [TenantContext] Tenant from member.organization: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-04 13:44:47.425 [info] POST to organization_preference_value: {"organization_id":"d92485c2-820d-4558-a6b1-4abf6dfdc03f","field_id":"7af40750-1543-44e8-8022-0e0e27bc2c5c","value":"SO"}
+2026-02-04 13:44:47.552 [error] Error inserting into organization_preference_value: {
+  code: '23505',
+  details: 'Key (organization_id, field_id)=(7a097c15-1028-4e12-acde-c5ababb7201e, 7af40750-1543-44e8-8022-0e0e27bc2c5c) already exists.',
+  hint: null,
+  message: 'duplicate key value violates unique constraint "organization_preference_value_organization_id_field_id_key"'
+}
