@@ -963,7 +963,7 @@ export default function OrganisationDetailView({
     if (fieldKey === 'description') {
       return (
         <div className="space-y-2">
-          <Label className="text-slate-500">{label}</Label>
+          <Label className="text-slate-500 min-h-5 flex items-center">{label}</Label>
           {isEditing ? (
             <Textarea
               value={value || ''}
@@ -1086,7 +1086,7 @@ export default function OrganisationDetailView({
         if (!customField) return null;
         return (
           <div key={field.id} className="space-y-2">
-            <Label className="text-slate-500">{customField.label}</Label>
+            <Label className="text-slate-500 min-h-5 flex items-center">{customField.label}</Label>
             {renderFieldEditor(customField)}
           </div>
         );
