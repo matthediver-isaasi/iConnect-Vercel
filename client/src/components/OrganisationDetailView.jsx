@@ -660,19 +660,27 @@ export default function OrganisationDetailView({
   });
 
   const updateCustomFieldMutation = useMutation({
-    mutationFn: async ({ fieldId, value, existingRecordId }) => {
+    mutationFn: async ({ fieldId, value }) => {
       const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
-      console.log('[CustomField Mutation] fieldId:', fieldId, 'value:', value, 'storedValue:', storedValue, 'existingRecordId:', existingRecordId);
+      console.log('[CustomField Mutation] fieldId:', fieldId, 'value:', value, 'storedValue:', storedValue, 'orgId:', organization.id);
       
-      if (existingRecordId) {
-        return await base44.entities.OrganizationPreferenceValue.update(existingRecordId, { value: storedValue });
-      } else {
-        return await base44.entities.OrganizationPreferenceValue.create({
+      const res = await fetch('/api/entities/organization-preference-value/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
           organization_id: organization.id,
           field_id: fieldId,
           value: storedValue
-        });
+        })
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save custom field');
       }
+      
+      return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['org-detail-preference-values', organization?.id] });
@@ -738,8 +746,7 @@ export default function OrganisationDetailView({
         if (storedValue !== existingStored) {
           updateCustomFieldMutation.mutate({ 
             fieldId, 
-            value,
-            existingRecordId: existingVal?.id 
+            value
           });
         }
       });
