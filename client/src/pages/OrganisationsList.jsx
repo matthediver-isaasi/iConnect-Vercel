@@ -61,6 +61,11 @@ const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
   { id: 'members', label: 'Members', visible: true, locked: false },
   { id: 'contact', label: 'Contact', visible: true, locked: false },
+  { id: 'email', label: 'Email', visible: false, locked: false },
+  { id: 'phone', label: 'Phone', visible: false, locked: false },
+  { id: 'website', label: 'Website', visible: false, locked: false },
+  { id: 'address', label: 'Address', visible: false, locked: false },
+  { id: 'description', label: 'Description', visible: false, locked: false },
   { id: 'created_at', label: 'Created', visible: false, locked: false },
 ];
 
@@ -117,12 +122,20 @@ export default function OrganisationsListPage() {
 
   // Load columns from tenant-scoped localStorage on mount or when tenant slug changes
   // Falls back to 'default' namespace if no tenantSlug is available (e.g., platform admin)
+  // Also merges in any new DEFAULT_COLUMNS that don't exist in saved prefs
   useEffect(() => {
     const currentSlug = tenantSlug || 'default';
     if (lastLoadedSlugRef.current !== currentSlug) {
       const saved = loadLocalColumns(tenantSlug);
       if (saved) {
-        setColumns(saved);
+        // Merge in any new default columns that don't exist in saved prefs
+        const existingIds = new Set(saved.map(c => c.id));
+        const newDefaultColumns = DEFAULT_COLUMNS.filter(dc => !existingIds.has(dc.id));
+        const merged = newDefaultColumns.length > 0 ? [...saved, ...newDefaultColumns] : saved;
+        setColumns(merged);
+        if (newDefaultColumns.length > 0) {
+          saveLocalColumns(merged, tenantSlug);
+        }
       } else if (lastLoadedSlugRef.current !== undefined) {
         // Reset to defaults when switching to a new tenant with no saved preferences
         setColumns(DEFAULT_COLUMNS);
@@ -245,13 +258,18 @@ export default function OrganisationsListPage() {
   });
 
   // Load columns from database on initial fetch (overrides localStorage)
+  // Also merge in any new DEFAULT_COLUMNS that don't exist in saved prefs
   useEffect(() => {
     if (savedDbColumns?.setting_value) {
       try {
         const parsed = JSON.parse(savedDbColumns.setting_value);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setColumns(parsed);
-          saveLocalColumns(parsed, tenantSlug);
+          // Merge in any new default columns that don't exist in saved prefs
+          const existingIds = new Set(parsed.map(c => c.id));
+          const newDefaultColumns = DEFAULT_COLUMNS.filter(dc => !existingIds.has(dc.id));
+          const merged = newDefaultColumns.length > 0 ? [...parsed, ...newDefaultColumns] : parsed;
+          setColumns(merged);
+          saveLocalColumns(merged, tenantSlug);
         }
       } catch {}
     }
@@ -1020,6 +1038,69 @@ export default function OrganisationsListPage() {
                                     <p className="text-xs text-slate-400">{org.phone}</p>
                                   )}
                                 </div>
+                              </td>
+                            );
+                          }
+                          if (col.id === 'email') {
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600">
+                                {org.invoicing_email || '-'}
+                              </td>
+                            );
+                          }
+                          if (col.id === 'phone') {
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600">
+                                {org.phone || '-'}
+                              </td>
+                            );
+                          }
+                          if (col.id === 'website') {
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600">
+                                {org.website_url ? (
+                                  <a 
+                                    href={org.website_url.startsWith('http') ? org.website_url : `https://${org.website_url}`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-primary truncate block max-w-[200px]"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {org.website_url}
+                                  </a>
+                                ) : '-'}
+                              </td>
+                            );
+                          }
+                          if (col.id === 'address') {
+                            const addr = org.address;
+                            let addressDisplay = '-';
+                            if (addr && typeof addr === 'object') {
+                              const parts = [addr.line1, addr.line2, addr.city, addr.region, addr.postcode, addr.country].filter(Boolean);
+                              addressDisplay = parts.length > 0 ? parts.join(', ') : '-';
+                            } else if (addr && typeof addr === 'string') {
+                              try {
+                                const parsed = JSON.parse(addr);
+                                const parts = [parsed.line1, parsed.line2, parsed.city, parsed.region, parsed.postcode, parsed.country].filter(Boolean);
+                                addressDisplay = parts.length > 0 ? parts.join(', ') : '-';
+                              } catch {
+                                addressDisplay = addr || '-';
+                              }
+                            }
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600 max-w-[250px]">
+                                <span className="truncate block" title={addressDisplay !== '-' ? addressDisplay : undefined}>
+                                  {addressDisplay}
+                                </span>
+                              </td>
+                            );
+                          }
+                          if (col.id === 'description') {
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600 max-w-[200px]">
+                                <span className="truncate block" title={org.description || undefined}>
+                                  {org.description || '-'}
+                                </span>
                               </td>
                             );
                           }
