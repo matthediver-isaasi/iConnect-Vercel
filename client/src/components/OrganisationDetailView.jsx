@@ -68,15 +68,18 @@ import {
   Send,
   CheckCircle2,
   AlertCircle,
-  Eye
+  Eye,
+  Settings2
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
+import { useOrgFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useOrgFieldVisibilityRules";
 import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
+import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesEditor";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
@@ -205,6 +208,7 @@ export default function OrganisationDetailView({
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
+  const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [isCreatingMember, setIsCreatingMember] = useState(false);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
@@ -254,6 +258,7 @@ export default function OrganisationDetailView({
   }, [organization, isEditing]);
   
   const { layoutConfig, saveLayout, isSaving: isLayoutSaving, isLoading: isLayoutLoading } = useOrgDetailLayout();
+  const { rulesConfig, saveRules, isSaving: isRulesSaving, isLoading: isRulesLoading } = useOrgFieldVisibilityRules();
   const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
 
   const { data: orgMembersRaw = [], isLoading: membersLoading } = useQuery({
@@ -1069,12 +1074,18 @@ export default function OrganisationDetailView({
     );
   };
 
+  const hiddenFields = evaluateVisibilityRules(rulesConfig, formData, orgCustomFields);
+
   const renderLayoutCard = (card) => {
     if (card.fields.length === 0) return null;
     
     const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
     
     const renderField = (field) => {
+      if (hiddenFields.has(field.id)) {
+        return null;
+      }
+      
       if (field.type === 'core') {
         return (
           <div key={field.id}>
@@ -1215,6 +1226,10 @@ export default function OrganisationDetailView({
                   </>
                 ) : (
                   <>
+                    <Button variant="outline" onClick={() => setShowRulesEditor(true)} data-testid="button-visibility-rules">
+                      <Settings2 className="w-4 h-4 mr-2" />
+                      Rules
+                    </Button>
                     <Button variant="outline" onClick={() => setShowLayoutEditor(true)} data-testid="button-customize-layout">
                       <LayoutGrid className="w-4 h-4 mr-2" />
                       Customize Layout
@@ -1268,6 +1283,16 @@ export default function OrganisationDetailView({
           isSaving={isLayoutSaving}
         />
       )}
+
+      <OrgFieldVisibilityRulesEditor
+        open={showRulesEditor}
+        onOpenChange={setShowRulesEditor}
+        rulesConfig={rulesConfig}
+        customFields={orgCustomFields}
+        onSave={saveRules}
+        onCancel={() => setShowRulesEditor(false)}
+        isSaving={isRulesSaving}
+      />
 
       <main className="p-6">
         {(activeTab === 'overview' || isNew) && (
