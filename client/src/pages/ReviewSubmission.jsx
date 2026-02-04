@@ -2516,17 +2516,24 @@ export default function ReviewSubmissionPage() {
           </DialogHeader>
           <div className="space-y-3 py-4 max-h-[300px] overflow-y-auto">
             {stageActionResultsModal.results.map((result, idx) => (
-              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-amber-50 dark:bg-amber-950/30">
+              <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-amber-50 dark:bg-amber-950/30" data-testid={`row-member-skip-${idx}`}>
                 <UserPlus className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-foreground">
-                    {result.reason || 'Member could not be created'}
-                  </div>
-                  {result.existing_member_id && (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      A member with this email already exists in the system
+                  {result.email && (
+                    <div className="text-sm font-medium text-foreground" data-testid={`text-member-email-${idx}`}>
+                      {result.first_name || result.last_name 
+                        ? `${result.first_name || ''} ${result.last_name || ''}`.trim() 
+                        : result.email}
+                      {(result.first_name || result.last_name) && (
+                        <span className="text-muted-foreground font-normal"> ({result.email})</span>
+                      )}
                     </div>
                   )}
+                  <div className={`text-sm ${result.email ? 'text-muted-foreground' : 'font-medium text-foreground'}`} data-testid={`text-member-reason-${idx}`}>
+                    {result.existing_member_id 
+                      ? 'Already exists in the system' 
+                      : result.reason || 'Member could not be created'}
+                  </div>
                 </div>
               </div>
             ))}

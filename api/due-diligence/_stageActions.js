@@ -1221,6 +1221,9 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
           member_action_id: ma.id,
           status: 'skipped',
           reason: `Member with email ${normalizedEmail} already exists in tenant`,
+          email: normalizedEmail,
+          first_name: firstName || '',
+          last_name: lastName || '',
           existing_member_id: existingMember.id
         });
         continue;
