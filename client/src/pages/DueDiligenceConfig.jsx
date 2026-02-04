@@ -2396,30 +2396,111 @@ export default function DueDiligenceConfigPage() {
                                                       Map form fields to organisation fields. You can add multiple mappings.
                                                     </p>
                                                     
-                                                    {(pendingFieldMappingAction.mappings || []).map((mapping, mapIdx) => (
+                                                    {(pendingFieldMappingAction.mappings || []).map((mapping, mapIdx) => {
+                                                      const sourceType = mapping.source_type || 'field';
+                                                      const targetCustomField = mapping.target_type === 'custom' && mapping.target_field 
+                                                        ? organizationCustomFields.find(cf => cf.id === mapping.target_field)
+                                                        : null;
+                                                      const isPicklistTarget = targetCustomField && ['select', 'dropdown', 'radio', 'picklist', 'multiselect'].includes(targetCustomField.type);
+                                                      const targetOptions = targetCustomField?.options || [];
+                                                      
+                                                      return (
                                                       <div key={mapIdx} className="flex items-center gap-2 p-2 border rounded bg-background">
-                                                        <div className="flex-1 grid grid-cols-3 gap-2">
-                                                          <Select
-                                                            value={mapping.source_field_id || ''}
-                                                            onValueChange={(v) => {
-                                                              setPendingFieldMappingAction(prev => {
-                                                                const newMappings = [...(prev.mappings || [])];
-                                                                newMappings[mapIdx] = { ...newMappings[mapIdx], source_field_id: v };
-                                                                return { ...prev, mappings: newMappings };
-                                                              });
-                                                            }}
-                                                          >
-                                                            <SelectTrigger data-testid={`select-source-field-${mapIdx}`}>
-                                                              <SelectValue placeholder="Form field..." />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                              {(form?.fields || []).filter(f => f.id || f.name).map(field => (
-                                                                <SelectItem key={field.id || field.name} value={field.id || field.name}>
-                                                                  {field.label || field.name}
-                                                                </SelectItem>
-                                                              ))}
-                                                            </SelectContent>
-                                                          </Select>
+                                                        <div className="flex-1 space-y-2">
+                                                          <div className="grid grid-cols-4 gap-2">
+                                                            <Select
+                                                              value={sourceType}
+                                                              onValueChange={(v) => {
+                                                                setPendingFieldMappingAction(prev => {
+                                                                  const newMappings = [...(prev.mappings || [])];
+                                                                  newMappings[mapIdx] = { 
+                                                                    ...newMappings[mapIdx], 
+                                                                    source_type: v, 
+                                                                    source_field_id: v === 'static' ? '' : newMappings[mapIdx].source_field_id,
+                                                                    static_value: v === 'field' ? '' : newMappings[mapIdx].static_value
+                                                                  };
+                                                                  return { ...prev, mappings: newMappings };
+                                                                });
+                                                              }}
+                                                            >
+                                                              <SelectTrigger data-testid={`select-source-type-${mapIdx}`}>
+                                                                <SelectValue placeholder="Source type..." />
+                                                              </SelectTrigger>
+                                                              <SelectContent>
+                                                                <SelectItem value="field">Form Field</SelectItem>
+                                                                <SelectItem value="static">Static Value</SelectItem>
+                                                              </SelectContent>
+                                                            </Select>
+                                                            
+                                                            {sourceType === 'field' ? (
+                                                              <Select
+                                                                value={mapping.source_field_id || ''}
+                                                                onValueChange={(v) => {
+                                                                  setPendingFieldMappingAction(prev => {
+                                                                    const newMappings = [...(prev.mappings || [])];
+                                                                    newMappings[mapIdx] = { ...newMappings[mapIdx], source_field_id: v };
+                                                                    return { ...prev, mappings: newMappings };
+                                                                  });
+                                                                }}
+                                                              >
+                                                                <SelectTrigger data-testid={`select-source-field-${mapIdx}`}>
+                                                                  <SelectValue placeholder="Form field..." />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                  {(form?.fields || []).filter(f => f.id || f.name).map(field => (
+                                                                    <SelectItem key={field.id || field.name} value={field.id || field.name}>
+                                                                      {field.label || field.name}
+                                                                    </SelectItem>
+                                                                  ))}
+                                                                </SelectContent>
+                                                              </Select>
+                                                            ) : (
+                                                              <div className="col-span-1">
+                                                                {/* Static value input - shown after target is selected */}
+                                                                {!mapping.target_field ? (
+                                                                  <Input
+                                                                    placeholder="Select target first..."
+                                                                    disabled
+                                                                    data-testid={`input-static-placeholder-${mapIdx}`}
+                                                                  />
+                                                                ) : isPicklistTarget && targetOptions.length > 0 ? (
+                                                                  <Select
+                                                                    value={mapping.static_value || ''}
+                                                                    onValueChange={(v) => {
+                                                                      setPendingFieldMappingAction(prev => {
+                                                                        const newMappings = [...(prev.mappings || [])];
+                                                                        newMappings[mapIdx] = { ...newMappings[mapIdx], static_value: v };
+                                                                        return { ...prev, mappings: newMappings };
+                                                                      });
+                                                                    }}
+                                                                  >
+                                                                    <SelectTrigger data-testid={`select-static-option-${mapIdx}`}>
+                                                                      <SelectValue placeholder="Select value..." />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                      {targetOptions.map((opt, optIdx) => (
+                                                                        <SelectItem key={opt.value || opt.id || optIdx} value={opt.value || opt.label || opt}>
+                                                                          {opt.label || opt.value || opt}
+                                                                        </SelectItem>
+                                                                      ))}
+                                                                    </SelectContent>
+                                                                  </Select>
+                                                                ) : (
+                                                                  <Input
+                                                                    value={mapping.static_value || ''}
+                                                                    onChange={(e) => {
+                                                                      setPendingFieldMappingAction(prev => {
+                                                                        const newMappings = [...(prev.mappings || [])];
+                                                                        newMappings[mapIdx] = { ...newMappings[mapIdx], static_value: e.target.value };
+                                                                        return { ...prev, mappings: newMappings };
+                                                                      });
+                                                                    }}
+                                                                    placeholder="Enter static value..."
+                                                                    data-testid={`input-static-value-${mapIdx}`}
+                                                                  />
+                                                                )}
+                                                              </div>
+                                                            )}
                                                           
                                                           <Select
                                                             value={mapping.target_type || ''}
@@ -2503,6 +2584,7 @@ export default function DueDiligenceConfigPage() {
                                                               </SelectContent>
                                                             </Select>
                                                           )}
+                                                          </div>
                                                         </div>
                                                         
                                                         <Button
@@ -2520,7 +2602,8 @@ export default function DueDiligenceConfigPage() {
                                                           <Trash2 className="w-4 h-4" />
                                                         </Button>
                                                       </div>
-                                                    ))}
+                                                    );
+                                                    })}
                                                     
                                                     <Button
                                                       size="sm"
@@ -2528,7 +2611,7 @@ export default function DueDiligenceConfigPage() {
                                                       onClick={() => {
                                                         setPendingFieldMappingAction(prev => ({
                                                           ...prev,
-                                                          mappings: [...(prev.mappings || []), { source_field_id: '', target_type: '', target_field: '' }]
+                                                          mappings: [...(prev.mappings || []), { source_type: 'field', source_field_id: '', target_type: '', target_field: '', static_value: '' }]
                                                         }));
                                                       }}
                                                       data-testid={`button-add-mapping-row-${index}`}
@@ -2549,11 +2632,19 @@ export default function DueDiligenceConfigPage() {
                                                       <Button
                                                         size="sm"
                                                         disabled={(pendingFieldMappingAction.mappings || []).length === 0 || 
-                                                          (pendingFieldMappingAction.mappings || []).some(m => !m.source_field_id || !m.target_type || !m.target_field)}
+                                                          (pendingFieldMappingAction.mappings || []).some(m => {
+                                                            const hasValidSource = m.source_type === 'static' 
+                                                              ? (m.static_value !== undefined && m.static_value !== '') 
+                                                              : !!m.source_field_id;
+                                                            return !hasValidSource || !m.target_type || !m.target_field;
+                                                          })}
                                                         onClick={async () => {
-                                                          const validMappings = (pendingFieldMappingAction.mappings || []).filter(
-                                                            m => m.source_field_id && m.target_type && m.target_field
-                                                          );
+                                                          const validMappings = (pendingFieldMappingAction.mappings || []).filter(m => {
+                                                            const hasValidSource = m.source_type === 'static' 
+                                                              ? (m.static_value !== undefined && m.static_value !== '') 
+                                                              : !!m.source_field_id;
+                                                            return hasValidSource && m.target_type && m.target_field;
+                                                          });
                                                           if (validMappings.length === 0) return;
                                                           
                                                           if (pendingFieldMappingAction.editId) {

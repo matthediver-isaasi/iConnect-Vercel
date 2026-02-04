@@ -1534,26 +1534,44 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
       const mappingResults = [];
       
       for (const mapping of mappings) {
-        const { source_field_id, target_type, target_field } = mapping;
+        const { source_type, source_field_id, target_type, target_field, static_value } = mapping;
         
-        // Get the value: prefer REVIEWED value, fall back to ORIGINAL
-        // Note: 0 and false are valid values; only undefined/null/empty-string means "not set"
-        const reviewedValue = reviewedData[source_field_id];
-        const originalValue = originalData[source_field_id];
+        let sourceValue;
+        let valueSource;
         
-        // Check if reviewed value is truly present (0/false are valid, empty string is not)
-        const hasReviewedValue = reviewedValue !== undefined && reviewedValue !== null && reviewedValue !== '';
-        const sourceValue = hasReviewedValue ? reviewedValue : originalValue;
-        const valueSource = hasReviewedValue ? 'reviewed' : 'original';
-        
-        // Check if source value is usable (0/false are valid, empty string is not)
-        const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
-        if (isValueEmpty) {
-          console.log(`[DD Field Mapping] Field ${source_field_id}: no value in reviewed or original data, skipping`);
-          continue;
+        // Handle static vs. field-based source
+        if (source_type === 'static') {
+          // Use the static value directly
+          sourceValue = static_value;
+          valueSource = 'static';
+          
+          // Check if static value is usable
+          if (sourceValue === undefined || sourceValue === null || sourceValue === '') {
+            console.log(`[DD Field Mapping] Static value for target ${target_field}: empty, skipping`);
+            continue;
+          }
+          
+          console.log(`[DD Field Mapping] Target ${target_field}: using static value "${sourceValue}"`);
+        } else {
+          // Get the value: prefer REVIEWED value, fall back to ORIGINAL
+          // Note: 0 and false are valid values; only undefined/null/empty-string means "not set"
+          const reviewedValue = reviewedData[source_field_id];
+          const originalValue = originalData[source_field_id];
+          
+          // Check if reviewed value is truly present (0/false are valid, empty string is not)
+          const hasReviewedValue = reviewedValue !== undefined && reviewedValue !== null && reviewedValue !== '';
+          sourceValue = hasReviewedValue ? reviewedValue : originalValue;
+          valueSource = hasReviewedValue ? 'reviewed' : 'original';
+          
+          // Check if source value is usable (0/false are valid, empty string is not)
+          const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
+          if (isValueEmpty) {
+            console.log(`[DD Field Mapping] Field ${source_field_id}: no value in reviewed or original data, skipping`);
+            continue;
+          }
+          
+          console.log(`[DD Field Mapping] Field ${source_field_id}: using ${valueSource} value`);
         }
-        
-        console.log(`[DD Field Mapping] Field ${source_field_id}: using ${valueSource} value`);
         
         
         // Check if this is a composite field (e.g., "address.line1") for core type
