@@ -101,7 +101,8 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
 
 function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, onSwap, cardReferenceField, columnWidths, eligibleForms }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
-  const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
+  // Match risk config using normalized value (which matches stored risk_level format)
+  const riskConfig = riskLevels.find(r => r.value === submission.risk_level) || { color: '#6b7280' };
   
   const formValues = submission.form_submission?.submission_data || {};
   const linkedOrgName = submission.form_submission?.organization?.name;
@@ -343,6 +344,16 @@ export default function DueDiligenceDashboardPage() {
     return lookup;
   }, [ddConfigs]);
 
+  const riskLevelsByFormId = useMemo(() => {
+    const lookup = {};
+    ddConfigs.forEach(config => {
+      if (config.form_id && config.custom_risk_levels?.length > 0) {
+        lookup[config.form_id] = config.custom_risk_levels;
+      }
+    });
+    return lookup;
+  }, [ddConfigs]);
+
   const getDisplayReference = useCallback((submission) => {
     if (!submission) return '';
     const formId = submission.form_submission?.form_id;
@@ -460,7 +471,33 @@ export default function DueDiligenceDashboardPage() {
     return Array.from(stageMap.values());
   }, [selectedFormId, workflowStagesByFormId]);
 
-  const riskLevels = DEFAULT_RISK_LEVELS;
+  // Helper to normalize risk level name to match stored format (lowercase, spaces to underscores)
+  const normalizeRiskLevelName = useCallback((name) => {
+    return name.toLowerCase().replace(/\s+/g, '_');
+  }, []);
+
+  // Derive available risk levels based on selected form (only when form is selected)
+  // Adds a normalized 'value' field for filtering that matches the stored risk_level format
+  const availableRiskLevels = useMemo(() => {
+    const baseLevels = selectedFormId !== 'all' 
+      ? (riskLevelsByFormId[selectedFormId] || DEFAULT_RISK_LEVELS)
+      : DEFAULT_RISK_LEVELS;
+    
+    // Add normalized value for each level to match stored format
+    return baseLevels.map(level => ({
+      ...level,
+      value: normalizeRiskLevelName(level.name)
+    }));
+  }, [selectedFormId, riskLevelsByFormId, normalizeRiskLevelName]);
+
+  // riskLevels for table row display - uses form-specific or defaults, with normalized values
+  const getRiskLevelsForForm = useCallback((formId) => {
+    const baseLevels = riskLevelsByFormId[formId] || DEFAULT_RISK_LEVELS;
+    return baseLevels.map(level => ({
+      ...level,
+      value: normalizeRiskLevelName(level.name)
+    }));
+  }, [riskLevelsByFormId, normalizeRiskLevelName]);
 
   // Reset status filter when form changes to 'all' or current stage is not in the new form's stages
   useEffect(() => {
@@ -474,6 +511,20 @@ export default function DueDiligenceDashboardPage() {
       }
     }
   }, [selectedFormId, availableStages, statusFilter]);
+
+  // Reset risk filter when form changes to 'all' or current level is not in the new form's levels
+  useEffect(() => {
+    if (selectedFormId === 'all') {
+      // Disable risk filtering when "All Forms" is selected
+      setRiskFilter('all');
+    } else if (riskFilter !== 'all') {
+      // Check if current filter value exists in available levels (using normalized value)
+      const levelExists = availableRiskLevels.some(l => l.value === riskFilter);
+      if (!levelExists) {
+        setRiskFilter('all');
+      }
+    }
+  }, [selectedFormId, availableRiskLevels, riskFilter]);
 
   const handleRowClick = (submissionId) => {
     navigate(`/ReviewSubmission?id=${submissionId}`);
@@ -682,17 +733,22 @@ export default function DueDiligenceDashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={riskFilter} onValueChange={setRiskFilter} data-testid="select-risk">
+              <Select 
+                value={riskFilter} 
+                onValueChange={setRiskFilter} 
+                disabled={selectedFormId === 'all'}
+                data-testid="select-risk"
+              >
                 <SelectTrigger className="w-36">
-                  <SelectValue placeholder="All Risk Levels" />
+                  <SelectValue placeholder={selectedFormId === 'all' ? 'Select a form first' : 'All Risk Levels'} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Risk Levels</SelectItem>
-                  {riskLevels.map(level => (
-                    <SelectItem key={level.name} value={level.name}>
+                  {availableRiskLevels.map(level => (
+                    <SelectItem key={level.value} value={level.value}>
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: level.color }} />
-                        {level.name.charAt(0).toUpperCase() + level.name.slice(1)}
+                        {level.name}
                       </div>
                     </SelectItem>
                   ))}
@@ -727,12 +783,13 @@ export default function DueDiligenceDashboardPage() {
                     const formId = submission.form_submission?.form_id;
                     const refField = formId ? cardReferenceFieldByFormId[formId] : null;
                     const formWorkflowStages = (formId && workflowStagesByFormId[formId]) || DEFAULT_WORKFLOW_STAGES;
+                    const formRiskLevels = getRiskLevelsForForm(formId);
                     return (
                       <SubmissionRow
                         key={submission.id}
                         submission={submission}
                         workflowStages={formWorkflowStages}
-                        riskLevels={riskLevels}
+                        riskLevels={formRiskLevels}
                         onClick={handleRowClick}
                         onDelete={handleDeleteClick}
                         onSwap={handleSwapClick}
