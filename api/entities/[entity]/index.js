@@ -304,23 +304,81 @@ export default async function handler(req, res) {
             // Allow cross-org access within tenant for:
             // - OrganizationPreferenceValue: viewing org details
             // - Booking with event_id filter: viewing event attendees (access controlled by RBAC)
-            console.log(`[Entity GET] ${entity} - allowing cross-org access via allowsTenantWideAccess, tenantId:`, tenantCtx.effectiveTenantId);
-            const { data: tenantOrgs, error: orgsError } = await supabase
-              .from('organization')
-              .select('id')
-              .eq('tenant_id', tenantCtx.effectiveTenantId);
             
-            if (orgsError) {
-              console.error(`[Entity GET] ${entity} - error fetching orgs:`, orgsError);
+            // Check if request already has a specific organization_id filter
+            // Use the already-parsed filter from tenantCtx to avoid double-parsing
+            let requestedOrgId = null;
+            let requestedOrgIds = null;
+            const filterObj = tenantCtx.parsedFilter;
+            if (filterObj?.organization_id) {
+              const orgFilter = filterObj.organization_id;
+              // Handle different filter formats: 'uuid', {eq: 'uuid'}, ['uuid'], {in: [...]}
+              if (typeof orgFilter === 'string') {
+                requestedOrgId = orgFilter;
+              } else if (orgFilter.eq) {
+                requestedOrgId = orgFilter.eq;
+              } else if (Array.isArray(orgFilter)) {
+                if (orgFilter.length === 1) {
+                  requestedOrgId = orgFilter[0];
+                } else if (orgFilter.length > 1) {
+                  requestedOrgIds = orgFilter;
+                }
+              } else if (orgFilter.in && Array.isArray(orgFilter.in)) {
+                if (orgFilter.in.length === 1) {
+                  requestedOrgId = orgFilter.in[0];
+                } else if (orgFilter.in.length > 1) {
+                  requestedOrgIds = orgFilter.in;
+                }
+              }
             }
             
-            const tenantOrgIds = (tenantOrgs || []).map(o => o.id);
-            console.log(`[Entity GET] ${entity} - found ${tenantOrgIds.length} orgs for tenant`);
-            if (tenantOrgIds.length === 0) {
-              console.log(`[Entity GET] ${entity} - no orgs found, returning empty`);
-              return res.json([]);
+            if (requestedOrgId) {
+              // Single org filter - validate it belongs to the tenant
+              const { data: org, error: orgError } = await supabase
+                .from('organization')
+                .select('tenant_id')
+                .eq('id', requestedOrgId)
+                .single();
+              
+              if (orgError || !org || org.tenant_id !== tenantCtx.effectiveTenantId) {
+                console.log(`[Entity GET] ${entity} - requested org ${requestedOrgId} not in tenant, returning empty`);
+                return res.json([]);
+              }
+              
+              // Use the specific org filter directly - no need to fetch all orgs
+              console.log(`[Entity GET] ${entity} - using specific org filter: ${requestedOrgId}`);
+              query = query.eq('organization_id', requestedOrgId);
+            } else if (requestedOrgIds && requestedOrgIds.length > 0) {
+              // Multiple org IDs filter - validate all belong to the tenant
+              const { data: validOrgs, error: orgsError } = await supabase
+                .from('organization')
+                .select('id')
+                .eq('tenant_id', tenantCtx.effectiveTenantId)
+                .in('id', requestedOrgIds);
+              
+              if (orgsError) {
+                console.error(`[Entity GET] ${entity} - error validating orgs:`, orgsError);
+              }
+              
+              const validOrgIds = (validOrgs || []).map(o => o.id);
+              console.log(`[Entity GET] ${entity} - validated ${validOrgIds.length}/${requestedOrgIds.length} requested orgs`);
+              
+              if (validOrgIds.length === 0) {
+                return res.json([]);
+              }
+              
+              query = query.in('organization_id', validOrgIds);
+            } else {
+              // No specific org filter - fetch all tenant orgs (for listing all orgs' preference values)
+              console.log(`[Entity GET] ${entity} - allowing cross-org access via allowsTenantWideAccess, tenantId:`, tenantCtx.effectiveTenantId);
+              
+              // For large tenants, use join instead of .in() to avoid query limits
+              const selectClause = expand || '*';
+              query = supabase
+                .from(tableName)
+                .select(`${selectClause}, organization!inner(tenant_id)`)
+                .eq('organization.tenant_id', tenantCtx.effectiveTenantId);
             }
-            query = query.in('organization_id', tenantOrgIds);
           } else if (isTenantAdmin && tenantCtx.effectiveTenantId) {
             // Tenant admins can access all orgs within their tenant using a join
             const selectClause = expand || '*';
