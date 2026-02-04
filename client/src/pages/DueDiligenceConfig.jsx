@@ -2401,7 +2401,7 @@ export default function DueDiligenceConfigPage() {
                                                       const targetCustomField = mapping.target_type === 'custom' && mapping.target_field 
                                                         ? organizationCustomFields.find(cf => cf.id === mapping.target_field)
                                                         : null;
-                                                      const isPicklistTarget = targetCustomField && ['select', 'dropdown', 'radio', 'picklist', 'multiselect'].includes(targetCustomField.type);
+                                                      const isPicklistTarget = targetCustomField && ['select', 'dropdown', 'radio', 'picklist', 'multiselect'].includes(targetCustomField.field_type);
                                                       const targetOptions = targetCustomField?.options || [];
                                                       
                                                       return (
