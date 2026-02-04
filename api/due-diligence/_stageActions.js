@@ -1091,20 +1091,33 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
 
 export async function executeMemberCreationActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const results = [];
+  const { configId } = options;
   
   console.log('[DD Member Action] ========== START executeMemberCreationActions ==========');
-  console.log('[DD Member Action] Params:', { stageId, tenantId, triggeredBy });
+  console.log('[DD Member Action] Params:', { stageId, tenantId, triggeredBy, configId });
   console.log('[DD Member Action] ddSubmission ID:', ddSubmission?.id);
   
   try {
-    // Fetch member creation configs for this stage
-    const { data: memberActions, error: maError } = await supabase
+    // Fetch member creation configs for this stage, scoped to the specific DD config
+    let query = supabase
       .from('stage_member_action')
       .select('*, role:role_id(id, name), welcome_email_template:welcome_email_template_id(id, name, subject, from_email, reply_to)')
       .eq('due_diligence_stage_id', stageId)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
+    
+    // Filter by config_id - this is required to prevent cross-form action execution
+    if (configId) {
+      query = query.eq('form_due_diligence_config_id', configId);
+      console.log('[DD Member Action] Filtering by config_id:', configId);
+    } else {
+      // No configId means we cannot safely scope actions - return empty to prevent cross-form execution
+      console.error('[DD Member Action] ERROR: No config_id provided - cannot execute member actions without proper scoping');
+      return results;
+    }
+    
+    const { data: memberActions, error: maError } = await query;
 
     if (maError) {
       console.log('[DD Member Action] Query error:', maError);
@@ -1774,7 +1787,7 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   
   const { data: ddConfig, error: configError } = await supabase
     .from('form_due_diligence_config')
-    .select('workflow_stages')
+    .select('id, workflow_stages')
     .eq('form_id', effectiveFormId)
     .eq('tenant_id', tenantId)
     .single();
@@ -1843,12 +1856,13 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   results.push(...emailResults);
 
   // Execute member creation actions (stored in stage_member_action table)
+  // Pass the config ID to ensure actions are scoped to this specific form's config
   const memberResults = await executeMemberCreationActions(
     stageId,
     ddSubmission,
     tenantId,
     triggeredBy,
-    options
+    { ...options, configId: ddConfig.id }
   );
   results.push(...memberResults);
 

@@ -53,7 +53,8 @@ export default async function handler(req, res) {
         'welcome_email_template_id',
         'sort_order', 
         'is_active',
-        'login_enabled'
+        'login_enabled',
+        'form_due_diligence_config_id'
       ];
       
       for (const field of allowedFields) {

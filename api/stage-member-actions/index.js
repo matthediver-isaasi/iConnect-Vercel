@@ -20,7 +20,7 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const { stage_id, formId } = req.query;
+      const { stage_id, formId, config_id } = req.query;
       
       let query = supabase
         .from('stage_member_action')
@@ -32,7 +32,9 @@ export default async function handler(req, res) {
         query = query.eq('due_diligence_stage_id', stage_id);
       }
       
-      if (formId && formId !== 'undefined') {
+      if (config_id && config_id !== 'undefined') {
+        query = query.eq('form_due_diligence_config_id', config_id);
+      } else if (formId && formId !== 'undefined') {
         query = query.eq('form_id', formId);
       }
       
@@ -56,6 +58,7 @@ export default async function handler(req, res) {
         welcome_email_template_id,
         sort_order,
         form_id,
+        form_due_diligence_config_id,
         login_enabled 
       } = req.body;
       
@@ -65,6 +68,10 @@ export default async function handler(req, res) {
       
       if (!first_name_field || !last_name_field || !email_field) {
         return res.status(400).json({ error: 'first_name_field, last_name_field, and email_field are required' });
+      }
+      
+      if (!form_due_diligence_config_id) {
+        return res.status(400).json({ error: 'form_due_diligence_config_id is required' });
       }
       
       const insertData = {
@@ -79,6 +86,7 @@ export default async function handler(req, res) {
         sort_order: sort_order || 0,
         is_active: true,
         form_id: form_id || null,
+        form_due_diligence_config_id,
         login_enabled: login_enabled === true
       };
       

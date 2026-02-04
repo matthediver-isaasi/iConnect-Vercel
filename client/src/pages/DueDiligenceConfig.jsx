@@ -154,9 +154,12 @@ export default function DueDiligenceConfigPage() {
   const emailTemplates = emailTemplatesData || [];
 
   const { data: stageMemberActionsData, refetch: refetchStageMemberActions } = useQuery({
-    queryKey: ['stage-member-actions', formId],
+    queryKey: ['stage-member-actions', formId, ddConfig?.id],
     queryFn: async () => {
-      const response = await fetch(`/api/stage-member-actions?formId=${formId}`, { credentials: 'include' });
+      const url = ddConfig?.id 
+        ? `/api/stage-member-actions?config_id=${ddConfig.id}`
+        : `/api/stage-member-actions?formId=${formId}`;
+      const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch stage member actions');
       return response.json();
     },
@@ -312,6 +315,10 @@ export default function DueDiligenceConfigPage() {
   };
 
   const addStageMemberAction = async (stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, loginEnabled) => {
+    if (!ddConfig?.id) {
+      toast.error('Please save the configuration first before adding member actions');
+      return;
+    }
     try {
       const response = await fetch('/api/stage-member-actions', {
         method: 'POST',
@@ -326,6 +333,7 @@ export default function DueDiligenceConfigPage() {
           welcome_email_template_id: welcomeEmailTemplateId || null,
           field_mappings: fieldMappings || { core: {}, custom: {} },
           form_id: formId,
+          form_due_diligence_config_id: ddConfig.id,
           login_enabled: loginEnabled === true
         })
       });
