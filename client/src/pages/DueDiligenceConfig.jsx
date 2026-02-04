@@ -311,7 +311,7 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const addStageMemberAction = async (stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings) => {
+  const addStageMemberAction = async (stageId, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, loginEnabled) => {
     try {
       const response = await fetch('/api/stage-member-actions', {
         method: 'POST',
@@ -325,7 +325,8 @@ export default function DueDiligenceConfigPage() {
           role_id: roleId || null,
           welcome_email_template_id: welcomeEmailTemplateId || null,
           field_mappings: fieldMappings || { core: {}, custom: {} },
-          form_id: formId
+          form_id: formId,
+          login_enabled: loginEnabled === true
         })
       });
       if (!response.ok) throw new Error('Failed to add member action');
@@ -350,7 +351,7 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
-  const updateStageMemberAction = async (id, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings) => {
+  const updateStageMemberAction = async (id, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, loginEnabled) => {
     try {
       const response = await fetch(`/api/stage-member-actions/${id}`, {
         method: 'PATCH',
@@ -362,7 +363,8 @@ export default function DueDiligenceConfigPage() {
           email_field: emailField,
           role_id: roleId || null,
           welcome_email_template_id: welcomeEmailTemplateId || null,
-          field_mappings: fieldMappings || { core: {}, custom: {} }
+          field_mappings: fieldMappings || { core: {}, custom: {} },
+          login_enabled: loginEnabled === true
         })
       });
       if (!response.ok) throw new Error('Failed to update member action');
@@ -1951,6 +1953,9 @@ export default function DueDiligenceConfigPage() {
                                                       {ma.welcome_email_template?.name && (
                                                         <Badge variant="outline" className="text-xs">Welcome: {ma.welcome_email_template.name}</Badge>
                                                       )}
+                                                      {ma.login_enabled && (
+                                                        <Badge variant="secondary" className="text-xs">Login Enabled</Badge>
+                                                      )}
                                                     </div>
                                                     <div className="flex items-center gap-1">
                                                       <Button
@@ -1964,6 +1969,7 @@ export default function DueDiligenceConfigPage() {
                                                           roleId: ma.role_id || '',
                                                           welcomeEmailTemplateId: ma.welcome_email_template_id || '',
                                                           fieldMappings: ma.field_mappings || { core: {}, custom: {} },
+                                                          loginEnabled: ma.login_enabled === true,
                                                           editId: ma.id
                                                         })}
                                                         data-testid={`button-edit-member-action-${ma.id}`}
@@ -2079,6 +2085,18 @@ export default function DueDiligenceConfigPage() {
                                                           </SelectContent>
                                                         </Select>
                                                       </div>
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center justify-between p-3 border rounded bg-background">
+                                                      <div className="space-y-0.5">
+                                                        <Label className="text-sm">Enable Login Access</Label>
+                                                        <p className="text-xs text-muted-foreground">Allow the created member to log into the portal</p>
+                                                      </div>
+                                                      <Switch
+                                                        checked={pendingMemberAction.loginEnabled === true}
+                                                        onCheckedChange={(checked) => setPendingMemberAction(prev => ({ ...prev, loginEnabled: checked }))}
+                                                        data-testid={`switch-login-enabled-${index}`}
+                                                      />
                                                     </div>
                                                     
                                                     <div className="space-y-2">
@@ -2294,7 +2312,8 @@ export default function DueDiligenceConfigPage() {
                                                               pendingMemberAction.emailField,
                                                               pendingMemberAction.roleId || null,
                                                               pendingMemberAction.welcomeEmailTemplateId || null,
-                                                              pendingMemberAction.fieldMappings
+                                                              pendingMemberAction.fieldMappings,
+                                                              pendingMemberAction.loginEnabled
                                                             );
                                                           } else {
                                                             await addStageMemberAction(
@@ -2304,7 +2323,8 @@ export default function DueDiligenceConfigPage() {
                                                               pendingMemberAction.emailField,
                                                               pendingMemberAction.roleId || null,
                                                               pendingMemberAction.welcomeEmailTemplateId || null,
-                                                              pendingMemberAction.fieldMappings
+                                                              pendingMemberAction.fieldMappings,
+                                                              pendingMemberAction.loginEnabled
                                                             );
                                                           }
                                                           setPendingMemberAction(null);
@@ -2326,7 +2346,8 @@ export default function DueDiligenceConfigPage() {
                                                       emailField: '', 
                                                       roleId: '', 
                                                       welcomeEmailTemplateId: '', 
-                                                      fieldMappings: { core: {}, custom: {} } 
+                                                      fieldMappings: { core: {}, custom: {} },
+                                                      loginEnabled: false 
                                                     })}
                                                     className="mt-2"
                                                     data-testid={`button-add-member-action-${index}`}

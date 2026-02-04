@@ -52,7 +52,8 @@ export default async function handler(req, res) {
         'role_id',
         'welcome_email_template_id',
         'sort_order', 
-        'is_active'
+        'is_active',
+        'login_enabled'
       ];
       
       for (const field of allowedFields) {

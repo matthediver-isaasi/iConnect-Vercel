@@ -55,7 +55,8 @@ export default async function handler(req, res) {
         role_id,
         welcome_email_template_id,
         sort_order,
-        form_id 
+        form_id,
+        login_enabled 
       } = req.body;
       
       if (!due_diligence_stage_id) {
@@ -77,7 +78,8 @@ export default async function handler(req, res) {
         welcome_email_template_id: welcome_email_template_id || null,
         sort_order: sort_order || 0,
         is_active: true,
-        form_id: form_id || null
+        form_id: form_id || null,
+        login_enabled: login_enabled === true
       };
       
       const { data, error } = await supabase

@@ -1236,7 +1236,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         first_name: firstName || '',
         last_name: lastName || '',
         email: normalizedEmail,
-        login_enabled: false,
+        login_enabled: ma.login_enabled === true,
         show_in_directory: true
       };
 
