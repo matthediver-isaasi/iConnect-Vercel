@@ -619,7 +619,8 @@ export default async function handler(req, res) {
               'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
               'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle',
               'ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction', 'BlogPost',
-              'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson'
+              'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
+              'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -786,7 +787,7 @@ export default async function handler(req, res) {
             'EmailTemplate', 'Workflow', 'WorkflowLog', 'ButtonStyle',
             'ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction', 'BlogPost',
             'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
-            'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest'
+            'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided
