@@ -12,11 +12,12 @@ CREATE INDEX IF NOT EXISTS idx_stage_member_action_config ON stage_member_action
 
 -- Step 3: Backfill existing records - link to DD config via form_id
 -- This preserves existing member actions by properly scoping them
+-- Note: sma.form_id is VARCHAR, fddc.form_id is UUID - cast both to text for comparison
 UPDATE stage_member_action sma
 SET form_due_diligence_config_id = (
   SELECT fddc.id 
   FROM form_due_diligence_config fddc 
-  WHERE fddc.form_id::text = sma.form_id 
+  WHERE fddc.form_id::text = sma.form_id::text 
     AND fddc.tenant_id = sma.tenant_id
   LIMIT 1
 )
