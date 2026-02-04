@@ -1,5 +1,11 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { 
+  isZohoCrmConnected,
+  lookupCountryInZoho,
+  createZohoOrganization,
+  updateZohoOrganization 
+} from '../_lib/zohoCrmClient.js';
 
 // Helper to escape regex special characters
 function escapeRegex(str) {
@@ -1755,6 +1761,381 @@ async function executeFieldMappingActions(stageId, ddSubmission, tenantId, trigg
   return results;
 }
 
+// Helper to find a form field by label (case-insensitive partial match)
+function findFieldByLabel(fields, labelPattern) {
+  if (!fields || !labelPattern) return null;
+  const pattern = labelPattern.toLowerCase().trim();
+  return fields.find(f => {
+    const label = (f.label || '').toLowerCase();
+    return label === pattern || label.includes(pattern);
+  });
+}
+
+// Helper to get field value from submission data
+function getFieldValue(formValues, field) {
+  if (!field || !formValues) return null;
+  
+  // Try field.id first (most common)
+  if (field.id && formValues[field.id] !== undefined) {
+    return formValues[field.id];
+  }
+  
+  // Try field.name
+  if (field.name && formValues[field.name] !== undefined) {
+    return formValues[field.name];
+  }
+  
+  // Try field.key (some forms use key)
+  if (field.key && formValues[field.key] !== undefined) {
+    return formValues[field.key];
+  }
+  
+  // Try prefixed versions
+  if (field.id && formValues[`field_${field.id}`] !== undefined) {
+    return formValues[`field_${field.id}`];
+  }
+  
+  // Try partial key match as fallback
+  const fieldId = field.id || field.name || field.key;
+  if (fieldId) {
+    const matchKey = Object.keys(formValues).find(key => 
+      key === fieldId || 
+      key.includes(fieldId) ||
+      key.endsWith(`_${fieldId}`)
+    );
+    if (matchKey) {
+      return formValues[matchKey];
+    }
+  }
+  
+  return null;
+}
+
+// Transform education levels based on schooling selection
+function transformEducationLevels(schoolingValues) {
+  if (!schoolingValues || !Array.isArray(schoolingValues)) return [];
+  
+  const educationLevels = [];
+  const schoolingStr = schoolingValues.join(' ').toLowerCase();
+  
+  // Pre-primary if contains ECED
+  if (schoolingStr.includes('eced') || schoolingStr.includes('early childhood')) {
+    educationLevels.push('Pre-primary');
+  }
+  
+  // Primary if contains Grade 1-10
+  const gradeNumbers = schoolingStr.match(/grade\s*(\d+)/gi) || [];
+  const hasGrade1to10 = gradeNumbers.some(g => {
+    const num = parseInt(g.replace(/\D/g, ''));
+    return num >= 1 && num <= 10;
+  });
+  if (hasGrade1to10 || schoolingStr.includes('primary')) {
+    educationLevels.push('Primary');
+  }
+  
+  // Secondary if contains Grade 11 or 12
+  const hasGrade11or12 = gradeNumbers.some(g => {
+    const num = parseInt(g.replace(/\D/g, ''));
+    return num >= 11;
+  });
+  if (hasGrade11or12 || schoolingStr.includes('secondary')) {
+    educationLevels.push('Secondary');
+  }
+  
+  return [...new Set(educationLevels)]; // Remove duplicates
+}
+
+// Determine organization type for Zoho (ESO or SO) based on form name/slug
+function determineOrganizationType(formName, formSlug) {
+  const name = (formName || '').toLowerCase();
+  const slug = (formSlug || '').toLowerCase();
+  
+  if (name.includes('eso') || slug.includes('eso')) {
+    return 'Member - Education Support Organisations';
+  }
+  if (name.includes('so') || slug.includes('so') || name.includes('school')) {
+    return 'Member - School and ECED Operators';
+  }
+  // Default to ESO if can't determine
+  return 'Member - Education Support Organisations';
+}
+
+export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+  const results = [];
+  
+  console.log('[DD Zoho CRM] ========== START executeZohoCrmActions ==========');
+  console.log('[DD Zoho CRM] Params:', { stageId, tenantId, triggeredBy });
+  console.log('[DD Zoho CRM] ddSubmission ID:', ddSubmission?.id);
+  
+  try {
+    // Check if Zoho CRM is connected
+    const isConnected = await isZohoCrmConnected(tenantId);
+    if (!isConnected) {
+      console.log('[DD Zoho CRM] Zoho CRM not connected for tenant');
+      return results;
+    }
+    
+    const formSubmissionId = ddSubmission.form_submission_id;
+    if (!formSubmissionId) {
+      console.log('[DD Zoho CRM] No form submission ID, skipping');
+      return results;
+    }
+    
+    // Get form submission data
+    const { data: formSubmission, error: subError } = await supabase
+      .from('form_submission')
+      .select('form_id, submission_data, organization_id')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .single();
+    
+    if (subError || !formSubmission) {
+      console.error('[DD Zoho CRM] Could not find form submission:', subError);
+      return results;
+    }
+    
+    const formId = formSubmission.form_id;
+    
+    // Fetch Zoho CRM action configs for this stage
+    const { data: zohoCrmActions, error: zcError } = await supabase
+      .from('stage_zoho_crm_action')
+      .select('*')
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    
+    if (zcError) {
+      console.log('[DD Zoho CRM] Query error:', zcError);
+      return results;
+    }
+    
+    if (!zohoCrmActions || zohoCrmActions.length === 0) {
+      console.log('[DD Zoho CRM] No Zoho CRM actions configured for this stage');
+      return results;
+    }
+    
+    console.log('[DD Zoho CRM] Found', zohoCrmActions.length, 'Zoho CRM action(s)');
+    
+    // Get form fields for label lookups
+    const { data: form } = await supabase
+      .from('form')
+      .select('id, name, slug, fields')
+      .eq('id', formId)
+      .single();
+    
+    if (!form) {
+      console.error('[DD Zoho CRM] Could not find form');
+      return results;
+    }
+    
+    const formFields = form.fields || [];
+    const formValues = formSubmission.submission_data || {};
+    
+    // Get DD documents for logo URL
+    const { data: ddDocuments } = await supabase
+      .from('due_diligence_document')
+      .select('id, document_type, file_url')
+      .eq('form_submission_due_diligence_id', ddSubmission.id)
+      .eq('document_type', 'logo')
+      .limit(1);
+    
+    const logoUrl = ddDocuments?.[0]?.file_url || null;
+    
+    for (const action of zohoCrmActions) {
+      try {
+        console.log('[DD Zoho CRM] Processing action:', action.id);
+        
+        // Skip if already executed for this submission
+        if (ddSubmission.zoho_crm_account_id) {
+          console.log('[DD Zoho CRM] Zoho CRM account already created:', ddSubmission.zoho_crm_account_id);
+          results.push({
+            action: 'zoho_crm_create',
+            action_id: action.id,
+            status: 'skipped',
+            reason: 'Already synced to Zoho CRM',
+            zoho_account_id: ddSubmission.zoho_crm_account_id
+          });
+          continue;
+        }
+        
+        // Field mappings - find by label
+        const orgNameField = findFieldByLabel(formFields, 'Name of organisation') || 
+                             findFieldByLabel(formFields, 'Organisation name') ||
+                             findFieldByLabel(formFields, 'Organization name');
+        const websiteField = findFieldByLabel(formFields, 'Organisation website') ||
+                             findFieldByLabel(formFields, 'Website');
+        const countriesField = findFieldByLabel(formFields, 'Countries of operation');
+        const schoolingField = findFieldByLabel(formFields, 'What level of schooling');
+        const servicesField = findFieldByLabel(formFields, 'what services do you provide') ||
+                              findFieldByLabel(formFields, 'services provided');
+        const themesField = findFieldByLabel(formFields, 'specific focus on the following') ||
+                            findFieldByLabel(formFields, 'emerging or existing themes');
+        
+        // Extract values
+        const orgName = getFieldValue(formValues, orgNameField);
+        const website = getFieldValue(formValues, websiteField);
+        const countriesRaw = getFieldValue(formValues, countriesField);
+        const schoolingRaw = getFieldValue(formValues, schoolingField);
+        const servicesRaw = getFieldValue(formValues, servicesField);
+        const themesRaw = getFieldValue(formValues, themesField);
+        
+        // Normalize arrays
+        const countries = Array.isArray(countriesRaw) ? countriesRaw : 
+                          (countriesRaw ? [countriesRaw] : []);
+        const schoolingLevels = Array.isArray(schoolingRaw) ? schoolingRaw :
+                                (schoolingRaw ? [schoolingRaw] : []);
+        const services = Array.isArray(servicesRaw) ? servicesRaw :
+                         (servicesRaw ? [servicesRaw] : []);
+        const themes = Array.isArray(themesRaw) ? themesRaw :
+                       (themesRaw ? [themesRaw] : []);
+        
+        // Transform education levels
+        const educationLevels = transformEducationLevels(schoolingLevels);
+        
+        // Determine org type based on form
+        const orgType = determineOrganizationType(form.name, form.slug);
+        
+        console.log('[DD Zoho CRM] Field values:', {
+          orgName,
+          website,
+          countriesCount: countries.length,
+          educationLevels,
+          orgType,
+          servicesCount: services.length,
+          themesCount: themes.length,
+          logoUrl
+        });
+        
+        if (!orgName) {
+          results.push({
+            action: 'zoho_crm_create',
+            action_id: action.id,
+            status: 'skipped',
+            reason: 'No organisation name found in submission'
+          });
+          continue;
+        }
+        
+        // Build country subform by looking up each country
+        const countrySubform = [];
+        for (const countryName of countries) {
+          const countryRecord = await lookupCountryInZoho(tenantId, countryName);
+          if (countryRecord) {
+            countrySubform.push({
+              Country: { id: countryRecord.id },
+              GSF_Region_Classification: countryRecord.GSF_Region_Classification,
+              Income_Group: countryRecord.Income_Group,
+              Flag: countryRecord.Flag
+            });
+          } else {
+            console.log('[DD Zoho CRM] Country not found in Zoho:', countryName);
+            // Add without lookup data
+            countrySubform.push({
+              Country_Name: countryName
+            });
+          }
+        }
+        
+        // Build the Zoho organization record
+        const orgData = {
+          Account_Name: orgName,
+          Lifecycle_Status: 'Current',
+          Type_of_Organisation: orgType,
+          Website: website || undefined,
+          Org_Logo_URL: logoUrl || undefined
+        };
+        
+        // Add multi-select fields
+        if (educationLevels.length > 0) {
+          orgData.Education_Levels = educationLevels;
+        }
+        if (countries.length > 0) {
+          orgData.Countries_of_Operation = countries;
+        }
+        if (services.length > 0) {
+          orgData.Services_Provided = services;
+        }
+        if (themes.length > 0) {
+          orgData.Themes_Focus = themes;
+        }
+        
+        // Add country subform
+        if (countrySubform.length > 0) {
+          orgData.Countries = countrySubform;
+        }
+        
+        // Create the organization in Zoho CRM
+        const createResult = await createZohoOrganization(tenantId, orgData);
+        
+        if (createResult.success) {
+          // Update DD submission with Zoho account ID
+          await supabase
+            .from('form_submission_due_diligence')
+            .update({ 
+              zoho_crm_account_id: createResult.id,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', ddSubmission.id)
+            .eq('tenant_id', tenantId);
+          
+          // Update action execution tracking
+          await supabase
+            .from('stage_zoho_crm_action')
+            .update({
+              last_executed_at: new Date().toISOString(),
+              last_execution_result: createResult
+            })
+            .eq('id', action.id);
+          
+          results.push({
+            action: 'zoho_crm_create',
+            action_id: action.id,
+            status: 'success',
+            zoho_account_id: createResult.id,
+            org_name: orgName
+          });
+          
+          await addHistoryLogEntry(ddSubmission.id, tenantId, 'zoho_crm_synced', triggeredBy, {
+            zoho_account_id: createResult.id,
+            org_name: orgName
+          });
+          
+          console.log('[DD Zoho CRM] Successfully created organization:', createResult.id);
+        } else {
+          results.push({
+            action: 'zoho_crm_create',
+            action_id: action.id,
+            status: 'error',
+            error: createResult.error,
+            org_name: orgName
+          });
+          
+          console.error('[DD Zoho CRM] Failed to create organization:', createResult.error);
+        }
+      } catch (actionError) {
+        console.error('[DD Zoho CRM] Error executing action:', action.id, actionError);
+        results.push({
+          action: 'zoho_crm_create',
+          action_id: action.id,
+          status: 'error',
+          error: actionError.message
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[DD Zoho CRM] Error executing Zoho CRM actions:', error);
+    results.push({
+      action: 'zoho_crm_create',
+      status: 'error',
+      error: error.message
+    });
+  }
+  
+  console.log('[DD Zoho CRM] ========== END executeZohoCrmActions ==========');
+  return results;
+}
+
 export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   console.log('[DD Stage Actions] executeStageActions called:', {
     stageId,
@@ -1875,6 +2256,16 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     options
   );
   results.push(...fieldMappingResults);
+
+  // Execute Zoho CRM actions (stored in stage_zoho_crm_action table)
+  const zohoCrmResults = await executeZohoCrmActions(
+    stageId,
+    ddSubmission,
+    tenantId,
+    triggeredBy,
+    options
+  );
+  results.push(...zohoCrmResults);
 
   console.log('[DD Stage Actions] Completed all stage actions, total results:', results.length);
   return { stage_actions_results: results };

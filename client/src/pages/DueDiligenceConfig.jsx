@@ -447,6 +447,63 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
+  const { data: stageZohoCrmActionsData, refetch: refetchStageZohoCrmActions } = useQuery({
+    queryKey: ['stage-zoho-crm-actions', formId],
+    queryFn: async () => {
+      const response = await fetch(`/api/stage-zoho-crm-actions?form_id=${formId}`, { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.actions || [];
+    },
+    enabled: !!formId && accessChecked
+  });
+  const stageZohoCrmActions = stageZohoCrmActionsData || [];
+
+  const { data: zohoCrmStatus } = useQuery({
+    queryKey: ['zoho-crm-status'],
+    queryFn: async () => {
+      const response = await fetch('/api/zoho-crm/oauth?action=status', { credentials: 'include' });
+      if (!response.ok) return { connected: false };
+      return response.json();
+    },
+    enabled: !!formId && accessChecked
+  });
+  const isZohoCrmConnected = zohoCrmStatus?.connected === true;
+
+  const addStageZohoCrmAction = async (stageId) => {
+    try {
+      const response = await fetch('/api/stage-zoho-crm-actions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          due_diligence_stage_id: stageId,
+          form_id: formId,
+          is_active: true
+        })
+      });
+      if (!response.ok) throw new Error('Failed to add Zoho CRM action');
+      await refetchStageZohoCrmActions();
+      toast.success('Zoho CRM action added');
+    } catch (err) {
+      toast.error(err.message || 'Failed to add Zoho CRM action');
+    }
+  };
+
+  const removeStageZohoCrmAction = async (id) => {
+    try {
+      const response = await fetch(`/api/stage-zoho-crm-actions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to remove Zoho CRM action');
+      await refetchStageZohoCrmActions();
+      toast.success('Zoho CRM action removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove Zoho CRM action');
+    }
+  };
+
   const getEmailFields = () => {
     return (form?.fields || []).filter(f => 
       f.type === 'email' || 
@@ -1348,7 +1405,8 @@ export default function DueDiligenceConfigPage() {
                                         stageMeetingRequests.some(mr => mr.due_diligence_stage_id === stage.id) ||
                                         stageEmailActions.some(ea => ea.due_diligence_stage_id === stage.id) ||
                                         stageMemberActions.some(ma => ma.due_diligence_stage_id === stage.id) ||
-                                        stageFieldMappingActions.some(fa => fa.due_diligence_stage_id === stage.id)) &&
+                                        stageFieldMappingActions.some(fa => fa.due_diligence_stage_id === stage.id) ||
+                                        stageZohoCrmActions.some(za => za.due_diligence_stage_id === stage.id)) &&
                                         openStageSection[index] !== 'actions' &&
                                         "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:border-green-800 dark:text-green-300"
                                     )}
@@ -2708,6 +2766,70 @@ export default function DueDiligenceConfigPage() {
                                             );
                                           })()}
                                         </div>
+                                      </div>
+
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                                          </svg>
+                                          <span className="text-sm font-medium">Populate Zoho CRM</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Create an Organization record in Zoho CRM using form data when this stage is selected.
+                                          Field mappings are automatically configured based on form field labels.
+                                        </p>
+                                        {!isZohoCrmConnected ? (
+                                          <p className="text-sm text-muted-foreground italic">
+                                            Zoho CRM is not connected. Configure the Zoho integration to enable this action.
+                                          </p>
+                                        ) : (
+                                          <div className="space-y-2">
+                                            {(() => {
+                                              const stageActions = stageZohoCrmActions.filter(za => za.due_diligence_stage_id === stage.id);
+                                              return (
+                                                <>
+                                                  {stageActions.map((za) => (
+                                                    <div key={za.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
+                                                      <div className="flex items-center gap-2 flex-wrap">
+                                                        <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                                                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                                        </svg>
+                                                        <span className="text-sm">Create Zoho CRM Organization</span>
+                                                        {za.is_active ? (
+                                                          <Badge variant="secondary" className="text-xs">Active</Badge>
+                                                        ) : (
+                                                          <Badge variant="outline" className="text-xs">Inactive</Badge>
+                                                        )}
+                                                      </div>
+                                                      <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => removeStageZohoCrmAction(za.id)}
+                                                        data-testid={`button-remove-zoho-crm-action-${za.id}`}
+                                                      >
+                                                        <Trash2 className="w-4 h-4" />
+                                                      </Button>
+                                                    </div>
+                                                  ))}
+                                                  
+                                                  {stageActions.length === 0 && (
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      onClick={() => addStageZohoCrmAction(stage.id)}
+                                                      className="mt-2"
+                                                      data-testid={`button-add-zoho-crm-action-${index}`}
+                                                    >
+                                                      <Plus className="w-4 h-4 mr-1" />
+                                                      Enable Zoho CRM Action
+                                                    </Button>
+                                                  )}
+                                                </>
+                                              );
+                                            })()}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
