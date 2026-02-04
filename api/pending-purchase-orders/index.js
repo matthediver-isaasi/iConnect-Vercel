@@ -48,6 +48,44 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
+      const { action } = req.query;
+      
+      // Handle special GET actions
+      if (action === 'get_settings') {
+        const { data: tenant, error: tenantError } = await supabase
+          .from('tenant')
+          .select('settings')
+          .eq('id', tenantId)
+          .single();
+        
+        if (tenantError) {
+          console.error('[PendingPO] Error fetching tenant settings:', tenantError);
+          return res.status(500).json({ error: 'Failed to fetch settings' });
+        }
+        
+        const settings = tenant?.settings?.poReminderSettings || {
+          reminderDays: [],
+          emailTemplateId: null
+        };
+        
+        return res.json(settings);
+      }
+      
+      if (action === 'get_email_templates') {
+        const { data: templates, error: templatesError } = await supabase
+          .from('email_template')
+          .select('id, name, subject')
+          .eq('tenant_id', tenantId)
+          .order('name');
+        
+        if (templatesError) {
+          console.error('[PendingPO] Error fetching email templates:', templatesError);
+          return res.status(500).json({ error: 'Failed to fetch email templates' });
+        }
+        
+        return res.json(templates || []);
+      }
+      
       const { data: tenantOrgs, error: orgsError } = await supabase
         .from('organization')
         .select('id, name')
@@ -197,7 +235,50 @@ export default async function handler(req, res) {
       return res.json({ records, organizations: orgMap });
       
     } else if (req.method === 'POST') {
-      const { action, entityType, entityId, xeroInvoiceId, purchaseOrderNumber } = req.body;
+      const { action, entityType, entityId, xeroInvoiceId, purchaseOrderNumber, reminderDays, emailTemplateId } = req.body;
+      
+      // Handle settings save
+      if (action === 'save_settings') {
+        // Validate reminderDays is an array of valid day numbers (0-6)
+        if (!Array.isArray(reminderDays)) {
+          return res.status(400).json({ error: 'reminderDays must be an array' });
+        }
+        
+        const validDays = reminderDays.filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+        
+        // Get current tenant settings
+        const { data: tenant, error: fetchError } = await supabase
+          .from('tenant')
+          .select('settings')
+          .eq('id', tenantId)
+          .single();
+        
+        if (fetchError) {
+          console.error('[PendingPO] Error fetching tenant:', fetchError);
+          return res.status(500).json({ error: 'Failed to fetch tenant' });
+        }
+        
+        const currentSettings = tenant?.settings || {};
+        const updatedSettings = {
+          ...currentSettings,
+          poReminderSettings: {
+            reminderDays: validDays,
+            emailTemplateId: emailTemplateId || null
+          }
+        };
+        
+        const { error: updateError } = await supabase
+          .from('tenant')
+          .update({ settings: updatedSettings })
+          .eq('id', tenantId);
+        
+        if (updateError) {
+          console.error('[PendingPO] Error saving settings:', updateError);
+          return res.status(500).json({ error: 'Failed to save settings' });
+        }
+        
+        return res.json({ success: true, settings: updatedSettings.poReminderSettings });
+      }
       
       const { data: tenantOrgs } = await supabase
         .from('organization')

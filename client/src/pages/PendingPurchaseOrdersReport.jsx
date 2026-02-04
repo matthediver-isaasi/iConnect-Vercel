@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw } from "lucide-react";
+import { Search, Download, FileText, Building2, Calendar, AlertCircle, Check, ExternalLink, Ticket, GraduationCap, RefreshCw, Settings, ChevronLeft, ChevronRight, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -20,6 +20,18 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
+const DAYS_OF_WEEK = [
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+];
+
+const ITEMS_PER_PAGE = 20;
+
 export default function PendingPurchaseOrdersReport() {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { toast } = useToast();
@@ -31,6 +43,10 @@ export default function PendingPurchaseOrdersReport() {
   const [editingRecord, setEditingRecord] = useState(null);
   const [poNumber, setPoNumber] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedDays, setSelectedDays] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -57,6 +73,41 @@ export default function PendingPurchaseOrdersReport() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['pending-purchase-orders-email-templates'],
+    queryFn: async () => {
+      const response = await fetch('/api/pending-purchase-orders?action=get_email_templates', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        return [];
+      }
+      return response.json();
+    },
+    staleTime: 60000,
+  });
+
+  const { data: reminderSettings } = useQuery({
+    queryKey: ['pending-purchase-orders-settings'],
+    queryFn: async () => {
+      const response = await fetch('/api/pending-purchase-orders?action=get_settings', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        return { reminderDays: [], emailTemplateId: null };
+      }
+      return response.json();
+    },
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    if (reminderSettings) {
+      setSelectedDays(reminderSettings.reminderDays || []);
+      setSelectedTemplateId(reminderSettings.emailTemplateId || "");
+    }
+  }, [reminderSettings]);
 
   const pendingPORecords = reportData?.records || [];
   const organizations = reportData?.organizations || {};
@@ -151,6 +202,17 @@ export default function PendingPurchaseOrdersReport() {
 
     return filtered;
   }, [pendingPORecords, organizations, searchQuery, selectedSource, sortBy]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedSource, sortBy]);
+
+  const totalPages = Math.ceil(filteredAndSortedData.length / ITEMS_PER_PAGE);
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredAndSortedData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredAndSortedData, currentPage]);
 
   const handleExportCSV = () => {
     const headers = ['Organisation', 'Type', 'Event/Program', 'Invoice Number', 'Invoice Date', 'Quantity', 'Total Cost', 'Member Email'];
@@ -269,6 +331,49 @@ export default function PendingPurchaseOrdersReport() {
     setPoNumber("");
   };
 
+  const toggleDay = (dayValue) => {
+    setSelectedDays(prev => 
+      prev.includes(dayValue) 
+        ? prev.filter(d => d !== dayValue)
+        : [...prev, dayValue].sort((a, b) => a - b)
+    );
+  };
+
+  const handleSaveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const response = await fetch('/api/pending-purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'save_settings',
+          reminderDays: selectedDays,
+          emailTemplateId: selectedTemplateId || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save settings');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['pending-purchase-orders-settings'] });
+      toast({
+        title: "Settings Saved",
+        description: "Your reminder settings have been saved.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save settings.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   const handleSavePO = () => {
     if (!poNumber.trim()) {
       toast({
@@ -330,7 +435,7 @@ export default function PendingPurchaseOrdersReport() {
             Invoices awaiting purchase order numbers
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             onClick={handleSyncWithXero}
             variant="outline"
@@ -353,6 +458,69 @@ export default function PendingPurchaseOrdersReport() {
           </Button>
         </div>
       </div>
+
+      <Card data-testid="card-reminder-settings">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>Reminder Settings</CardTitle>
+          </div>
+          <CardDescription>
+            Configure automated email reminders for pending purchase orders
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Send reminders on</Label>
+            <div className="flex flex-wrap gap-2">
+              {DAYS_OF_WEEK.map(day => (
+                <Button
+                  key={day.value}
+                  type="button"
+                  variant={selectedDays.includes(day.value) ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => toggleDay(day.value)}
+                  data-testid={`button-day-${day.label.toLowerCase()}`}
+                >
+                  {day.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Email template</Label>
+            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+              <SelectTrigger className="w-full md:w-[400px]" data-testid="select-email-template">
+                <SelectValue placeholder="Select an email template..." />
+              </SelectTrigger>
+              <SelectContent>
+                {emailTemplates.length === 0 ? (
+                  <SelectItem value="no-templates" disabled>No email templates available</SelectItem>
+                ) : (
+                  emailTemplates.map(template => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={handleSaveSettings}
+            disabled={isSavingSettings}
+            className="flex items-center gap-2"
+            data-testid="button-save-settings"
+          >
+            {isSavingSettings ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Mail className="h-4 w-4" />
+            )}
+            {isSavingSettings ? 'Saving...' : 'Save Reminder Settings'}
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-4">
@@ -409,7 +577,7 @@ export default function PendingPurchaseOrdersReport() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredAndSortedData.map((record) => {
+              {paginatedData.map((record) => {
                 const orgName = organizations[record.organization_id] || 'Unknown Organisation';
                 const TypeIcon = record.source_type === 'Event' ? Ticket : GraduationCap;
                 const recordKey = `${record.entityType}-${record.id}`;
@@ -490,6 +658,39 @@ export default function PendingPurchaseOrdersReport() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-6 border-t mt-6" data-testid="pagination-controls">
+              <p className="text-sm text-muted-foreground">
+                Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedData.length)} of {filteredAndSortedData.length} records
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  data-testid="button-prev-page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <span className="text-sm px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  data-testid="button-next-page"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
