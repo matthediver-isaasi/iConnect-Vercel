@@ -228,7 +228,7 @@ function determineRiskLevel(score, customRiskLevels) {
   ];
 
   const levels = (customRiskLevels && customRiskLevels.length > 0) 
-    ? customRiskLevels.map(l => ({ name: l.name.toLowerCase().replace(' ', '_'), threshold: l.threshold }))
+    ? customRiskLevels.map(l => ({ name: l.name.toLowerCase().replace(/\s+/g, '_'), threshold: l.threshold }))
     : defaultLevels;
 
   const sortedLevels = [...levels].sort((a, b) => b.threshold - a.threshold);
