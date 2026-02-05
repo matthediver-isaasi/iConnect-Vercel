@@ -2862,6 +2862,74 @@ function FieldCard({
                 </div>
               )}
 
+              {/* File Upload Field Configuration */}
+              {field.type === 'file' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">File Upload Options</Label>
+                  
+                  {/* Public Access Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`public-access-${field.id}`}
+                      checked={field.public_access === true}
+                      onCheckedChange={(checked) => {
+                        updateField(originalIndex, { public_access: checked });
+                      }}
+                      data-testid={`checkbox-public-access-${field.id}`}
+                    />
+                    <div>
+                      <Label htmlFor={`public-access-${field.id}`} className="text-xs">
+                        Public access
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Enable for files that need to be publicly accessible (e.g., logos for external websites)
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Allowed File Types */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Allowed File Types</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'images', label: 'Images' },
+                        { value: 'pdf', label: 'PDF' },
+                        { value: 'word', label: 'Word' },
+                        { value: 'excel', label: 'Excel' },
+                        { value: 'powerpoint', label: 'PowerPoint' },
+                        { value: 'text', label: 'Text' },
+                        { value: 'zip', label: 'Archives' },
+                        { value: 'video', label: 'Video' },
+                        { value: 'audio', label: 'Audio' }
+                      ].map((fileType) => (
+                        <div key={fileType.value} className="flex items-center gap-1">
+                          <Checkbox
+                            id={`file-type-${field.id}-${fileType.value}`}
+                            checked={(field.allowed_file_types || []).includes(fileType.value)}
+                            onCheckedChange={(checked) => {
+                              const current = field.allowed_file_types || [];
+                              const updated = checked 
+                                ? [...current, fileType.value]
+                                : current.filter(t => t !== fileType.value);
+                              updateField(originalIndex, { allowed_file_types: updated });
+                            }}
+                            data-testid={`checkbox-file-type-${field.id}-${fileType.value}`}
+                          />
+                          <Label htmlFor={`file-type-${field.id}-${fileType.value}`} className="text-xs">
+                            {fileType.label}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {(field.allowed_file_types || []).length === 0 
+                        ? 'All file types allowed' 
+                        : `${(field.allowed_file_types || []).length} type(s) selected`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Country Field Configuration */}
               {field.type === 'country' && (
                 <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">

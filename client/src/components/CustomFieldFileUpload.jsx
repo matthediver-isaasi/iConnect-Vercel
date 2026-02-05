@@ -95,6 +95,7 @@ export default function CustomFieldFileUpload({
   value, 
   onChange, 
   allowedTypes = [], 
+  publicAccess = false,
   disabled = false,
   label = "Upload File"
 }) {
@@ -148,7 +149,7 @@ export default function CustomFieldFileUpload({
           fileSize: file.size,
           mimeType: file.type,
           type: 'form-submission',
-          isPrivate: true,
+          isPrivate: !publicAccess,
           formId: formId
         })
       });
@@ -180,7 +181,7 @@ export default function CustomFieldFileUpload({
         file_name: file.name,
         file_size: file.size,
         mime_type: file.type,
-        is_private: true,
+        is_private: !publicAccess,
         uploaded_at: new Date().toISOString()
       };
       

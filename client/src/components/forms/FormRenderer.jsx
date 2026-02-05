@@ -796,6 +796,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             value={value}
             onChange={onChange}
             allowedTypes={field.allowed_file_types || []}
+            publicAccess={field.public_access === true}
             disabled={isFieldDisabled}
             label={field.label || "Upload File"}
           />
