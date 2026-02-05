@@ -108,6 +108,7 @@ export default function AdminIntegrations() {
   const [zohoEnabled, setZohoEnabled] = useState(false);
   const [zohoSaving, setZohoSaving] = useState(false);
   const [zohoConnecting, setZohoConnecting] = useState(false);
+  const [zohoDisconnecting, setZohoDisconnecting] = useState(false);
   const [zohoConnected, setZohoConnected] = useState(false);
   const [hasZohoCredentials, setHasZohoCredentials] = useState(false);
   const [showZohoSecrets, setShowZohoSecrets] = useState(false);
@@ -612,6 +613,35 @@ export default function AdminIntegrations() {
     }
   };
 
+  const handleDisconnectZoho = async () => {
+    setZohoDisconnecting(true);
+    try {
+      const response = await fetch('/api/zoho-campaigns/disconnect', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        setZohoConnected(false);
+        setZohoWebhookUrl('');
+        toast({
+          title: "Disconnected",
+          description: "Zoho account has been disconnected. You can now reconnect with updated permissions."
+        });
+      } else {
+        throw new Error('Failed to disconnect');
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to disconnect Zoho account"
+      });
+    } finally {
+      setZohoDisconnecting(false);
+    }
+  };
+
   const handleSaveStripe = async () => {
     setStripeSaving(true);
     
@@ -1111,14 +1141,32 @@ export default function AdminIntegrations() {
               {hasZohoCredentials && zohoConnected && (
                 <div className="space-y-4">
                   <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-5 w-5 text-green-400" />
-                      <div>
-                        <p className="text-sm font-medium text-green-400">Connected to Zoho</p>
-                        <p className="text-xs text-slate-400">
-                          Go to Communications Management to map categories to Zoho lists and sync subscribers.
-                        </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-5 w-5 text-green-400" />
+                        <div>
+                          <p className="text-sm font-medium text-green-400">Connected to Zoho</p>
+                          <p className="text-xs text-slate-400">
+                            Go to Communications Management to map categories to Zoho lists and sync subscribers.
+                          </p>
+                        </div>
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleDisconnectZoho}
+                        disabled={zohoDisconnecting}
+                        className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                        data-testid="button-disconnect-zoho"
+                      >
+                        {zohoDisconnecting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Unplug className="h-4 w-4 mr-2" />
+                        )}
+                        Disconnect
+                      </Button>
                     </div>
                   </div>
 
