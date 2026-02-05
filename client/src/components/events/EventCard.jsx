@@ -1,3 +1,4 @@
+// v2.1.0 - Added non-member guest booking support
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
