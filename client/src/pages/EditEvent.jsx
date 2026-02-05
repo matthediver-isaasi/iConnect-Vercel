@@ -98,6 +98,11 @@ export default function EditEvent() {
   const [zoomType, setZoomType] = useState("webinar");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
   
+  // Zoom sync status
+  const [zoomSyncStatus, setZoomSyncStatus] = useState(null);
+  const [checkingSyncStatus, setCheckingSyncStatus] = useState(false);
+  const [syncingFromZoom, setSyncingFromZoom] = useState(false);
+  
   // Event timing: published or tbc - affects date requirements
   const [eventTiming, setEventTiming] = useState("published");
   // Event state: active, draft, or closed - affects visibility/registration
@@ -746,6 +751,77 @@ export default function EditEvent() {
       }
     }
   }, [event?.id, initialDataLoaded]);
+
+  // Check Zoom sync status when event is loaded and has a Zoom link
+  const checkZoomSyncStatus = async () => {
+    if (!eventId) return;
+    
+    setCheckingSyncStatus(true);
+    try {
+      const response = await fetch(`/api/zoom/check-event-sync?eventId=${eventId}`, {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setZoomSyncStatus(data);
+      } else {
+        console.error('Failed to check Zoom sync status');
+        setZoomSyncStatus(null);
+      }
+    } catch (error) {
+      console.error('Error checking Zoom sync:', error);
+      setZoomSyncStatus(null);
+    } finally {
+      setCheckingSyncStatus(false);
+    }
+  };
+
+  const syncFromZoom = async () => {
+    if (!eventId) return;
+    
+    setSyncingFromZoom(true);
+    try {
+      const response = await fetch('/api/zoom/sync-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ eventId })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        toast.success('Event synced with Zoom');
+        
+        // Update form data with synced times
+        setFormData(prev => ({
+          ...prev,
+          start_date: data.updated.start_date,
+          end_date: data.updated.end_date
+        }));
+        
+        // Refresh sync status
+        await checkZoomSyncStatus();
+        
+        // Invalidate event query to refresh data
+        queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+      } else {
+        const errorData = await response.json();
+        toast.error('Failed to sync: ' + (errorData.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error syncing from Zoom:', error);
+      toast.error('Failed to sync with Zoom');
+    } finally {
+      setSyncingFromZoom(false);
+    }
+  };
+
+  // Check sync status when event loads and has a Zoom link
+  useEffect(() => {
+    if (initialDataLoaded && isOnlineEvent && eventId) {
+      checkZoomSyncStatus();
+    }
+  }, [initialDataLoaded, isOnlineEvent, eventId]);
   
   // Separate effect for filter tags - needs to run when categories load
   // This is outside the initialDataLoaded guard so it can run when categories arrive
@@ -1071,9 +1147,72 @@ export default function EditEvent() {
               <Globe className="h-4 w-4 text-blue-600" />
               <span className="font-medium text-blue-900">Online Event</span>
             </div>
-            <p className="text-sm text-blue-800">
+            <p className="text-sm text-blue-800 mb-3">
               This is an online event linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. The date, time, and location fields are managed by Zoom and cannot be edited here.
             </p>
+            
+            {/* Zoom Sync Status */}
+            <div className="mt-3 pt-3 border-t border-blue-200">
+              {checkingSyncStatus ? (
+                <div className="flex items-center gap-2 text-sm text-blue-700">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Checking sync status with Zoom...</span>
+                </div>
+              ) : zoomSyncStatus?.error ? (
+                <div className="flex items-center gap-2 text-sm text-red-700">
+                  <X className="h-4 w-4" />
+                  <span>{zoomSyncStatus.error}</span>
+                </div>
+              ) : zoomSyncStatus?.inSync === true ? (
+                <div className="flex items-center gap-2 text-sm text-green-700">
+                  <Check className="h-4 w-4" />
+                  <span>In sync with Zoom</span>
+                  {zoomSyncStatus.zoomTopic && (
+                    <span className="text-green-600">({zoomSyncStatus.zoomTopic})</span>
+                  )}
+                </div>
+              ) : zoomSyncStatus?.inSync === false ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-amber-700">
+                    <Bell className="h-4 w-4" />
+                    <span className="font-medium">Out of sync with Zoom</span>
+                  </div>
+                  {zoomSyncStatus.differences?.start?.zoom && (
+                    <div className="text-xs text-amber-600 ml-6">
+                      Start time differs: Event has {zoomSyncStatus.differences.start.event ? new Date(zoomSyncStatus.differences.start.event).toLocaleString() : 'none'}, 
+                      Zoom has {new Date(zoomSyncStatus.differences.start.zoom).toLocaleString()}
+                    </div>
+                  )}
+                  {zoomSyncStatus.differences?.end?.zoom && (
+                    <div className="text-xs text-amber-600 ml-6">
+                      End time differs: Event has {zoomSyncStatus.differences.end.event ? new Date(zoomSyncStatus.differences.end.event).toLocaleString() : 'none'}, 
+                      Zoom has {new Date(zoomSyncStatus.differences.end.zoom).toLocaleString()}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={syncFromZoom}
+                    disabled={syncingFromZoom}
+                    className="ml-6 mt-2"
+                    data-testid="button-sync-from-zoom"
+                  >
+                    {syncingFromZoom ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <Video className="h-4 w-4 mr-2" />
+                        Sync from Zoom
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
 
