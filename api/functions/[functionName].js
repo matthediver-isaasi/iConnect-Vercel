@@ -2412,13 +2412,13 @@ const functionHandlers = {
                 console.error(`[Xero] Full response: ${JSON.stringify(invoiceData).substring(0, 1000)}`);
               }
             }
-            }
           } catch (xeroError) {
             console.error(`[Xero] Invoice creation error: ${xeroError.message}`);
             xeroDebug.error = xeroError.message;
             xeroDebug.errorStack = xeroError.stack;
             // Don't fail the booking, just log the error
           }
+        }
         }
       }
     } else {
