@@ -1796,6 +1796,43 @@ const functionHandlers = {
             .update({ current_usage_count: (discountCode.current_usage_count || 0) + 1 })
             .eq('id', discountCode.id)
             .eq('tenant_id', event.tenant_id);
+          
+          // Track usage in discount_code_usage table for reporting (requires organization)
+          if (org?.id) {
+            // Check if usage record exists for this discount code + organization
+            const { data: existingUsage } = await supabase
+              .from('discount_code_usage')
+              .select('id, usage_count')
+              .eq('discount_code_id', discountCode.id)
+              .eq('organization_id', org.id)
+              .maybeSingle();
+            
+            if (existingUsage) {
+              // Increment usage count
+              await supabase
+                .from('discount_code_usage')
+                .update({ usage_count: (existingUsage.usage_count || 0) + 1 })
+                .eq('id', existingUsage.id);
+              console.log(`[createOneOffEventBooking] Updated discount_code_usage for org ${org.id}: count=${(existingUsage.usage_count || 0) + 1}`);
+            } else {
+              // Create new usage record
+              const { error: usageError } = await supabase
+                .from('discount_code_usage')
+                .insert({
+                  discount_code_id: discountCode.id,
+                  organization_id: org.id,
+                  usage_count: 1,
+                  tenant_id: event.tenant_id
+                });
+              if (usageError) {
+                console.error('[createOneOffEventBooking] Failed to create discount_code_usage:', usageError.message);
+              } else {
+                console.log(`[createOneOffEventBooking] Created discount_code_usage for org ${org.id}`);
+              }
+            }
+          } else {
+            console.log(`[createOneOffEventBooking] Skipping discount_code_usage tracking - no organization (guest booking)`);
+          }
         }
       }
     }
@@ -1835,7 +1872,6 @@ const functionHandlers = {
         total_cost: totalCost / ticketsRequired,
         voucher_amount: voucherAmountApplied / ticketsRequired,
         training_fund_amount: validatedTrainingFundAmount / ticketsRequired,
-        discount_code_amount: validatedDiscountAmount / ticketsRequired,
         account_amount: (paymentMethod === 'account' ? validatedRemainingBalance : 0) / ticketsRequired,
         purchase_order_number: purchaseOrderNumber,
         po_to_follow: paymentMethod === 'account' ? poToFollow : false,
@@ -1843,7 +1879,6 @@ const functionHandlers = {
         is_one_off_event: true,
         ticket_class_id: ticketClassId,
         ticket_class_name: ticketClassName,
-        discount_code_id: validatedDiscountCodeId,
         is_guest_booking: isGuestBooking,
         created_at: new Date().toISOString(),
         tenant_id: event.tenant_id
