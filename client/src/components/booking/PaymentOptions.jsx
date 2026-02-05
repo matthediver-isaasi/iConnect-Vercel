@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users, Wifi } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -1152,33 +1153,35 @@ export default function PaymentOptions({
         </CardContent>
       </Card>
 
-      {/* Stripe Payment Modal */}
-      <Dialog open={showStripeModal} onOpenChange={setShowStripeModal}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Enter Payment Details</DialogTitle>
-            <DialogDescription>
+      {/* Stripe Payment Drawer */}
+      <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader className="mb-6">
+            <SheetTitle>Enter Payment Details</SheetTitle>
+            <SheetDescription>
               Complete your booking by entering your card information below.
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </SheetHeader>
           
-          {stripeClientSecret && stripePromise && (
-            <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
-              <StripePaymentForm
-                clientSecret={stripeClientSecret}
-                onSuccess={handleStripePaymentSuccess}
-                onCancel={() => {
-                  setShowStripeModal(false);
-                  setStripeClientSecret(null);
-                  setStripePaymentIntentId(null);
-                  setSubmitting(false);
-                }}
-                amount={remainingBalance}
-              />
-            </Elements>
-          )}
-        </DialogContent>
-      </Dialog>
+          <div className="flex-1 overflow-y-auto">
+            {stripeClientSecret && stripePromise && (
+              <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
+                <StripePaymentForm
+                  clientSecret={stripeClientSecret}
+                  onSuccess={handleStripePaymentSuccess}
+                  onCancel={() => {
+                    setShowStripeModal(false);
+                    setStripeClientSecret(null);
+                    setStripePaymentIntentId(null);
+                    setSubmitting(false);
+                  }}
+                  amount={remainingBalance}
+                />
+              </Elements>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Duplicate Registration Warning Modal */}
       <Dialog open={showDuplicateWarning} onOpenChange={setShowDuplicateWarning}>
