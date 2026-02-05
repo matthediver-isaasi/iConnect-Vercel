@@ -2126,25 +2126,120 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       console.log('[DD Zoho CRM] No logo field found in form fields. Available labels:', formFields.map(f => f.label).filter(Boolean).join(', '));
     }
     
-    // Fallback: check due_diligence_document table if no logo URL from form field
+    // Fallback 1: Check submission_document table (primary source for versioned documents)
+    // Logo files were migrated to public-assets bucket via submission_document
+    // Known logo field ID from ESO/Partner/SO Long forms
+    const LOGO_FIELD_ID = 'field_1768830324467';
+    
     if (!logoUrl) {
-      console.log('[DD Zoho CRM] No valid logo from form field, checking due_diligence_document table...');
+      console.log('[DD Zoho CRM] No valid logo from form field, checking submission_document table...');
+      
+      // Query by exact field ID first, then fallback to field name containing 'logo'
+      // Scoped by form_submission_id (which is already tenant-scoped from parent query)
+      let submissionDocs = null;
+      let sdError = null;
+      
+      // First try exact field ID match
+      const exactResult = await supabase
+        .from('submission_document')
+        .select('id, field_name, file_url, storage_path, bucket, file_name, version, tenant_id')
+        .eq('form_submission_id', formSubmissionId)
+        .eq('tenant_id', tenantId)
+        .eq('field_name', LOGO_FIELD_ID)
+        .order('version', { ascending: false })
+        .limit(1);
+      
+      if (!exactResult.error && exactResult.data?.length > 0) {
+        submissionDocs = exactResult.data;
+        console.log('[DD Zoho CRM] Found logo by exact field ID:', LOGO_FIELD_ID);
+      } else {
+        // Fallback: search by field name containing 'logo' (case-insensitive)
+        // Still scoped by tenant_id for multi-tenant safety
+        const fuzzyResult = await supabase
+          .from('submission_document')
+          .select('id, field_name, file_url, storage_path, bucket, file_name, version, tenant_id')
+          .eq('form_submission_id', formSubmissionId)
+          .eq('tenant_id', tenantId)
+          .ilike('field_name', '%logo%')
+          .order('version', { ascending: false })
+          .limit(1);
+        
+        submissionDocs = fuzzyResult.data;
+        sdError = fuzzyResult.error;
+        if (submissionDocs?.length > 0) {
+          console.log('[DD Zoho CRM] Found logo by fuzzy field name match:', submissionDocs[0].field_name);
+        }
+      }
+      
+      if (sdError) {
+        console.log('[DD Zoho CRM] Error querying submission_document:', sdError.message);
+      } else if (submissionDocs?.[0]) {
+        const doc = submissionDocs[0];
+        console.log('[DD Zoho CRM] Found logo in submission_document - bucket:', doc.bucket, 'path:', doc.storage_path);
+        
+        if (doc.storage_path && doc.bucket) {
+          // For public-assets bucket, use public URL directly (shorter, permanent, no expiry)
+          if (doc.bucket === 'public-assets') {
+            const { data: publicData } = supabase.storage
+              .from(doc.bucket)
+              .getPublicUrl(doc.storage_path);
+            
+            if (publicData?.publicUrl) {
+              console.log('[DD Zoho CRM] Using public URL from public-assets bucket, length:', publicData.publicUrl.length);
+              // Public URLs are typically short enough (<450)
+              // If public URL exceeds 450 chars, Zoho may reject it - try signed URL as fallback
+              if (publicData.publicUrl.length <= 450) {
+                logoUrl = publicData.publicUrl;
+              } else {
+                console.log('[DD Zoho CRM] Public URL exceeds 450 chars, trying signed URL...');
+                const signedUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
+                logoUrl = validateLogoUrl(signedUrl);
+              }
+            }
+          } else {
+            // Private bucket - use signed URL
+            const rawDocUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
+            logoUrl = validateLogoUrl(rawDocUrl);
+          }
+        } else if (doc.file_url && doc.file_url.startsWith('http')) {
+          logoUrl = validateLogoUrl(doc.file_url);
+        }
+        
+        if (logoUrl) {
+          console.log('[DD Zoho CRM] Found valid logo URL in submission_document table');
+        }
+      }
+    }
+    
+    // Fallback 2: Check due_diligence_document table (legacy)
+    if (!logoUrl) {
+      console.log('[DD Zoho CRM] No logo in submission_document, checking due_diligence_document table...');
       const { data: ddDocuments } = await supabase
         .from('due_diligence_document')
-        .select('id, document_type, file_url, storage_path, bucket')
+        .select('id, document_type, file_url, storage_path, bucket, tenant_id')
         .eq('form_submission_due_diligence_id', ddSubmission.id)
+        .eq('tenant_id', tenantId)
         .eq('document_type', 'logo')
         .limit(1);
       
       if (ddDocuments?.[0]) {
         const doc = ddDocuments[0];
-        // Try to generate signed URL from storage metadata first
+        // For public-assets bucket, use public URL directly
         if (doc.storage_path && doc.bucket) {
           console.log('[DD Zoho CRM] Found document with storage metadata');
-          const rawDocUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
-          logoUrl = validateLogoUrl(rawDocUrl);
+          if (doc.bucket === 'public-assets') {
+            const { data: publicData } = supabase.storage
+              .from(doc.bucket)
+              .getPublicUrl(doc.storage_path);
+            
+            if (publicData?.publicUrl) {
+              logoUrl = validateLogoUrl(publicData.publicUrl);
+            }
+          } else {
+            const rawDocUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
+            logoUrl = validateLogoUrl(rawDocUrl);
+          }
         } else if (doc.file_url && doc.file_url.startsWith('http')) {
-          // Direct URL fallback
           logoUrl = validateLogoUrl(doc.file_url);
         }
         if (logoUrl) {
