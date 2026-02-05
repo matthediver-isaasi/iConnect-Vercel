@@ -17,15 +17,18 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+// Use destination database as per replit.md
+const DEST_SUPABASE_URL = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('Error: SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables are required');
+if (!supabaseKey) {
+  console.error('Error: DEST_SUPABASE_KEY environment variable is required');
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(DEST_SUPABASE_URL, supabaseKey, {
+  auth: { persistSession: false }
+});
 
 // Token cache
 let cachedToken = null;
