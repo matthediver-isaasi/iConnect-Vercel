@@ -3,10 +3,11 @@
 
 const SQL = `
 -- Add stage_zoho_crm_action table for DD workflow Zoho CRM integration
+-- Note: due_diligence_stage_id is a string ID from the workflow_stages JSON, not a foreign key
 CREATE TABLE IF NOT EXISTS stage_zoho_crm_action (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
-  due_diligence_stage_id UUID NOT NULL,
+  due_diligence_stage_id VARCHAR NOT NULL,
   form_id UUID REFERENCES form(id) ON DELETE CASCADE,
   is_active BOOLEAN DEFAULT true,
   sort_order INTEGER DEFAULT 0,
