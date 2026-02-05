@@ -2036,10 +2036,10 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
           const countryRecord = await lookupCountryInZoho(tenantId, countryName);
           if (countryRecord) {
             countrySubform.push({
-              Country: { id: countryRecord.id },
-              GSF_Region_Classification: countryRecord.GSF_Region_Classification,
-              Income_Group: countryRecord.Income_Group,
-              Flag: countryRecord.Flag
+              Countries_of_ops: { id: countryRecord.id },
+              GSF_Region_Classification_1: countryRecord.GSF_Region_Classification,
+              Income_Group_1: countryRecord.Income_Group,
+              Flag_1: countryRecord.Flag
             });
           } else {
             console.log('[DD Zoho CRM] Country not found in Zoho:', countryName);
@@ -2055,7 +2055,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         const orgData = {
           Account_Name: orgName,
           Lifecycle_Status: 'Current',
-          Type_of_Organisation: orgType,
+          Account_Type: orgType,
           Website: website || undefined,
           Org_logo_URL: logoUrl || undefined  // Note: lowercase 'l' in logo
         };
