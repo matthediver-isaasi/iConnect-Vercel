@@ -909,7 +909,6 @@ export default function PaymentOptions({
                           <RadioGroupItem value="account" id="account" className="mt-1" />
                           <div className="flex-1">
                             <Label htmlFor="account" className="text-sm font-medium cursor-pointer">Charge to Organisation Account</Label>
-                            <p className="text-xs text-slate-500 mt-1">Requires purchase order number</p>
                           </div>
                         </div>
 
