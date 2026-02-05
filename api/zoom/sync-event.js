@@ -99,8 +99,7 @@ export default async function handler(req, res) {
       .update({
         start_time: zoomStartNormalized,
         duration_minutes: zoomDuration,
-        timezone: zoomTimezone,
-        updated_at: new Date().toISOString()
+        timezone: zoomTimezone
       })
       .eq('id', zoomRecordId)
       .eq('tenant_id', tenantId);
@@ -115,8 +114,7 @@ export default async function handler(req, res) {
       .update({
         start_date: zoomStartNormalized,
         end_date: zoomEndTime,
-        timezone: zoomTimezone,
-        updated_at: new Date().toISOString()
+        timezone: zoomTimezone
       })
       .eq('id', eventId)
       .eq('tenant_id', tenantId);
