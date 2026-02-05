@@ -2,13 +2,16 @@
 /**
  * Migration Script: Move Logo Files from Private to Public Bucket
  * 
- * This script finds all form submissions with logo file fields that are stored
- * in the private-uploads bucket and migrates them to the public-assets bucket.
+ * This script finds all form submissions with logo file uploads stored in the 
+ * private-uploads bucket and migrates them to the public-assets bucket.
+ * 
+ * It targets the "Organisation Logo" custom field (ID: c574e948-a555-4d09-aca4-4b9a14c55374)
+ * used in Due Diligence forms.
  * 
  * Usage:
  *   node scripts/migrate-logos-to-public.mjs --dry-run    # Preview changes
  *   node scripts/migrate-logos-to-public.mjs              # Execute migration
- *   node scripts/migrate-logos-to-public.mjs --limit=10   # Limit to first 10 total files
+ *   node scripts/migrate-logos-to-public.mjs --limit=10   # Limit to first 10 files
  * 
  * Environment Variables Required:
  *   DEST_SUPABASE_KEY - Supabase service role key
@@ -29,6 +32,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const PRIVATE_BUCKET = 'private-uploads';
 const PUBLIC_BUCKET = 'public-assets';
 
+// Organisation Logo form field ID (from ESO Long form, Partner Long form, SO Long form)
+// The field is type "custom_field" referencing c574e948-a555-4d09-aca4-4b9a14c55374
+// but stored in submission_data under the form field ID
+const LOGO_FIELD_ID = 'field_1768830324467';
+
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
 const limitArg = args.find(a => a.startsWith('--limit='));
@@ -38,12 +46,12 @@ console.log('='.repeat(60));
 console.log('Logo Files Migration: Private -> Public Bucket');
 console.log('='.repeat(60));
 console.log(`Mode: ${isDryRun ? 'DRY RUN (no changes will be made)' : 'EXECUTE'}`);
-if (globalLimit) console.log(`Limit: ${globalLimit} files total`);
+console.log(`Target field: Organisation Logo (${LOGO_FIELD_ID})`);
+if (globalLimit) console.log(`Limit: ${globalLimit} files`);
 console.log('');
 
 /**
  * Parse a file field value into a normalized structure
- * Returns: { isArray, isJsonString, files: [...], originalValue }
  */
 function parseFileValue(rawValue) {
   if (!rawValue) return null;
@@ -51,7 +59,6 @@ function parseFileValue(rawValue) {
   let parsedValue = rawValue;
   let isJsonString = false;
   
-  // Parse JSON string if needed
   if (typeof rawValue === 'string') {
     if (rawValue.startsWith('{') || rawValue.startsWith('[')) {
       try {
@@ -65,23 +72,19 @@ function parseFileValue(rawValue) {
     }
   }
   
-  // Handle array of files
   if (Array.isArray(parsedValue)) {
     return {
       isArray: true,
       isJsonString,
-      files: parsedValue.filter(f => f && typeof f === 'object'),
-      originalValue: rawValue
+      files: parsedValue.filter(f => f && typeof f === 'object')
     };
   }
   
-  // Handle single file object
   if (typeof parsedValue === 'object' && parsedValue !== null) {
     return {
       isArray: false,
       isJsonString,
-      files: [parsedValue],
-      originalValue: rawValue
+      files: [parsedValue]
     };
   }
   
@@ -89,119 +92,109 @@ function parseFileValue(rawValue) {
 }
 
 /**
- * Find files that need migration (in private bucket)
+ * Extract bucket name from file object
+ * The bucket can be stored as a field or embedded in the file_url
  */
-function findFilesToMigrate(fileInfo) {
-  if (!fileInfo) return [];
+function extractBucket(file) {
+  if (!file) return null;
   
-  return fileInfo.files
-    .map((file, index) => ({
-      file,
-      index,
-      needsMigration: file.bucket === PRIVATE_BUCKET && !!file.storage_path
-    }))
-    .filter(item => item.needsMigration);
+  // Check explicit bucket field
+  if (file.bucket) return file.bucket;
+  
+  // Extract from file_url query parameter
+  if (file.file_url) {
+    const match = file.file_url.match(/bucket=([^&]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  
+  return null;
 }
 
-async function findLogoFields() {
-  console.log('Step 1: Finding forms with logo file fields...');
+/**
+ * Extract storage path from file object
+ * The path can be stored as a field or embedded in the file_url
+ */
+function extractStoragePath(file) {
+  if (!file) return null;
   
-  const { data: forms, error } = await supabase
-    .from('form')
-    .select('id, name, fields, tenant_id');
+  // Check explicit storage_path field
+  if (file.storage_path) return file.storage_path;
+  
+  // Extract from file_url query parameter
+  if (file.file_url) {
+    const match = file.file_url.match(/path=([^&]+)/);
+    if (match) return decodeURIComponent(match[1]);
+  }
+  
+  return null;
+}
+
+/**
+ * Check if a file needs migration (in private bucket)
+ */
+function needsMigration(file) {
+  const bucket = extractBucket(file);
+  const storagePath = extractStoragePath(file);
+  
+  if (!storagePath) return false;
+  
+  return bucket === PRIVATE_BUCKET;
+}
+
+async function findSubmissionsToMigrate() {
+  console.log('Step 1: Finding form submissions with logos in private bucket...');
+  
+  // Get all form submissions that have the logo field
+  const { data: submissions, error } = await supabase
+    .from('form_submission')
+    .select('id, form_id, form_name, submission_data, tenant_id')
+    .not('submission_data', 'is', null);
   
   if (error) {
-    console.error('Error fetching forms:', error.message);
+    console.error('Error fetching submissions:', error.message);
     return [];
   }
   
-  const logoFieldsByForm = [];
+  const toMigrate = [];
   
-  for (const form of forms || []) {
-    if (!form.fields || !Array.isArray(form.fields)) continue;
+  for (const sub of submissions || []) {
+    if (!sub.submission_data) continue;
     
-    const logoFields = form.fields.filter(field => 
-      field.type === 'file' && 
-      field.label && 
-      field.label.toLowerCase().includes('logo')
-    );
+    const logoValue = sub.submission_data[LOGO_FIELD_ID];
+    if (!logoValue) continue;
     
-    if (logoFields.length > 0) {
-      logoFieldsByForm.push({
-        formId: form.id,
-        formName: form.name,
-        tenantId: form.tenant_id,
-        logoFields: logoFields.map(f => ({ id: f.id, label: f.label }))
+    const fileInfo = parseFileValue(logoValue);
+    if (!fileInfo) continue;
+    
+    // Find files that need migration
+    const filesToMigrate = fileInfo.files
+      .map((file, index) => ({ file, index, needsMigration: needsMigration(file) }))
+      .filter(item => item.needsMigration);
+    
+    if (filesToMigrate.length > 0) {
+      toMigrate.push({
+        submissionId: sub.id,
+        formId: sub.form_id,
+        formName: sub.form_name,
+        tenantId: sub.tenant_id,
+        fileInfo,
+        filesToMigrate
       });
     }
   }
   
-  console.log(`Found ${logoFieldsByForm.length} forms with logo fields:`);
-  logoFieldsByForm.forEach(f => {
-    console.log(`  - ${f.formName} (${f.formId}): ${f.logoFields.map(lf => lf.label).join(', ')}`);
-  });
+  console.log(`Found ${toMigrate.length} submissions with ${toMigrate.reduce((sum, s) => sum + s.filesToMigrate.length, 0)} logo files to migrate`);
   console.log('');
   
-  return logoFieldsByForm;
-}
-
-async function findSubmissionsToMigrate(logoFieldsByForm) {
-  console.log('Step 2: Finding form submissions with logos in private bucket...');
-  
-  const submissionsToMigrate = [];
-  
-  for (const formInfo of logoFieldsByForm) {
-    const { data: submissions, error } = await supabase
-      .from('form_submission')
-      .select('id, form_id, custom_fields, created_at')
-      .eq('form_id', formInfo.formId);
-    
-    if (error) {
-      console.error(`Error fetching submissions for form ${formInfo.formId}:`, error.message);
-      continue;
-    }
-    
-    for (const submission of submissions || []) {
-      if (!submission.custom_fields) continue;
-      
-      for (const logoField of formInfo.logoFields) {
-        const fieldKey = logoField.id;
-        const actualKey = submission.custom_fields[fieldKey] !== undefined 
-          ? fieldKey 
-          : (submission.custom_fields[`field_${fieldKey}`] !== undefined ? `field_${fieldKey}` : null);
-        
-        if (!actualKey) continue;
-        
-        const rawValue = submission.custom_fields[actualKey];
-        const fileInfo = parseFileValue(rawValue);
-        const filesToMigrate = findFilesToMigrate(fileInfo);
-        
-        if (filesToMigrate.length > 0) {
-          submissionsToMigrate.push({
-            submissionId: submission.id,
-            formId: formInfo.formId,
-            formName: formInfo.formName,
-            tenantId: formInfo.tenantId,
-            fieldKey: actualKey,
-            fieldLabel: logoField.label,
-            fileInfo,
-            filesToMigrate,
-            createdAt: submission.created_at
-          });
-        }
-      }
-    }
-  }
-  
-  const totalFiles = submissionsToMigrate.reduce((sum, s) => sum + s.filesToMigrate.length, 0);
-  console.log(`Found ${totalFiles} logo files across ${submissionsToMigrate.length} submissions to migrate`);
-  console.log('');
-  
-  return submissionsToMigrate;
+  return toMigrate;
 }
 
 async function migrateFile(file) {
-  const storagePath = file.storage_path;
+  const storagePath = extractStoragePath(file);
+  
+  if (!storagePath) {
+    return { success: false, error: 'No storage path found' };
+  }
   
   try {
     // Step 1: Download file from private bucket
@@ -247,15 +240,16 @@ async function migrateFile(file) {
 }
 
 async function migrateSubmission(item) {
-  const { submissionId, fieldKey, fileInfo, filesToMigrate } = item;
+  const { submissionId, formName, fileInfo, filesToMigrate } = item;
   
-  console.log(`  Submission ${submissionId}:`);
+  console.log(`  Submission ${submissionId} (${formName || 'Unknown form'}):`);
   
   if (isDryRun) {
-    for (const { file, index } of filesToMigrate) {
-      console.log(`    [DRY RUN] Would migrate: ${file.file_name || file.storage_path}`);
-      console.log(`      From: ${PRIVATE_BUCKET}/${file.storage_path}`);
-      console.log(`      To: ${PUBLIC_BUCKET}/${file.storage_path}`);
+    for (const { file } of filesToMigrate) {
+      const storagePath = extractStoragePath(file);
+      console.log(`    [DRY RUN] Would migrate: ${file.file_name || storagePath}`);
+      console.log(`      From: ${PRIVATE_BUCKET}/${storagePath}`);
+      console.log(`      To: ${PUBLIC_BUCKET}/${storagePath}`);
     }
     return { success: true, migratedCount: filesToMigrate.length, dryRun: true };
   }
@@ -263,7 +257,7 @@ async function migrateSubmission(item) {
   // Create a copy of the files array to update
   const updatedFiles = [...fileInfo.files];
   let migratedCount = 0;
-  let errors = [];
+  const errors = [];
   
   for (const { file, index } of filesToMigrate) {
     console.log(`    Migrating: ${file.file_name || file.storage_path}`);
@@ -295,7 +289,7 @@ async function migrateSubmission(item) {
   // Update the form submission
   const { data: currentSubmission, error: fetchError } = await supabase
     .from('form_submission')
-    .select('custom_fields')
+    .select('submission_data')
     .eq('id', submissionId)
     .single();
   
@@ -303,12 +297,12 @@ async function migrateSubmission(item) {
     return { success: false, migratedCount, errors: [...errors, `Fetch error: ${fetchError.message}`] };
   }
   
-  const updatedCustomFields = { ...currentSubmission.custom_fields };
-  updatedCustomFields[fieldKey] = newValue;
+  const updatedSubmissionData = { ...currentSubmission.submission_data };
+  updatedSubmissionData[LOGO_FIELD_ID] = newValue;
   
   const { error: updateError } = await supabase
     .from('form_submission')
-    .update({ custom_fields: updatedCustomFields })
+    .update({ submission_data: updatedSubmissionData })
     .eq('id', submissionId);
   
   if (updateError) {
@@ -320,16 +314,8 @@ async function migrateSubmission(item) {
 
 async function run() {
   try {
-    // Find forms with logo fields
-    const logoFieldsByForm = await findLogoFields();
-    
-    if (logoFieldsByForm.length === 0) {
-      console.log('No forms with logo fields found. Nothing to migrate.');
-      return;
-    }
-    
     // Find submissions to migrate
-    let submissionsToMigrate = await findSubmissionsToMigrate(logoFieldsByForm);
+    let submissionsToMigrate = await findSubmissionsToMigrate();
     
     if (submissionsToMigrate.length === 0) {
       console.log('No logo files found in private bucket. Nothing to migrate.');
@@ -349,7 +335,6 @@ async function run() {
           limitedSubmissions.push(submission);
           totalFiles += submission.filesToMigrate.length;
         } else {
-          // Partial - take only what we can
           const partialSubmission = {
             ...submission,
             filesToMigrate: submission.filesToMigrate.slice(0, remainingSlots)
@@ -365,14 +350,13 @@ async function run() {
     }
     
     // Migrate each submission
-    console.log('Step 3: Migrating files...');
+    console.log('Step 2: Migrating files...');
     console.log('');
     
     let totalMigrated = 0;
     let totalErrors = 0;
     
     for (const item of submissionsToMigrate) {
-      console.log(`Form: ${item.formName}, Field: ${item.fieldLabel}`);
       const result = await migrateSubmission(item);
       
       totalMigrated += result.migratedCount;
