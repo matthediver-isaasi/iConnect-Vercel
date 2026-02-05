@@ -1,5 +1,12 @@
 import { supabase } from '../../_lib/database.js';
 import { getZoomAccessToken, getTenantIdFromSession } from '../../_lib/zoomClient.js';
+import { fromZonedTime } from 'date-fns-tz';
+
+function convertLocalTimeToUTC(localTimeStr, timezone) {
+  const localDate = new Date(localTimeStr);
+  const utcDate = fromZonedTime(localDate, timezone);
+  return utcDate.toISOString();
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -123,13 +130,16 @@ export default async function handler(req, res) {
       
       console.log('[Zoom] Webinar created:', zoomData.id);
       
+      const utcStartTime = convertLocalTimeToUTC(start_time, timezone);
+      console.log('[Zoom] Converted start_time:', start_time, 'in', timezone, '-> UTC:', utcStartTime);
+      
       const { data: webinar, error: dbError } = await supabase
         .from('zoom_webinar')
         .insert({
           tenant_id: tenantId,
           topic,
           agenda,
-          start_time,
+          start_time: utcStartTime,
           duration_minutes,
           timezone,
           registration_required,

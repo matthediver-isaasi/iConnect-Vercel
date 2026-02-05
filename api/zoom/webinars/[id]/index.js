@@ -1,5 +1,12 @@
 import { supabase } from '../../../_lib/database.js';
 import { getZoomAccessToken, getTenantIdFromSession } from '../../../_lib/zoomClient.js';
+import { fromZonedTime } from 'date-fns-tz';
+
+function convertLocalTimeToUTC(localTimeStr, timezone) {
+  const localDate = new Date(localTimeStr);
+  const utcDate = fromZonedTime(localDate, timezone);
+  return utcDate.toISOString();
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -58,7 +65,7 @@ export default async function handler(req, res) {
       
       const { data: existing, error: fetchError } = await supabase
         .from('zoom_webinar')
-        .select('zoom_webinar_id')
+        .select('zoom_webinar_id, timezone')
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -96,9 +103,17 @@ export default async function handler(req, res) {
         }
       }
       
+      const dbUpdates = { ...updates, updated_at: new Date().toISOString() };
+      
+      if (updates.start_time) {
+        const timezone = updates.timezone || existing.timezone || 'Europe/London';
+        dbUpdates.start_time = convertLocalTimeToUTC(updates.start_time, timezone);
+        console.log('[Zoom] Converted start_time:', updates.start_time, 'in', timezone, '-> UTC:', dbUpdates.start_time);
+      }
+      
       const { data: webinar, error: updateError } = await supabase
         .from('zoom_webinar')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update(dbUpdates)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .select()
