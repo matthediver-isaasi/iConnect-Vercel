@@ -1154,15 +1154,15 @@ export default function PaymentOptions({
 
       {/* Stripe Payment Drawer */}
       <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-          <SheetHeader className="mb-6">
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col h-full">
+          <SheetHeader className="flex-shrink-0 mb-6">
             <SheetTitle>Enter Payment Details</SheetTitle>
             <SheetDescription>
               Complete your booking by entering your card information below.
             </SheetDescription>
           </SheetHeader>
           
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto pb-6">
             {stripeClientSecret && stripePromise && (
               <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
                 <StripePaymentForm
