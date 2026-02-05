@@ -154,6 +154,11 @@ export default function PaymentOptions({
   const [duplicateAttendees, setDuplicateAttendees] = useState([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
 
+  // Discount code state
+  const [discountCodeInput, setDiscountCodeInput] = useState("");
+  const [appliedDiscount, setAppliedDiscount] = useState(null);
+  const [applyingDiscount, setApplyingDiscount] = useState(false);
+
   const queryClient = useQueryClient();
 
   // Realtime callbacks for balance updates during booking
@@ -255,13 +260,65 @@ export default function PaymentOptions({
     totalCost - voucherAmount
   );
 
-  // Calculate remaining balance automatically
-  const remainingBalance = Math.max(0, totalCost - voucherAmount - trainingFundAmount);
+  // Calculate discount code savings based on remaining cost after vouchers and training fund
+  // This matches the server-side calculation order: vouchers -> training fund -> discount code
+  const costAfterVouchersAndFund = Math.max(0, totalCost - voucherAmount - trainingFundAmount);
+  const discountCodeSavings = appliedDiscount 
+    ? (appliedDiscount.discount_type === 'percentage'
+      ? Math.min((costAfterVouchersAndFund * appliedDiscount.discount_value) / 100, costAfterVouchersAndFund)
+      : Math.min(appliedDiscount.discount_value, costAfterVouchersAndFund))
+    : 0;
+
+  // Calculate remaining balance automatically (includes discount code savings)
+  const remainingBalance = Math.max(0, costAfterVouchersAndFund - discountCodeSavings);
 
   // Handle payment allocation changes
   const handleTrainingFundChange = (value) => {
     const numValue = Math.max(0, Math.min(maxTrainingFund, parseFloat(value) || 0));
     setTrainingFundAmount(numValue);
+  };
+
+  // Handle discount code application
+  const handleApplyDiscount = async () => {
+    if (!discountCodeInput.trim()) {
+      toast.error('Please enter a discount code');
+      return;
+    }
+
+    setApplyingDiscount(true);
+
+    try {
+      const response = await base44.functions.invoke('applyDiscountCode', {
+        code: discountCodeInput.trim().toUpperCase(),
+        eventId: event?.id,
+        memberEmail: memberInfo?.email || guestInfo?.email,
+        amount: totalCost
+      });
+
+      if (response.data.valid) {
+        setAppliedDiscount({
+          ...response.data,
+          code: discountCodeInput.trim().toUpperCase()
+        });
+        toast.success(`Discount code applied! You save £${response.data.discount_amount.toFixed(2)}`);
+      } else {
+        toast.error(response.data.error || 'Invalid discount code');
+        setAppliedDiscount(null);
+      }
+    } catch (error) {
+      console.error('Error applying discount:', error);
+      const errorMessage = error.response?.data?.error || 'Invalid discount code';
+      toast.error(errorMessage);
+      setAppliedDiscount(null);
+    } finally {
+      setApplyingDiscount(false);
+    }
+  };
+
+  const handleRemoveDiscount = () => {
+    setAppliedDiscount(null);
+    setDiscountCodeInput("");
+    toast.info('Discount code removed');
   };
 
   // Check if fully paid for one-off events
@@ -478,7 +535,9 @@ export default function PaymentOptions({
         ticketClassId: selectedTicketClass?.id || null,
         ticketClassName: selectedTicketClass?.name || null,
         ticketClassPrice: selectedTicketClass?.price || ticketPrice,
-        isGuestBooking: isGuestCheckout
+        isGuestBooking: isGuestCheckout,
+        discountCodeId: appliedDiscount?.discount_code_id || null,
+        discountCodeAmount: discountCodeSavings || 0
       };
 
       // Add member-specific fields for logged-in users
@@ -644,10 +703,20 @@ export default function PaymentOptions({
                 {oneOffCostDetails.discountDescription}
               </div>
             )}
+
+            {discountCodeSavings > 0 && (
+              <div className="flex items-center justify-between text-sm text-purple-700">
+                <span className="flex items-center gap-1">
+                  <Tag className="w-3 h-3" />
+                  Discount Code ({appliedDiscount?.code}):
+                </span>
+                <span className="font-bold">-£{discountCodeSavings.toFixed(2)}</span>
+              </div>
+            )}
             
             <div className="flex items-center justify-between text-sm pt-2 border-t border-blue-200">
               <span className="text-blue-700 font-medium">Total Cost:</span>
-              <span className="font-bold text-lg text-blue-900">£{totalCost.toFixed(2)}</span>
+              <span className="font-bold text-lg text-blue-900">£{(totalCost - discountCodeSavings).toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -720,6 +789,66 @@ export default function PaymentOptions({
                   onChange={(e) => handleTrainingFundChange(e.target.value)}
                   disabled={maxTrainingFund === 0}
                 />
+              </div>
+            )}
+
+            {/* Discount Code Section */}
+            {!isFeatureExcluded('element_EventDiscountCode') && (
+              <div id="discount-code-section" className="p-4 rounded-lg border border-slate-200 bg-purple-50">
+                <div className="flex items-center gap-2 mb-3">
+                  <Tag className="w-4 h-4 text-purple-600" />
+                  <Label className="text-sm font-medium">Discount Code</Label>
+                </div>
+                {appliedDiscount ? (
+                  <div className="p-3 bg-green-100 border border-green-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <div>
+                          <p className="text-sm font-medium text-green-900">{appliedDiscount.code}</p>
+                          <p className="text-xs text-green-700">
+                            {appliedDiscount.discount_type === 'percentage' 
+                              ? `${appliedDiscount.discount_value}% off` 
+                              : `£${appliedDiscount.discount_value} off`}
+                            {' '}— Saving £{discountCodeSavings.toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveDiscount}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        data-testid="button-remove-discount"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Enter discount code"
+                      value={discountCodeInput}
+                      onChange={(e) => setDiscountCodeInput(e.target.value.toUpperCase())}
+                      className="flex-1"
+                      onKeyDown={(e) => e.key === 'Enter' && handleApplyDiscount()}
+                      data-testid="input-discount-code"
+                    />
+                    <Button
+                      onClick={handleApplyDiscount}
+                      disabled={applyingDiscount || !discountCodeInput.trim()}
+                      variant="outline"
+                      data-testid="button-apply-discount"
+                    >
+                      {applyingDiscount ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        'Apply'
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 

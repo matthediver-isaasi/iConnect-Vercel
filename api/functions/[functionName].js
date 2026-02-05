@@ -1469,7 +1469,9 @@ const functionHandlers = {
       ticketClassName = null,
       ticketClassPrice = null,
       isGuestBooking = false,
-      guestInfo = null
+      guestInfo = null,
+      discountCodeId = null,
+      discountCodeAmount = 0
     } = params;
 
     console.log('[createOneOffEventBooking] Starting booking:', {
@@ -1483,7 +1485,9 @@ const functionHandlers = {
       attendeesReceived: attendees?.length || 0,
       attendeesData: JSON.stringify(attendees),
       isGuestBooking,
-      guestInfo: guestInfo ? { email: guestInfo.email, first_name: guestInfo.first_name } : null
+      guestInfo: guestInfo ? { email: guestInfo.email, first_name: guestInfo.first_name } : null,
+      discountCodeId,
+      discountCodeAmount
     });
 
     // Validate required fields - for guest bookings, require guestInfo instead of memberEmail
@@ -1745,8 +1749,59 @@ const functionHandlers = {
       }
     }
 
-    // Calculate validated remaining balance after vouchers and training fund
-    const validatedRemainingBalance = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
+    // Validate and recompute discount code amount on server side (never trust client amount)
+    let validatedDiscountAmount = 0;
+    let validatedDiscountCodeId = null;
+    
+    if (discountCodeId) {
+      console.log(`[createOneOffEventBooking] Validating discount code ID: ${discountCodeId} for tenant: ${event.tenant_id}`);
+      
+      // Validate discount code with tenant scoping for multi-tenant security
+      const { data: discountCode, error: discountCodeError } = await supabase
+        .from('discount_code')
+        .select('*')
+        .eq('id', discountCodeId)
+        .eq('is_active', true)
+        .eq('tenant_id', event.tenant_id) // Ensure code belongs to this tenant
+        .maybeSingle();
+      
+      if (discountCodeError || !discountCode) {
+        console.warn(`[createOneOffEventBooking] Discount code validation failed: ${discountCodeError?.message || 'Not found or inactive'}`);
+      } else {
+        // Check if discount code has expired
+        if (discountCode.expiry_date && new Date(discountCode.expiry_date) < new Date()) {
+          console.warn(`[createOneOffEventBooking] Discount code has expired`);
+        } else if (discountCode.max_uses && discountCode.times_used >= discountCode.max_uses) {
+          console.warn(`[createOneOffEventBooking] Discount code has reached maximum uses`);
+        } else {
+          // Compute discount amount server-side based on remaining cost after vouchers and training fund
+          const costAfterVouchersAndFund = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
+          
+          if (discountCode.discount_type === 'percentage') {
+            validatedDiscountAmount = Math.min(
+              (costAfterVouchersAndFund * discountCode.discount_value) / 100,
+              costAfterVouchersAndFund
+            );
+          } else {
+            validatedDiscountAmount = Math.min(discountCode.discount_value, costAfterVouchersAndFund);
+          }
+          
+          validatedDiscountCodeId = discountCode.id;
+          console.log(`[createOneOffEventBooking] Discount code validated: ${discountCode.code}, type=${discountCode.discount_type}, value=${discountCode.discount_value}, computed amount=${validatedDiscountAmount}`);
+          
+          // Increment times_used for the discount code (tenant-scoped for safety)
+          await supabase
+            .from('discount_code')
+            .update({ times_used: (discountCode.times_used || 0) + 1 })
+            .eq('id', discountCode.id)
+            .eq('tenant_id', event.tenant_id);
+        }
+      }
+    }
+
+    // Calculate validated remaining balance after vouchers, training fund, and discount code
+    const validatedRemainingBalance = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount - validatedDiscountAmount);
+    console.log(`[createOneOffEventBooking] Payment breakdown: totalCost=${totalCost}, vouchers=${voucherAmountApplied}, trainingFund=${validatedTrainingFundAmount}, discountCode=${validatedDiscountAmount}, remaining=${validatedRemainingBalance}`);
     
     // Create booking records for each attendee
     const createdBookings = [];
@@ -1779,6 +1834,7 @@ const functionHandlers = {
         total_cost: totalCost / ticketsRequired,
         voucher_amount: voucherAmountApplied / ticketsRequired,
         training_fund_amount: validatedTrainingFundAmount / ticketsRequired,
+        discount_code_amount: validatedDiscountAmount / ticketsRequired,
         account_amount: (paymentMethod === 'account' ? validatedRemainingBalance : 0) / ticketsRequired,
         purchase_order_number: purchaseOrderNumber,
         po_to_follow: paymentMethod === 'account' ? poToFollow : false,
@@ -1786,6 +1842,7 @@ const functionHandlers = {
         is_one_off_event: true,
         ticket_class_id: ticketClassId,
         ticket_class_name: ticketClassName,
+        discount_code_id: validatedDiscountCodeId,
         is_guest_booking: isGuestBooking,
         created_at: new Date().toISOString(),
         tenant_id: event.tenant_id
@@ -2477,6 +2534,7 @@ const functionHandlers = {
         total_cost: totalCost,
         voucher_amount: voucherAmountApplied,
         training_fund_amount: validatedTrainingFundAmount,
+        discount_code_amount: validatedDiscountAmount,
         account_amount: paymentMethod === 'account' ? validatedRemainingBalance : 0,
         card_amount: paymentMethod === 'card' ? validatedRemainingBalance : 0
       },
@@ -2618,7 +2676,7 @@ const functionHandlers = {
     };
   },
 
-  async applyDiscountCode(params) {
+  async applyDiscountCode(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
     const { code, memberEmail, eventId, amount } = params;
@@ -2627,11 +2685,42 @@ const functionHandlers = {
       return { valid: false, error: 'Discount code is required' };
     }
 
+    // Get tenant context for multi-tenant scoping
+    let tenantId = null;
+    
+    // First try to get tenant from the event
+    if (eventId) {
+      const { data: event } = await supabase
+        .from('event')
+        .select('tenant_id')
+        .eq('id', eventId)
+        .maybeSingle();
+      tenantId = event?.tenant_id;
+    }
+    
+    // Fallback to request context if no event tenant found
+    if (!tenantId && req) {
+      try {
+        const tenantContext = await getTenantContext(req);
+        tenantId = tenantContext?.tenantId;
+      } catch (e) {
+        console.warn('[applyDiscountCode] Could not get tenant context:', e.message);
+      }
+    }
+
+    // Require tenant context for security - fail closed if not available
+    if (!tenantId) {
+      console.error('[applyDiscountCode] No tenant context - rejecting discount code validation for security');
+      return { valid: false, error: 'Unable to validate discount code - please try again' };
+    }
+
+    // Query discount codes with required tenant filter for multi-tenant security
     const { data: discountCodes } = await supabase
       .from('discount_code')
       .select('*')
       .eq('code', code.toUpperCase())
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .eq('tenant_id', tenantId);
 
     if (!discountCodes || discountCodes.length === 0) {
       return { valid: false, error: 'Invalid discount code' };
