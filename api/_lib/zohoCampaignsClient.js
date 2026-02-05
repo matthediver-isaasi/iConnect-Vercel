@@ -406,7 +406,8 @@ export async function getZohoOAuthUrl(tenantId, redirectUri, signedState) {
     throw new Error('Zoho client ID not configured - please set up in Integrations');
   }
 
-  const scope = 'ZohoCampaigns.contact.CREATE,ZohoCampaigns.contact.READ,ZohoCampaigns.contact.UPDATE';
+  // Combined scopes for both Campaigns and CRM
+  const scope = 'ZohoCampaigns.contact.CREATE,ZohoCampaigns.contact.READ,ZohoCampaigns.contact.UPDATE,ZohoCRM.modules.ALL,ZohoCRM.settings.ALL,ZohoCRM.coql.READ';
   
   const params = new URLSearchParams({
     scope,

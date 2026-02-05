@@ -56,20 +56,21 @@ async function getTenantZohoCrmCredentials(tenantId, options = {}) {
   }
 
   try {
+    // Use the same integration as Zoho Campaigns (shared Zoho connector)
     const { data: integration, error } = await supabase
       .from('tenant_integrations')
       .select('credentials, is_enabled')
       .eq('tenant_id', tenantId)
-      .eq('integration_type', 'zoho_crm')
+      .eq('integration_type', 'zoho_campaigns')
       .single();
 
     if (error || !integration) {
-      console.log('[ZohoCRM] No Zoho CRM integration found for tenant:', tenantId);
+      console.log('[ZohoCRM] No Zoho integration found for tenant:', tenantId);
       return null;
     }
 
     if (!bypassEnabledCheck && !integration.is_enabled) {
-      console.log('[ZohoCRM] Zoho CRM integration disabled for tenant:', tenantId);
+      console.log('[ZohoCRM] Zoho integration disabled for tenant:', tenantId);
       return null;
     }
 
@@ -96,11 +97,12 @@ async function saveTenantZohoCrmCredentials(tenantId, credentials, mergeWithExis
     let finalCredentials = { ...credentials };
 
     if (mergeWithExisting) {
+      // Use the same integration as Zoho Campaigns (shared Zoho connector)
       const { data: existing } = await supabase
         .from('tenant_integrations')
         .select('credentials')
         .eq('tenant_id', tenantId)
-        .eq('integration_type', 'zoho_crm')
+        .eq('integration_type', 'zoho_campaigns')
         .single();
 
       if (existing?.credentials) {
@@ -115,11 +117,12 @@ async function saveTenantZohoCrmCredentials(tenantId, credentials, mergeWithExis
       finalCredentials.access_token = encrypt(credentials.access_token);
     }
 
+    // Update the shared Zoho integration
     const { error } = await supabase
       .from('tenant_integrations')
       .upsert({
         tenant_id: tenantId,
-        integration_type: 'zoho_crm',
+        integration_type: 'zoho_campaigns',
         credentials: finalCredentials,
         is_enabled: true,
         updated_at: new Date().toISOString()

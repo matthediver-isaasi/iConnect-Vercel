@@ -459,16 +459,16 @@ export default function DueDiligenceConfigPage() {
   });
   const stageZohoCrmActions = stageZohoCrmActionsData || [];
 
-  const { data: zohoCrmStatus } = useQuery({
-    queryKey: ['zoho-crm-status'],
+  const { data: zohoStatus } = useQuery({
+    queryKey: ['zoho-status'],
     queryFn: async () => {
-      const response = await fetch('/api/zoho-crm/oauth?action=status', { credentials: 'include' });
+      const response = await fetch('/api/zoho-campaigns/oauth?action=status', { credentials: 'include' });
       if (!response.ok) return { connected: false };
       return response.json();
     },
     enabled: !!formId && accessChecked
   });
-  const isZohoCrmConnected = zohoCrmStatus?.connected === true;
+  const isZohoCrmConnected = zohoStatus?.connected === true;
 
   const addStageZohoCrmAction = async (stageId) => {
     try {

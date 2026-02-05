@@ -956,9 +956,9 @@ export default function AdminIntegrations() {
                     <Mail className="h-5 w-5 text-orange-400" />
                   </div>
                   <div>
-                    <CardTitle className="text-white">Zoho Campaigns</CardTitle>
+                    <CardTitle className="text-white">Zoho</CardTitle>
                     <CardDescription className="text-slate-400">
-                      Sync member communication preferences to Zoho mailing lists
+                      Sync member communication preferences and connect to Zoho CRM for Due Diligence workflows
                     </CardDescription>
                   </div>
                 </div>
@@ -1114,7 +1114,7 @@ export default function AdminIntegrations() {
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="h-5 w-5 text-green-400" />
                       <div>
-                        <p className="text-sm font-medium text-green-400">Connected to Zoho Campaigns</p>
+                        <p className="text-sm font-medium text-green-400">Connected to Zoho</p>
                         <p className="text-xs text-slate-400">
                           Go to Communications Management to map categories to Zoho lists and sync subscribers.
                         </p>
