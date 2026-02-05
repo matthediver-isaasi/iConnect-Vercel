@@ -1975,59 +1975,118 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     const logoField = findFieldByLabel(formFields, 'logo');
     let logoUrl = null;
     
-    // Helper to extract URL from various file upload value structures
+    // Helper to extract file metadata from various file upload value structures
     // File uploads in this system store as: { file_url: "...", storage_path: "...", bucket: "...", file_name: "..." }
-    // Sometimes stored as stringified JSON
-    const extractFileUrl = (value, depth = 0) => {
+    // The file_url is often a relative path like /api/storage/secure-url?... which is internal
+    // We need storage_path and bucket to generate a Supabase signed URL
+    const extractFileMetadata = (value, depth = 0) => {
       if (!value || depth > 3) return null; // Limit recursion depth
       
-      // Handle string values
+      // Handle string values - might be JSON
       if (typeof value === 'string') {
         // Check if it's a JSON string (starts with { or [)
         if (value.startsWith('{') || value.startsWith('[')) {
           try {
             const parsed = JSON.parse(value);
-            return extractFileUrl(parsed, depth + 1);
+            return extractFileMetadata(parsed, depth + 1);
           } catch (e) {
-            // Not valid JSON, treat as URL
-            console.log('[DD Zoho CRM] Failed to parse as JSON, treating as URL');
+            console.log('[DD Zoho CRM] Failed to parse logo JSON string');
+            return null;
           }
         }
-        // Only return if it looks like a URL (starts with http)
+        // Direct URL string
         if (value.startsWith('http')) {
-          return value;
+          return { directUrl: value };
         }
-        // Not a URL, might be something else
-        console.log('[DD Zoho CRM] String value does not look like URL:', value.substring(0, 100));
         return null;
       }
       
       // Array of files - take the first one
       if (Array.isArray(value)) {
         if (value.length === 0) return null;
-        return extractFileUrl(value[0], depth + 1);
+        return extractFileMetadata(value[0], depth + 1);
       }
       
-      // Object with various common URL properties
+      // Object - extract storage metadata
       if (typeof value === 'object') {
-        // Common URL property names in file upload objects
-        // file_url is the key used in this system's CustomFieldFileUpload
-        const directUrl = value.file_url || value.url || value.publicUrl || value.path || 
-                          value.signedUrl || value.downloadUrl || value.src;
+        // If we have storage_path and bucket, we can generate a signed URL
+        if (value.storage_path && value.bucket) {
+          console.log('[DD Zoho CRM] Found storage metadata - bucket:', value.bucket, 'path:', value.storage_path);
+          return {
+            bucket: value.bucket,
+            storagePath: value.storage_path,
+            isPrivate: value.is_private !== false // default to private
+          };
+        }
+        
+        // Direct http URL
+        const directUrl = value.file_url || value.url || value.publicUrl || value.signedUrl || value.downloadUrl || value.src;
         if (directUrl && typeof directUrl === 'string' && directUrl.startsWith('http')) {
-          return directUrl;
+          return { directUrl };
         }
         
         // Common wrapper properties
-        if (value.value) return extractFileUrl(value.value, depth + 1);
-        if (value.data) return extractFileUrl(value.data, depth + 1);
-        if (value.file) return extractFileUrl(value.file, depth + 1);
-        if (value.files) return extractFileUrl(value.files, depth + 1);
-        if (value.metadata?.url) return value.metadata.url;
+        if (value.value) return extractFileMetadata(value.value, depth + 1);
+        if (value.data) return extractFileMetadata(value.data, depth + 1);
+        if (value.file) return extractFileMetadata(value.file, depth + 1);
+        if (value.files) return extractFileMetadata(value.files, depth + 1);
+        if (value.metadata?.url) return { directUrl: value.metadata.url };
         
         // Log what keys we found to help debug
-        console.log('[DD Zoho CRM] Could not extract URL from object, keys:', Object.keys(value).join(', '));
+        console.log('[DD Zoho CRM] Could not extract file metadata from object, keys:', Object.keys(value).join(', '));
         return null;
+      }
+      
+      return null;
+    };
+    
+    // Generate a Supabase signed URL from storage metadata
+    // Note: Signed URLs can be long (500+ chars), but Zoho's limit is 450
+    // We'll try public URL first for public buckets
+    const generateSignedUrl = async (metadata) => {
+      if (!metadata) return null;
+      
+      // Already have a direct URL
+      if (metadata.directUrl) {
+        console.log('[DD Zoho CRM] Using direct URL from metadata');
+        return metadata.directUrl;
+      }
+      
+      // Generate URL from bucket/path
+      if (metadata.bucket && metadata.storagePath) {
+        try {
+          console.log('[DD Zoho CRM] Generating URL for:', metadata.bucket, metadata.storagePath);
+          
+          // For public buckets, getPublicUrl gives a shorter, permanent URL
+          const { data: publicData } = supabase.storage
+            .from(metadata.bucket)
+            .getPublicUrl(metadata.storagePath);
+          
+          if (publicData?.publicUrl) {
+            console.log('[DD Zoho CRM] Public URL length:', publicData.publicUrl.length);
+            // Public URLs are much shorter and don't have query params
+            if (publicData.publicUrl.length <= 450) {
+              return publicData.publicUrl;
+            }
+          }
+          
+          // For private buckets or if public URL too long, try signed URL
+          console.log('[DD Zoho CRM] Generating signed URL (bucket may be private)');
+          const { data, error } = await supabase.storage
+            .from(metadata.bucket)
+            .createSignedUrl(metadata.storagePath, 60 * 60 * 24 * 7); // 7 days
+          
+          if (error) {
+            console.error('[DD Zoho CRM] Failed to generate signed URL:', error.message);
+            return null;
+          }
+          
+          console.log('[DD Zoho CRM] Generated signed URL, length:', data.signedUrl.length);
+          return data.signedUrl;
+        } catch (err) {
+          console.error('[DD Zoho CRM] Error generating URL:', err.message);
+          return null;
+        }
       }
       
       return null;
@@ -2055,8 +2114,11 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       } else if (logoValue && typeof logoValue === 'string') {
         console.log('[DD Zoho CRM] Logo value is string, length:', logoValue.length, 'preview:', logoValue.substring(0, 100));
       }
-      const rawLogoUrl = extractFileUrl(logoValue);
-      logoUrl = validateLogoUrl(rawLogoUrl);
+      const fileMetadata = extractFileMetadata(logoValue);
+      if (fileMetadata) {
+        const rawLogoUrl = await generateSignedUrl(fileMetadata);
+        logoUrl = validateLogoUrl(rawLogoUrl);
+      }
     } else {
       console.log('[DD Zoho CRM] No logo field found in form fields. Available labels:', formFields.map(f => f.label).filter(Boolean).join(', '));
     }
@@ -2066,15 +2128,25 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       console.log('[DD Zoho CRM] No valid logo from form field, checking due_diligence_document table...');
       const { data: ddDocuments } = await supabase
         .from('due_diligence_document')
-        .select('id, document_type, file_url')
+        .select('id, document_type, file_url, storage_path, bucket')
         .eq('form_submission_due_diligence_id', ddSubmission.id)
         .eq('document_type', 'logo')
         .limit(1);
       
-      const rawDocUrl = ddDocuments?.[0]?.file_url || null;
-      logoUrl = validateLogoUrl(rawDocUrl);
-      if (logoUrl) {
-        console.log('[DD Zoho CRM] Found valid logo URL in due_diligence_document table');
+      if (ddDocuments?.[0]) {
+        const doc = ddDocuments[0];
+        // Try to generate signed URL from storage metadata first
+        if (doc.storage_path && doc.bucket) {
+          console.log('[DD Zoho CRM] Found document with storage metadata');
+          const rawDocUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
+          logoUrl = validateLogoUrl(rawDocUrl);
+        } else if (doc.file_url && doc.file_url.startsWith('http')) {
+          // Direct URL fallback
+          logoUrl = validateLogoUrl(doc.file_url);
+        }
+        if (logoUrl) {
+          console.log('[DD Zoho CRM] Found valid logo URL in due_diligence_document table');
+        }
       }
     }
     
