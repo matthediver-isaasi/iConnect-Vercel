@@ -2026,11 +2026,20 @@ const functionHandlers = {
         xeroDebug.invoiceContactInfo = invoiceContactInfo;
         console.log(`[Xero] Checking if invoice should be created - balance: £${validatedRemainingBalance.toFixed(2)}, contact: ${invoiceContactInfo.name}`);
 
-        // Check if Xero invoice generation is enabled
+        // Derive appTenantId early for tenant-scoped settings queries
+        const appTenantId = event.tenant_id || member?.tenant_id || null;
+        console.log(`[Xero] Using appTenantId for settings: ${appTenantId}`);
+        
+        if (!appTenantId) {
+          console.error(`[Xero] Cannot determine tenant ID for Xero invoice - skipping`);
+          xeroDebug.error = 'Cannot determine tenant ID';
+        } else {
+        // Check if Xero invoice generation is enabled (tenant-scoped)
         const { data: xeroSettings, error: xeroSettingsError } = await supabase
           .from('system_settings')
           .select('setting_value')
           .eq('setting_key', 'xero_invoice_enabled')
+          .eq('tenant_id', appTenantId)
           .maybeSingle();
 
         xeroDebug.settingValue = xeroSettings?.setting_value;
@@ -2048,13 +2057,7 @@ const functionHandlers = {
           console.log(`[Xero] Attempting invoice creation for ${paymentMethod} payment of £${validatedRemainingBalance.toFixed(2)}`);
 
           try {
-            const appTenantId = event.tenant_id || member?.tenant_id || null;
             console.log(`[Xero] Getting valid access token for appTenantId: ${appTenantId}`);
-            
-            if (!appTenantId) {
-              console.error(`[Xero] Cannot determine tenant ID for Xero invoice`);
-              xeroDebug.error = 'Cannot determine tenant ID';
-            } else {
             const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
             xeroDebug.tokenFound = !!accessToken;
             xeroDebug.tenantIdFound = !!tenantId;
@@ -2120,21 +2123,23 @@ const functionHandlers = {
               ];
               const lineDescription = lineDescriptionParts.join('\n');
 
-              // Get Xero account code from system settings (default to '200' for Sales)
+              // Get Xero account code from system settings (default to '200' for Sales) - tenant-scoped
               const { data: accountCodeSetting } = await supabase
                 .from('system_settings')
                 .select('setting_value')
                 .eq('setting_key', 'xero_sales_account_code')
+                .eq('tenant_id', appTenantId)
                 .maybeSingle();
 
               const xeroAccountCode = accountCodeSetting?.setting_value || '200';
               xeroDebug.accountCodeUsed = xeroAccountCode;
               
-              // Get Xero invoice status setting (DRAFT or AUTHORISED)
+              // Get Xero invoice status setting (DRAFT or AUTHORISED) - tenant-scoped
               const { data: invoiceStatusSetting } = await supabase
                 .from('system_settings')
                 .select('setting_value')
                 .eq('setting_key', 'xero_invoice_status')
+                .eq('tenant_id', appTenantId)
                 .maybeSingle();
               
               const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
@@ -2255,11 +2260,12 @@ const functionHandlers = {
                 // Xero only accepts payments against AUTHORISED invoices, not DRAFT
                 if (paymentMethod === 'card' && stripePaymentIntentId && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
                   try {
-                    // Get Stripe bank account code from system settings
+                    // Get Stripe bank account code from system settings - tenant-scoped
                     const { data: stripeBankCodeSetting } = await supabase
                       .from('system_settings')
                       .select('setting_value')
                       .eq('setting_key', 'xero_stripe_bank_account_code')
+                      .eq('tenant_id', appTenantId)
                       .maybeSingle();
 
                     const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
@@ -4243,11 +4249,12 @@ const functionHandlers = {
     // Find or create contact
     const contactId = await findOrCreateXeroContact(accessToken, tenantId, organizationName);
     
-    // Get Xero settings from system settings
+    // Get Xero settings from system settings - tenant-scoped
     const { data: accountCodeSetting } = await supabase
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'xero_sales_account_code')
+      .eq('tenant_id', appTenantId)
       .maybeSingle();
     
     const xeroAccountCode = accountCodeSetting?.setting_value || '200';
@@ -4256,6 +4263,7 @@ const functionHandlers = {
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'xero_invoice_status')
+      .eq('tenant_id', appTenantId)
       .maybeSingle();
     
     const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
@@ -4505,11 +4513,12 @@ const functionHandlers = {
       const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
       debug.tokenObtained = true;
 
-      // Get Stripe bank account code from system settings
+      // Get Stripe bank account code from system settings - tenant-scoped
       const { data: stripeBankCodeSetting } = await supabase
         .from('system_settings')
         .select('setting_value')
         .eq('setting_key', 'xero_stripe_bank_account_code')
+        .eq('tenant_id', appTenantId)
         .maybeSingle();
 
       const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
