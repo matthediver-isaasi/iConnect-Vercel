@@ -459,11 +459,18 @@ export async function exchangeCodeForTokens(tenantId, code, redirectUri) {
     throw new Error(`Zoho OAuth error: ${data.error}`);
   }
 
+  // Zoho returns api_domain to indicate the correct datacenter for API calls
+  // e.g., https://www.zohoapis.eu for EU accounts, https://www.zohoapis.com for US
+  const apiDomain = data.api_domain || 'https://www.zohoapis.com';
+  
+  console.log('[ZohoCampaigns] Token exchange successful, api_domain:', apiDomain);
+  
   return {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
     expires_in: data.expires_in,
-    expires_at: new Date(Date.now() + (data.expires_in * 1000)).toISOString()
+    expires_at: new Date(Date.now() + (data.expires_in * 1000)).toISOString(),
+    crm_domain: apiDomain  // Store the API domain for CRM calls
   };
 }
 

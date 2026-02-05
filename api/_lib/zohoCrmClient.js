@@ -232,10 +232,31 @@ export async function getZohoCrmAccessToken(tenantId) {
 
 export async function getTenantZohoCrmDomains(tenantId) {
   const credentials = await getTenantZohoCrmCredentials(tenantId);
-  return {
-    accountsDomain: credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN,
-    crmDomain: credentials?.crm_domain ? (decrypt(credentials.crm_domain) || credentials.crm_domain) : DEFAULT_CRM_DOMAIN
-  };
+  const accountsDomain = credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN;
+  
+  // Get crm_domain from credentials, or derive it from accounts_domain
+  // e.g., https://accounts.zoho.eu -> https://www.zohoapis.eu
+  let crmDomain = credentials?.crm_domain ? (decrypt(credentials.crm_domain) || credentials.crm_domain) : null;
+  
+  if (!crmDomain) {
+    // Derive from accounts domain based on region
+    if (accountsDomain.includes('.eu')) {
+      crmDomain = 'https://www.zohoapis.eu';
+    } else if (accountsDomain.includes('.in')) {
+      crmDomain = 'https://www.zohoapis.in';
+    } else if (accountsDomain.includes('.com.au')) {
+      crmDomain = 'https://www.zohoapis.com.au';
+    } else if (accountsDomain.includes('.jp')) {
+      crmDomain = 'https://www.zohoapis.jp';
+    } else if (accountsDomain.includes('.com.cn')) {
+      crmDomain = 'https://www.zohoapis.com.cn';
+    } else {
+      crmDomain = DEFAULT_CRM_DOMAIN; // US default
+    }
+    console.log('[ZohoCRM] Derived CRM domain from accounts domain:', accountsDomain, '->', crmDomain);
+  }
+  
+  return { accountsDomain, crmDomain };
 }
 
 export async function zohoCrmApiCall(tenantId, endpoint, options = {}, retryCount = 0) {
