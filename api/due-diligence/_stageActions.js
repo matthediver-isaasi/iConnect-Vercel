@@ -2136,20 +2136,23 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       
       // Query by exact field ID first, then fallback to field name containing 'logo'
       // Scoped by form_submission_id (which is already tenant-scoped from parent query)
+      // Note: submission_document table has file_url but NOT bucket/storage_path columns
       let submissionDocs = null;
       let sdError = null;
       
       // First try exact field ID match
       const exactResult = await supabase
         .from('submission_document')
-        .select('id, field_name, file_url, storage_path, bucket, file_name, version, tenant_id')
+        .select('id, field_name, file_url, file_name, version, tenant_id')
         .eq('form_submission_id', formSubmissionId)
         .eq('tenant_id', tenantId)
         .eq('field_name', LOGO_FIELD_ID)
         .order('version', { ascending: false })
         .limit(1);
       
-      if (!exactResult.error && exactResult.data?.length > 0) {
+      if (exactResult.error) {
+        console.log('[DD Zoho CRM] Error querying submission_document (exact):', exactResult.error.message);
+      } else if (exactResult.data?.length > 0) {
         submissionDocs = exactResult.data;
         console.log('[DD Zoho CRM] Found logo by exact field ID:', LOGO_FIELD_ID);
       } else {
@@ -2157,7 +2160,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         // Still scoped by tenant_id for multi-tenant safety
         const fuzzyResult = await supabase
           .from('submission_document')
-          .select('id, field_name, file_url, storage_path, bucket, file_name, version, tenant_id')
+          .select('id, field_name, file_url, file_name, version, tenant_id')
           .eq('form_submission_id', formSubmissionId)
           .eq('tenant_id', tenantId)
           .ilike('field_name', '%logo%')
@@ -2175,38 +2178,64 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         console.log('[DD Zoho CRM] Error querying submission_document:', sdError.message);
       } else if (submissionDocs?.[0]) {
         const doc = submissionDocs[0];
-        console.log('[DD Zoho CRM] Found logo in submission_document - bucket:', doc.bucket, 'path:', doc.storage_path);
+        console.log('[DD Zoho CRM] Found logo in submission_document - file_url:', doc.file_url?.substring(0, 100));
         
-        if (doc.storage_path && doc.bucket) {
-          // For public-assets bucket, use public URL directly (shorter, permanent, no expiry)
-          if (doc.bucket === 'public-assets') {
-            const { data: publicData } = supabase.storage
-              .from(doc.bucket)
-              .getPublicUrl(doc.storage_path);
-            
-            if (publicData?.publicUrl) {
-              console.log('[DD Zoho CRM] Using public URL from public-assets bucket, length:', publicData.publicUrl.length);
-              // Public URLs are typically short enough (<450)
-              // If public URL exceeds 450 chars, Zoho may reject it - try signed URL as fallback
-              if (publicData.publicUrl.length <= 450) {
-                logoUrl = publicData.publicUrl;
+        // submission_document stores the complete file_url directly
+        // Check if it's already a public Supabase URL (no need for signed URL)
+        if (doc.file_url) {
+          const isPublicUrl = doc.file_url.includes('/storage/v1/object/public/');
+          const isHttpUrl = doc.file_url.startsWith('http');
+          
+          if (isPublicUrl || isHttpUrl) {
+            // Public Supabase URLs or direct HTTP URLs can be used directly
+            console.log('[DD Zoho CRM] Using direct URL from submission_document, isPublic:', isPublicUrl, 'length:', doc.file_url.length);
+            // Apply validateLogoUrl to enforce 450 char limit for Zoho compatibility
+            logoUrl = validateLogoUrl(doc.file_url);
+            if (!logoUrl && doc.file_url.length > 450) {
+              console.log('[DD Zoho CRM] Public URL exceeds 450 chars and was rejected');
+            }
+          } else if (doc.file_url.startsWith('/api/storage/')) {
+            // Internal API URL - need to parse and generate external URL
+            console.log('[DD Zoho CRM] Internal API URL detected, attempting to extract storage info...');
+            try {
+              const queryString = doc.file_url.split('?')[1];
+              if (!queryString) {
+                console.log('[DD Zoho CRM] Internal URL has no query string, cannot parse');
               } else {
-                console.log('[DD Zoho CRM] Public URL exceeds 450 chars, trying signed URL...');
-                const signedUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
-                logoUrl = validateLogoUrl(signedUrl);
+                const urlParams = new URLSearchParams(queryString);
+                const bucket = urlParams.get('bucket');
+                const path = urlParams.get('path');
+                
+                if (bucket && path) {
+                  const decodedPath = decodeURIComponent(path);
+                  console.log('[DD Zoho CRM] Parsed storage - bucket:', bucket, 'path:', decodedPath.substring(0, 50));
+                  
+                  // Generate appropriate URL based on bucket type
+                  if (bucket === 'public-assets') {
+                    const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(decodedPath);
+                    if (publicData?.publicUrl) {
+                      console.log('[DD Zoho CRM] Generated public URL, length:', publicData.publicUrl.length);
+                      logoUrl = validateLogoUrl(publicData.publicUrl);
+                    }
+                  } else {
+                    // Private bucket - generate signed URL
+                    const signedResult = await generateSignedUrl({ bucket, storagePath: decodedPath });
+                    logoUrl = validateLogoUrl(signedResult);
+                  }
+                } else {
+                  console.log('[DD Zoho CRM] Missing bucket or path in internal URL');
+                }
               }
+            } catch (parseErr) {
+              console.log('[DD Zoho CRM] Failed to parse internal URL:', parseErr.message);
             }
           } else {
-            // Private bucket - use signed URL
-            const rawDocUrl = await generateSignedUrl({ bucket: doc.bucket, storagePath: doc.storage_path });
-            logoUrl = validateLogoUrl(rawDocUrl);
+            console.log('[DD Zoho CRM] Unrecognized URL format:', doc.file_url.substring(0, 50));
           }
-        } else if (doc.file_url && doc.file_url.startsWith('http')) {
-          logoUrl = validateLogoUrl(doc.file_url);
         }
         
         if (logoUrl) {
-          console.log('[DD Zoho CRM] Found valid logo URL in submission_document table');
+          console.log('[DD Zoho CRM] Found valid logo URL in submission_document table, length:', logoUrl.length);
         }
       }
     }
