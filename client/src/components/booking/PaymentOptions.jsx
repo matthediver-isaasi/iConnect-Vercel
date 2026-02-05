@@ -147,7 +147,7 @@ export default function PaymentOptions({
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
   const [stripeAvailable, setStripeAvailable] = useState(false);
-  const [poSupplyLater, setPoSupplyLater] = useState(false);
+  const [poSupplyLater, setPoSupplyLater] = useState(true);
   
   // Duplicate registration check state
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
@@ -500,9 +500,9 @@ export default function PaymentOptions({
       return;
     }
 
-    // If paying by account, require PO number or "supply later" toggle
+    // If paying by account and user indicated they have a PO number, require it
     if (remainingBalance > 0 && remainingBalancePaymentMethod === 'account' && !purchaseOrderNumber.trim() && !poSupplyLater) {
-      toast.error("Please enter a purchase order number or select 'Supply later'");
+      toast.error("Please enter a purchase order number");
       return;
     }
 
@@ -914,6 +914,22 @@ export default function PaymentOptions({
 
                         {remainingBalancePaymentMethod === 'account' && (
                           <div className="space-y-3 mt-2">
+                            <div className="flex items-center space-x-2">
+                              <Switch
+                                id="po-have-number"
+                                checked={!poSupplyLater}
+                                onCheckedChange={(checked) => {
+                                  setPoSupplyLater(!checked);
+                                  if (!checked) {
+                                    setPurchaseOrderNumber('');
+                                  }
+                                }}
+                                data-testid="switch-po-have-number"
+                              />
+                              <Label htmlFor="po-have-number" className="text-sm cursor-pointer">
+                                I have a PO number
+                              </Label>
+                            </div>
                             {!poSupplyLater && (
                               <Input
                                 placeholder="Purchase Order Number *"
@@ -923,22 +939,6 @@ export default function PaymentOptions({
                                 data-testid="input-purchase-order"
                               />
                             )}
-                            <div className="flex items-center space-x-2">
-                              <Switch
-                                id="po-supply-later"
-                                checked={poSupplyLater}
-                                onCheckedChange={(checked) => {
-                                  setPoSupplyLater(checked);
-                                  if (checked) {
-                                    setPurchaseOrderNumber('');
-                                  }
-                                }}
-                                data-testid="switch-po-supply-later"
-                              />
-                              <Label htmlFor="po-supply-later" className="text-sm cursor-pointer">
-                                Supply later
-                              </Label>
-                            </div>
                           </div>
                         )}
                       </div>
