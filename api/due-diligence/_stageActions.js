@@ -1896,14 +1896,35 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     
     const formId = formSubmission.form_id;
     
-    // Fetch Zoho CRM action configs for this stage
-    const { data: zohoCrmActions, error: zcError } = await supabase
+    // Fetch Zoho CRM action configs for this stage and form
+    // First try form-specific actions, then fall back to global actions (form_id IS NULL)
+    console.log('[DD Zoho CRM] Querying actions for stage:', stageId, 'form:', formId);
+    
+    let { data: zohoCrmActions, error: zcError } = await supabase
       .from('stage_zoho_crm_action')
       .select('*')
       .eq('due_diligence_stage_id', stageId)
       .eq('tenant_id', tenantId)
+      .eq('form_id', formId)
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
+    
+    // If no form-specific actions found, check for global actions (form_id is null)
+    if ((!zohoCrmActions || zohoCrmActions.length === 0) && !zcError) {
+      console.log('[DD Zoho CRM] No form-specific actions found, checking for global actions (form_id is null)');
+      const globalResult = await supabase
+        .from('stage_zoho_crm_action')
+        .select('*')
+        .eq('due_diligence_stage_id', stageId)
+        .eq('tenant_id', tenantId)
+        .is('form_id', null)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      
+      if (!globalResult.error) {
+        zohoCrmActions = globalResult.data;
+      }
+    }
     
     if (zcError) {
       console.log('[DD Zoho CRM] Query error:', zcError);
