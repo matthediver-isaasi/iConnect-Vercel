@@ -1850,14 +1850,16 @@ function determineOrganizationType(formName, formSlug) {
   const name = (formName || '').toLowerCase();
   const slug = (formSlug || '').toLowerCase();
   
+  // Use en-dash (U+2013) to match Zoho picklist values exactly
+  // Zoho's picklist uses en-dashes, not regular hyphens
   if (name.includes('eso') || slug.includes('eso')) {
-    return 'Member - Education Support Organisations';
+    return 'Member \u2013 Education Support Organisations';
   }
   if (name.includes('so') || slug.includes('so') || name.includes('school')) {
-    return 'Member - School and ECED Operators';
+    return 'Member \u2013 School and ECED Operators';
   }
   // Default to ESO if can't determine
-  return 'Member - Education Support Organisations';
+  return 'Member \u2013 Education Support Organisations';
 }
 
 export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
@@ -2073,6 +2075,11 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         
         // Build the Zoho organization record
         // Note: Field names must match exact Zoho CRM API names (case-sensitive)
+        // Account_Type uses en-dash (U+2013) to match Zoho picklist values
+        if (orgType) {
+          console.log('[DD Zoho CRM] Account_Type value:', JSON.stringify(orgType), 'char codes:', [...orgType].map(c => c.charCodeAt(0)));
+        }
+        
         const orgData = {
           Account_Name: orgName,
           Lifecycle_Status: 'Current',
