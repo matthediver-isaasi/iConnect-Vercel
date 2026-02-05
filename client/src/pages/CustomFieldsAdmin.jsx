@@ -157,6 +157,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [minSelections, setMinSelections] = useState('');
   const [maxSelections, setMaxSelections] = useState('');
   const [allowedFileTypes, setAllowedFileTypes] = useState([]);
+  const [publicAccess, setPublicAccess] = useState(false);
   // Country field configuration
   const [allCountries, setAllCountries] = useState(true);
   const [selectedCountries, setSelectedCountries] = useState([]);
@@ -274,6 +275,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setMinSelections('');
     setMaxSelections('');
     setAllowedFileTypes([]);
+    setPublicAccess(false);
     // Reset country configuration
     setAllCountries(true);
     setSelectedCountries([]);
@@ -315,6 +317,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       }
     }
     setAllowedFileTypes(parsedFileTypes);
+    setPublicAccess(field.public_access === true);
     // Load country field configuration (normalize JSON strings to arrays)
     setAllCountries(field.all_countries !== false);
     let parsedSelectedCountries = field.selected_countries || [];
@@ -400,6 +403,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
       max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null,
       allowed_file_types: fieldType === 'file' ? allowedFileTypes : null,
+      public_access: fieldType === 'file' ? publicAccess : null,
       // Country field configuration
       all_countries: (fieldType === 'country' || fieldType === 'countries') ? allCountries : null,
       selected_countries: (fieldType === 'country' || fieldType === 'countries') && !allCountries ? selectedCountries : null,
@@ -652,10 +656,25 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
               <div className="space-y-3">
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <p className="text-sm text-blue-800">
-                    <strong>File Upload Field:</strong> Users can upload files which are stored securely. 
-                    Select which file types are allowed for this field.
+                    <strong>File Upload Field:</strong> Users can upload files. 
+                    Files are stored {publicAccess ? 'publicly (accessible without authentication)' : 'privately (requires authentication to access)'}.
                   </p>
                 </div>
+                
+                <div className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Public Access</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable if files should be publicly accessible (e.g., organisation logos for external websites)
+                    </p>
+                  </div>
+                  <Switch
+                    checked={publicAccess}
+                    onCheckedChange={setPublicAccess}
+                    data-testid="switch-public-access"
+                  />
+                </div>
+
                 <Label>Allowed File Types *</Label>
                 <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto border rounded-lg p-3">
                   {ALLOWED_FILE_TYPES.map((fileType) => {
