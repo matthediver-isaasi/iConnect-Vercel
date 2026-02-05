@@ -1976,11 +1976,31 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     let logoUrl = null;
     
     // Helper to extract URL from various file upload value structures
+    // File uploads in this system store as: { file_url: "...", storage_path: "...", bucket: "...", file_name: "..." }
+    // Sometimes stored as stringified JSON
     const extractFileUrl = (value, depth = 0) => {
       if (!value || depth > 3) return null; // Limit recursion depth
       
-      // Direct string URL
-      if (typeof value === 'string') return value;
+      // Handle string values
+      if (typeof value === 'string') {
+        // Check if it's a JSON string (starts with { or [)
+        if (value.startsWith('{') || value.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(value);
+            return extractFileUrl(parsed, depth + 1);
+          } catch (e) {
+            // Not valid JSON, treat as URL
+            console.log('[DD Zoho CRM] Failed to parse as JSON, treating as URL');
+          }
+        }
+        // Only return if it looks like a URL (starts with http)
+        if (value.startsWith('http')) {
+          return value;
+        }
+        // Not a URL, might be something else
+        console.log('[DD Zoho CRM] String value does not look like URL:', value.substring(0, 100));
+        return null;
+      }
       
       // Array of files - take the first one
       if (Array.isArray(value)) {
@@ -1991,9 +2011,12 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       // Object with various common URL properties
       if (typeof value === 'object') {
         // Common URL property names in file upload objects
-        const directUrl = value.url || value.file_url || value.publicUrl || value.path || 
+        // file_url is the key used in this system's CustomFieldFileUpload
+        const directUrl = value.file_url || value.url || value.publicUrl || value.path || 
                           value.signedUrl || value.downloadUrl || value.src;
-        if (directUrl) return directUrl;
+        if (directUrl && typeof directUrl === 'string' && directUrl.startsWith('http')) {
+          return directUrl;
+        }
         
         // Common wrapper properties
         if (value.value) return extractFileUrl(value.value, depth + 1);
@@ -2002,10 +2025,26 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         if (value.files) return extractFileUrl(value.files, depth + 1);
         if (value.metadata?.url) return value.metadata.url;
         
+        // Log what keys we found to help debug
+        console.log('[DD Zoho CRM] Could not extract URL from object, keys:', Object.keys(value).join(', '));
         return null;
       }
       
       return null;
+    };
+    
+    // Validate URL for Zoho's website field (max 450 chars, must be http/https)
+    const validateLogoUrl = (url) => {
+      if (!url || typeof url !== 'string') return null;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        console.log('[DD Zoho CRM] Logo URL does not start with http/https:', url.substring(0, 50));
+        return null;
+      }
+      if (url.length > 450) {
+        console.log('[DD Zoho CRM] Logo URL exceeds 450 chars (length:', url.length, '), skipping');
+        return null;
+      }
+      return url;
     };
     
     if (logoField) {
@@ -2013,15 +2052,18 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       console.log('[DD Zoho CRM] Logo field found:', logoField, 'type:', typeof logoValue, 'isArray:', Array.isArray(logoValue));
       if (logoValue && typeof logoValue === 'object') {
         console.log('[DD Zoho CRM] Logo value keys:', Object.keys(logoValue).join(', '));
+      } else if (logoValue && typeof logoValue === 'string') {
+        console.log('[DD Zoho CRM] Logo value is string, length:', logoValue.length, 'preview:', logoValue.substring(0, 100));
       }
-      logoUrl = extractFileUrl(logoValue);
+      const rawLogoUrl = extractFileUrl(logoValue);
+      logoUrl = validateLogoUrl(rawLogoUrl);
     } else {
       console.log('[DD Zoho CRM] No logo field found in form fields. Available labels:', formFields.map(f => f.label).filter(Boolean).join(', '));
     }
     
     // Fallback: check due_diligence_document table if no logo URL from form field
     if (!logoUrl) {
-      console.log('[DD Zoho CRM] No logo from form field, checking due_diligence_document table...');
+      console.log('[DD Zoho CRM] No valid logo from form field, checking due_diligence_document table...');
       const { data: ddDocuments } = await supabase
         .from('due_diligence_document')
         .select('id, document_type, file_url')
@@ -2029,13 +2071,14 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         .eq('document_type', 'logo')
         .limit(1);
       
-      logoUrl = ddDocuments?.[0]?.file_url || null;
+      const rawDocUrl = ddDocuments?.[0]?.file_url || null;
+      logoUrl = validateLogoUrl(rawDocUrl);
       if (logoUrl) {
-        console.log('[DD Zoho CRM] Found logo URL in due_diligence_document table');
+        console.log('[DD Zoho CRM] Found valid logo URL in due_diligence_document table');
       }
     }
     
-    console.log('[DD Zoho CRM] Final logo URL:', logoUrl ? 'found' : 'null');
+    console.log('[DD Zoho CRM] Final logo URL:', logoUrl ? `valid (${logoUrl.length} chars)` : 'null');
     
     for (const action of zohoCrmActions) {
       try {
