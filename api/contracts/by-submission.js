@@ -102,25 +102,26 @@ export default async function handler(req, res) {
         expiryDate.setDate(expiryDate.getDate() + timeoutDays);
 
         for (const signer of signers) {
-          if (signer.signed) {
-            signedSigners.push(signer);
-          } else {
-            const signerSubmission = instanceSubmissions.find(sub => {
-              if (!sub.submission_data) return false;
-              const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
-              return subEmail === (signer.email || '').toLowerCase();
-            });
+          const signerSubmission = instanceSubmissions.find(sub => {
+            if (!sub.submission_data) return false;
+            const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
+            return subEmail === (signer.email || '').toLowerCase();
+          });
 
-            if (signerSubmission) {
-              signedSigners.push({
-                ...signer,
-                signed: true,
-                signed_at: signerSubmission.created_date,
-                submission_id: signerSubmission.id
-              });
-            } else {
-              unsignedSigners.push(signer);
-            }
+          if (signer.signed) {
+            signedSigners.push({
+              ...signer,
+              submission_id: signerSubmission?.id || signer.submission_id
+            });
+          } else if (signerSubmission) {
+            signedSigners.push({
+              ...signer,
+              signed: true,
+              signed_at: signerSubmission.created_date,
+              submission_id: signerSubmission.id
+            });
+          } else {
+            unsignedSigners.push(signer);
           }
         }
 

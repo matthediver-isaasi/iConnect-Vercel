@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,8 +11,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const session = await getSessionTenantUser(req, res);
-    if (!session) {
+    const tenantContext = await getTenantContext(req);
+    if (!tenantContext || !tenantContext.isAuthenticated) {
+      console.log('[contracts/download-pdf] Unauthorized - no valid authenticated context');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -35,13 +36,10 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // session returns tenant_id (underscore) not tenantId (camelCase)
-    const sessionTenantId = session.tenant_id || session._sessionTenantId;
-    
-    if (submission.tenant_id !== sessionTenantId) {
+    if (submission.tenant_id !== tenantContext.tenantId) {
       console.log('[contracts/download-pdf] Tenant mismatch:', {
         submissionTenantId: submission.tenant_id,
-        sessionTenantId
+        contextTenantId: tenantContext.tenantId
       });
       return res.status(403).json({ error: 'Unauthorized - tenant mismatch' });
     }
