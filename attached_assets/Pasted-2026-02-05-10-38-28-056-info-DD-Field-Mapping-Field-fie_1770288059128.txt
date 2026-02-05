@@ -1,0 +1,315 @@
+2026-02-05 10:38:28.056 [info] [DD Field Mapping] Field field_1768991539365: no value in reviewed or original data, skipping
+2026-02-05 10:38:28.056 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 10:38:28.295 [info] [DD Field Mapping] Field field_1768992066770: no value in reviewed or original data, skipping
+2026-02-05 10:38:28.295 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 10:38:28.532 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 10:38:28.791 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 10:38:29.027 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 10:38:29.297 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 10:38:29.539 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 10:38:29.778 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 10:38:07.392 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 10:38:07.650 [info] [Session] getSession: Session found, userType: member
+2026-02-05 10:38:07.651 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-05 10:38:07.794 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-05 10:38:07.795 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-05 10:38:07.795 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-02-05 10:38:07.795 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-02-05 10:38:07.795 [info] [TenantResolver] Parsed host: gsf.dev.iconn.app
+2026-02-05 10:38:07.795 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-02-05 10:38:07.796 [info] [TenantResolver] Subdomain detected, slug: gsf
+2026-02-05 10:38:07.796 [info] [TenantResolver] Looking up by slug: gsf
+2026-02-05 10:38:07.797 [error] (node:5) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-02-05 10:38:07.937 [info] [TenantResolver] Found tenant by slug: gsf
+2026-02-05 10:38:07.937 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-05 10:38:07.937 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 10:38:08.068 [info] [Session] getSession: Session found, userType: member
+2026-02-05 10:38:08.068 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-02-05 10:38:08.068 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-05 10:38:08.371 [info] [Session] No tenant_user record found for identity promotion
+2026-02-05 10:38:08.371 [info] [Session] Member session promotion failed
+2026-02-05 10:38:08.371 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-05 10:38:08.371 [info] [TenantContext] Checking for member session...
+2026-02-05 10:38:08.371 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 10:38:08.510 [info] [Session] getSession: Session found, userType: member
+2026-02-05 10:38:08.510 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-05 10:38:08.641 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-02-05 10:38:08.641 [info] [TenantContext] Tenant from member.organization: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 10:38:09.368 [info] [DD Stage Actions] executeStageActions called: {
+  stageId: 'approved',
+  ddSubmissionId: '14384a7b-eaec-4c6a-9639-cf87f0cfb88b',
+  formSubmissionId: '4858a3dc-3755-4386-9dd7-b1b397f43558',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 10:38:09.368 [info] [DD Stage Actions] Querying DD config for form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857 tenant_id: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 10:38:09.512 [info] [DD Stage Actions] Found DD config with 8 stages
+2026-02-05 10:38:09.512 [info] [DD Stage Actions] Found stage: approved
+2026-02-05 10:38:09.512 [info] [DD Stage Actions] Stage has 0 send_contracts actions: []
+2026-02-05 10:38:09.512 [info] [DD Meeting Request] ========== START executeMeetingRequestActions ==========
+2026-02-05 10:38:09.512 [info] [DD Meeting Request] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk',
+  selectedAgentId: null
+}
+2026-02-05 10:38:09.512 [info] [DD Meeting Request] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 10:38:09.512 [info] [DD Meeting Request] form_submission_id: 4858a3dc-3755-4386-9dd7-b1b397f43558
+2026-02-05 10:38:09.512 [info] [DD Meeting Request] Querying stage_meeting_request for stageId: approved tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 10:38:09.634 [info] [DD Meeting Request] No meeting request configs found for this stage. Returning empty results.
+2026-02-05 10:38:09.635 [info] [DD Email Action] ========== START executeEmailTemplateActions ==========
+2026-02-05 10:38:09.635 [info] [DD Email Action] customMessage from options: null
+2026-02-05 10:38:09.635 [info] [DD Email Action] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 10:38:09.635 [info] [DD Email Action] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 10:38:09.635 [info] [DD Email Action] form_submission_id: 4858a3dc-3755-4386-9dd7-b1b397f43558
+2026-02-05 10:38:09.768 [info] [DD Email Action] Querying stage_email_action for stageId: approved tenantId: 21296ad6-1350-483a-a90c-1b06ece70501 formId: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-02-05 10:38:09.912 [info] [DD Email Action] No form-specific email actions found, checking for global actions (form_id is null)
+2026-02-05 10:38:10.045 [info] [DD Email Action] No email action configs found for this stage/form. Returning empty results.
+2026-02-05 10:38:10.045 [info] [DD Member Action] ========== START executeMemberCreationActions ==========
+2026-02-05 10:38:10.045 [info] [DD Member Action] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk',
+  configId: '680d24d6-c3ec-4c6a-bdc3-9773174f1211'
+}
+2026-02-05 10:38:10.045 [info] [DD Member Action] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 10:38:10.045 [info] [DD Member Action] Filtering by config_id: 680d24d6-c3ec-4c6a-bdc3-9773174f1211
+2026-02-05 10:38:10.174 [info] [DD Member Action] Found 3 member action config(s)
+2026-02-05 10:38:11.128 [info] [DD Field Mapping] Field field_1768821469481: using reviewed value
+2026-02-05 10:38:11.375 [info] [DD Field Mapping] Field field_1768821515114: using reviewed value
+2026-02-05 10:38:11.636 [info] [DD Field Mapping] Field field_1768821524362: using reviewed value
+2026-02-05 10:38:11.885 [info] [DD Field Mapping] Field field_1768821532462: using reviewed value
+2026-02-05 10:38:12.155 [info] [DD Field Mapping] Field field_1770115219452: using reviewed value
+2026-02-05 10:38:12.419 [info] [DD Field Mapping] Field field_1768822369496: using reviewed value
+2026-02-05 10:38:12.553 [info] [DD Field Mapping] Field field_1768822408998: using reviewed value
+2026-02-05 10:38:12.808 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 10:38:13.075 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 10:38:13.347 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 10:38:13.617 [info] [DD Field Mapping] Field field_1768823662697: using reviewed value
+2026-02-05 10:38:13.873 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 10:38:14.141 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 10:38:14.398 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 10:38:14.641 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 10:38:14.899 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 10:38:15.178 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 10:38:15.438 [info] [DD Field Mapping] Field field_1768824592603: using reviewed value
+2026-02-05 10:38:15.713 [info] [DD Field Mapping] Field field_1768824705974: using reviewed value
+2026-02-05 10:38:15.976 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 10:38:16.226 [info] [DD Field Mapping] Field field_1769452270248: no value in reviewed or original data, skipping
+2026-02-05 10:38:16.226 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 10:38:16.484 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 10:38:16.732 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 10:38:17.011 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 10:38:17.255 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 10:38:17.500 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 10:38:17.773 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 10:38:18.028 [info] [DD Field Mapping] Field field_1768822353115: no value in reviewed or original data, skipping
+2026-02-05 10:38:18.028 [info] [DD Field Mapping] Target 7af40750-1543-44e8-8022-0e0e27bc2c5c: using static value "SO"
+2026-02-05 10:38:18.576 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 10:38:18.904 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 10:38:19.158 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 10:38:19.423 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 10:38:19.663 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 10:38:19.912 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 10:38:20.163 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 10:38:20.433 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 10:38:20.705 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 10:38:20.958 [info] [DD Field Mapping] Field field_1768824592603: using reviewed value
+2026-02-05 10:38:21.204 [info] [DD Field Mapping] Field field_1768824705974: using reviewed value
+2026-02-05 10:38:21.452 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 10:38:21.695 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 10:38:21.939 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 10:38:22.193 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 10:38:22.451 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 10:38:22.689 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 10:38:22.939 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 10:38:23.185 [info] [DD Field Mapping] Field field_1769452270248: no value in reviewed or original data, skipping
+2026-02-05 10:38:23.185 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 10:38:23.715 [info] [DD Field Mapping] Field field_1768821469481: using reviewed value
+2026-02-05 10:38:23.958 [info] [DD Field Mapping] Field field_1768821515114: using reviewed value
+2026-02-05 10:38:24.195 [info] [DD Field Mapping] Field field_1768821524362: using reviewed value
+2026-02-05 10:38:24.447 [info] [DD Field Mapping] Field field_1768821532462: using reviewed value
+2026-02-05 10:38:24.700 [info] [DD Field Mapping] Field field_1770191888608: no value in reviewed or original data, skipping
+2026-02-05 10:38:24.700 [info] [DD Field Mapping] Field field_1768822369496: using reviewed value
+2026-02-05 10:38:24.821 [info] [DD Field Mapping] Field field_1768822408998: using reviewed value
+2026-02-05 10:38:25.065 [info] [DD Field Mapping] Field field_1768822441662: using reviewed value
+2026-02-05 10:38:25.307 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 10:38:25.557 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 10:38:25.798 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 10:38:26.045 [info] [DD Field Mapping] Field field_1768823662697: using reviewed value
+2026-02-05 10:38:26.311 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 10:38:26.559 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 10:38:26.797 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 10:38:27.039 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 10:38:27.278 [info] [DD Field Mapping] Field field_1768991246953: no value in reviewed or original data, skipping
+2026-02-05 10:38:27.278 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 10:38:27.521 [info] [DD Field Mapping] Field field_1768991360588: no value in reviewed or original data, skipping
+2026-02-05 10:38:27.521 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 10:38:27.796 [info] [DD Field Mapping] Field field_1768824559686: using reviewed value
+2026-02-05 10:38:34.135 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-02-05 10:38:34.181 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-02-05 10:38:34.227 [error] [ZohoCRM] Decryption error: Invalid initialization vector
+2026-02-05 10:38:34.227 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-02-05 10:38:34.227 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-02-05 10:38:34.227 [info] [ZohoCRM] API call: GET https://www.zohoapis.eu/crm/v3/Country/search?criteria=%28Name%3Aequals%3AArmenia%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 10:38:34.571 [info] [DD Zoho CRM] Account_Type value: "Member – School and ECED Operators" char codes: [
+    77, 101, 109,  98, 101, 114,  32,
+  8211,  32,  83,  99, 104, 111, 111,
+   108,  32,  97, 110, 100,  32,  69,
+    67,  69,  68,  32,  79, 112, 101,
+   114,  97, 116, 111, 114, 115
+]
+2026-02-05 10:38:34.572 [info] [ZohoCRM] Creating organization: {
+  "data": [
+    {
+      "Account_Name": "MH Test 001",
+      "Lifecycle_Status": "Current",
+      "Account_Type": "Member – School and ECED Operators",
+      "Website": "website.com",
+      "Education_levels": [
+        "Primary"
+      ],
+      "Countries_of_Operation": [
+        "Albania",
+        "Antigua and Barbuda",
+        "Armenia"
+      ],
+      "Do_programs_focus_on_key_emerging_existing_themes": [
+        "Education in emergencies",
+        "Inclusive education",
+        "Foundational literacy and numeracy"
+      ],
+      "Countries1": [
+        {
+          "Countries_of_ops": {
+            "id": "815132000002263858"
+          },
+          "GSF_Region_Classification_1": "Europe",
+          "Income_Group_1": "Upper Middle Income",
+          "Flag_1": "Show"
+        },
+        {
+          "Countries_of_ops": {
+            "id": "815132000002263953"
+          },
+          "GSF_Region_Classification_1": "Latin America",
+          "Income_Group_1": "High Income",
+          "Flag_1": "Hide"
+        },
+        {
+          "Countries_of_ops": {
+            "id": "815132000002263846"
+          },
+          "GSF_Region_Classification_1": "Asia",
+          "Income_Group_1": "Upper Middle Income",
+          "Flag_1": "Show"
+        }
+      ]
+    }
+  ],
+  "trigger": [
+    "workflow"
+  ]
+}
+2026-02-05 10:38:34.801 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-02-05 10:38:34.847 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-02-05 10:38:34.893 [error] [ZohoCRM] Decryption error: Invalid initialization vector
+2026-02-05 10:38:34.893 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-02-05 10:38:34.893 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-02-05 10:38:34.893 [info] [ZohoCRM] API call: POST https://www.zohoapis.eu/crm/v3/Accounts
+2026-02-05 10:38:35.393 [info] [ZohoCRM] Create response: {
+  "data": [
+    {
+      "code": "SUCCESS",
+      "details": {
+        "Modified_Time": "2026-02-05T11:38:35+01:00",
+        "Modified_By": {
+          "name": "Sharon Bacon",
+          "id": "815132000000433001"
+        },
+        "Created_Time": "2026-02-05T11:38:35+01:00",
+        "id": "815132000010713001",
+        "Created_By": {
+          "name": "Sharon Bacon",
+          "id": "815132000000433001"
+        },
+        "$approval_state": "approved"
+      },
+      "message": "record added",
+      "status": "success"
+    }
+  ]
+}
+2026-02-05 10:38:35.908 [info] [DD Zoho CRM] Successfully created organization: 815132000010713001
+2026-02-05 10:38:35.908 [info] [DD Zoho CRM] ========== END executeZohoCrmActions ==========
+2026-02-05 10:38:35.908 [info] [DD Stage Actions] Completed all stage actions, total results: 7
+2026-02-05 10:38:30.078 [info] [DD Field Mapping] Field field_1768822353115: no value in reviewed or original data, skipping
+2026-02-05 10:38:30.078 [info] [DD Field Mapping] Target 7af40750-1543-44e8-8022-0e0e27bc2c5c: using static value "ESO"
+2026-02-05 10:38:30.572 [info] [DD Zoho CRM] ========== START executeZohoCrmActions ==========
+2026-02-05 10:38:30.572 [info] [DD Zoho CRM] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 10:38:30.572 [info] [DD Zoho CRM] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 10:38:30.948 [info] [DD Zoho CRM] Querying actions for stage: approved form: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-02-05 10:38:31.077 [info] [DD Zoho CRM] Found 1 Zoho CRM action(s)
+2026-02-05 10:38:31.203 [info] [DD Zoho CRM] Logo field found: field_1768830324467 type: string isArray: false
+2026-02-05 10:38:31.203 [info] [DD Zoho CRM] Logo value is string, length: 507 preview: {"file_url":"/api/storage/secure-url?bucket=private-uploads&path=21296ad6-1350-483a-a90c-1b06ece7050
+2026-02-05 10:38:31.203 [info] [DD Zoho CRM] Could not extract URL from object, keys: file_url, storage_path, bucket, file_name, file_size, mime_type, is_private, uploaded_at
+2026-02-05 10:38:31.203 [info] [DD Zoho CRM] No valid logo from form field, checking due_diligence_document table...
+2026-02-05 10:38:31.330 [info] [DD Zoho CRM] Final logo URL: null
+2026-02-05 10:38:31.330 [info] [DD Zoho CRM] Processing action: 88ed66e0-0c2b-423a-a9fc-04c837adb1db
+2026-02-05 10:38:31.331 [info] [DD Zoho CRM] orgName is a UUID, looking up organization name: afe1c0fd-3458-414f-871c-092a8f37d049
+2026-02-05 10:38:31.447 [info] [DD Zoho CRM] Resolved organization name: MH Test 001
+2026-02-05 10:38:31.448 [info] [DD Zoho CRM] Field values: {
+  orgName: 'MH Test 001',
+  website: 'website.com',
+  countriesCount: 3,
+  educationLevels: [ 'Primary' ],
+  orgType: 'Member – School and ECED Operators',
+  servicesCount: 0,
+  themesCount: 3,
+  logoUrl: null
+}
+2026-02-05 10:38:31.800 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 10:38:32.660 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-02-05 10:38:32.706 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-02-05 10:38:32.752 [error] [ZohoCRM] Decryption error: Invalid initialization vector
+2026-02-05 10:38:32.753 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-02-05 10:38:32.753 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-02-05 10:38:32.753 [info] [ZohoCRM] API call: GET https://www.zohoapis.eu/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAlbania%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 10:38:33.502 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-02-05 10:38:33.549 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-02-05 10:38:33.595 [error] [ZohoCRM] Decryption error: Invalid initialization vector
+2026-02-05 10:38:33.595 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-02-05 10:38:33.595 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-02-05 10:38:33.595 [info] [ZohoCRM] API call: GET https://www.zohoapis.eu/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAntigua+and+Barbuda%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
