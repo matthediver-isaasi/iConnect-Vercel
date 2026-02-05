@@ -323,7 +323,7 @@ async function syncZoomMeetingTimes(tenantId, dryRun = false) {
           results.eventsProcessed++;
           const { error: eventError } = await supabase
             .from('event')
-            .update({ start_date: zoomStartTimeNormalized, end_date: endTime })
+            .update({ start_date: zoomStartTimeNormalized, end_date: endTime, timezone: zoomTimezone })
             .eq('id', event.id);
 
           if (!eventError) {
@@ -425,7 +425,7 @@ async function syncZoomMeetingTimes(tenantId, dryRun = false) {
             results.eventsProcessed++;
             const { error: eventError } = await supabase
               .from('event')
-              .update({ start_date: zoomStartTimeNormalized, end_date: endTime })
+              .update({ start_date: zoomStartTimeNormalized, end_date: endTime, timezone: zoomTimezone })
               .eq('id', event.id);
 
             if (!eventError) {

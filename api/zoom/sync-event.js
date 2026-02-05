@@ -115,6 +115,7 @@ export default async function handler(req, res) {
       .update({
         start_date: zoomStartNormalized,
         end_date: zoomEndTime,
+        timezone: zoomTimezone,
         updated_at: new Date().toISOString()
       })
       .eq('id', eventId)

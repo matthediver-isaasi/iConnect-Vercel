@@ -219,25 +219,33 @@ export default function EditEvent() {
   const isTimezoneLoading = (!!event?.zoom_webinar_id && loadingZoomWebinar) || 
                             (!!event?.zoom_meeting_id && !event?.zoom_webinar_id && loadingZoomMeeting);
 
-  // Set event timezone when linked Zoom record loads
+  // Set event timezone when linked Zoom record loads or from event's stored timezone
   useEffect(() => {
     if (linkedZoomWebinar?.timezone) {
+      // For Zoom webinars, use the Zoom timezone
       setEventTimezone(linkedZoomWebinar.timezone);
       setTimezoneResolved(true);
       setTimezoneFetchFailed(false);
     } else if (linkedZoomMeeting?.timezone) {
+      // For Zoom meetings, use the Zoom timezone
       setEventTimezone(linkedZoomMeeting.timezone);
       setTimezoneResolved(true);
       setTimezoneFetchFailed(false);
     } else if (errorZoomWebinar || errorZoomMeeting) {
-      // Failed to fetch Zoom record, using default timezone
+      // Failed to fetch Zoom record, fall back to event's stored timezone or default
+      if (event?.timezone) {
+        setEventTimezone(event.timezone);
+      }
       setTimezoneFetchFailed(true);
       setTimezoneResolved(true);
-    } else if (!event?.zoom_webinar_id && !event?.zoom_meeting_id) {
-      // Non-Zoom event, use default timezone
+    } else if (!event?.zoom_webinar_id && !event?.zoom_meeting_id && event) {
+      // Non-Zoom event: use event's stored timezone or default to Europe/London
+      if (event.timezone) {
+        setEventTimezone(event.timezone);
+      }
       setTimezoneResolved(true);
     }
-  }, [linkedZoomWebinar, linkedZoomMeeting, errorZoomWebinar, errorZoomMeeting, event?.zoom_webinar_id, event?.zoom_meeting_id]);
+  }, [linkedZoomWebinar, linkedZoomMeeting, errorZoomWebinar, errorZoomMeeting, event?.zoom_webinar_id, event?.zoom_meeting_id, event?.timezone]);
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
     queryKey: ['/api/entities/Program'],
@@ -1079,7 +1087,8 @@ export default function EditEvent() {
       // TBC events can still be online, but webinar is optional
       is_online: isOnlineEvent,
       status: eventTiming,
-      event_state: eventState
+      event_state: eventState,
+      timezone: eventTimezone
     };
 
     // Add ticket classes for one-off events
@@ -1778,19 +1787,68 @@ export default function EditEvent() {
                 </div>
               </div>
               
-              {/* Timezone indicator */}
+              {/* Timezone selector/indicator */}
               {eventTiming !== 'tbc' && (
-                <div className={`flex items-center gap-2 text-xs mt-2 ${timezoneFetchFailed ? 'text-amber-600' : 'text-slate-500'}`}>
-                  <Clock className="h-3 w-3" />
-                  <span>
-                    {isTimezoneLoading ? (
-                      'Loading timezone...'
-                    ) : timezoneFetchFailed ? (
-                      `Could not fetch Zoom timezone. Showing times in ${eventTimezone.replace('_', ' ')} (default).`
-                    ) : (
-                      `Times displayed in ${eventTimezone.replace('_', ' ')}`
-                    )}
-                  </span>
+                <div className="space-y-2 mt-2">
+                  {isOnlineEvent ? (
+                    <div className={`flex items-center gap-2 text-xs ${timezoneFetchFailed ? 'text-amber-600' : 'text-slate-500'}`}>
+                      <Clock className="h-3 w-3" />
+                      <span>
+                        {isTimezoneLoading ? (
+                          'Loading timezone...'
+                        ) : timezoneFetchFailed ? (
+                          `Could not fetch Zoom timezone. Showing times in ${eventTimezone.replace('_', ' ')} (default).`
+                        ) : (
+                          `Timezone: ${eventTimezone.replace('_', ' ')} (managed by Zoom)`
+                        )}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <Label htmlFor="event_timezone">Event Timezone</Label>
+                      <Select
+                        value={eventTimezone}
+                        onValueChange={(value) => setEventTimezone(value)}
+                      >
+                        <SelectTrigger id="event_timezone" data-testid="select-event-timezone">
+                          <SelectValue placeholder="Select timezone" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Europe/London">Europe/London (UK)</SelectItem>
+                          <SelectItem value="Europe/Dublin">Europe/Dublin (Ireland)</SelectItem>
+                          <SelectItem value="Europe/Paris">Europe/Paris (Central European)</SelectItem>
+                          <SelectItem value="Europe/Berlin">Europe/Berlin (Germany)</SelectItem>
+                          <SelectItem value="Europe/Amsterdam">Europe/Amsterdam (Netherlands)</SelectItem>
+                          <SelectItem value="Europe/Brussels">Europe/Brussels (Belgium)</SelectItem>
+                          <SelectItem value="Europe/Madrid">Europe/Madrid (Spain)</SelectItem>
+                          <SelectItem value="Europe/Rome">Europe/Rome (Italy)</SelectItem>
+                          <SelectItem value="Europe/Zurich">Europe/Zurich (Switzerland)</SelectItem>
+                          <SelectItem value="Europe/Stockholm">Europe/Stockholm (Sweden)</SelectItem>
+                          <SelectItem value="America/New_York">America/New_York (US Eastern)</SelectItem>
+                          <SelectItem value="America/Chicago">America/Chicago (US Central)</SelectItem>
+                          <SelectItem value="America/Denver">America/Denver (US Mountain)</SelectItem>
+                          <SelectItem value="America/Los_Angeles">America/Los_Angeles (US Pacific)</SelectItem>
+                          <SelectItem value="America/Toronto">America/Toronto (Canada Eastern)</SelectItem>
+                          <SelectItem value="America/Vancouver">America/Vancouver (Canada Pacific)</SelectItem>
+                          <SelectItem value="Asia/Dubai">Asia/Dubai (UAE)</SelectItem>
+                          <SelectItem value="Asia/Singapore">Asia/Singapore</SelectItem>
+                          <SelectItem value="Asia/Hong_Kong">Asia/Hong Kong</SelectItem>
+                          <SelectItem value="Asia/Tokyo">Asia/Tokyo (Japan)</SelectItem>
+                          <SelectItem value="Asia/Shanghai">Asia/Shanghai (China)</SelectItem>
+                          <SelectItem value="Asia/Kolkata">Asia/Kolkata (India)</SelectItem>
+                          <SelectItem value="Australia/Sydney">Australia/Sydney</SelectItem>
+                          <SelectItem value="Australia/Melbourne">Australia/Melbourne</SelectItem>
+                          <SelectItem value="Australia/Perth">Australia/Perth</SelectItem>
+                          <SelectItem value="Pacific/Auckland">Pacific/Auckland (New Zealand)</SelectItem>
+                          <SelectItem value="Africa/Johannesburg">Africa/Johannesburg (South Africa)</SelectItem>
+                          <SelectItem value="UTC">UTC (Coordinated Universal Time)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">
+                        Times will be displayed and stored in this timezone.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
