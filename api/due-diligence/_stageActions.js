@@ -2042,7 +2042,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     
     // Generate a Supabase signed URL from storage metadata
     // Note: Signed URLs can be long (500+ chars), but Zoho's limit is 450
-    // We'll try public URL first for public buckets
+    // For private buckets, we must use signed URLs (public URLs return 404)
     const generateSignedUrl = async (metadata) => {
       if (!metadata) return null;
       
@@ -2055,23 +2055,26 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
       // Generate URL from bucket/path
       if (metadata.bucket && metadata.storagePath) {
         try {
-          console.log('[DD Zoho CRM] Generating URL for:', metadata.bucket, metadata.storagePath);
+          console.log('[DD Zoho CRM] Generating URL for bucket:', metadata.bucket, 'path:', metadata.storagePath);
           
-          // For public buckets, getPublicUrl gives a shorter, permanent URL
-          const { data: publicData } = supabase.storage
-            .from(metadata.bucket)
-            .getPublicUrl(metadata.storagePath);
+          // Check if bucket is private (contains "private" in name or isPrivate flag)
+          const isPrivateBucket = metadata.isPrivate || 
+                                  metadata.bucket.toLowerCase().includes('private');
           
-          if (publicData?.publicUrl) {
-            console.log('[DD Zoho CRM] Public URL length:', publicData.publicUrl.length);
-            // Public URLs are much shorter and don't have query params
-            if (publicData.publicUrl.length <= 450) {
+          // For public buckets only, try getPublicUrl (shorter, permanent)
+          if (!isPrivateBucket) {
+            const { data: publicData } = supabase.storage
+              .from(metadata.bucket)
+              .getPublicUrl(metadata.storagePath);
+            
+            if (publicData?.publicUrl && publicData.publicUrl.length <= 450) {
+              console.log('[DD Zoho CRM] Using public URL, length:', publicData.publicUrl.length);
               return publicData.publicUrl;
             }
           }
           
-          // For private buckets or if public URL too long, try signed URL
-          console.log('[DD Zoho CRM] Generating signed URL (bucket may be private)');
+          // For private buckets or if public URL too long, use signed URL
+          console.log('[DD Zoho CRM] Generating signed URL for private bucket');
           const { data, error } = await supabase.storage
             .from(metadata.bucket)
             .createSignedUrl(metadata.storagePath, 60 * 60 * 24 * 7); // 7 days
