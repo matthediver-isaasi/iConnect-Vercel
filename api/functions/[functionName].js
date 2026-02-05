@@ -1613,9 +1613,9 @@ const functionHandlers = {
           return { success: false, error: 'Payment has not been completed. Please try again.' };
         }
 
-        // Verify payment amount matches expected amount
-        const expectedCardAmount = Math.round((totalCost - (trainingFundAmount || 0)) * 100);
-        if (Math.abs(paymentIntent.amount - expectedCardAmount) > 100) {
+        // Verify payment amount matches expected amount (totalCost is already in pence)
+        const expectedCardAmount = Math.round(totalCost - (trainingFundAmount || 0));
+        if (Math.abs(paymentIntent.amount - expectedCardAmount) > 1) {
           console.error('[createOneOffEventBooking] Payment amount mismatch:', {
             expected: expectedCardAmount,
             received: paymentIntent.amount
