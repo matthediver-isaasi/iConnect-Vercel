@@ -1973,8 +1973,21 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
                             findFieldByLabel(formFields, 'emerging or existing themes');
         
         // Extract values
-        const orgName = getFieldValue(formValues, orgNameField);
+        let orgName = getFieldValue(formValues, orgNameField);
         const website = getFieldValue(formValues, websiteField);
+        
+        // Check if orgName is a UUID (organization ID reference) and resolve to actual name
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (orgName && uuidPattern.test(orgName)) {
+          console.log('[DD Zoho CRM] orgName is a UUID, looking up organization name:', orgName);
+          const resolvedName = await getOrganizationName(orgName);
+          if (resolvedName) {
+            console.log('[DD Zoho CRM] Resolved organization name:', resolvedName);
+            orgName = resolvedName;
+          } else {
+            console.log('[DD Zoho CRM] Could not resolve organization UUID to name, using as-is');
+          }
+        }
         const countriesRaw = getFieldValue(formValues, countriesField);
         const schoolingRaw = getFieldValue(formValues, schoolingField);
         const servicesRaw = getFieldValue(formValues, servicesField);
@@ -2038,31 +2051,32 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
         }
         
         // Build the Zoho organization record
+        // Note: Field names must match exact Zoho CRM API names (case-sensitive)
         const orgData = {
           Account_Name: orgName,
           Lifecycle_Status: 'Current',
           Type_of_Organisation: orgType,
           Website: website || undefined,
-          Org_Logo_URL: logoUrl || undefined
+          Org_logo_URL: logoUrl || undefined  // Note: lowercase 'l' in logo
         };
         
-        // Add multi-select fields
+        // Add multi-select fields (using exact Zoho API field names)
         if (educationLevels.length > 0) {
-          orgData.Education_Levels = educationLevels;
+          orgData.Education_levels = educationLevels;  // Note: lowercase 'l' in levels
         }
         if (countries.length > 0) {
           orgData.Countries_of_Operation = countries;
         }
         if (services.length > 0) {
-          orgData.Services_Provided = services;
+          orgData.Services_provided_to_partner_schools = services;  // Correct API name
         }
         if (themes.length > 0) {
-          orgData.Themes_Focus = themes;
+          orgData.Do_programs_focus_on_key_emerging_existing_themes = themes;  // Correct API name
         }
         
         // Add country subform
         if (countrySubform.length > 0) {
-          orgData.Countries = countrySubform;
+          orgData.Countries1 = countrySubform;  // Correct API name is Countries1
         }
         
         // Create the organization in Zoho CRM
