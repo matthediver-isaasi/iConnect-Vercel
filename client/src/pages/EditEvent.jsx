@@ -45,6 +45,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
@@ -102,6 +103,9 @@ export default function EditEvent() {
   const [zoomSyncStatus, setZoomSyncStatus] = useState(null);
   const [checkingSyncStatus, setCheckingSyncStatus] = useState(false);
   const [syncingFromZoom, setSyncingFromZoom] = useState(false);
+  
+  // Event timezone (fetched from Zoom record or default)
+  const [eventTimezone, setEventTimezone] = useState('Europe/London');
   
   // Event timing: published or tbc - affects date requirements
   const [eventTiming, setEventTiming] = useState("published");
@@ -178,6 +182,62 @@ export default function EditEvent() {
     queryFn: () => base44.entities.Event.get(eventId),
     enabled: !!eventId
   });
+
+  // State to track if timezone fetch failed
+  const [timezoneFetchFailed, setTimezoneFetchFailed] = useState(false);
+  const [timezoneResolved, setTimezoneResolved] = useState(false);
+
+  // Fetch timezone from linked Zoom webinar record if event has one
+  const { data: linkedZoomWebinar, isLoading: loadingZoomWebinar, isError: errorZoomWebinar } = useQuery({
+    queryKey: ['zoom_webinar', event?.zoom_webinar_id],
+    queryFn: async () => {
+      const response = await fetch(`/api/zoom/webinars/${event.zoom_webinar_id}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch Zoom webinar');
+      return response.json();
+    },
+    enabled: !!event?.zoom_webinar_id,
+    retry: 1
+  });
+
+  // Fetch timezone from linked Zoom meeting record if event has one
+  const { data: linkedZoomMeeting, isLoading: loadingZoomMeeting, isError: errorZoomMeeting } = useQuery({
+    queryKey: ['zoom_meeting', event?.zoom_meeting_id],
+    queryFn: async () => {
+      const response = await fetch(`/api/zoom/meetings/${event.zoom_meeting_id}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch Zoom meeting');
+      return response.json();
+    },
+    enabled: !!event?.zoom_meeting_id && !event?.zoom_webinar_id,
+    retry: 1
+  });
+
+  // Track if timezone is still loading for Zoom events
+  const isTimezoneLoading = (!!event?.zoom_webinar_id && loadingZoomWebinar) || 
+                            (!!event?.zoom_meeting_id && !event?.zoom_webinar_id && loadingZoomMeeting);
+
+  // Set event timezone when linked Zoom record loads
+  useEffect(() => {
+    if (linkedZoomWebinar?.timezone) {
+      setEventTimezone(linkedZoomWebinar.timezone);
+      setTimezoneResolved(true);
+      setTimezoneFetchFailed(false);
+    } else if (linkedZoomMeeting?.timezone) {
+      setEventTimezone(linkedZoomMeeting.timezone);
+      setTimezoneResolved(true);
+      setTimezoneFetchFailed(false);
+    } else if (errorZoomWebinar || errorZoomMeeting) {
+      // Failed to fetch Zoom record, using default timezone
+      setTimezoneFetchFailed(true);
+      setTimezoneResolved(true);
+    } else if (!event?.zoom_webinar_id && !event?.zoom_meeting_id) {
+      // Non-Zoom event, use default timezone
+      setTimezoneResolved(true);
+    }
+  }, [linkedZoomWebinar, linkedZoomMeeting, errorZoomWebinar, errorZoomMeeting, event?.zoom_webinar_id, event?.zoom_meeting_id]);
 
   const { data: programs = [], isLoading: loadingPrograms } = useQuery({
     queryKey: ['/api/entities/Program'],
@@ -764,6 +824,10 @@ export default function EditEvent() {
       if (response.ok) {
         const data = await response.json();
         setZoomSyncStatus(data);
+        // Set the event timezone from the Zoom record
+        if (data.zoomTimezone) {
+          setEventTimezone(data.zoomTimezone);
+        }
       } else {
         console.error('Failed to check Zoom sync status');
         setZoomSyncStatus(null);
@@ -1071,9 +1135,14 @@ export default function EditEvent() {
 
   const formatDateForInput = (dateStr) => {
     if (!dateStr) return "";
+    // Don't format until timezone is resolved for Zoom events
+    if (isTimezoneLoading) return "";
     try {
-      return format(new Date(dateStr), "yyyy-MM-dd'T'HH:mm");
-    } catch {
+      // Format the date in the event's timezone (not browser local time)
+      // This ensures the displayed time matches what was intended when the event was created
+      return formatInTimeZone(new Date(dateStr), eventTimezone, "yyyy-MM-dd'T'HH:mm");
+    } catch (e) {
+      console.error('Error formatting date:', e, dateStr, eventTimezone);
       return "";
     }
   };
@@ -1179,14 +1248,14 @@ export default function EditEvent() {
                   </div>
                   {zoomSyncStatus.differences?.start?.zoom && (
                     <div className="text-xs text-amber-600 ml-6">
-                      Start time differs: Event has {zoomSyncStatus.differences.start.event ? new Date(zoomSyncStatus.differences.start.event).toLocaleString() : 'none'}, 
-                      Zoom has {new Date(zoomSyncStatus.differences.start.zoom).toLocaleString()}
+                      Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'}, 
+                      Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
                     </div>
                   )}
                   {zoomSyncStatus.differences?.end?.zoom && (
                     <div className="text-xs text-amber-600 ml-6">
-                      End time differs: Event has {zoomSyncStatus.differences.end.event ? new Date(zoomSyncStatus.differences.end.event).toLocaleString() : 'none'}, 
-                      Zoom has {new Date(zoomSyncStatus.differences.end.zoom).toLocaleString()}
+                      End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'}, 
+                      Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
                     </div>
                   )}
                   <Button
@@ -1681,15 +1750,15 @@ export default function EditEvent() {
                     value={formatDateForInput(formData.start_date)}
                     onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
                     required={eventTiming !== 'tbc'}
-                    disabled={eventTiming === 'tbc' || isOnlineEvent}
-                    className={(eventTiming === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    disabled={eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading}
+                    className={(eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
                   {eventTiming === 'tbc' && (
                     <p className="text-xs text-blue-600">Date disabled for TBC events</p>
                   )}
                   {isOnlineEvent && eventTiming !== 'tbc' && (
-                    <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
+                    <p className="text-xs text-slate-500">Managed by Zoom {event?.zoom_meeting_id ? 'meeting' : 'webinar'}</p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -1699,8 +1768,8 @@ export default function EditEvent() {
                     type="datetime-local"
                     value={formatDateForInput(formData.end_date)}
                     onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
-                    disabled={eventTiming === 'tbc' || isOnlineEvent}
-                    className={(eventTiming === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    disabled={eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading}
+                    className={(eventTiming === 'tbc' || isOnlineEvent || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
                   {isOnlineEvent && eventTiming !== 'tbc' && (
@@ -1708,6 +1777,22 @@ export default function EditEvent() {
                   )}
                 </div>
               </div>
+              
+              {/* Timezone indicator */}
+              {eventTiming !== 'tbc' && (
+                <div className={`flex items-center gap-2 text-xs mt-2 ${timezoneFetchFailed ? 'text-amber-600' : 'text-slate-500'}`}>
+                  <Clock className="h-3 w-3" />
+                  <span>
+                    {isTimezoneLoading ? (
+                      'Loading timezone...'
+                    ) : timezoneFetchFailed ? (
+                      `Could not fetch Zoom timezone. Showing times in ${eventTimezone.replace('_', ' ')} (default).`
+                    ) : (
+                      `Times displayed in ${eventTimezone.replace('_', ' ')}`
+                    )}
+                  </span>
+                </div>
+              )}
 
               {/* Registration Closes At - Optional */}
               <div className="space-y-2 mt-4">
