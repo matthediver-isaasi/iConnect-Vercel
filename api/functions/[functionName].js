@@ -1768,31 +1768,32 @@ const functionHandlers = {
       if (discountCodeError || !discountCode) {
         console.warn(`[createOneOffEventBooking] Discount code validation failed: ${discountCodeError?.message || 'Not found or inactive'}`);
       } else {
-        // Check if discount code has expired
-        if (discountCode.expiry_date && new Date(discountCode.expiry_date) < new Date()) {
+        // Check if discount code has expired (use correct column name: expires_at)
+        if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
           console.warn(`[createOneOffEventBooking] Discount code has expired`);
-        } else if (discountCode.max_uses && discountCode.times_used >= discountCode.max_uses) {
+        } else if (discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
           console.warn(`[createOneOffEventBooking] Discount code has reached maximum uses`);
         } else {
           // Compute discount amount server-side based on remaining cost after vouchers and training fund
           const costAfterVouchersAndFund = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
           
-          if (discountCode.discount_type === 'percentage') {
+          // Use correct column names: type, value
+          if (discountCode.type === 'percentage') {
             validatedDiscountAmount = Math.min(
-              (costAfterVouchersAndFund * discountCode.discount_value) / 100,
+              (costAfterVouchersAndFund * discountCode.value) / 100,
               costAfterVouchersAndFund
             );
           } else {
-            validatedDiscountAmount = Math.min(discountCode.discount_value, costAfterVouchersAndFund);
+            validatedDiscountAmount = Math.min(discountCode.value, costAfterVouchersAndFund);
           }
           
           validatedDiscountCodeId = discountCode.id;
-          console.log(`[createOneOffEventBooking] Discount code validated: ${discountCode.code}, type=${discountCode.discount_type}, value=${discountCode.discount_value}, computed amount=${validatedDiscountAmount}`);
+          console.log(`[createOneOffEventBooking] Discount code validated: ${discountCode.code}, type=${discountCode.type}, value=${discountCode.value}, computed amount=${validatedDiscountAmount}`);
           
-          // Increment times_used for the discount code (tenant-scoped for safety)
+          // Increment current_usage_count for the discount code (tenant-scoped for safety)
           await supabase
             .from('discount_code')
-            .update({ times_used: (discountCode.times_used || 0) + 1 })
+            .update({ current_usage_count: (discountCode.current_usage_count || 0) + 1 })
             .eq('id', discountCode.id)
             .eq('tenant_id', event.tenant_id);
         }
@@ -2728,26 +2729,27 @@ const functionHandlers = {
 
     const discountCode = discountCodes[0];
 
-    if (discountCode.expiry_date && new Date(discountCode.expiry_date) < new Date()) {
+    // Use correct column names from database: expires_at, max_usage_count, current_usage_count, type, value
+    if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
       return { valid: false, error: 'Discount code has expired' };
     }
 
-    if (discountCode.max_uses && discountCode.times_used >= discountCode.max_uses) {
+    if (discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
       return { valid: false, error: 'Discount code has reached maximum uses' };
     }
 
     let discountAmount = 0;
-    if (discountCode.discount_type === 'percentage') {
-      discountAmount = (amount * discountCode.discount_value) / 100;
+    if (discountCode.type === 'percentage') {
+      discountAmount = (amount * discountCode.value) / 100;
     } else {
-      discountAmount = discountCode.discount_value;
+      discountAmount = discountCode.value;
     }
 
     return {
       valid: true,
       discount_code_id: discountCode.id,
-      discount_type: discountCode.discount_type,
-      discount_value: discountCode.discount_value,
+      discount_type: discountCode.type,
+      discount_value: discountCode.value,
       discount_amount: Math.min(discountAmount, amount),
       final_amount: Math.max(0, amount - discountAmount)
     };
