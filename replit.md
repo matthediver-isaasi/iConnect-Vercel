@@ -108,6 +108,41 @@ This ensures links in emails point back to the same environment the request came
 -   **Realtime Updates:** Supabase Realtime Subscriptions for frontend cache invalidation.
 -   **Booking System:** Agent booking system with tenant-scoped meeting templates.
 
+## Event Timezone Handling
+
+Events store times in UTC with a separate `timezone` field for display purposes. This supports multi-tenant deployments across different countries.
+
+### Database Schema
+- `event.start_date` / `event.end_date` - Stored in UTC
+- `event.timezone` - IANA timezone string (e.g., 'Europe/London', 'America/New_York')
+- `zoom_meeting.timezone` / `zoom_webinar.timezone` - Timezone from Zoom API
+
+### Display Logic Priority
+1. **Zoom events**: Use timezone from linked `zoom_webinar` or `zoom_meeting` record
+2. **Non-Zoom events**: Use `event.timezone` field
+3. **Fallback**: Default to `'Europe/London'`
+
+### Key Files
+- `client/src/utils/timeFormat.js` - Shared formatting utilities using `formatInTimeZone` from `date-fns-tz`
+- `client/src/components/events/EventCard.jsx` - Event listing cards
+- `client/src/pages/EditEvent.jsx` - Event edit form with timezone selector (read-only for Zoom events)
+- `client/src/pages/EventDetails.jsx` - Event detail page
+- `api/zoom/sync-event.js` - Syncs timezone to Event when syncing from Zoom
+- `scripts/sync-zoom-meeting-times.js` - Batch sync script (also updates `event.timezone`)
+
+### Formatting Functions
+```javascript
+import { formatEventTime, formatEventDate, formatEventDateTime } from "@/utils/timeFormat";
+
+// All accept optional timezone parameter (defaults to 'Europe/London')
+formatEventTime(date, systemSettings, event.timezone);
+formatEventDate(date, "MMM d, yyyy", event.timezone);
+formatEventDateTime(date, systemSettings, event.timezone);
+```
+
+### Zoom Sync
+When syncing from Zoom (manual or batch), both the zoom record and linked Event are updated with the timezone from Zoom API. Zoom is the single source of truth for Zoom-linked events.
+
 ## UI/UX
 The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent and responsive user experience, including a collapsible sidebar.
 
