@@ -1955,15 +1955,87 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     const formFields = form.fields || [];
     const formValues = formSubmission.submission_data || {};
     
-    // Get DD documents for logo URL
-    const { data: ddDocuments } = await supabase
-      .from('due_diligence_document')
-      .select('id, document_type, file_url')
-      .eq('form_submission_due_diligence_id', ddSubmission.id)
-      .eq('document_type', 'logo')
-      .limit(1);
+    // Helper to find field by label (case-insensitive partial match)
+    const findFieldByLabel = (fields, labelSearch) => {
+      if (!fields || !labelSearch) return null;
+      const searchLower = labelSearch.toLowerCase();
+      const field = fields.find(f => 
+        f.label && f.label.toLowerCase().includes(searchLower)
+      );
+      return field?.id || field?.key || null;
+    };
     
-    const logoUrl = ddDocuments?.[0]?.file_url || null;
+    // Helper to get field value from form submission
+    const getFieldValue = (values, fieldKey) => {
+      if (!fieldKey || !values) return null;
+      return values[fieldKey] || values[`field_${fieldKey}`] || null;
+    };
+    
+    // Extract logo URL from File Upload field
+    const logoField = findFieldByLabel(formFields, 'logo');
+    let logoUrl = null;
+    
+    // Helper to extract URL from various file upload value structures
+    const extractFileUrl = (value, depth = 0) => {
+      if (!value || depth > 3) return null; // Limit recursion depth
+      
+      // Direct string URL
+      if (typeof value === 'string') return value;
+      
+      // Array of files - take the first one
+      if (Array.isArray(value)) {
+        if (value.length === 0) return null;
+        return extractFileUrl(value[0], depth + 1);
+      }
+      
+      // Object with various common URL properties
+      if (typeof value === 'object') {
+        // Common URL property names in file upload objects
+        const directUrl = value.url || value.file_url || value.publicUrl || value.path || 
+                          value.signedUrl || value.downloadUrl || value.src;
+        if (directUrl) return directUrl;
+        
+        // Common wrapper properties
+        if (value.value) return extractFileUrl(value.value, depth + 1);
+        if (value.data) return extractFileUrl(value.data, depth + 1);
+        if (value.file) return extractFileUrl(value.file, depth + 1);
+        if (value.files) return extractFileUrl(value.files, depth + 1);
+        if (value.metadata?.url) return value.metadata.url;
+        
+        return null;
+      }
+      
+      return null;
+    };
+    
+    if (logoField) {
+      const logoValue = getFieldValue(formValues, logoField);
+      console.log('[DD Zoho CRM] Logo field found:', logoField, 'type:', typeof logoValue, 'isArray:', Array.isArray(logoValue));
+      if (logoValue && typeof logoValue === 'object') {
+        console.log('[DD Zoho CRM] Logo value keys:', Object.keys(logoValue).join(', '));
+      }
+      logoUrl = extractFileUrl(logoValue);
+    } else {
+      console.log('[DD Zoho CRM] No logo field found in form fields. Available labels:', formFields.map(f => f.label).filter(Boolean).join(', '));
+    }
+    
+    // Fallback: check due_diligence_document table if no logo URL from form field
+    if (!logoUrl) {
+      console.log('[DD Zoho CRM] No logo from form field, checking due_diligence_document table...');
+      const { data: ddDocuments } = await supabase
+        .from('due_diligence_document')
+        .select('id, document_type, file_url')
+        .eq('form_submission_due_diligence_id', ddSubmission.id)
+        .eq('document_type', 'logo')
+        .limit(1);
+      
+      logoUrl = ddDocuments?.[0]?.file_url || null;
+      if (logoUrl) {
+        console.log('[DD Zoho CRM] Found logo URL in due_diligence_document table');
+      }
+    }
+    
+    console.log('[DD Zoho CRM] Final logo URL:', logoUrl ? 'found' : 'null');
     
     for (const action of zohoCrmActions) {
       try {
