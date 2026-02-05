@@ -364,3 +364,62 @@ export async function checkCrossOrgPermissions(roleId) {
     return { hasCrossOrgAccess: false, isAdmin: false };
   }
 }
+
+/**
+ * Check if a member has access to a specific feature based on their role
+ * 
+ * @param {string|null} roleId - The member's role_id
+ * @param {string} resourceId - The feature/resource ID to check (e.g., 'admin.integrations', 'forms.form-management')
+ * @returns {Promise<boolean>} - True if the member has access to the feature
+ */
+export async function hasFeatureAccess(roleId, resourceId) {
+  if (!roleId || !supabase) {
+    return false;
+  }
+  
+  try {
+    const { data: role, error } = await supabase
+      .from('role')
+      .select('excluded_features')
+      .eq('id', roleId)
+      .single();
+    
+    if (error || !role) {
+      return false;
+    }
+    
+    const excludedFeatures = role.excluded_features || [];
+    return !isResourceExcluded(excludedFeatures, resourceId);
+  } catch (err) {
+    console.error('Error checking feature access:', err);
+    return false;
+  }
+}
+
+/**
+ * Check if the current context has admin-level access
+ * This returns true if:
+ * 1. The context is from a tenant user session (admin dashboard), OR
+ * 2. The context is from a member with admin role permissions (role-management access)
+ * 
+ * @param {Object} context - The tenant context from getTenantContext()
+ * @returns {Promise<boolean>} - True if the context has admin access
+ */
+export async function hasAdminAccess(context) {
+  if (!context || !context.isAuthenticated) {
+    return false;
+  }
+  
+  // Tenant users (from admin dashboard) always have admin access
+  if (context.tenantUserId) {
+    return true;
+  }
+  
+  // Members need to have admin role permissions
+  if (context.roleId) {
+    const { isAdmin } = await checkCrossOrgPermissions(context.roleId);
+    return isAdmin;
+  }
+  
+  return false;
+}

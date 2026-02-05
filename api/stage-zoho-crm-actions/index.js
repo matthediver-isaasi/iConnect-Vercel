@@ -1,6 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   try {
@@ -10,9 +9,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    const tenantUser = await getSessionTenantUser(req);
-    if (!tenantUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    // Check for admin access (tenant user) or specific feature access (member with permission)
+    const isAdmin = await hasAdminAccess(context);
+    const hasFeature = context.roleId ? await hasFeatureAccess(context.roleId, 'forms.due-diligence-config') : false;
+    
+    if (!isAdmin && !hasFeature) {
+      return res.status(403).json({ error: 'Access denied - requires due diligence config permission' });
     }
     
     const tenantId = context.tenantId;
