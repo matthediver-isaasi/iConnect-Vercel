@@ -43,6 +43,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
@@ -415,6 +416,28 @@ export default function CreateEvent() {
 
   const selectedWebinar = webinars.find(w => w.id === selectedWebinarId);
   const selectedMeeting = meetings.find(m => m.id === selectedMeetingId);
+
+  // Get the active timezone from the selected Zoom webinar/meeting
+  const activeZoomTimezone = selectedWebinar?.timezone || selectedMeeting?.timezone || null;
+  
+  // Check if we have an active Zoom selection (webinar or meeting)
+  const hasZoomSelection = isOnline && (selectedWebinar || selectedMeeting);
+
+  // Format datetime for input fields - use Zoom timezone if available, otherwise browser local
+  const formatDateTimeForInput = (isoString) => {
+    if (!isoString) return "";
+    try {
+      const date = new Date(isoString);
+      if (activeZoomTimezone) {
+        // Format in the Zoom event's timezone
+        return formatInTimeZone(date, activeZoomTimezone, "yyyy-MM-dd'T'HH:mm");
+      }
+      // Default: format in browser local timezone
+      return format(date, "yyyy-MM-dd'T'HH:mm");
+    } catch {
+      return "";
+    }
+  };
 
   useEffect(() => {
     if (selectedWebinar) {
@@ -1414,16 +1437,19 @@ export default function CreateEvent() {
                   <Input
                     id="start_date"
                     type="datetime-local"
-                    value={formData.start_date ? format(new Date(formData.start_date), "yyyy-MM-dd'T'HH:mm") : ""}
+                    value={formatDateTimeForInput(formData.start_date)}
                     onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
                     required={eventTiming !== 'tbc'}
                     disabled={eventTiming === 'tbc'}
-                    readOnly={isOnline && selectedWebinar}
-                    className={(eventTiming === 'tbc' || (isOnline && selectedWebinar)) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    readOnly={hasZoomSelection}
+                    className={(eventTiming === 'tbc' || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
                   {eventTiming === 'tbc' && (
                     <p className="text-xs text-blue-600">Date disabled for TBC events</p>
+                  )}
+                  {hasZoomSelection && (
+                    <p className="text-xs text-slate-500">Timing is managed by Zoom</p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -1431,11 +1457,11 @@ export default function CreateEvent() {
                   <Input
                     id="end_date"
                     type="datetime-local"
-                    value={formData.end_date ? format(new Date(formData.end_date), "yyyy-MM-dd'T'HH:mm") : ""}
+                    value={formatDateTimeForInput(formData.end_date)}
                     onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
                     disabled={eventTiming === 'tbc'}
-                    readOnly={isOnline && selectedWebinar}
-                    className={(eventTiming === 'tbc' || (isOnline && selectedWebinar)) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    readOnly={hasZoomSelection}
+                    className={(eventTiming === 'tbc' || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
                 </div>
