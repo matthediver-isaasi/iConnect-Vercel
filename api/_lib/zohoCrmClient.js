@@ -238,7 +238,7 @@ export async function getTenantZohoCrmDomains(tenantId) {
   };
 }
 
-export async function zohoCrmApiCall(tenantId, endpoint, options = {}) {
+export async function zohoCrmApiCall(tenantId, endpoint, options = {}, retryCount = 0) {
   const token = await getZohoCrmAccessToken(tenantId);
   const { crmDomain } = await getTenantZohoCrmDomains(tenantId);
   
@@ -259,6 +259,26 @@ export async function zohoCrmApiCall(tenantId, endpoint, options = {}) {
   
   if (!response.ok) {
     console.error('[ZohoCRM] API error:', response.status, responseText);
+    
+    // Check for INVALID_TOKEN and retry once after clearing cache and forcing refresh
+    if (response.status === 401 && responseText.includes('INVALID_TOKEN') && retryCount === 0) {
+      console.log('[ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...');
+      crmTokenCacheByTenant.delete(tenantId);
+      
+      // Force a token refresh by getting credentials and refreshing
+      const credentials = await getTenantZohoCrmCredentials(tenantId);
+      if (credentials?.refresh_token) {
+        try {
+          await refreshCrmAccessToken(tenantId, credentials.refresh_token, credentials);
+          console.log('[ZohoCRM] Token refreshed, retrying API call...');
+          return zohoCrmApiCall(tenantId, endpoint, options, retryCount + 1);
+        } catch (refreshError) {
+          console.error('[ZohoCRM] Token refresh failed:', refreshError);
+          throw new Error(`Zoho CRM token refresh failed - please reconnect Zoho in Integrations`);
+        }
+      }
+    }
+    
     throw new Error(`Zoho CRM API error: ${response.status} - ${responseText}`);
   }
 

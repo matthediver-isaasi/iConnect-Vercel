@@ -1,5 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
+import { clearTenantZohoTokenCache } from '../_lib/zohoCampaignsClient.js';
+import { clearTenantZohoCrmTokenCache } from '../_lib/zohoCrmClient.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -68,6 +70,10 @@ export default async function handler(req, res) {
       console.error('[Zoho] Disconnect error:', error);
       return res.status(500).json({ error: 'Failed to disconnect Zoho' });
     }
+
+    // Clear in-memory token caches to ensure fresh tokens on reconnect
+    clearTenantZohoTokenCache(tenantId);
+    clearTenantZohoCrmTokenCache(tenantId);
 
     console.log('[Zoho] Disconnected for tenant:', tenantId);
     res.json({ success: true });
