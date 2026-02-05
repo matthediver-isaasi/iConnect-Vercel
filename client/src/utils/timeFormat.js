@@ -1,4 +1,7 @@
 import { format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+
+const DEFAULT_TIMEZONE = 'Europe/London';
 
 /**
  * Check if 24-hour format is enabled from system settings
@@ -12,53 +15,66 @@ export const is24HourFormat = (systemSettings) => {
 };
 
 /**
- * Format a date/time for display, respecting the 12/24 hour setting
- * No timezone conversion - displays time as stored
- * @param {Date|string} date - Date object or ISO string
+ * Format a date/time for display, respecting the 12/24 hour setting and timezone
+ * @param {Date|string} date - Date object or ISO string (UTC)
  * @param {Array} systemSettings - Array of system settings objects
+ * @param {string} timezone - IANA timezone string (e.g., 'Europe/London')
  * @returns {string|null} - Formatted time string or null if no date
  */
-export const formatEventTime = (date, systemSettings = []) => {
+export const formatEventTime = (date, systemSettings = [], timezone = null) => {
   if (!date) return null;
   try {
     const dateObj = typeof date === 'string' ? parseISO(date) : date;
     const use24Hour = is24HourFormat(systemSettings);
-    return format(dateObj, use24Hour ? "HH:mm" : "h:mm a");
+    const tz = timezone || DEFAULT_TIMEZONE;
+    return formatInTimeZone(dateObj, tz, use24Hour ? "HH:mm" : "h:mm a");
   } catch (e) {
     console.error('Error formatting time:', e);
-    return format(new Date(date), "h:mm a");
+    try {
+      return format(new Date(date), "h:mm a");
+    } catch {
+      return null;
+    }
   }
 };
 
 /**
- * Format a date for display, no timezone conversion
- * @param {Date|string} date - Date object or ISO string
+ * Format a date for display in the specified timezone
+ * @param {Date|string} date - Date object or ISO string (UTC)
  * @param {string} formatStr - date-fns format string
+ * @param {string} timezone - IANA timezone string (e.g., 'Europe/London')
  * @returns {string|null} - Formatted date string or null if no date
  */
-export const formatEventDate = (date, formatStr = "MMM d, yyyy") => {
+export const formatEventDate = (date, formatStr = "MMM d, yyyy", timezone = null) => {
   if (!date) return null;
   try {
     const dateObj = typeof date === 'string' ? parseISO(date) : date;
-    return format(dateObj, formatStr);
+    const tz = timezone || DEFAULT_TIMEZONE;
+    return formatInTimeZone(dateObj, tz, formatStr);
   } catch (e) {
     console.error('Error formatting date:', e);
-    return format(new Date(date), formatStr);
+    try {
+      return format(new Date(date), formatStr);
+    } catch {
+      return null;
+    }
   }
 };
 
 /**
- * Format a date and time together for display
- * @param {Date|string} date - Date object or ISO string
+ * Format a date and time together for display in the specified timezone
+ * @param {Date|string} date - Date object or ISO string (UTC)
  * @param {Array} systemSettings - Array of system settings objects
+ * @param {string} timezone - IANA timezone string (e.g., 'Europe/London')
  * @returns {string} - Formatted date and time string
  */
-export const formatEventDateTime = (date, systemSettings = []) => {
+export const formatEventDateTime = (date, systemSettings = [], timezone = null) => {
   if (!date) return '';
   try {
     const dateObj = typeof date === 'string' ? parseISO(date) : date;
     const use24Hour = is24HourFormat(systemSettings);
-    return format(dateObj, use24Hour ? "MMM d, yyyy 'at' HH:mm" : "MMM d, yyyy 'at' h:mm a");
+    const tz = timezone || DEFAULT_TIMEZONE;
+    return formatInTimeZone(dateObj, tz, use24Hour ? "MMM d, yyyy 'at' HH:mm" : "MMM d, yyyy 'at' h:mm a");
   } catch (e) {
     console.error('Error formatting datetime:', e);
     return '';

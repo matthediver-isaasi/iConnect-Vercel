@@ -712,7 +712,7 @@ export default function CreateEvent() {
   const formatWebinarDateTime = (webinar) => {
     if (!webinar.start_time) return '';
     const date = new Date(webinar.start_time);
-    return formatEventDateTime(date, systemSettings);
+    return formatEventDateTime(date, systemSettings, webinar.timezone);
   };
 
   return (

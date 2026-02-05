@@ -15,6 +15,7 @@ import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } fr
 import AGCASButton from "../../ui/AGCASButton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format, parseISO } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 
@@ -195,7 +196,8 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
   const formatEventDate = (dateStr) => {
     if (!dateStr) return '';
     try {
-      return format(parseISO(dateStr), 'EEEE, d MMMM yyyy');
+      const tz = event?.timezone || 'Europe/London';
+      return formatInTimeZone(parseISO(dateStr), tz, 'EEEE, d MMMM yyyy');
     } catch {
       return dateStr;
     }
@@ -204,9 +206,10 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
   const formatEventTime = (startStr, endStr) => {
     if (!startStr) return '';
     try {
-      const start = format(parseISO(startStr), 'h:mm a');
+      const tz = event?.timezone || 'Europe/London';
+      const start = formatInTimeZone(parseISO(startStr), tz, 'h:mm a');
       if (endStr) {
-        const end = format(parseISO(endStr), 'h:mm a');
+        const end = formatInTimeZone(parseISO(endStr), tz, 'h:mm a');
         return `${start} - ${end}`;
       }
       return start;

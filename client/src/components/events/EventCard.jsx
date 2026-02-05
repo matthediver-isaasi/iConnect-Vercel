@@ -582,9 +582,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {event.start_date && (
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Calendar className="w-4 h-4 text-slate-400" />
-                  <span>{formatEventDate(event.start_date)}</span>
+                  <span>{formatEventDate(event.start_date, "MMM d, yyyy", event.timezone)}</span>
                   {event.end_date && event.start_date !== event.end_date && (
-                    <span className="text-slate-400">- {formatEventDate(event.end_date)}</span>
+                    <span className="text-slate-400">- {formatEventDate(event.end_date, "MMM d, yyyy", event.timezone)}</span>
                   )}
                 </div>
               )}
@@ -592,7 +592,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {event.start_date && (
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Clock className="w-4 h-4 text-slate-400" />
-                  <span>{formatEventTime(event.start_date, systemSettings)}</span>
+                  <span>{formatEventTime(event.start_date, systemSettings, event.timezone)}</span>
                 </div>
               )}
             </>
