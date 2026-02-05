@@ -100,9 +100,8 @@ const getCtaButtonConfig = (systemSettings) => {
     };
   } catch (e) {
     console.error('Error parsing CTA button config:', e);
+    return defaultConfig;
   }
-  
-  return defaultConfig;
 };
 
 // Helper function to get the cheapest ticket price from an event's pricing_config
