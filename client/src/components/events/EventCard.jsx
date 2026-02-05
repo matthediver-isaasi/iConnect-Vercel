@@ -234,10 +234,18 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const uniqueOrganizations = useMemo(() => {
     if (!bookingsData) return [];
     const orgIds = [...new Set(bookingsData.map(b => b.organization_id).filter(Boolean))];
-    return orgIds.map(id => ({
+    const orgs = orgIds.map(id => ({
       id,
       name: organizationMap[id] || 'Unknown Organization'
     })).sort((a, b) => a.name.localeCompare(b.name));
+    
+    // Check if there are any non-member (NULL organization_id) bookings
+    const hasNonMemberBookings = bookingsData.some(b => !b.organization_id);
+    if (hasNonMemberBookings) {
+      orgs.push({ id: 'non-member', name: 'Non-member' });
+    }
+    
+    return orgs;
   }, [bookingsData, organizationMap]);
 
   // Filter attendees based on organization and search
@@ -246,15 +254,20 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     return bookingsData
       .filter(booking => {
         // Filter by organization
-        if (organizationFilter !== "all" && booking.organization_id !== organizationFilter) {
-          return false;
+        if (organizationFilter !== "all") {
+          if (organizationFilter === "non-member") {
+            // Filter for bookings with NULL organization_id
+            if (booking.organization_id) return false;
+          } else if (booking.organization_id !== organizationFilter) {
+            return false;
+          }
         }
         // Filter by search term
         if (searchFilter) {
           const search = searchFilter.toLowerCase();
           const name = `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.toLowerCase();
           const email = (booking.attendee_email || '').toLowerCase();
-          const org = (organizationMap[booking.organization_id] || '').toLowerCase();
+          const org = booking.organization_id ? (organizationMap[booking.organization_id] || '').toLowerCase() : 'non-member';
           return name.includes(search) || email.includes(search) || org.includes(search);
         }
         return true;
@@ -317,7 +330,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     const rows = filteredAttendees.map(booking => [
       `${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
       booking.attendee_email || '',
-      organizationMap[booking.organization_id] || ''
+      booking.organization_id ? (organizationMap[booking.organization_id] || '') : 'Non-member'
     ]);
 
     const csvContent = [
@@ -903,7 +916,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                           {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || '-'}
                         </TableCell>
                         <TableCell>
-                          {organizationMap[booking.organization_id] || '-'}
+                          {booking.organization_id 
+                            ? (organizationMap[booking.organization_id] || '-')
+                            : <span className="text-muted-foreground italic">Non-member</span>
+                          }
                         </TableCell>
                         <TableCell>
                           <a 

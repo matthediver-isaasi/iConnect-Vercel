@@ -372,20 +372,40 @@ export default async function handler(req, res) {
               // No specific org filter - fetch all tenant orgs (for listing all orgs' preference values)
               console.log(`[Entity GET] ${entity} - allowing cross-org access via allowsTenantWideAccess, tenantId:`, tenantCtx.effectiveTenantId);
               
-              // For large tenants, use join instead of .in() to avoid query limits
-              const selectClause = expand || '*';
+              // For Booking entity, use direct tenant_id filter to include guest bookings with NULL organization_id
+              // Other entities still use the organization join approach
+              if (entity === 'Booking') {
+                const selectClause = expand || '*';
+                query = supabase
+                  .from(tableName)
+                  .select(selectClause)
+                  .eq('tenant_id', tenantCtx.effectiveTenantId);
+                console.log(`[Entity GET] Booking - using direct tenant_id filter to include guest bookings`);
+              } else {
+                // For large tenants, use join instead of .in() to avoid query limits
+                const selectClause = expand || '*';
+                query = supabase
+                  .from(tableName)
+                  .select(`${selectClause}, organization!inner(tenant_id)`)
+                  .eq('organization.tenant_id', tenantCtx.effectiveTenantId);
+              }
+            }
+          } else if (isTenantAdmin && tenantCtx.effectiveTenantId) {
+            // Tenant admins can access all orgs within their tenant using a join
+            const selectClause = expand || '*';
+            // For Booking entity, use direct tenant_id filter to include guest bookings with NULL organization_id
+            if (entity === 'Booking') {
+              query = supabase
+                .from(tableName)
+                .select(selectClause)
+                .eq('tenant_id', tenantCtx.effectiveTenantId);
+              console.log(`[Entity GET] Booking - tenant admin using direct tenant_id filter to include guest bookings`);
+            } else {
               query = supabase
                 .from(tableName)
                 .select(`${selectClause}, organization!inner(tenant_id)`)
                 .eq('organization.tenant_id', tenantCtx.effectiveTenantId);
             }
-          } else if (isTenantAdmin && tenantCtx.effectiveTenantId) {
-            // Tenant admins can access all orgs within their tenant using a join
-            const selectClause = expand || '*';
-            query = supabase
-              .from(tableName)
-              .select(`${selectClause}, organization!inner(tenant_id)`)
-              .eq('organization.tenant_id', tenantCtx.effectiveTenantId);
           } else {
             // Members: restrict to their own organization for other ORGANIZATION-scoped entities
             query = query.eq('organization_id', tenantCtx.organizationId);
