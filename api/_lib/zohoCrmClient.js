@@ -232,7 +232,18 @@ export async function getZohoCrmAccessToken(tenantId) {
 
 export async function getTenantZohoCrmDomains(tenantId) {
   const credentials = await getTenantZohoCrmCredentials(tenantId);
+  
+  // Debug logging to trace domain resolution
+  console.log('[ZohoCRM] getTenantZohoCrmDomains - raw credentials:', {
+    hasCredentials: !!credentials,
+    storedAccountsDomain: credentials?.accounts_domain,
+    storedCrmDomain: credentials?.crm_domain,
+    storedRegion: credentials?.region
+  });
+  
   const accountsDomain = credentials?.accounts_domain ? (decrypt(credentials.accounts_domain) || credentials.accounts_domain) : DEFAULT_ACCOUNTS_DOMAIN;
+  
+  console.log('[ZohoCRM] Resolved accounts_domain:', accountsDomain);
   
   // Get crm_domain from credentials, or derive it from accounts_domain
   // e.g., https://accounts.zoho.eu -> https://www.zohoapis.eu
@@ -254,8 +265,11 @@ export async function getTenantZohoCrmDomains(tenantId) {
       crmDomain = DEFAULT_CRM_DOMAIN; // US default
     }
     console.log('[ZohoCRM] Derived CRM domain from accounts domain:', accountsDomain, '->', crmDomain);
+  } else {
+    console.log('[ZohoCRM] Using stored crm_domain:', crmDomain);
   }
   
+  console.log('[ZohoCRM] Final domains - accounts:', accountsDomain, 'crm:', crmDomain);
   return { accountsDomain, crmDomain };
 }
 
