@@ -592,7 +592,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               {event.start_date && (
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <Clock className="w-4 h-4 text-slate-400" />
-                  <span>{formatEventTime(event.start_date, systemSettings, event.timezone)}</span>
+                  <span>{formatEventTime(event.start_date, systemSettings, event.timezone, true)}</span>
                 </div>
               )}
             </>

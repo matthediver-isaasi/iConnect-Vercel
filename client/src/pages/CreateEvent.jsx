@@ -153,8 +153,40 @@ export default function CreateEvent() {
     zoom_webinar_id: null,
     zoom_meeting_id: null,
     online_url: "",
-    cta_override_url: ""
+    cta_override_url: "",
+    timezone: "Europe/London"
   });
+
+  // Common timezones for the selector
+  const timezoneOptions = [
+    { value: "Europe/London", label: "London (GMT/BST)" },
+    { value: "Europe/Dublin", label: "Dublin (GMT/IST)" },
+    { value: "Europe/Paris", label: "Paris (CET/CEST)" },
+    { value: "Europe/Berlin", label: "Berlin (CET/CEST)" },
+    { value: "Europe/Amsterdam", label: "Amsterdam (CET/CEST)" },
+    { value: "Europe/Brussels", label: "Brussels (CET/CEST)" },
+    { value: "Europe/Madrid", label: "Madrid (CET/CEST)" },
+    { value: "Europe/Rome", label: "Rome (CET/CEST)" },
+    { value: "Europe/Zurich", label: "Zurich (CET/CEST)" },
+    { value: "Europe/Stockholm", label: "Stockholm (CET/CEST)" },
+    { value: "Europe/Warsaw", label: "Warsaw (CET/CEST)" },
+    { value: "Europe/Athens", label: "Athens (EET/EEST)" },
+    { value: "America/New_York", label: "New York (EST/EDT)" },
+    { value: "America/Chicago", label: "Chicago (CST/CDT)" },
+    { value: "America/Denver", label: "Denver (MST/MDT)" },
+    { value: "America/Los_Angeles", label: "Los Angeles (PST/PDT)" },
+    { value: "America/Toronto", label: "Toronto (EST/EDT)" },
+    { value: "America/Vancouver", label: "Vancouver (PST/PDT)" },
+    { value: "Asia/Dubai", label: "Dubai (GST)" },
+    { value: "Asia/Singapore", label: "Singapore (SGT)" },
+    { value: "Asia/Hong_Kong", label: "Hong Kong (HKT)" },
+    { value: "Asia/Tokyo", label: "Tokyo (JST)" },
+    { value: "Asia/Shanghai", label: "Shanghai (CST)" },
+    { value: "Australia/Sydney", label: "Sydney (AEST/AEDT)" },
+    { value: "Australia/Melbourne", label: "Melbourne (AEST/AEDT)" },
+    { value: "Pacific/Auckland", label: "Auckland (NZST/NZDT)" },
+    { value: "UTC", label: "UTC" }
+  ];
 
   // Rich text editor modules configuration
   const quillModules = {
@@ -455,7 +487,8 @@ export default function CreateEvent() {
         online_url: selectedWebinar.join_url || "",
         delivery_mode: "online",
         location: "Online Event",
-        available_seats: 0
+        available_seats: 0,
+        timezone: selectedWebinar.timezone || "Europe/London"
       }));
     }
   }, [selectedWebinar]);
@@ -475,7 +508,8 @@ export default function CreateEvent() {
         zoom_meeting_id: selectedMeeting.id,
         online_url: selectedMeeting.join_url || "",
         delivery_mode: "online",
-        location: "Online Event"
+        location: "Online Event",
+        timezone: selectedMeeting.timezone || "Europe/London"
       }));
     }
   }, [selectedMeeting]);
@@ -1465,6 +1499,41 @@ export default function CreateEvent() {
                     data-testid="input-end-date"
                   />
                 </div>
+              </div>
+
+              {/* Timezone Selector */}
+              <div className="space-y-2 mt-4">
+                <Label htmlFor="timezone">Timezone</Label>
+                {hasZoomSelection ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="timezone"
+                      value={timezoneOptions.find(tz => tz.value === activeZoomTimezone)?.label || activeZoomTimezone || "Not specified"}
+                      readOnly
+                      className="bg-slate-100 cursor-not-allowed"
+                      data-testid="input-timezone-readonly"
+                    />
+                    <p className="text-xs text-slate-500">Timezone is set by Zoom</p>
+                  </div>
+                ) : (
+                  <Select
+                    value={formData.timezone}
+                    onValueChange={(value) => handleInputChange('timezone', value)}
+                    disabled={eventTiming === 'tbc'}
+                    data-testid="select-timezone"
+                  >
+                    <SelectTrigger className={eventTiming === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}>
+                      <SelectValue placeholder="Select timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {timezoneOptions.map((tz) => (
+                        <SelectItem key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               {/* Registration Closes At - Optional */}

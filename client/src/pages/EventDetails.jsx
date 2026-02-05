@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
-import { formatEventTime } from "@/utils/timeFormat";
+import { formatEventTime, getTimezoneAbbreviation } from "@/utils/timeFormat";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
@@ -1188,6 +1188,7 @@ export default function EventDetailsPage() {
                       {endDate && (
                         <span className="text-slate-500">- {formatEventTime(endDate, systemSettings, event?.timezone)}</span>
                       )}
+                      <span className="text-slate-400 text-sm">({getTimezoneAbbreviation(startDate, event?.timezone)})</span>
                     </div>
                   )}
 
