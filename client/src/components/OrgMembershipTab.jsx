@@ -6,9 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
-  History, AlertCircle, Wallet, ArrowRight
+  History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -27,6 +44,11 @@ export default function OrgMembershipTab({ organizationId }) {
   const queryClient = useQueryClient();
   const [editingFieldValue, setEditingFieldValue] = useState(null);
   const [isEditingField, setIsEditingField] = useState(false);
+  const [overrideModalOpen, setOverrideModalOpen] = useState(false);
+  const [overrideType, setOverrideType] = useState('structure');
+  const [selectedConfigId, setSelectedConfigId] = useState('');
+  const [manualPrice, setManualPrice] = useState('');
+  const [overrideNote, setOverrideNote] = useState('');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
@@ -36,6 +58,16 @@ export default function OrgMembershipTab({ organizationId }) {
       return response.json();
     },
     enabled: !!organizationId,
+  });
+
+  const { data: availableConfigs, isLoading: configsLoading } = useQuery({
+    queryKey: ['org-membership-configs', organizationId],
+    queryFn: async () => {
+      const response = await fetch(`/api/membership/org-membership-override?organizationId=${organizationId}&action=configs`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch configs');
+      return response.json();
+    },
+    enabled: overrideModalOpen && !!organizationId,
   });
 
   const updateFieldMutation = useMutation({
@@ -84,6 +116,104 @@ export default function OrgMembershipTab({ organizationId }) {
       toast.error(error.message);
     },
   });
+
+  const overrideMutation = useMutation({
+    mutationFn: async (payload) => {
+      const response = await fetch('/api/membership/org-membership-override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to save override');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-notes'] });
+      setOverrideModalOpen(false);
+      resetOverrideForm();
+      toast.success('Renewal override saved');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const removeOverrideMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/membership/org-membership-override?organizationId=${organizationId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to remove override');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-notes'] });
+      toast.success('Override removed');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const resetOverrideForm = () => {
+    setOverrideType('structure');
+    setSelectedConfigId('');
+    setManualPrice('');
+    setOverrideNote('');
+  };
+
+  const handleOpenOverrideModal = () => {
+    resetOverrideForm();
+    if (data?.override) {
+      setOverrideType(data.override.override_type || 'structure');
+      if (data.override.override_type === 'structure' && data.override.config_id) {
+        setSelectedConfigId(data.override.config_id);
+      }
+      if (data.override.override_type === 'price' && data.override.manual_price !== null) {
+        setManualPrice(data.override.manual_price.toString());
+      }
+    }
+    setOverrideModalOpen(true);
+  };
+
+  const handleSaveOverride = () => {
+    if (!overrideNote.trim()) {
+      toast.error('Please enter a reason for this override');
+      return;
+    }
+
+    if (overrideType === 'structure' && !selectedConfigId) {
+      toast.error('Please select a tier structure');
+      return;
+    }
+
+    if (overrideType === 'price') {
+      const price = parseFloat(manualPrice);
+      if (isNaN(price) || price < 0) {
+        toast.error('Please enter a valid price');
+        return;
+      }
+    }
+
+    overrideMutation.mutate({
+      organizationId,
+      overrideType,
+      configId: overrideType === 'structure' ? selectedConfigId : null,
+      manualPrice: overrideType === 'price' ? parseFloat(manualPrice) : null,
+      note: overrideNote,
+      membershipYear: data?.nextYearPreview?.membershipYear || null,
+    });
+  };
 
   const handleSaveFieldValue = () => {
     const val = parseFloat(editingFieldValue);
@@ -135,10 +265,11 @@ export default function OrgMembershipTab({ organizationId }) {
     );
   }
 
-  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, history, bands } = data;
+  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, history, bands, override } = data;
   const currency = config.currency || 'GBP';
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const isAutoField = config.field_source === 'core' && config.field_name === 'member_count';
+  const hasOverride = !!nextYearPreview?.overrideType;
 
   const currentYearRecorded = history?.find(h => h.membership_year === currentYear?.label);
 
@@ -283,11 +414,54 @@ export default function OrgMembershipTab({ organizationId }) {
 
             {nextYearPreview ? (
               <div>
-                <p className="text-sm text-muted-foreground flex items-center gap-1">
-                  <ArrowRight className="w-3 h-3" />
-                  Next Year Preview
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground flex items-center gap-1">
+                    <ArrowRight className="w-3 h-3" />
+                    Next Year Preview
+                  </p>
+                  <Button
+                    size="sm"
+                    variant={hasOverride ? "secondary" : "outline"}
+                    onClick={handleOpenOverrideModal}
+                    data-testid="button-override-renewal"
+                  >
+                    <Pencil className="w-3 h-3 mr-1" />
+                    {hasOverride ? 'Edit Override' : 'Override'}
+                  </Button>
+                </div>
                 <p className="font-semibold" data-testid="text-next-year">{nextYearPreview.membershipYear}</p>
+
+                {hasOverride && (
+                  <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-start gap-2">
+                      <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                          {nextYearPreview.overrideType === 'price' ? 'Manual Price Override' : 'Structure Override'}
+                          {nextYearPreview.overrideConfigName && ` - ${nextYearPreview.overrideConfigName}`}
+                        </p>
+                        {nextYearPreview.overrideNote && (
+                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{nextYearPreview.overrideNote}</p>
+                        )}
+                        {nextYearPreview.originalAnnualCost !== undefined && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Original: <span className="line-through">{formatCost(nextYearPreview.originalAnnualCost, currency)}</span>
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeOverrideMutation.mutate()}
+                        disabled={removeOverrideMutation.isPending}
+                        data-testid="button-remove-override"
+                      >
+                        {removeOverrideMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="mt-2 p-3 bg-muted/50 rounded-md space-y-1">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Tier</span>
@@ -298,7 +472,7 @@ export default function OrgMembershipTab({ organizationId }) {
                     <span className="font-medium">{nextYearPreview.fieldValue?.toLocaleString() ?? 'N/A'}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{periodLabel} Cost</span>
+                    <span className="text-muted-foreground">{hasOverride && nextYearPreview.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost`}</span>
                     <span className="font-medium">{formatCost(nextYearPreview.annualCost, currency)}</span>
                   </div>
                   {nextYearPreview.rolloverDiscount > 0 && (
@@ -307,16 +481,18 @@ export default function OrgMembershipTab({ organizationId }) {
                       <span className="text-green-600">-{formatCost(nextYearPreview.rolloverDiscount, currency)}</span>
                     </div>
                   )}
-                  {(nextYearPreview.rolloverDiscount > 0) && (
+                  {(nextYearPreview.rolloverDiscount > 0 || hasOverride) && (
                     <div className="flex items-center justify-between text-sm border-t pt-1">
                       <span className="text-muted-foreground">Final Cost</span>
                       <span className="font-semibold">{formatCost(nextYearPreview.finalCost, currency)}</span>
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
-                </p>
+                {!hasOverride && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -396,6 +572,145 @@ export default function OrgMembershipTab({ organizationId }) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle data-testid="text-override-title">Override Next Year Renewal</DialogTitle>
+            <DialogDescription>
+              Override the automatically calculated renewal price for {nextYearPreview?.membershipYear || 'next year'}.
+              A note will be added to the organisation's Notes tab.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Override Type</Label>
+              <RadioGroup
+                value={overrideType}
+                onValueChange={(val) => {
+                  setOverrideType(val);
+                  setSelectedConfigId('');
+                  setManualPrice('');
+                }}
+                data-testid="radio-override-type"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="structure" id="override-structure" data-testid="radio-structure" />
+                  <Label htmlFor="override-structure" className="text-sm cursor-pointer">
+                    Use a different tier structure
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="price" id="override-price" data-testid="radio-price" />
+                  <Label htmlFor="override-price" className="text-sm cursor-pointer">
+                    Set a manual price
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {overrideType === 'structure' && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select Tier Structure</Label>
+                {configsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading structures...
+                  </div>
+                ) : (
+                  <Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
+                    <SelectTrigger data-testid="select-config">
+                      <SelectValue placeholder="Choose a tier structure..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableConfigs?.map((cfg) => (
+                        <SelectItem key={cfg.id} value={cfg.id} data-testid={`option-config-${cfg.id}`}>
+                          {cfg.name || 'Unnamed'} (from {cfg.effective_from})
+                          {cfg.effective_to ? ` to ${cfg.effective_to}` : ' - Current'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {selectedConfigId && availableConfigs && (
+                  <div className="p-2 bg-muted/50 rounded-md">
+                    <p className="text-xs text-muted-foreground mb-1">Bands in selected structure:</p>
+                    <div className="space-y-0.5">
+                      {availableConfigs
+                        .find(c => c.id === selectedConfigId)
+                        ?.bands?.map((band) => (
+                          <div key={band.id} className="flex items-center justify-between text-xs">
+                            <span>{band.label} ({band.min_value}{band.max_value !== null ? `-${band.max_value}` : '+'})</span>
+                            <span>{formatCost(band.annual_cost, currency)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {overrideType === 'price' && (
+              <div className="space-y-2">
+                <Label htmlFor="manual-price" className="text-sm font-medium">
+                  Manual Price ({getCurrencySymbol(currency)})
+                </Label>
+                <Input
+                  id="manual-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={manualPrice}
+                  onChange={(e) => setManualPrice(e.target.value)}
+                  placeholder="Enter renewal price..."
+                  data-testid="input-manual-price"
+                />
+                {nextYearPreview && (
+                  <p className="text-xs text-muted-foreground">
+                    Auto-calculated price: {formatCost(nextYearPreview.originalAnnualCost ?? nextYearPreview.annualCost, currency)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="override-note" className="text-sm font-medium">
+                Reason for Override <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="override-note"
+                value={overrideNote}
+                onChange={(e) => setOverrideNote(e.target.value)}
+                placeholder="Explain why this override is being applied..."
+                rows={3}
+                data-testid="textarea-override-note"
+              />
+              <p className="text-xs text-muted-foreground">
+                This note will be added to the organisation's Notes tab for audit purposes.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setOverrideModalOpen(false)}
+              data-testid="button-cancel-override"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveOverride}
+              disabled={overrideMutation.isPending}
+              data-testid="button-save-override"
+            >
+              {overrideMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+              Save Override
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

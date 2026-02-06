@@ -46,6 +46,21 @@ async function getCurrentConfig(tenantId) {
   return data;
 }
 
+async function getConfigById(configId, tenantId) {
+  const { data, error } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('id', configId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[Org Membership] Error fetching config by id:', error);
+    return null;
+  }
+  return data;
+}
+
 async function getBandsForConfig(configId, tenantId) {
   const { data, error } = await supabase
     .from('membership_tier_band')
@@ -274,6 +289,54 @@ async function handleGet(req, res, tenantId) {
     .eq('organization_id', organizationId)
     .order('membership_year', { ascending: false });
 
+  let override = null;
+  try {
+    const { data: overrideData } = await supabase
+      .from('organisation_membership_override')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    override = overrideData;
+  } catch (err) {
+    // Table may not exist yet
+  }
+
+  if (override && nextYearPreview) {
+    if (override.override_type === 'price' && override.manual_price !== null) {
+      nextYearPreview.overrideType = 'price';
+      nextYearPreview.overridePrice = parseFloat(override.manual_price);
+      nextYearPreview.overrideNote = override.note;
+      nextYearPreview.originalAnnualCost = nextYearPreview.annualCost;
+      nextYearPreview.originalFinalCost = nextYearPreview.finalCost;
+      nextYearPreview.finalCost = parseFloat(override.manual_price);
+      nextYearPreview.annualCost = parseFloat(override.manual_price);
+      nextYearPreview.rolloverDiscount = 0;
+    } else if (override.override_type === 'structure' && override.config_id) {
+      const overrideConfig = await getConfigById(override.config_id, tenantId);
+      if (overrideConfig) {
+        const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
+        const overrideBand = override.band_id
+          ? overrideBands.find(b => b.id === override.band_id)
+          : matchBand(fieldValue, overrideBands);
+
+        if (overrideBand) {
+          const overrideCost = parseFloat(overrideBand.annual_cost);
+          nextYearPreview.overrideType = 'structure';
+          nextYearPreview.overrideConfigId = overrideConfig.id;
+          nextYearPreview.overrideConfigName = overrideConfig.name;
+          nextYearPreview.overrideNote = override.note;
+          nextYearPreview.originalAnnualCost = nextYearPreview.annualCost;
+          nextYearPreview.originalFinalCost = nextYearPreview.finalCost;
+          nextYearPreview.tierLabel = overrideBand.label;
+          nextYearPreview.annualCost = overrideCost;
+          nextYearPreview.rolloverDiscount = 0;
+          nextYearPreview.finalCost = overrideCost;
+        }
+      }
+    }
+  }
+
   return res.json({
     organization: org,
     config: {
@@ -307,6 +370,7 @@ async function handleGet(req, res, tenantId) {
       end: currentYear.end.toISOString().split('T')[0],
     },
     nextYearPreview,
+    override,
     history: historyRecords || [],
     bands: bands.map(b => ({
       id: b.id,

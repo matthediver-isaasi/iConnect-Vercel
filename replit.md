@@ -34,7 +34,7 @@ The tenant resolver (`api/_lib/tenantResolver.js`) handles domain-to-tenant mapp
 -   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant.
 -   **Realtime Updates:** Supabase Realtime Subscriptions for frontend cache invalidation.
 -   **Booking System:** Agent booking system with tenant-scoped meeting templates.
--   **Organisation Membership Tab:** Per-organisation membership tier view showing current tier, editable control variable, next year fee preview with rollover discount, and historical fee records.
+-   **Organisation Membership Tab:** Per-organisation membership tier view showing current tier, editable control variable, next year fee preview with rollover discount, and historical fee records. Supports renewal overrides (structure or manual price) via `api/membership/org-membership-override.js` with mandatory notes for audit trail stored in `organisation_membership_override` table.
 
 ## Event Timezone Handling
 Events store times in UTC with a separate `timezone` field for display purposes. Display logic prioritizes Zoom event timezones, then `event.timezone`, falling back to `'Europe/London'`. Time formatting utilities are provided in `client/src/utils/timeFormat.js`.
