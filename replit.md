@@ -1,224 +1,60 @@
-<!-- IMPORTANT: This application is deployed on Vercel. Server-side logs are NOT visible in Replit's console. To debug production issues, check Vercel's function logs or add client-side console logging. -->
-
-<!-- ⚠️ CRITICAL: DO NOT REMOVE THIS SECTION - Database Connection Instructions ⚠️ -->
-# Database Connection Instructions
-
-**⚠️ NEVER REMOVE THIS SECTION - These instructions are essential for database access ⚠️**
-
-This project uses Supabase PostgreSQL databases. **Direct psql commands and execute_sql_tool DO NOT WORK** on Replit due to IPv6 connectivity issues.
-
-## Available Database Secrets
-
-| Secret | Database | Purpose |
-|--------|----------|---------|
-| `SOURCE_DATABASE_URL` | Legacy single-tenant Supabase | Original data source for migrations |
-| `DEST_DATABASE_URL` | New multi-tenant Supabase | Production destination database |
-| `DEST_SUPABASE_KEY` | New multi-tenant Supabase | Service role key for Supabase client |
-
-## How to Query the Database
-
-**USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool**
-
-Create a script or run inline Node.js:
-
-```javascript
-import { createClient } from '@supabase/supabase-js';
-
-// For destination (multi-tenant) database:
-const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
-const supabaseKey = process.env.DEST_SUPABASE_KEY; // Service role key
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// Example query
-const { data, error } = await supabase
-  .from('member')
-  .select('*')
-  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
-  .limit(10);
-
-console.log(data);
-```
-
-Run with: `node scripts/debug-query.mjs` or inline with `node -e "..."`
-
-## Important Notes
-
-- **Replit's built-in database tools won't work** - The `execute_sql_tool` and `psql` fail due to IPv6 routing issues
-- **Always use Supabase client** - Use `@supabase/supabase-js` for all database operations
-- **Tenant ID for migrations:** `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
-- See `scripts/debug-tenant.mjs` for a working example of database queries
-
-<!-- ⚠️ END CRITICAL SECTION - DO NOT REMOVE ⚠️ -->
-
 # Overview
-
-This project is a multi-tenant SaaS membership management platform providing organizations with a comprehensive solution for managing members, events, bookings, resources, and blog posts. It aims to consolidate various organizational management functions into a single, efficient platform, offering significant market potential. Key capabilities include a unified identity system, a dynamic page builder, custom forms, workflow automation, and a robust Due Diligence process. The platform supports a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) with strong access control and data isolation.
+This project is a multi-tenant SaaS membership management platform designed to provide organizations with a comprehensive solution for managing members, events, bookings, resources, and blog posts. Its core purpose is to consolidate various organizational management functions into a single, efficient platform. Key capabilities include a unified identity system, a dynamic page builder, custom forms, workflow automation, and a robust Due Diligence process. The platform supports a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) with strong access control and data isolation, offering significant market potential for streamlining organizational operations.
 
 # User Preferences
-
 Preferred communication style: Simple, everyday language.
 
 # System Architecture
-
 ## Core Technologies
-The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS. The backend uses Express.js, PostgreSQL (Neon serverless), and Drizzle ORM. All API endpoints are deployed as Vercel serverless functions.
+The frontend is built with React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS. The backend uses Express.js, PostgreSQL, and Drizzle ORM. All API endpoints are deployed as Vercel serverless functions.
 
 ## Multi-Tenant Architecture
-The platform is designed for multi-tenancy, ensuring data isolation across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, primarily using `tenant_id` and `organization_id` for scoping. Tenant-scoped tables, such as `organization`, `member`, `role`, `event`, `program`, `form`, `resource`, `job_posting`, `email_template`, and `workflow`, require proper tenant context for queries.
+The platform features a multi-tenant design ensuring data isolation across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, primarily using `tenant_id` and `organization_id` for scoping.
 
 ## API Authentication Pattern
-The platform supports two types of authenticated sessions: Member sessions (portal users) and Tenant user sessions (admin dashboard users). `getTenantContext(req)` is the preferred function for handling both session types, returning `{ tenantId, memberId, isAuthenticated, ... }`. Admin-only endpoints should use `getSessionTenantUser(req)`, and member-only endpoints use `getSessionMember(req)`.
+The platform supports two types of authenticated sessions: Member sessions (portal users) and Tenant user sessions (admin dashboard users). `getTenantContext(req)` is used for handling both session types.
 
 ## Identity and Access Management
-A unified identity system (`tenant_identity` table) manages user authentication, supporting multiple tenant ownership and organization memberships with per-tenant password isolation and Google OAuth. A feature-based role management system provides granular control over UI visibility and backend access, including protected system roles and role-based field access control.
+A unified identity system manages user authentication, supporting multiple tenant ownership and organization memberships with per-tenant password isolation and Google OAuth. A feature-based role management system provides granular control over UI visibility and backend access, including protected system roles and role-based field access control.
 
 ## Deployment & Domain Structure
-The application is deployed on Vercel, utilizing `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, enabled by cross-subdomain session cookies.
+The application is deployed on Vercel, using `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, enabled by cross-subdomain session cookies.
 
-## Tenant Resolver (`api/_lib/tenantResolver.js`)
-The tenant resolver handles domain-to-tenant mapping for incoming requests and URL building for outgoing links.
-
-### Key Functions
-- `resolveTenantFromHost(hostname)` - Resolves a hostname to a tenant object. Handles subdomain patterns (`{slug}.iconn.app`) and custom domains.
-- `resolveTenantFromRequest(req)` - Resolves tenant from a request, checking query params (`?tenant=` or `?slug=`) first, then falling back to host-based resolution.
-- `getHostFromRequest(req)` - Extracts the host from request headers (`x-forwarded-host` or `host`). Critical for preserving the current environment (e.g., testing vs production subdomains).
-
-### URL Building for Outgoing Links (Email Links)
-When building URLs for email links (tracking, unsubscribe, preferences), use `getHostFromRequest(req)` to capture the current host rather than constructing from tenant slug:
-```javascript
-import { getHostFromRequest } from '../_lib/tenantResolver.js';
-import { getTenantBaseUrl } from '../_lib/campaignService.js';
-
-const requestHost = getHostFromRequest(req);
-const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
-```
-This ensures links in emails point back to the same environment the request came from (e.g., `gfi.testing.iconn.app` stays as `gfi.testing.iconn.app`, not `gfi.iconn.app`).
+## Tenant Resolver
+The tenant resolver (`api/_lib/tenantResolver.js`) handles domain-to-tenant mapping for incoming requests and URL building for outgoing links. It includes functions like `resolveTenantFromHost(hostname)`, `resolveTenantFromRequest(req)`, and `getHostFromRequest(req)`. When building URLs for email links, `getHostFromRequest(req)` should be used to preserve the current environment.
 
 ## Key Features and Modules
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
 -   **Content Management:** Event/booking management, general content management, dynamic page builder, custom forms with conditional logic, and blog posts.
--   **Communication:** Email template placeholder system for dynamic emails and communication preferences management.
--   **Workflow Automation:** Tenant-scoped workflows for automating actions based on entity events, including a Due Diligence process.
--   **Branding & Customization:** Per-tenant branding system for public-facing pages, allowing customization of colors, logos, and page configurations.
+-   **Communication:** Email template placeholder system and communication preferences management.
+-   **Workflow Automation:** Tenant-scoped workflows for automating actions, including a Due Diligence process.
+-   **Branding & Customization:** Per-tenant branding system for public-facing pages.
 -   **Form Embedding:** Forms can be embedded on external websites via iFrame with a public API.
--   **API Patterns:** Public API endpoints for unauthenticated access and authenticated endpoints using `getTenantContext(req)`.
 -   **Data Management:** Server-side pagination and a robust data migration system.
--   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant, with support for custom email domains (users configure DNS records manually) or default auto-generated subdomains (DNS managed automatically).
+-   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant.
 -   **Realtime Updates:** Supabase Realtime Subscriptions for frontend cache invalidation.
 -   **Booking System:** Agent booking system with tenant-scoped meeting templates.
+-   **Organisation Membership Tab:** Per-organisation membership tier view showing current tier, editable control variable, next year fee preview with rollover discount, and historical fee records.
 
 ## Event Timezone Handling
-
-Events store times in UTC with a separate `timezone` field for display purposes. This supports multi-tenant deployments across different countries.
-
-### Database Schema
-- `event.start_date` / `event.end_date` - Stored in UTC
-- `event.timezone` - IANA timezone string (e.g., 'Europe/London', 'America/New_York')
-- `zoom_meeting.timezone` / `zoom_webinar.timezone` - Timezone from Zoom API
-
-### Display Logic Priority
-1. **Zoom events**: Use timezone from linked `zoom_webinar` or `zoom_meeting` record
-2. **Non-Zoom events**: Use `event.timezone` field
-3. **Fallback**: Default to `'Europe/London'`
-
-### Key Files
-- `client/src/utils/timeFormat.js` - Shared formatting utilities using `formatInTimeZone` from `date-fns-tz`
-- `client/src/components/events/EventCard.jsx` - Event listing cards
-- `client/src/pages/EditEvent.jsx` - Event edit form with timezone selector (read-only for Zoom events)
-- `client/src/pages/EventDetails.jsx` - Event detail page
-- `api/zoom/sync-event.js` - Syncs timezone to Event when syncing from Zoom
-- `scripts/sync-zoom-meeting-times.js` - Batch sync script (also updates `event.timezone`)
-
-### Formatting Functions
-```javascript
-import { formatEventTime, formatEventDate, formatEventDateTime } from "@/utils/timeFormat";
-
-// All accept optional timezone parameter (defaults to 'Europe/London')
-formatEventTime(date, systemSettings, event.timezone);
-formatEventDate(date, "MMM d, yyyy", event.timezone);
-formatEventDateTime(date, systemSettings, event.timezone);
-```
-
-### Zoom Sync
-When syncing from Zoom (manual or batch), both the zoom record and linked Event are updated with the timezone from Zoom API. Zoom is the single source of truth for Zoom-linked events.
+Events store times in UTC with a separate `timezone` field for display purposes. Display logic prioritizes Zoom event timezones, then `event.timezone`, falling back to `'Europe/London'`. Time formatting utilities are provided in `client/src/utils/timeFormat.js`.
 
 ## Membership Tier System
-The platform supports membership pricing based on organisation attributes with **historical versioning**. The `membership_tier_config` table stores tier configurations (field to base tiers on, currency, billing period, `effective_from`, `effective_to`) and `membership_tier_band` stores individual bands (min/max value ranges and costs). Each tenant can have multiple configs over time; the current config has `effective_to = null`. When a new tier structure is created, the previous one is automatically closed (its `effective_to` is set to the day before the new structure's `effective_from`). Historical configs are read-only and viewable via the History panel.
+The platform supports membership pricing based on organisation attributes with historical versioning. The `membership_tier_config` table stores tier configurations (field to base tiers on, currency, billing period, `effective_from`, `effective_to`) and `membership_tier_band` stores individual bands. Each tenant can have multiple configs over time, with the current config having `effective_to = null`. The system supports both core fields and custom numerical organisation fields from `preference_field`.
 
-The system supports both core fields (like member count) and custom numerical organisation fields from `preference_field`.
-
-Key files:
-- `api/membership/tiers.js` - CRUD API for tier config and bands, preview, history endpoints
-- `client/src/pages/MembershipTierManagement.jsx` - Admin page for managing tiers with history view
+### Pro-rata Pricing Logic
+The membership tier system supports pro-rata pricing based on `membership_start_month`, `membership_start_day`, `prorata_enabled`, `free_period_amount`, `free_period_unit`, and `rollover_enabled`.
+-   **Pro-rata Calculation:** If enabled, the annual fee is prorated based on remaining days in the membership year.
+-   **Free Period Logic:** A configured free period is deducted from the annual fee.
+-   **Rollover Logic:** If enabled, unused free months from the free period carry forward to reduce the *next* full year's fee, but do not cascade beyond one year. The free period is always deducted from the annual fee.
 
 ## UI/UX
-The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent and responsive user experience, including a collapsible sidebar.
+The frontend uses a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent and responsive user experience, including a collapsible sidebar.
 
 # External Dependencies
-
 -   **Supabase:** Primary database (PostgreSQL) and file storage.
 -   **Stripe:** Payment processing.
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
--   **Mailgun:** Tenant-specific email sending domains, email delivery, and a native Email Marketing System (EMS) with full tracking capabilities (campaign management, audience targeting, recipient filtering, link/open tracking, bounce handling, unsubscribe management, click heatmap, analytics).
--   **Zoho Campaigns:** Integrations for syncing member communication preferences, supporting multi-tenant deployments with encrypted credentials and background sync jobs.!!
-
-<!-- ⚠️ CRITICAL: DO NOT REMOVE THIS SECTION - Pro-rata Pricing Logic ⚠️ -->
-## Membership Tier Pro-rata Pricing System
-
-**⚠️ NEVER REMOVE THIS SECTION - These rules define the pro-rata pricing calculation logic ⚠️**
-
-The membership tier system supports 4 additional settings on `membership_tier_config`:
-
-### Settings
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `membership_start_month` | integer (1-12) | Month when membership year begins (e.g. 4 = April) |
-| `membership_start_day` | integer (1-31) | Day when membership year begins (e.g. 1 = 1st) |
-| `prorata_enabled` | boolean | If true, new members pay a reduced fee based on remaining days in the membership year |
-| `free_period_amount` | integer | Number of free days/weeks/months for new members |
-| `free_period_unit` | text ('days'/'weeks'/'months') | Unit for the free period |
-| `rollover_enabled` | boolean | If true, unused free period rolls into the next year's fee calculation |
-
-### Pro-rata Calculation Logic
-
-When `prorata_enabled` is ON:
-- The annual fee is divided by the total days in the membership year
-- The fee charged = annual_fee × (remaining_days / total_days_in_year)
-
-### Free Period Logic
-
-The free period is deducted from the annual fee:
-- E.g. Annual fee = £1,200, free period = 6 months → effective annual cost = £600
-
-### Rollover Logic (the most complex scenario)
-
-**Without rollover:** If a member joins with 2 months left and gets 6 months free, the free period covers the remaining 2 months (current year = £0). The next year is charged at the full annual fee — unused free months are lost.
-
-**With rollover ON:** The unused free months carry forward to reduce the next full year only.
-
-**Example calculation with rollover:**
-
-| Step | Calculation |
-|------|------------|
-| Annual fee | £1,200 |
-| Free period | 6 months |
-| Adjusted annual (fee minus free) | £1,200 - £600 = £600 |
-| Current year (pro-rata 2 months of adjusted) | £600 × 2/12 = £100 |
-| Remaining free months for next year | 6 - 2 = 4 months |
-| Next year (full annual minus 4 months discount) | £1,200 - £400 = £800 |
-| All subsequent years | £1,200 (full fee) |
-
-### Key Rules
-- Rollover only applies to the **next full year** — it does not cascade beyond one year
-- Free period is always deducted from the annual fee, not added as extra free time at the end
-- Pro-rata is calculated by remaining days, not months (for precision)
-- The membership year start date defines when the year resets (e.g. 1 April to 31 March)
-
-### Key Files
-- `api/membership/tiers.js` - CRUD API for tier config including pro-rata settings
-- `client/src/pages/MembershipTierManagement.jsx` - Admin UI for managing all tier settings
-
-<!-- ⚠️ END CRITICAL SECTION - DO NOT REMOVE ⚠️ -->
+-   **Mailgun:** Tenant-specific email sending domains, email delivery, and a native Email Marketing System (EMS) with full tracking capabilities.
+-   **Zoho Campaigns:** Integrations for syncing member communication preferences.

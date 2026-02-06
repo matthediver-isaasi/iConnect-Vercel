@@ -78,6 +78,7 @@ import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/
 import { useOrgFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useOrgFieldVisibilityRules";
 import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
+import OrgMembershipTab from "@/components/OrgMembershipTab";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesEditor";
 import MemberDetailView from "@/components/MemberDetailView";
@@ -1277,6 +1278,9 @@ export default function OrganisationDetailView({
               <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-documents">
                 Documents
               </TabsTrigger>
+              <TabsTrigger value="membership" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-membership">
+                Membership
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         )}
@@ -2077,6 +2081,10 @@ export default function OrganisationDetailView({
             </Card>
           );
         })()}
+
+        {activeTab === 'membership' && (
+          <OrgMembershipTab organizationId={organization?.id} />
+        )}
 
         <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>
           <AlertDialogContent>
