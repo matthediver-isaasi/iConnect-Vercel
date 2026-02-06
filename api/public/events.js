@@ -46,7 +46,7 @@ export default async function handler(req, res) {
         available_seats
       `)
       .eq('tenant_id', tenant.id)
-      .eq('status', 'published')
+      .in('status', ['published', 'tbc'])
       .order('start_date', { ascending: true });
 
     const events = (rawEvents || []).map(event => {
