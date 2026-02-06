@@ -71,8 +71,6 @@ async function handleGet(req, res, tenantId) {
 }
 
 async function getCurrentConfig(tenantId) {
-  const today = new Date().toISOString().split('T')[0];
-
   const { data: current, error } = await supabase
     .from('membership_tier_config')
     .select('*')
@@ -86,7 +84,6 @@ async function getCurrentConfig(tenantId) {
     console.error('[Membership Tiers] Error fetching current config:', error);
     return null;
   }
-
   return current;
 }
 
@@ -327,6 +324,12 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Effective from date is required' });
   }
 
+  const today = new Date().toISOString().split('T')[0];
+  const configId_check = config.id || req.query.configId;
+  if (!configId_check && config.effective_from > today) {
+    return res.status(400).json({ error: 'Effective from date cannot be in the future. New tier structures take effect from today or a past date.' });
+  }
+
   if (bands && Array.isArray(bands) && bands.length > 0) {
     const validation = validateBands(bands);
     if (validation?.error) {
@@ -387,9 +390,6 @@ async function handlePost(req, res, tenantId) {
   const currentConfig = await getCurrentConfig(tenantId);
   if (currentConfig) {
     const newEffectiveFrom = new Date(config.effective_from);
-    const prevDay = new Date(newEffectiveFrom);
-    prevDay.setDate(prevDay.getDate() - 1);
-    const closingDate = prevDay.toISOString().split('T')[0];
 
     if (currentConfig.effective_from) {
       const currentFrom = new Date(currentConfig.effective_from);
@@ -399,6 +399,10 @@ async function handlePost(req, res, tenantId) {
         });
       }
     }
+
+    const prevDay = new Date(newEffectiveFrom);
+    prevDay.setDate(prevDay.getDate() - 1);
+    const closingDate = prevDay.toISOString().split('T')[0];
 
     const { error: closeError } = await supabase
       .from('membership_tier_config')
