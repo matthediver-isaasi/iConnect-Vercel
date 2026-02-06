@@ -32,47 +32,123 @@ export default async function handler(req, res) {
 }
 
 async function handleGet(req, res, tenantId) {
-  const { action } = req.query;
+  const { action, configId } = req.query;
 
   if (action === 'fields') {
     return getAvailableFields(req, res, tenantId);
   }
 
   if (action === 'preview') {
-    return getPreview(req, res, tenantId);
+    return getPreview(req, res, tenantId, configId);
   }
 
-  const { data: config, error: configError } = await supabase
-    .from('membership_tier_config')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-
-  if (configError) {
-    console.error('[Membership Tiers] Error fetching config:', configError);
-    return res.status(500).json({ error: 'Failed to fetch configuration' });
+  if (action === 'history') {
+    return getHistory(req, res, tenantId);
   }
+
+  if (configId) {
+    return getConfigById(req, res, tenantId, configId);
+  }
+
+  const config = await getCurrentConfig(tenantId);
 
   let bands = [];
   if (config) {
-    const { data: bandsData, error: bandsError } = await supabase
-      .from('membership_tier_band')
-      .select('*')
-      .eq('config_id', config.id)
-      .eq('tenant_id', tenantId)
-      .order('min_value', { ascending: true });
-
-    if (bandsError) {
-      console.error('[Membership Tiers] Error fetching bands:', bandsError);
-      return res.status(500).json({ error: 'Failed to fetch tier bands' });
-    }
-    bands = bandsData || [];
+    bands = await getBandsForConfig(config.id, tenantId);
   }
+
+  const { data: allConfigs } = await supabase
+    .from('membership_tier_config')
+    .select('id, name, effective_from, effective_to, created_at')
+    .eq('tenant_id', tenantId)
+    .order('effective_from', { ascending: false, nullsFirst: true });
 
   return res.json({
     config: config || null,
-    bands
+    bands,
+    history: allConfigs || []
   });
+}
+
+async function getCurrentConfig(tenantId) {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: current, error } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .is('effective_to', null)
+    .order('effective_from', { ascending: false, nullsFirst: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[Membership Tiers] Error fetching current config:', error);
+    return null;
+  }
+
+  return current;
+}
+
+async function getBandsForConfig(configId, tenantId) {
+  const { data: bandsData, error } = await supabase
+    .from('membership_tier_band')
+    .select('*')
+    .eq('config_id', configId)
+    .eq('tenant_id', tenantId)
+    .order('min_value', { ascending: true });
+
+  if (error) {
+    console.error('[Membership Tiers] Error fetching bands:', error);
+    return [];
+  }
+  return bandsData || [];
+}
+
+async function getConfigById(req, res, tenantId, configId) {
+  const { data: config, error: configError } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('id', configId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (configError || !config) {
+    return res.status(404).json({ error: 'Configuration not found' });
+  }
+
+  const bands = await getBandsForConfig(config.id, tenantId);
+
+  return res.json({
+    config,
+    bands,
+    isHistorical: config.effective_to !== null
+  });
+}
+
+async function getHistory(req, res, tenantId) {
+  const { data: configs, error } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('effective_from', { ascending: false, nullsFirst: true });
+
+  if (error) {
+    console.error('[Membership Tiers] Error fetching history:', error);
+    return res.status(500).json({ error: 'Failed to fetch history' });
+  }
+
+  const results = [];
+  for (const config of (configs || [])) {
+    const bands = await getBandsForConfig(config.id, tenantId);
+    results.push({
+      config,
+      bands,
+      isHistorical: config.effective_to !== null
+    });
+  }
+
+  return res.json(results);
 }
 
 async function getAvailableFields(req, res, tenantId) {
@@ -100,27 +176,28 @@ async function getAvailableFields(req, res, tenantId) {
   return res.json([...coreNumericalFields, ...numericalFields]);
 }
 
-async function getPreview(req, res, tenantId) {
-  const { data: config, error: configError } = await supabase
-    .from('membership_tier_config')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+async function getPreview(req, res, tenantId, configId) {
+  let config;
 
-  if (configError || !config) {
-    return res.json({ organizations: [], unmapped: [] });
+  if (configId) {
+    const { data, error } = await supabase
+      .from('membership_tier_config')
+      .select('*')
+      .eq('id', configId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error || !data) {
+      return res.json({ organizations: [], unmapped: [] });
+    }
+    config = data;
+  } else {
+    config = await getCurrentConfig(tenantId);
+    if (!config) {
+      return res.json({ organizations: [], unmapped: [] });
+    }
   }
 
-  const { data: bands, error: bandsError } = await supabase
-    .from('membership_tier_band')
-    .select('*')
-    .eq('config_id', config.id)
-    .eq('tenant_id', tenantId)
-    .order('min_value', { ascending: true });
-
-  if (bandsError) {
-    return res.status(500).json({ error: 'Failed to fetch bands' });
-  }
+  const bands = await getBandsForConfig(config.id, tenantId);
 
   const { data: orgs, error: orgError } = await supabase
     .from('organization')
@@ -205,6 +282,40 @@ async function getPreview(req, res, tenantId) {
   });
 }
 
+function validateBands(bands) {
+  if (!bands || !Array.isArray(bands) || bands.length === 0) return null;
+
+  const sortedBands = [...bands].sort((a, b) => (parseFloat(a.min_value) || 0) - (parseFloat(b.min_value) || 0));
+  for (let i = 0; i < sortedBands.length; i++) {
+    const band = sortedBands[i];
+    const min = parseFloat(band.min_value);
+    const max = band.max_value !== null && band.max_value !== undefined && band.max_value !== '' ? parseFloat(band.max_value) : null;
+
+    if (isNaN(min)) {
+      return { error: `Tier "${band.label || i + 1}" has an invalid minimum value` };
+    }
+    if (max !== null && isNaN(max)) {
+      return { error: `Tier "${band.label || i + 1}" has an invalid maximum value` };
+    }
+    if (max !== null && max < min) {
+      return { error: `Tier "${band.label || i + 1}" has max value less than min value` };
+    }
+
+    if (i > 0) {
+      const prevBand = sortedBands[i - 1];
+      const prevMax = prevBand.max_value !== null && prevBand.max_value !== undefined && prevBand.max_value !== ''
+        ? parseFloat(prevBand.max_value) : null;
+      if (prevMax === null) {
+        return { error: `Tier "${prevBand.label || i}" has no maximum value (open-ended), so no further tiers can follow it. Set a max value or remove subsequent tiers.` };
+      }
+      if (min <= prevMax) {
+        return { error: `Tier "${band.label || i + 1}" overlaps with the previous tier. Min value (${min}) should be greater than previous max (${prevMax}).` };
+      }
+    }
+  }
+  return { sortedBands };
+}
+
 async function handlePost(req, res, tenantId) {
   let { config, bands } = req.body;
 
@@ -212,51 +323,36 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Configuration is required' });
   }
 
-  if (bands && Array.isArray(bands) && bands.length > 0) {
-    const sortedBands = [...bands].sort((a, b) => (parseFloat(a.min_value) || 0) - (parseFloat(b.min_value) || 0));
-    for (let i = 0; i < sortedBands.length; i++) {
-      const band = sortedBands[i];
-      const min = parseFloat(band.min_value);
-      const max = band.max_value !== null && band.max_value !== undefined && band.max_value !== '' ? parseFloat(band.max_value) : null;
-
-      if (isNaN(min)) {
-        return res.status(400).json({ error: `Tier "${band.label || i + 1}" has an invalid minimum value` });
-      }
-      if (max !== null && isNaN(max)) {
-        return res.status(400).json({ error: `Tier "${band.label || i + 1}" has an invalid maximum value` });
-      }
-      if (max !== null && max < min) {
-        return res.status(400).json({ error: `Tier "${band.label || i + 1}" has max value less than min value` });
-      }
-
-      if (i > 0) {
-        const prevBand = sortedBands[i - 1];
-        const prevMax = prevBand.max_value !== null && prevBand.max_value !== undefined && prevBand.max_value !== ''
-          ? parseFloat(prevBand.max_value) : null;
-        if (prevMax === null) {
-          return res.status(400).json({
-            error: `Tier "${prevBand.label || i}" has no maximum value (open-ended), so no further tiers can follow it. Set a max value or remove subsequent tiers.`
-          });
-        }
-        if (min <= prevMax) {
-          return res.status(400).json({
-            error: `Tier "${band.label || i + 1}" overlaps with the previous tier. Min value (${min}) should be greater than previous max (${prevMax}).`
-          });
-        }
-      }
-    }
-    bands = sortedBands;
+  if (!config.effective_from) {
+    return res.status(400).json({ error: 'Effective from date is required' });
   }
 
-  const { data: existing } = await supabase
-    .from('membership_tier_config')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+  if (bands && Array.isArray(bands) && bands.length > 0) {
+    const validation = validateBands(bands);
+    if (validation?.error) {
+      return res.status(400).json({ error: validation.error });
+    }
+    bands = validation.sortedBands;
+  }
 
-  let savedConfig;
+  const configId = config.id || req.query.configId;
 
-  if (existing) {
+  if (configId) {
+    const { data: existingConfig } = await supabase
+      .from('membership_tier_config')
+      .select('*')
+      .eq('id', configId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (!existingConfig) {
+      return res.status(404).json({ error: 'Configuration not found' });
+    }
+
+    if (existingConfig.effective_to !== null) {
+      return res.status(400).json({ error: 'Cannot modify a historical tier structure. Create a new one instead.' });
+    }
+
     const { data, error } = await supabase
       .from('membership_tier_config')
       .update({
@@ -267,9 +363,10 @@ async function handlePost(req, res, tenantId) {
         currency: config.currency || 'GBP',
         billing_period: config.billing_period || 'annual',
         is_active: config.is_active !== false,
+        effective_from: config.effective_from,
         updated_at: new Date().toISOString()
       })
-      .eq('id', existing.id)
+      .eq('id', configId)
       .eq('tenant_id', tenantId)
       .select()
       .single();
@@ -278,73 +375,124 @@ async function handlePost(req, res, tenantId) {
       console.error('[Membership Tiers] Error updating config:', error);
       return res.status(500).json({ error: 'Failed to update configuration' });
     }
-    savedConfig = data;
-  } else {
-    const { data, error } = await supabase
-      .from('membership_tier_config')
-      .insert({
-        tenant_id: tenantId,
-        name: config.name || 'Default',
-        field_source: config.field_source || 'custom',
-        field_id: config.field_id || null,
-        field_name: config.field_name || null,
-        currency: config.currency || 'GBP',
-        billing_period: config.billing_period || 'annual',
-        is_active: config.is_active !== false,
-      })
-      .select()
-      .single();
 
-    if (error) {
-      console.error('[Membership Tiers] Error creating config:', error);
-      return res.status(500).json({ error: 'Failed to create configuration' });
+    if (bands && Array.isArray(bands)) {
+      await saveBandsForConfig(data.id, tenantId, bands);
     }
-    savedConfig = data;
+
+    const savedBands = await getBandsForConfig(data.id, tenantId);
+    return res.json({ config: data, bands: savedBands });
   }
 
-  if (bands && Array.isArray(bands)) {
-    const { error: deleteError } = await supabase
-      .from('membership_tier_band')
-      .delete()
-      .eq('config_id', savedConfig.id)
-      .eq('tenant_id', tenantId);
+  const currentConfig = await getCurrentConfig(tenantId);
+  if (currentConfig) {
+    const newEffectiveFrom = new Date(config.effective_from);
+    const prevDay = new Date(newEffectiveFrom);
+    prevDay.setDate(prevDay.getDate() - 1);
+    const closingDate = prevDay.toISOString().split('T')[0];
 
-    if (deleteError) {
-      console.error('[Membership Tiers] Error clearing bands:', deleteError);
-    }
-
-    if (bands.length > 0) {
-      const bandsToInsert = bands.map((band, index) => ({
-        config_id: savedConfig.id,
-        tenant_id: tenantId,
-        label: band.label || `Tier ${index + 1}`,
-        min_value: band.min_value ?? 0,
-        max_value: band.max_value ?? null,
-        annual_cost: band.annual_cost ?? 0,
-        display_order: index,
-      }));
-
-      const { error: insertError } = await supabase
-        .from('membership_tier_band')
-        .insert(bandsToInsert);
-
-      if (insertError) {
-        console.error('[Membership Tiers] Error inserting bands:', insertError);
-        return res.status(500).json({ error: 'Failed to save tier bands' });
+    if (currentConfig.effective_from) {
+      const currentFrom = new Date(currentConfig.effective_from);
+      if (newEffectiveFrom <= currentFrom) {
+        return res.status(400).json({
+          error: `New tier structure must start after the current one (${currentConfig.effective_from}). Please choose a later date.`
+        });
       }
     }
+
+    const { error: closeError } = await supabase
+      .from('membership_tier_config')
+      .update({
+        effective_to: closingDate,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', currentConfig.id)
+      .eq('tenant_id', tenantId);
+
+    if (closeError) {
+      console.error('[Membership Tiers] Error closing previous config:', closeError);
+      return res.status(500).json({ error: 'Failed to close previous tier structure' });
+    }
   }
 
-  const { data: savedBands } = await supabase
-    .from('membership_tier_band')
-    .select('*')
-    .eq('config_id', savedConfig.id)
-    .order('min_value', { ascending: true });
+  const { data: newConfig, error: createError } = await supabase
+    .from('membership_tier_config')
+    .insert({
+      tenant_id: tenantId,
+      name: config.name || 'Default',
+      field_source: config.field_source || 'custom',
+      field_id: config.field_id || null,
+      field_name: config.field_name || null,
+      currency: config.currency || 'GBP',
+      billing_period: config.billing_period || 'annual',
+      is_active: config.is_active !== false,
+      effective_from: config.effective_from,
+      effective_to: null,
+    })
+    .select()
+    .single();
+
+  if (createError) {
+    console.error('[Membership Tiers] Error creating config:', createError);
+    if (currentConfig) {
+      await supabase
+        .from('membership_tier_config')
+        .update({ effective_to: null, updated_at: new Date().toISOString() })
+        .eq('id', currentConfig.id)
+        .eq('tenant_id', tenantId);
+    }
+    return res.status(500).json({ error: 'Failed to create configuration' });
+  }
+
+  if (bands && Array.isArray(bands) && bands.length > 0) {
+    await saveBandsForConfig(newConfig.id, tenantId, bands);
+  }
+
+  const savedBands = await getBandsForConfig(newConfig.id, tenantId);
+
+  const { data: allConfigs } = await supabase
+    .from('membership_tier_config')
+    .select('id, name, effective_from, effective_to, created_at')
+    .eq('tenant_id', tenantId)
+    .order('effective_from', { ascending: false, nullsFirst: true });
 
   return res.json({
-    config: savedConfig,
-    bands: savedBands || []
+    config: newConfig,
+    bands: savedBands,
+    history: allConfigs || []
   });
+}
+
+async function saveBandsForConfig(configId, tenantId, bands) {
+  const { error: deleteError } = await supabase
+    .from('membership_tier_band')
+    .delete()
+    .eq('config_id', configId)
+    .eq('tenant_id', tenantId);
+
+  if (deleteError) {
+    console.error('[Membership Tiers] Error clearing bands:', deleteError);
+  }
+
+  if (bands.length > 0) {
+    const bandsToInsert = bands.map((band, index) => ({
+      config_id: configId,
+      tenant_id: tenantId,
+      label: band.label || `Tier ${index + 1}`,
+      min_value: band.min_value ?? 0,
+      max_value: band.max_value ?? null,
+      annual_cost: band.annual_cost ?? 0,
+      display_order: index,
+    }));
+
+    const { error: insertError } = await supabase
+      .from('membership_tier_band')
+      .insert(bandsToInsert);
+
+    if (insertError) {
+      console.error('[Membership Tiers] Error inserting bands:', insertError);
+    }
+  }
 }
 
 async function handlePut(req, res, tenantId) {
@@ -352,7 +500,7 @@ async function handlePut(req, res, tenantId) {
 }
 
 async function handleDelete(req, res, tenantId) {
-  const { bandId } = req.query;
+  const { bandId, configId } = req.query;
 
   if (bandId) {
     const { error } = await supabase
@@ -368,11 +516,53 @@ async function handleDelete(req, res, tenantId) {
     return res.json({ success: true });
   }
 
-  const { data: config } = await supabase
-    .from('membership_tier_config')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+  if (configId) {
+    const { data: config } = await supabase
+      .from('membership_tier_config')
+      .select('id, effective_to')
+      .eq('id', configId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (!config) {
+      return res.status(404).json({ error: 'Configuration not found' });
+    }
+
+    await supabase
+      .from('membership_tier_band')
+      .delete()
+      .eq('config_id', config.id)
+      .eq('tenant_id', tenantId);
+
+    await supabase
+      .from('membership_tier_config')
+      .delete()
+      .eq('id', config.id)
+      .eq('tenant_id', tenantId);
+
+    if (config.effective_to === null) {
+      const { data: prevConfig } = await supabase
+        .from('membership_tier_config')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .not('id', 'eq', config.id)
+        .order('effective_from', { ascending: false, nullsFirst: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (prevConfig) {
+        await supabase
+          .from('membership_tier_config')
+          .update({ effective_to: null, updated_at: new Date().toISOString() })
+          .eq('id', prevConfig.id)
+          .eq('tenant_id', tenantId);
+      }
+    }
+
+    return res.json({ success: true });
+  }
+
+  const config = await getCurrentConfig(tenantId);
 
   if (config) {
     await supabase

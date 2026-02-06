@@ -6,11 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
-  DollarSign, ChevronDown, ChevronUp, Search, Download,
-  GripVertical, ArrowUpDown
+  Search, Download, History, CalendarDays, ChevronRight, Eye, PlusCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -34,12 +32,23 @@ function getCurrencySymbol(code) {
   return CURRENCIES.find(c => c.value === code)?.symbol || code;
 }
 
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function getTodayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
 export default function MembershipTierManagement() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
 
   const [config, setConfig] = useState({
+    id: null,
     name: 'Default',
     field_source: '',
     field_id: null,
@@ -47,12 +56,16 @@ export default function MembershipTierManagement() {
     currency: 'GBP',
     billing_period: 'annual',
     is_active: true,
+    effective_from: getTodayStr(),
   });
 
   const [bands, setBands] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewSearch, setPreviewSearch] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const [viewingHistorical, setViewingHistorical] = useState(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -84,10 +97,23 @@ export default function MembershipTierManagement() {
     },
   });
 
-  const { data: previewData, isLoading: loadingPreview, refetch: refetchPreview } = useQuery({
-    queryKey: ['membership-tier-preview'],
+  const { data: historicalData, isLoading: loadingHistorical } = useQuery({
+    queryKey: ['membership-tier-historical', viewingHistorical],
     queryFn: async () => {
-      const response = await fetch('/api/membership/tiers?action=preview', { credentials: 'include' });
+      const response = await fetch(`/api/membership/tiers?configId=${viewingHistorical}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch historical config');
+      return response.json();
+    },
+    enabled: !!viewingHistorical,
+  });
+
+  const { data: previewData, isLoading: loadingPreview, refetch: refetchPreview } = useQuery({
+    queryKey: ['membership-tier-preview', viewingHistorical],
+    queryFn: async () => {
+      const url = viewingHistorical
+        ? `/api/membership/tiers?action=preview&configId=${viewingHistorical}`
+        : '/api/membership/tiers?action=preview';
+      const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch preview');
       return response.json();
     },
@@ -96,9 +122,35 @@ export default function MembershipTierManagement() {
   });
 
   useEffect(() => {
-    if (tierData) {
+    if (viewingHistorical && historicalData?.config) {
+      const c = historicalData.config;
+      setConfig({
+        id: c.id,
+        name: c.name || 'Default',
+        field_source: c.field_source || '',
+        field_id: c.field_id || null,
+        field_name: c.field_name || null,
+        currency: c.currency || 'GBP',
+        billing_period: c.billing_period || 'annual',
+        is_active: c.is_active !== false,
+        effective_from: c.effective_from || '',
+      });
+      setBands((historicalData.bands || []).map(b => ({
+        ...b,
+        min_value: b.min_value?.toString() || '0',
+        max_value: b.max_value?.toString() || '',
+        annual_cost: b.annual_cost?.toString() || '0',
+      })));
+      setHasChanges(false);
+      setIsCreatingNew(false);
+    }
+  }, [viewingHistorical, historicalData]);
+
+  useEffect(() => {
+    if (tierData && !viewingHistorical && !isCreatingNew) {
       if (tierData.config) {
         setConfig({
+          id: tierData.config.id,
           name: tierData.config.name || 'Default',
           field_source: tierData.config.field_source || '',
           field_id: tierData.config.field_id || null,
@@ -106,6 +158,7 @@ export default function MembershipTierManagement() {
           currency: tierData.config.currency || 'GBP',
           billing_period: tierData.config.billing_period || 'annual',
           is_active: tierData.config.is_active !== false,
+          effective_from: tierData.config.effective_from || '',
         });
       }
       if (tierData.bands?.length > 0) {
@@ -115,10 +168,12 @@ export default function MembershipTierManagement() {
           max_value: b.max_value?.toString() || '',
           annual_cost: b.annual_cost?.toString() || '0',
         })));
+      } else if (!tierData.config) {
+        setBands([]);
       }
       setHasChanges(false);
     }
-  }, [tierData]);
+  }, [tierData, viewingHistorical, isCreatingNew]);
 
   const saveMutation = useMutation({
     mutationFn: async (payload) => {
@@ -134,11 +189,16 @@ export default function MembershipTierManagement() {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['membership-tiers'] });
       queryClient.invalidateQueries({ queryKey: ['membership-tier-preview'] });
       setHasChanges(false);
-      toast.success('Membership tier structure saved successfully');
+      setIsCreatingNew(false);
+      setViewingHistorical(null);
+      if (data.config) {
+        setConfig(prev => ({ ...prev, id: data.config.id }));
+      }
+      toast.success(isCreatingNew ? 'New tier structure created successfully' : 'Membership tier structure saved successfully');
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save tier structure');
@@ -201,6 +261,11 @@ export default function MembershipTierManagement() {
       return;
     }
 
+    if (!config.effective_from) {
+      toast.error('Please set an effective from date');
+      return;
+    }
+
     if (bands.length === 0) {
       toast.error('Please add at least one tier band');
       return;
@@ -223,7 +288,10 @@ export default function MembershipTierManagement() {
     }
 
     const payload = {
-      config,
+      config: {
+        ...config,
+        id: isCreatingNew ? undefined : config.id,
+      },
       bands: bands.map(b => ({
         label: b.label,
         min_value: parseFloat(b.min_value) || 0,
@@ -233,6 +301,49 @@ export default function MembershipTierManagement() {
     };
 
     saveMutation.mutate(payload);
+  };
+
+  const handleCreateNew = () => {
+    const currentConfig = tierData?.config;
+    setIsCreatingNew(true);
+    setViewingHistorical(null);
+    setConfig({
+      id: null,
+      name: '',
+      field_source: currentConfig?.field_source || '',
+      field_id: currentConfig?.field_id || null,
+      field_name: currentConfig?.field_name || null,
+      currency: currentConfig?.currency || 'GBP',
+      billing_period: currentConfig?.billing_period || 'annual',
+      is_active: true,
+      effective_from: getTodayStr(),
+    });
+    if (tierData?.bands?.length > 0) {
+      setBands(tierData.bands.map(b => ({
+        ...b,
+        id: `new-${Date.now()}-${Math.random()}`,
+        min_value: b.min_value?.toString() || '0',
+        max_value: b.max_value?.toString() || '',
+        annual_cost: b.annual_cost?.toString() || '0',
+      })));
+    } else {
+      setBands([]);
+    }
+    setHasChanges(true);
+    setShowHistory(false);
+  };
+
+  const handleViewHistorical = (configId) => {
+    setViewingHistorical(configId);
+    setIsCreatingNew(false);
+    setShowHistory(false);
+    setShowPreview(false);
+  };
+
+  const handleBackToCurrent = () => {
+    setViewingHistorical(null);
+    setIsCreatingNew(false);
+    setHasChanges(false);
   };
 
   const selectedFieldKey = config.field_source === 'core'
@@ -257,7 +368,8 @@ export default function MembershipTierManagement() {
 
     const allOrgs = [...(previewData.organizations || []), ...(previewData.unmapped || [])];
     const symbol = getCurrencySymbol(config.currency);
-    const headers = ['Organisation', 'Status', selectedFieldLabel || 'Field Value', 'Tier', `${config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly'} Cost (${symbol})`];
+    const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
+    const headers = ['Organisation', 'Status', selectedFieldLabel || 'Field Value', 'Tier', `${periodLabel} Cost (${symbol})`];
     const rows = allOrgs.map(org => [
       org.name,
       org.status || '',
@@ -281,6 +393,11 @@ export default function MembershipTierManagement() {
   }
 
   const currencySymbol = getCurrencySymbol(config.currency);
+  const isHistoricalView = viewingHistorical && historicalData?.isHistorical;
+  const isEditable = !isHistoricalView;
+  const historyItems = tierData?.history || [];
+  const currentConfigId = tierData?.config?.id;
+  const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -291,31 +408,134 @@ export default function MembershipTierManagement() {
             Membership Tier Structure
           </h1>
           <p className="text-muted-foreground mt-1">
-            Define pricing tiers based on organisation attributes
+            {isCreatingNew
+              ? 'Creating a new tier structure'
+              : isHistoricalView
+                ? 'Viewing historical tier structure (read-only)'
+                : 'Define pricing tiers based on organisation attributes'
+            }
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setShowPreview(!showPreview);
-              if (!showPreview) refetchPreview();
-            }}
-            data-testid="button-toggle-preview"
-          >
-            <Building2 className="w-4 h-4 mr-2" />
-            {showPreview ? 'Hide Preview' : 'Preview'}
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={!hasChanges || saveMutation.isPending}
-            data-testid="button-save-tiers"
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {saveMutation.isPending ? 'Saving...' : 'Save'}
-          </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {(viewingHistorical || isCreatingNew) && (
+            <Button variant="outline" onClick={handleBackToCurrent} data-testid="button-back-current">
+              <ChevronRight className="w-4 h-4 mr-1 rotate-180" />
+              Back to Current
+            </Button>
+          )}
+          {historyItems.length > 0 && !isCreatingNew && (
+            <Button
+              variant="outline"
+              onClick={() => setShowHistory(!showHistory)}
+              data-testid="button-toggle-history"
+            >
+              <History className="w-4 h-4 mr-2" />
+              History ({historyItems.length})
+            </Button>
+          )}
+          {!isHistoricalView && !isCreatingNew && tierData?.config && (
+            <Button variant="outline" onClick={handleCreateNew} data-testid="button-create-new">
+              <PlusCircle className="w-4 h-4 mr-2" />
+              New Structure
+            </Button>
+          )}
+          {!isHistoricalView && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPreview(!showPreview);
+                if (!showPreview) refetchPreview();
+              }}
+              data-testid="button-toggle-preview"
+            >
+              <Building2 className="w-4 h-4 mr-2" />
+              {showPreview ? 'Hide Preview' : 'Preview'}
+            </Button>
+          )}
+          {isEditable && (
+            <Button
+              onClick={handleSave}
+              disabled={!hasChanges || saveMutation.isPending}
+              data-testid="button-save-tiers"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {saveMutation.isPending ? 'Saving...' : isCreatingNew ? 'Create' : 'Save'}
+            </Button>
+          )}
         </div>
       </div>
+
+      {isHistoricalView && (
+        <div className="p-3 bg-muted/50 border rounded-md flex items-center gap-2">
+          <History className="w-4 h-4 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            This is a historical tier structure effective from <strong>{formatDate(config.effective_from)}</strong>
+            {historicalData?.config?.effective_to && <> to <strong>{formatDate(historicalData.config.effective_to)}</strong></>}.
+            It is read-only. To make changes, create a new tier structure.
+          </p>
+        </div>
+      )}
+
+      {isCreatingNew && tierData?.config && (
+        <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md flex items-center gap-2">
+          <CalendarDays className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            Creating a new tier structure will automatically close the current one (effective since {formatDate(tierData.config.effective_from)}).
+            The current structure's end date will be set to the day before this new structure starts.
+          </p>
+        </div>
+      )}
+
+      {showHistory && historyItems.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Tier Structure History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {historyItems.map((item) => {
+                const isCurrent = item.effective_to === null;
+                const isViewing = viewingHistorical === item.id || (!viewingHistorical && !isCreatingNew && isCurrent);
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-center justify-between gap-3 p-3 rounded-md border ${isViewing ? 'border-primary bg-primary/5' : ''}`}
+                    data-testid={`row-history-${item.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{item.name || 'Tier Structure'}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {formatDate(item.effective_from) || 'No start date'}
+                          {item.effective_to ? ` - ${formatDate(item.effective_to)}` : ' - Present'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isCurrent && <Badge variant="secondary">Current</Badge>}
+                      {!isViewing && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => isCurrent ? handleBackToCurrent() : handleViewHistorical(item.id)}
+                          data-testid={`button-view-history-${item.id}`}
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          View
+                        </Button>
+                      )}
+                      {isViewing && (
+                        <Badge>Viewing</Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -324,10 +544,11 @@ export default function MembershipTierManagement() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="tier-field" data-testid="label-field-selector">Based On Field</Label>
+              <Label data-testid="label-field-selector">Based On Field</Label>
               <Select
                 value={selectedFieldKey}
                 onValueChange={handleFieldChange}
+                disabled={!isEditable}
               >
                 <SelectTrigger data-testid="select-field">
                   <SelectValue placeholder={loadingFields ? "Loading fields..." : "Select a numerical field"} />
@@ -359,10 +580,11 @@ export default function MembershipTierManagement() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="currency">Currency</Label>
+                <Label>Currency</Label>
                 <Select
                   value={config.currency}
                   onValueChange={(v) => handleConfigChange('currency', v)}
+                  disabled={!isEditable}
                 >
                   <SelectTrigger data-testid="select-currency">
                     <SelectValue />
@@ -375,10 +597,11 @@ export default function MembershipTierManagement() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="billing-period">Billing Period</Label>
+                <Label>Billing Period</Label>
                 <Select
                   value={config.billing_period}
                   onValueChange={(v) => handleConfigChange('billing_period', v)}
+                  disabled={!isEditable}
                 >
                   <SelectTrigger data-testid="select-billing-period">
                     <SelectValue />
@@ -392,16 +615,46 @@ export default function MembershipTierManagement() {
               </div>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Structure Name</Label>
+              <Input
+                value={config.name}
+                onChange={(e) => handleConfigChange('name', e.target.value)}
+                placeholder="e.g. 2025/26 Pricing"
+                disabled={!isEditable}
+                data-testid="input-config-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Effective From</Label>
+              <Input
+                type="date"
+                value={config.effective_from}
+                onChange={(e) => handleConfigChange('effective_from', e.target.value)}
+                disabled={!isEditable}
+                data-testid="input-effective-from"
+              />
+              {!isCreatingNew && tierData?.config?.effective_to === null && config.effective_from && (
+                <p className="text-sm text-muted-foreground">
+                  This structure has been active since {formatDate(config.effective_from)}
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-lg">Tier Bands</CardTitle>
-          <Button size="sm" onClick={addBand} data-testid="button-add-band">
-            <Plus className="w-4 h-4 mr-1" />
-            Add Tier
-          </Button>
+          {isEditable && (
+            <Button size="sm" onClick={addBand} data-testid="button-add-band">
+              <Plus className="w-4 h-4 mr-1" />
+              Add Tier
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {bands.length === 0 ? (
@@ -416,7 +669,7 @@ export default function MembershipTierManagement() {
                 <span>Label</span>
                 <span>Min Value</span>
                 <span>Max Value</span>
-                <span>{config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly'} Cost ({currencySymbol})</span>
+                <span>{periodLabel} Cost ({currencySymbol})</span>
                 <span></span>
               </div>
 
@@ -430,6 +683,7 @@ export default function MembershipTierManagement() {
                     value={band.label || ''}
                     onChange={(e) => updateBand(index, 'label', e.target.value)}
                     placeholder="e.g. Small School"
+                    disabled={!isEditable}
                     data-testid={`input-band-label-${index}`}
                   />
                   <Input
@@ -437,6 +691,7 @@ export default function MembershipTierManagement() {
                     value={band.min_value || ''}
                     onChange={(e) => updateBand(index, 'min_value', e.target.value)}
                     placeholder="0"
+                    disabled={!isEditable}
                     data-testid={`input-band-min-${index}`}
                   />
                   <Input
@@ -444,6 +699,7 @@ export default function MembershipTierManagement() {
                     value={band.max_value || ''}
                     onChange={(e) => updateBand(index, 'max_value', e.target.value)}
                     placeholder="No limit"
+                    disabled={!isEditable}
                     data-testid={`input-band-max-${index}`}
                   />
                   <div className="relative">
@@ -455,18 +711,23 @@ export default function MembershipTierManagement() {
                       placeholder="0.00"
                       className="pl-7"
                       step="0.01"
+                      disabled={!isEditable}
                       data-testid={`input-band-cost-${index}`}
                     />
                   </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => removeBand(index)}
-                    className="text-destructive"
-                    data-testid={`button-remove-band-${index}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {isEditable ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeBand(index)}
+                      className="text-destructive"
+                      data-testid={`button-remove-band-${index}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
                 </div>
               ))}
 
@@ -532,7 +793,7 @@ export default function MembershipTierManagement() {
                     <p className="text-xl font-bold">{previewData.summary?.unmappedOrgs || 0}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-md" data-testid="card-total-revenue">
-                    <p className="text-xs text-muted-foreground">Total {config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly'} Revenue</p>
+                    <p className="text-xs text-muted-foreground">Total {periodLabel} Revenue</p>
                     <p className="text-xl font-bold">{currencySymbol}{(previewData.summary?.totalAnnualRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                   </div>
                 </div>
