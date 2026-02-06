@@ -271,6 +271,8 @@ import ReportsDashboard from "./ReportsDashboard";
 
 import EventRegistrationReport from "./EventRegistrationReport";
 
+import OrganisationEngagementReport from "./OrganisationEngagementReport";
+
 import SearchResults from "./SearchResults";
 
 import TenantSignup from "./TenantSignup";
@@ -395,6 +397,7 @@ const PAGES = {
     TicketSalesAnalytics: TicketSalesAnalytics,
     PendingPurchaseOrdersReport: PendingPurchaseOrdersReport,
     EventRegistrationReport: EventRegistrationReport,
+    OrganisationEngagementReport: OrganisationEngagementReport,
     
     Resources: Resources,
     
@@ -701,6 +704,7 @@ function PagesContent() {
                 <Route path="/TicketSalesAnalytics" element={<TicketSalesAnalytics />} />
                 <Route path="/PendingPurchaseOrdersReport" element={<PendingPurchaseOrdersReport />} />
                 <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
+                <Route path="/OrganisationEngagementReport" element={<OrganisationEngagementReport />} />
                 
                 <Route path="/Resources" element={<Resources />} />
                 
