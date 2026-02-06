@@ -612,6 +612,7 @@ export default function ResourcesPage() {
                     <ResourceCard 
                       key={resource.id} 
                       resource={resource}
+                      isLocked={!isAuthenticated && !resource.is_public}
                       buttonStyles={buttonStyles}
                       enabledSocialIcons={enabledSocialIcons}
                       isAuthenticated={isAuthenticated}

@@ -396,7 +396,10 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
       <CardContent className="pt-0 pb-4 mt-auto">
         {isLocked ? (
           <Button 
-            onClick={() => window.location.href = createPageUrl('Home')}
+            onClick={() => {
+              const loginUrl = createPageUrl('Login') + `?returnTo=${encodeURIComponent('/Resources')}&resourceId=${encodeURIComponent(resource.id)}`;
+              window.location.href = loginUrl;
+            }}
             variant="outline"
             className="w-full border-slate-300 hover:bg-slate-50 rounded-none"
           >

@@ -40,10 +40,10 @@ export default async function handler(req, res) {
         resource_type,
         release_date,
         subcategories,
-        tags
+        tags,
+        is_public
       `)
       .eq('tenant_id', tenant.id)
-      .eq('is_public', true)
       .eq('status', 'active')
       .order('release_date', { ascending: false });
 
