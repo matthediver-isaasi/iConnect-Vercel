@@ -175,6 +175,8 @@ const entityToTable = {
   'EmailLinkClick': 'email_link_click',
   'EmailEvent': 'email_event',
   'EmailUnsubscribe': 'email_unsubscribe',
+  'MembershipTierConfig': 'membership_tier_config',
+  'MembershipTierBand': 'membership_tier_band',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');

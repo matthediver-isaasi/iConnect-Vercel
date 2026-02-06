@@ -143,6 +143,13 @@ formatEventDateTime(date, systemSettings, event.timezone);
 ### Zoom Sync
 When syncing from Zoom (manual or batch), both the zoom record and linked Event are updated with the timezone from Zoom API. Zoom is the single source of truth for Zoom-linked events.
 
+## Membership Tier System
+The platform supports membership pricing based on organisation attributes. The `membership_tier_config` table stores the tier configuration (which field to base tiers on, currency, billing period) and `membership_tier_band` stores individual bands (min/max value ranges and costs). Each tenant has one config with multiple bands. The system supports both core fields (like member count) and custom numerical organisation fields from `preference_field`.
+
+Key files:
+- `api/membership/tiers.js` - CRUD API for tier config and bands, plus preview endpoint
+- `client/src/pages/MembershipTierManagement.jsx` - Admin page for managing tiers
+
 ## UI/UX
 The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent and responsive user experience, including a collapsible sidebar.
 

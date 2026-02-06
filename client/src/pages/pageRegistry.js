@@ -113,4 +113,5 @@ export const PAGE_NAMES = [
   "DueDiligenceReports",
   "EventRegistrationReport",
   "OrganisationEngagementReport",
+  "MembershipTierManagement",
 ];

@@ -87,6 +87,8 @@ const entityToTable = {
   'RedirectMapping': 'redirect_mapping',
   'FormDueDiligenceConfig': 'form_due_diligence_config',
   'FormSubmissionDueDiligence': 'form_submission_due_diligence',
+  'MembershipTierConfig': 'membership_tier_config',
+  'MembershipTierBand': 'membership_tier_band',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');

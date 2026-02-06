@@ -131,6 +131,8 @@ export const entityTenantScope = {
   'Workflow': TENANT_SCOPE.TENANT,
   'WorkflowLog': TENANT_SCOPE.TENANT,
   'Speaker': TENANT_SCOPE.TENANT,
+  'MembershipTierConfig': TENANT_SCOPE.TENANT,
+  'MembershipTierBand': TENANT_SCOPE.TENANT,
   'CardDeck': TENANT_SCOPE.TENANT,
   'DynamicDirectory': TENANT_SCOPE.TENANT,
   'CommunicationCategory': TENANT_SCOPE.TENANT,

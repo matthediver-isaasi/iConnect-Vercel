@@ -273,6 +273,8 @@ import EventRegistrationReport from "./EventRegistrationReport";
 
 import OrganisationEngagementReport from "./OrganisationEngagementReport";
 
+import MembershipTierManagement from "./MembershipTierManagement";
+
 import SearchResults from "./SearchResults";
 
 import TenantSignup from "./TenantSignup";
@@ -398,6 +400,7 @@ const PAGES = {
     PendingPurchaseOrdersReport: PendingPurchaseOrdersReport,
     EventRegistrationReport: EventRegistrationReport,
     OrganisationEngagementReport: OrganisationEngagementReport,
+    MembershipTierManagement: MembershipTierManagement,
     
     Resources: Resources,
     
@@ -705,6 +708,7 @@ function PagesContent() {
                 <Route path="/PendingPurchaseOrdersReport" element={<PendingPurchaseOrdersReport />} />
                 <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
                 <Route path="/OrganisationEngagementReport" element={<OrganisationEngagementReport />} />
+                <Route path="/MembershipTierManagement" element={<MembershipTierManagement />} />
                 
                 <Route path="/Resources" element={<Resources />} />
                 
