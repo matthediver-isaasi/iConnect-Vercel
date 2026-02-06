@@ -29,6 +29,25 @@ function formatTimeAgo(dateStr) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+function ProgressBar({ percent, height = 'h-2.5' }) {
+  const clamped = Math.min(100, Math.max(0, percent));
+  return (
+    <div className={`relative w-full rounded-full ${height} overflow-hidden`}
+         style={{ background: 'linear-gradient(90deg, #ef4444 0%, #f59e0b 40%, #22c55e 100%)' }}>
+      <div
+        className="absolute top-0 right-0 h-full bg-muted/80 rounded-r-full transition-all duration-700"
+        style={{ width: `${100 - clamped}%` }}
+      />
+      {clamped > 0 && clamped < 100 && (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-1 rounded-full bg-foreground shadow-sm transition-all duration-700"
+          style={{ left: `calc(${clamped}% - 2px)`, height: 'calc(100% + 4px)' }}
+        />
+      )}
+    </div>
+  );
+}
+
 const PRESET_AMOUNTS = [10, 25, 50, 100, 250];
 
 export default function DonatePage() {
@@ -348,18 +367,7 @@ export default function DonatePage() {
               </div>
             </div>
 
-            <div className="relative w-full h-4 bg-muted rounded-full overflow-hidden">
-              <div
-                className="absolute inset-y-0 left-0 bg-gradient-to-r from-primary to-primary/80 rounded-full transition-all duration-1000 ease-out"
-                style={{ width: `${progress.percentage}%` }}
-              />
-              {progress.percentage > 5 && (
-                <div
-                  className="absolute inset-y-0 left-0 bg-white/20 rounded-full animate-pulse"
-                  style={{ width: `${progress.percentage}%` }}
-                />
-              )}
-            </div>
+            <ProgressBar percent={progress.percentage} height="h-4" />
 
             {team_member.individual_goal && (
               <div className="pt-2 border-t">
@@ -373,13 +381,8 @@ export default function DonatePage() {
                     {formatCurrency(team_member.individual_goal, campaign.currency)}
                   </span>
                 </div>
-                <div className="w-full h-2 bg-muted rounded-full overflow-hidden mt-2">
-                  <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                    style={{
-                      width: `${Math.min(100, Math.round((progress.member_total / parseFloat(team_member.individual_goal)) * 100))}%`
-                    }}
-                  />
+                <div className="mt-2">
+                  <ProgressBar percent={Math.min(100, Math.round((progress.member_total / parseFloat(team_member.individual_goal)) * 100))} height="h-2" />
                 </div>
               </div>
             )}
