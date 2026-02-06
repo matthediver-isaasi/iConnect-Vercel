@@ -1,24 +1,31 @@
-import pg from 'pg';
+import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-const databaseUrl = process.env.DATABASE_URL;
+const supabaseUrl = process.env.DEV_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.DEV_SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
-if (!databaseUrl) {
-  console.error('Missing DATABASE_URL');
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
   process.exit(1);
 }
 
-const client = new pg.Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function seed() {
-  await client.connect();
-  console.log('Connected to database\n');
+  console.log('Connecting to Supabase...\n');
 
-  const { rows: campaigns } = await client.query(
-    `SELECT * FROM fundraising_campaign WHERE LOWER(name) LIKE '%test%' LIMIT 1`
-  );
+  const { data: campaigns, error: campErr } = await supabase
+    .from('fundraising_campaign')
+    .select('*')
+    .ilike('name', '%test%')
+    .limit(1);
 
-  if (!campaigns.length) {
+  if (campErr) {
+    console.error('Error finding campaign:', campErr.message);
+    process.exit(1);
+  }
+
+  if (!campaigns?.length) {
     console.error('No test campaign found. Create one in the admin UI first.');
     process.exit(1);
   }
@@ -28,64 +35,86 @@ async function seed() {
   const currency = campaign.currency || 'GBP';
   console.log(`Found campaign: "${campaign.name}" (tenant: ${tenantId}, goal: ${currency} ${campaign.goal_amount})`);
 
-  const { rows: existingMembers } = await client.query(
-    `SELECT * FROM fundraising_team_member WHERE campaign_id = $1 AND tenant_id = $2`,
-    [campaign.id, tenantId]
-  );
+  const { data: existingMembers } = await supabase
+    .from('fundraising_team_member')
+    .select('*')
+    .eq('campaign_id', campaign.id)
+    .eq('tenant_id', tenantId);
 
-  console.log(`Existing team members: ${existingMembers.length}`);
-  const matMember = existingMembers.find(m => m.email === 'mat.the.diver@googlemail.com');
+  console.log(`Existing team members: ${(existingMembers || []).length}`);
+  const matMember = (existingMembers || []).find(m => m.email === 'mat.the.diver@googlemail.com');
   if (matMember) {
     console.log(`  - ${matMember.first_name} ${matMember.last_name} (${matMember.email})`);
   }
 
-  const { rows: [sarah] } = await client.query(
-    `INSERT INTO fundraising_team_member (tenant_id, campaign_id, first_name, last_name, email, token, individual_goal, is_active)
-     VALUES ($1, $2, 'Sarah', 'Thompson', 'sarah.thompson.test@example.com', $3, 500, true)
-     RETURNING *`,
-    [tenantId, campaign.id, crypto.randomBytes(24).toString('hex')]
-  );
+  const externalMembers = [
+    {
+      tenant_id: tenantId,
+      campaign_id: campaign.id,
+      first_name: 'Sarah',
+      last_name: 'Thompson',
+      email: 'sarah.thompson.test@example.com',
+      token: crypto.randomBytes(24).toString('hex'),
+      individual_goal: 500,
+      is_active: true
+    },
+    {
+      tenant_id: tenantId,
+      campaign_id: campaign.id,
+      first_name: 'James',
+      last_name: 'Blackwell',
+      email: 'james.blackwell.test@example.com',
+      token: crypto.randomBytes(24).toString('hex'),
+      individual_goal: 750,
+      is_active: true
+    }
+  ];
 
-  const { rows: [james] } = await client.query(
-    `INSERT INTO fundraising_team_member (tenant_id, campaign_id, first_name, last_name, email, token, individual_goal, is_active)
-     VALUES ($1, $2, 'James', 'Blackwell', 'james.blackwell.test@example.com', $3, 750, true)
-     RETURNING *`,
-    [tenantId, campaign.id, crypto.randomBytes(24).toString('hex')]
-  );
+  const { data: newMembers, error: memberErr } = await supabase
+    .from('fundraising_team_member')
+    .insert(externalMembers)
+    .select();
 
-  console.log(`\nCreated 2 external team members:`);
-  [sarah, james].forEach(m => {
+  if (memberErr) {
+    console.error('Failed to create team members:', memberErr.message);
+    process.exit(1);
+  }
+
+  console.log(`\nCreated ${newMembers.length} external team members:`);
+  newMembers.forEach(m => {
     console.log(`  - ${m.first_name} ${m.last_name} (${m.email})`);
     console.log(`    Donation page token: ${m.token}`);
   });
 
-  const firstMemberId = matMember?.id || sarah.id;
+  const firstMemberId = matMember?.id || newMembers[0].id;
+  const allMembers = [matMember, ...newMembers].filter(Boolean);
 
   const donationRows = [
     { team_member_id: firstMemberId, donor_name: 'David Williams', donor_email: 'david.w.test@example.com', donor_message: 'Great cause, happy to support!', is_anonymous: false, amount: 50.00, gift_aid: true, gift_aid_address_line_1: '14 Oak Lane', gift_aid_address_line_2: null, gift_aid_city: 'Manchester', gift_aid_postcode: 'M1 4BT', stripe_payment_intent_id: 'pi_test_seed_001', payment_status: 'succeeded' },
     { team_member_id: firstMemberId, donor_name: 'Anonymous Donor', donor_email: 'anon.test@example.com', donor_message: null, is_anonymous: true, amount: 25.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_002', payment_status: 'succeeded' },
-    { team_member_id: sarah.id, donor_name: 'Emma Richardson', donor_email: 'emma.r.test@example.com', donor_message: 'Go Sarah! Smashing it!', is_anonymous: false, amount: 100.00, gift_aid: true, gift_aid_address_line_1: '7 Willow Close', gift_aid_address_line_2: 'Flat 3', gift_aid_city: 'Birmingham', gift_aid_postcode: 'B2 5HG', stripe_payment_intent_id: 'pi_test_seed_003', payment_status: 'succeeded' },
-    { team_member_id: sarah.id, donor_name: 'Tom Baker', donor_email: 'tom.baker.test@example.com', donor_message: null, is_anonymous: false, amount: 30.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_004', payment_status: 'succeeded' },
-    { team_member_id: james.id, donor_name: 'Rebecca Moore', donor_email: 'rebecca.m.test@example.com', donor_message: 'Keep up the amazing work James!', is_anonymous: false, amount: 75.00, gift_aid: true, gift_aid_address_line_1: '22 Elm Street', gift_aid_address_line_2: null, gift_aid_city: 'London', gift_aid_postcode: 'SW1A 1AA', stripe_payment_intent_id: 'pi_test_seed_005', payment_status: 'succeeded' },
-    { team_member_id: james.id, donor_name: 'Michael Chen', donor_email: 'michael.c.test@example.com', donor_message: 'Wonderful initiative', is_anonymous: false, amount: 150.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_006', payment_status: 'succeeded' },
-    { team_member_id: james.id, donor_name: 'Pending Donor', donor_email: 'pending.test@example.com', donor_message: null, is_anonymous: false, amount: 20.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_007', payment_status: 'pending' },
+    { team_member_id: newMembers[0].id, donor_name: 'Emma Richardson', donor_email: 'emma.r.test@example.com', donor_message: 'Go Sarah! Smashing it!', is_anonymous: false, amount: 100.00, gift_aid: true, gift_aid_address_line_1: '7 Willow Close', gift_aid_address_line_2: 'Flat 3', gift_aid_city: 'Birmingham', gift_aid_postcode: 'B2 5HG', stripe_payment_intent_id: 'pi_test_seed_003', payment_status: 'succeeded' },
+    { team_member_id: newMembers[0].id, donor_name: 'Tom Baker', donor_email: 'tom.baker.test@example.com', donor_message: null, is_anonymous: false, amount: 30.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_004', payment_status: 'succeeded' },
+    { team_member_id: newMembers[1].id, donor_name: 'Rebecca Moore', donor_email: 'rebecca.m.test@example.com', donor_message: 'Keep up the amazing work James!', is_anonymous: false, amount: 75.00, gift_aid: true, gift_aid_address_line_1: '22 Elm Street', gift_aid_address_line_2: null, gift_aid_city: 'London', gift_aid_postcode: 'SW1A 1AA', stripe_payment_intent_id: 'pi_test_seed_005', payment_status: 'succeeded' },
+    { team_member_id: newMembers[1].id, donor_name: 'Michael Chen', donor_email: 'michael.c.test@example.com', donor_message: 'Wonderful initiative', is_anonymous: false, amount: 150.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_006', payment_status: 'succeeded' },
+    { team_member_id: newMembers[1].id, donor_name: 'Pending Donor', donor_email: 'pending.test@example.com', donor_message: null, is_anonymous: false, amount: 20.00, gift_aid: false, gift_aid_address_line_1: null, gift_aid_address_line_2: null, gift_aid_city: null, gift_aid_postcode: null, stripe_payment_intent_id: 'pi_test_seed_007', payment_status: 'pending' },
   ];
 
-  console.log(`\nCreating ${donationRows.length} test donations...`);
-  const createdDonations = [];
+  const donationsToInsert = donationRows.map(d => ({
+    tenant_id: tenantId,
+    campaign_id: campaign.id,
+    currency,
+    ...d
+  }));
 
-  for (const d of donationRows) {
-    const { rows: [donation] } = await client.query(
-      `INSERT INTO fundraising_donation 
-         (tenant_id, campaign_id, team_member_id, donor_name, donor_email, donor_message, is_anonymous, amount, currency, gift_aid, gift_aid_address_line_1, gift_aid_address_line_2, gift_aid_city, gift_aid_postcode, stripe_payment_intent_id, payment_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-       RETURNING *`,
-      [tenantId, campaign.id, d.team_member_id, d.donor_name, d.donor_email, d.donor_message, d.is_anonymous, d.amount, currency, d.gift_aid, d.gift_aid_address_line_1, d.gift_aid_address_line_2, d.gift_aid_city, d.gift_aid_postcode, d.stripe_payment_intent_id, d.payment_status]
-    );
-    createdDonations.push(donation);
+  const { data: createdDonations, error: donErr } = await supabase
+    .from('fundraising_donation')
+    .insert(donationsToInsert)
+    .select();
+
+  if (donErr) {
+    console.error('Failed to create donations:', donErr.message);
+    process.exit(1);
   }
-
-  const allMembers = [matMember, sarah, james].filter(Boolean);
 
   console.log(`\nCreated ${createdDonations.length} test donations:`);
   createdDonations.forEach(d => {
@@ -106,6 +135,7 @@ async function seed() {
   console.log('\nDone!');
 }
 
-seed()
-  .catch(err => { console.error('Seed failed:', err); process.exit(1); })
-  .finally(() => client.end());
+seed().catch(err => {
+  console.error('Seed failed:', err);
+  process.exit(1);
+});
