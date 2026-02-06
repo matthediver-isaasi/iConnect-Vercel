@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
-  Search, Download, History, CalendarDays, ChevronRight, Eye, PlusCircle
+  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle
 } from "lucide-react";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -90,6 +91,8 @@ export default function MembershipTierManagement() {
   const [showHistory, setShowHistory] = useState(false);
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [configOpen, setConfigOpen] = useState(true);
+  const [bandsOpen, setBandsOpen] = useState(true);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -580,10 +583,24 @@ export default function MembershipTierManagement() {
         </Card>
       )}
 
+      <Collapsible open={configOpen} onOpenChange={setConfigOpen}>
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Configuration</CardTitle>
+        <CollapsibleTrigger asChild>
+        <CardHeader className="cursor-pointer select-none flex flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <CardTitle className="text-lg truncate" data-testid="text-config-title">
+              {config.name || 'Untitled Structure'}
+            </CardTitle>
+            {config.effective_from && (
+              <Badge variant="outline" className="shrink-0">
+                {isHistoricalView ? `${formatDate(config.effective_from)} - ${formatDate(historicalData?.config?.effective_to)}` : `From ${formatDate(config.effective_from)}`}
+              </Badge>
+            )}
+          </div>
+          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${configOpen ? '' : '-rotate-90'}`} />
         </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -814,18 +831,32 @@ export default function MembershipTierManagement() {
             </div>
           </div>
         </CardContent>
+        </CollapsibleContent>
       </Card>
+      </Collapsible>
 
+      <Collapsible open={bandsOpen} onOpenChange={setBandsOpen}>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="text-lg">Tier Bands</CardTitle>
+        <CollapsibleTrigger asChild>
+        <CardHeader className="cursor-pointer select-none flex flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">Tier Bands</CardTitle>
+            {bands.length > 0 && (
+              <Badge variant="secondary">{bands.length}</Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
           {isEditable && (
-            <Button size="sm" onClick={addBand} data-testid="button-add-band">
+            <Button size="sm" onClick={(e) => { e.stopPropagation(); addBand(); setBandsOpen(true); }} data-testid="button-add-band">
               <Plus className="w-4 h-4 mr-1" />
               Add Tier
             </Button>
           )}
+          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${bandsOpen ? '' : '-rotate-90'}`} />
+          </div>
         </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
         <CardContent>
           {bands.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground" data-testid="text-no-bands">
@@ -914,7 +945,9 @@ export default function MembershipTierManagement() {
             </div>
           )}
         </CardContent>
+        </CollapsibleContent>
       </Card>
+      </Collapsible>
 
       {showPreview && (
         <Card>
