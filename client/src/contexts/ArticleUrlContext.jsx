@@ -116,7 +116,7 @@ export function ArticleUrlProvider({ children }) {
         : (articleId ? `${createPageUrl('ArticleEditor')}?id=${articleId}` : createPageUrl('ArticleEditor')),
       // MyArticles is now integrated into Articles page - redirect there
       getMyArticlesUrl: () => isCustomSlug ? `/${urlSlug}` : createPageUrl('Articles'),
-      getPublicArticlesUrl: () => isCustomSlug ? `/${publicSlug}` : createPageUrl('PublicArticles')
+      getPublicArticlesUrl: () => isCustomSlug ? `/${urlSlug}` : createPageUrl('PublicArticles')
     };
   }, [settings, isLoading]);
 
