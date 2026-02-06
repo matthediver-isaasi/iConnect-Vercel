@@ -63,6 +63,13 @@ function formatRelativeTime(dateStr) {
   return formatDate(dateStr);
 }
 
+function progressGradient(percent) {
+  return {
+    background: `linear-gradient(90deg, #ef4444 0%, #f59e0b 40%, #22c55e 100%)`,
+    width: `${percent}%`
+  };
+}
+
 const STATUS_CONFIG = {
   draft: { label: 'Draft', variant: 'secondary' },
   active: { label: 'Active', variant: 'default' },
@@ -257,8 +264,8 @@ function CampaignList({ onSelect, onEdit }) {
                   </div>
                   <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
                     <div
-                      className="h-full bg-primary rounded-full transition-all duration-500"
-                      style={{ width: `${progressPercent}%` }}
+                      className="h-full rounded-full transition-all duration-500"
+                      style={progressGradient(progressPercent)}
                     />
                   </div>
                 </div>
@@ -601,8 +608,8 @@ function CampaignDetail({ campaignId, onBack }) {
           </div>
           <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-700"
-              style={{ width: `${progressPercent}%` }}
+              className="h-full rounded-full transition-all duration-700"
+              style={progressGradient(progressPercent)}
             />
           </div>
           {campaign.end_date && (
@@ -731,8 +738,8 @@ function CampaignDetail({ campaignId, onBack }) {
                           <div className="ml-12">
                             <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                               <div
-                                className={`h-full rounded-full transition-all duration-500 ${isTop ? 'bg-amber-500' : 'bg-primary'}`}
-                                style={{ width: `${memberProgress}%` }}
+                                className="h-full rounded-full transition-all duration-500"
+                                style={progressGradient(memberProgress)}
                               />
                             </div>
                           </div>
@@ -969,8 +976,8 @@ function CampaignDetail({ campaignId, onBack }) {
                         {memberGoal > 0 && (
                           <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                             <div
-                              className="h-full bg-primary rounded-full transition-all duration-500"
-                              style={{ width: `${memberProgress}%` }}
+                              className="h-full rounded-full transition-all duration-500"
+                              style={progressGradient(memberProgress)}
                             />
                           </div>
                         )}
