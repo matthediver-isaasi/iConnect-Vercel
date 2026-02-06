@@ -169,8 +169,8 @@ export default function EventsPage({
   // Build filter tag key map for display and filtering
   const filterTagKeyMap = useMemo(() => buildFilterTagKeyMap(eventCategories), [eventCategories]);
 
-  // Check if user can toggle draft visibility
-  const canToggleDrafts = !hookIsFeatureExcluded('events.browse-events.toggle-drafts');
+  // Check if user can toggle draft visibility - requires authentication
+  const canToggleDrafts = !!memberInfo && !hookIsFeatureExcluded('events.browse-events.toggle-drafts');
 
   // Filter events by status and access level
   // - Draft events are hidden by default for everyone
