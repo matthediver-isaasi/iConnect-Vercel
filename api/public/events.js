@@ -43,7 +43,11 @@ export default async function handler(req, res) {
         image_focal_point,
         pricing_config,
         status,
-        available_seats
+        available_seats,
+        event_type,
+        program_tag,
+        event_state,
+        registration_closes_at
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -78,6 +82,10 @@ export default async function handler(req, res) {
         image_focal_point: event.image_focal_point,
         status: event.status,
         available_seats: event.available_seats,
+        event_type: event.event_type,
+        program_tag: event.program_tag,
+        event_state: event.event_state,
+        registration_closes_at: event.registration_closes_at,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });
