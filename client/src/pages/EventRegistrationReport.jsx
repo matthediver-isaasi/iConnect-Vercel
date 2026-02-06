@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -13,17 +13,40 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 const ITEMS_PER_PAGE = 25;
 
 function formatCurrency(amount) {
-  if (amount === null || amount === undefined) return "\u00A3 0.00";
+  if (amount === null || amount === undefined) return "\u00A30.00";
   return `\u00A3${Number(amount).toFixed(2)}`;
 }
 
+function PaymentMethodBadge({ method, totalCost }) {
+  if (method === 'card') {
+    return (
+      <Badge variant="outline" className="gap-1">
+        <CreditCard className="w-3 h-3" />
+        Stripe
+      </Badge>
+    );
+  }
+  if (method === 'account') {
+    return (
+      <Badge variant="secondary" className="gap-1">
+        <Building2 className="w-3 h-3" />
+        Account
+      </Badge>
+    );
+  }
+  if (method === 'free' || Number(totalCost) === 0) {
+    return <Badge variant="secondary">Free</Badge>;
+  }
+  return <span className="text-muted-foreground">{method || '-'}</span>;
+}
+
 export default function EventRegistrationReport() {
-  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState("name_asc");
+  const [sortBy, setSortBy] = useState("date_desc");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -54,7 +77,7 @@ export default function EventRegistrationReport() {
   });
 
   const events = reportData?.events || [];
-  const bookings = reportData?.bookings || [];
+  const bookingGroups = reportData?.bookingGroups || [];
   const organizations = reportData?.organizations || {};
   const summary = reportData?.summary || {};
 
@@ -62,48 +85,57 @@ export default function EventRegistrationReport() {
     return events.find(e => e.id === selectedEventId);
   }, [events, selectedEventId]);
 
-  const filteredBookings = useMemo(() => {
-    let result = bookings;
+  const filteredGroups = useMemo(() => {
+    let result = bookingGroups;
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(b =>
-        (b.attendee_first_name || '').toLowerCase().includes(q) ||
-        (b.attendee_last_name || '').toLowerCase().includes(q) ||
-        (b.attendee_email || '').toLowerCase().includes(q) ||
-        (organizations[b.organization_id] || '').toLowerCase().includes(q) ||
-        (b.ticket_class_name || '').toLowerCase().includes(q) ||
-        (b.purchase_order_number || '').toLowerCase().includes(q) ||
-        (b.booking_reference || '').toLowerCase().includes(q)
+      result = result.filter(group =>
+        group.attendees.some(a =>
+          (a.attendee_first_name || '').toLowerCase().includes(q) ||
+          (a.attendee_last_name || '').toLowerCase().includes(q) ||
+          (a.attendee_email || '').toLowerCase().includes(q) ||
+          (organizations[a.organization_id] || '').toLowerCase().includes(q) ||
+          (a.ticket_class_name || '').toLowerCase().includes(q)
+        ) ||
+        (group.groupPayment.purchaseOrderNumber || '').toLowerCase().includes(q) ||
+        (group.groupPayment.bookingReference || '').toLowerCase().includes(q) ||
+        (group.groupPayment.xeroInvoiceNumber || '').toLowerCase().includes(q)
       );
     }
 
     result = [...result].sort((a, b) => {
+      const aFirst = a.attendees[0];
+      const bFirst = b.attendees[0];
       switch (sortBy) {
         case 'name_asc':
-          return (`${a.attendee_last_name} ${a.attendee_first_name}`).localeCompare(`${b.attendee_last_name} ${b.attendee_first_name}`);
+          return (`${aFirst?.attendee_last_name} ${aFirst?.attendee_first_name}`).localeCompare(`${bFirst?.attendee_last_name} ${bFirst?.attendee_first_name}`);
         case 'name_desc':
-          return (`${b.attendee_last_name} ${b.attendee_first_name}`).localeCompare(`${a.attendee_last_name} ${a.attendee_first_name}`);
+          return (`${bFirst?.attendee_last_name} ${bFirst?.attendee_first_name}`).localeCompare(`${aFirst?.attendee_last_name} ${aFirst?.attendee_first_name}`);
         case 'org_asc':
-          return (organizations[a.organization_id] || 'zzz').localeCompare(organizations[b.organization_id] || 'zzz');
+          return (organizations[aFirst?.organization_id] || 'zzz').localeCompare(organizations[bFirst?.organization_id] || 'zzz');
         case 'total_desc':
-          return (Number(b.total_cost) || 0) - (Number(a.total_cost) || 0);
+          return (b.groupPayment.totalCost || 0) - (a.groupPayment.totalCost || 0);
         case 'total_asc':
-          return (Number(a.total_cost) || 0) - (Number(b.total_cost) || 0);
+          return (a.groupPayment.totalCost || 0) - (b.groupPayment.totalCost || 0);
         case 'date_desc':
-          return new Date(b.created_at) - new Date(a.created_at);
+          return new Date(bFirst?.created_at || 0) - new Date(aFirst?.created_at || 0);
         case 'date_asc':
-          return new Date(a.created_at) - new Date(b.created_at);
+          return new Date(aFirst?.created_at || 0) - new Date(bFirst?.created_at || 0);
         default:
           return 0;
       }
     });
 
     return result;
-  }, [bookings, searchQuery, sortBy, organizations]);
+  }, [bookingGroups, searchQuery, sortBy, organizations]);
 
-  const totalPages = Math.ceil(filteredBookings.length / ITEMS_PER_PAGE);
-  const paginatedBookings = filteredBookings.slice(
+  const totalAttendees = useMemo(() => {
+    return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
+  }, [filteredGroups]);
+
+  const totalPages = Math.ceil(filteredGroups.length / ITEMS_PER_PAGE);
+  const paginatedGroups = filteredGroups.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
@@ -113,16 +145,17 @@ export default function EventRegistrationReport() {
   }, [selectedEventId, searchQuery]);
 
   const handleExportCSV = () => {
-    if (filteredBookings.length === 0) return;
+    if (filteredGroups.length === 0) return;
 
     const headers = [
+      'Booking Group',
       'Name',
       'Email',
       'Organisation',
       'Ticket Type',
       'Ticket Price',
-      'Discount',
-      'Total Charged',
+      'Group Discount',
+      'Group Total',
       'Voucher Amount',
       'Training Fund',
       'Account Amount',
@@ -137,30 +170,35 @@ export default function EventRegistrationReport() {
       'Guest Booking'
     ];
 
-    const rows = filteredBookings.map(b => {
-      const discount = Math.max(0, (Number(b.ticket_price) || 0) - (Number(b.total_cost) || 0));
-      return [
-        `${b.attendee_first_name || ''} ${b.attendee_last_name || ''}`.trim(),
-        b.attendee_email || '',
-        organizations[b.organization_id] || (b.is_guest_booking ? 'Guest' : 'Non-member'),
-        b.ticket_class_name || '',
-        Number(b.ticket_price || 0).toFixed(2),
-        discount.toFixed(2),
-        Number(b.total_cost || 0).toFixed(2),
-        Number(b.voucher_amount || 0).toFixed(2),
-        Number(b.training_fund_amount || 0).toFixed(2),
-        Number(b.account_amount || 0).toFixed(2),
-        b.payment_method || '',
-        b.purchase_order_number || '',
-        b.po_to_follow ? 'Yes' : 'No',
-        b.stripe_payment_intent_id ? 'Yes' : 'No',
-        b.xero_invoice_number || '',
-        b.booking_reference || '',
-        b.status || '',
-        b.created_at ? format(parseISO(b.created_at), 'yyyy-MM-dd HH:mm') : '',
-        b.is_guest_booking ? 'Yes' : 'No'
-      ];
-    });
+    const rows = [];
+    for (const group of filteredGroups) {
+      const gp = group.groupPayment;
+      group.attendees.forEach((a, idx) => {
+        const isFirstInGroup = idx === 0;
+        rows.push([
+          group.isGroup ? (group.groupRef || 'Group') : '',
+          `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
+          a.attendee_email || '',
+          organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member'),
+          a.ticket_class_name || '',
+          Number(a.ticket_price || 0).toFixed(2),
+          isFirstInGroup ? (gp.discount || 0).toFixed(2) : '',
+          isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '',
+          isFirstInGroup ? (gp.voucherAmount || 0).toFixed(2) : '',
+          isFirstInGroup ? (gp.trainingFundAmount || 0).toFixed(2) : '',
+          isFirstInGroup ? (gp.accountAmount || 0).toFixed(2) : '',
+          isFirstInGroup ? (gp.paymentMethod || '') : '',
+          isFirstInGroup ? (gp.purchaseOrderNumber || '') : '',
+          isFirstInGroup ? (gp.poToFollow ? 'Yes' : 'No') : '',
+          isFirstInGroup ? (gp.stripePaymentIntentId ? 'Yes' : 'No') : '',
+          isFirstInGroup ? (gp.xeroInvoiceNumber || '') : '',
+          isFirstInGroup ? (gp.bookingReference || '') : '',
+          a.status || '',
+          a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '',
+          a.is_guest_booking ? 'Yes' : 'No'
+        ]);
+      });
+    }
 
     const csvContent = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -193,7 +231,7 @@ export default function EventRegistrationReport() {
             View registration details and payment breakdowns for each event
           </p>
         </div>
-        {selectedEventId && filteredBookings.length > 0 && (
+        {selectedEventId && filteredGroups.length > 0 && (
           <Button
             variant="outline"
             className="gap-2"
@@ -248,9 +286,12 @@ export default function EventRegistrationReport() {
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Users className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Registrations</span>
+                  <span className="text-xs text-muted-foreground">Attendees</span>
                 </div>
                 <p className="text-xl font-bold" data-testid="text-total-registrations">{summary.totalBookings || 0}</p>
+                {summary.totalGroups > 0 && summary.totalGroups !== summary.totalBookings && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{summary.totalGroups} booking{summary.totalGroups !== 1 ? 's' : ''}</p>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -304,9 +345,9 @@ export default function EventRegistrationReport() {
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
               <CardTitle className="text-base">
                 Registrations
-                {filteredBookings.length > 0 && (
+                {totalAttendees > 0 && (
                   <span className="text-muted-foreground font-normal text-sm ml-2">
-                    ({filteredBookings.length} {filteredBookings.length === 1 ? 'record' : 'records'})
+                    ({totalAttendees} attendee{totalAttendees !== 1 ? 's' : ''} in {filteredGroups.length} booking{filteredGroups.length !== 1 ? 's' : ''})
                   </span>
                 )}
               </CardTitle>
@@ -338,7 +379,7 @@ export default function EventRegistrationReport() {
               </div>
             </CardHeader>
             <CardContent>
-              {filteredBookings.length === 0 ? (
+              {filteredGroups.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground" data-testid="text-no-registrations">
                   {searchQuery ? 'No registrations match your search' : 'No registrations found for this event'}
                 </div>
@@ -363,110 +404,151 @@ export default function EventRegistrationReport() {
                         </tr>
                       </thead>
                       <tbody>
-                        {paginatedBookings.map((booking) => {
-                          const discount = Math.max(0, (Number(booking.ticket_price) || 0) - (Number(booking.total_cost) || 0));
-                          const orgName = organizations[booking.organization_id] || null;
-                          const isGuest = booking.is_guest_booking || (!booking.organization_id && !booking.member_id);
+                        {paginatedGroups.map((group) => {
+                          const gp = group.groupPayment;
 
-                          return (
-                            <tr key={booking.id} className="border-b last:border-0" data-testid={`row-booking-${booking.id}`}>
-                              <td className="py-3 pr-3">
-                                <div className="font-medium whitespace-nowrap">
-                                  {`${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim() || 'Unknown'}
-                                </div>
-                                <div className="text-xs text-muted-foreground">{booking.attendee_email}</div>
-                              </td>
-                              <td className="py-3 pr-3 whitespace-nowrap">
-                                {orgName ? (
-                                  <span>{orgName}</span>
-                                ) : (
-                                  <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>
-                                )}
-                              </td>
-                              <td className="py-3 pr-3 whitespace-nowrap">
-                                {booking.ticket_class_name || '-'}
-                              </td>
-                              <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                {formatCurrency(booking.ticket_price)}
-                              </td>
-                              <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                {discount > 0 ? (
-                                  <span className="text-green-600">-{formatCurrency(discount)}</span>
-                                ) : '-'}
-                              </td>
-                              <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">
-                                {formatCurrency(booking.total_cost)}
-                              </td>
-                              <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                {Number(booking.voucher_amount) > 0 ? formatCurrency(booking.voucher_amount) : '-'}
-                              </td>
-                              <td className="py-3 pr-3 text-right whitespace-nowrap">
-                                {Number(booking.training_fund_amount) > 0 ? formatCurrency(booking.training_fund_amount) : '-'}
-                              </td>
-                              <td className="py-3 pr-3 whitespace-nowrap">
-                                {booking.payment_method === 'card' ? (
-                                  <Badge variant="outline" className="gap-1">
-                                    <CreditCard className="w-3 h-3" />
-                                    Stripe
+                          if (!group.isGroup) {
+                            const attendee = group.attendees[0];
+                            const orgName = organizations[attendee.organization_id] || null;
+                            const isGuest = attendee.is_guest_booking || (!attendee.organization_id && !attendee.member_id);
+
+                            return (
+                              <tr key={attendee.id} className="border-b last:border-0" data-testid={`row-booking-${attendee.id}`}>
+                                <td className="py-3 pr-3">
+                                  <div className="font-medium whitespace-nowrap">
+                                    {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">{attendee.attendee_email}</div>
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap">
+                                  {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap">{attendee.ticket_class_name || '-'}</td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap">
+                                  {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                                </td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalCost)}</td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap">
+                                  {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
+                                </td>
+                                <td className="py-3 pr-3 text-right whitespace-nowrap">
+                                  {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap">
+                                  <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap">
+                                  {gp.purchaseOrderNumber ? (
+                                    <span className="text-xs">{gp.purchaseOrderNumber}</span>
+                                  ) : gp.poToFollow ? (
+                                    <span className="text-xs italic text-amber-600">To follow</span>
+                                  ) : '-'}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap">
+                                  {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
+                                </td>
+                                <td className="py-3 whitespace-nowrap">
+                                  <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
+                                    {attendee.status || 'unknown'}
                                   </Badge>
-                                ) : booking.payment_method === 'account' ? (
-                                  <Badge variant="secondary" className="gap-1">
-                                    <Building2 className="w-3 h-3" />
-                                    Account
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return group.attendees.map((attendee, idx) => {
+                            const isFirst = idx === 0;
+                            const isLast = idx === group.attendees.length - 1;
+                            const orgName = organizations[attendee.organization_id] || null;
+                            const isGuest = attendee.is_guest_booking || (!attendee.organization_id && !attendee.member_id);
+
+                            return (
+                              <tr
+                                key={attendee.id}
+                                className={`${isLast ? 'border-b' : ''} ${isFirst ? 'border-t' : ''}`}
+                                style={isFirst ? { borderTopWidth: '2px' } : undefined}
+                                data-testid={`row-booking-${attendee.id}`}
+                              >
+                                <td className="py-2 pr-3">
+                                  <div className="flex items-center gap-2">
+                                    {isFirst && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                        {group.attendeeCount}
+                                      </Badge>
+                                    )}
+                                    <div>
+                                      <div className="font-medium whitespace-nowrap">
+                                        {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">{attendee.attendee_email}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="py-2 pr-3 whitespace-nowrap">
+                                  {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
+                                </td>
+                                <td className="py-2 pr-3 whitespace-nowrap">{attendee.ticket_class_name || '-'}</td>
+                                <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
+                                {isFirst ? (
+                                  <>
+                                    <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={group.attendeeCount}>
+                                      {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={group.attendeeCount}>
+                                      {formatCurrency(gp.totalCost)}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={group.attendeeCount}>
+                                      {gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={group.attendeeCount}>
+                                      {gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount}>
+                                      <PaymentMethodBadge method={gp.paymentMethod} totalCost={gp.totalCost} />
+                                    </td>
+                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount}>
+                                      {gp.purchaseOrderNumber ? (
+                                        <span className="text-xs">{gp.purchaseOrderNumber}</span>
+                                      ) : gp.poToFollow ? (
+                                        <span className="text-xs italic text-amber-600">To follow</span>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount}>
+                                      {gp.xeroInvoiceNumber ? <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span> : '-'}
+                                    </td>
+                                  </>
+                                ) : null}
+                                <td className="py-2 whitespace-nowrap">
+                                  <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
+                                    {attendee.status || 'unknown'}
                                   </Badge>
-                                ) : booking.payment_method === 'free' || Number(booking.total_cost) === 0 ? (
-                                  <Badge variant="secondary">Free</Badge>
-                                ) : (
-                                  <span className="text-muted-foreground">{booking.payment_method || '-'}</span>
-                                )}
-                              </td>
-                              <td className="py-3 pr-3 whitespace-nowrap">
-                                {booking.purchase_order_number ? (
-                                  <span className="text-xs">{booking.purchase_order_number}</span>
-                                ) : booking.po_to_follow ? (
-                                  <span className="text-xs italic text-amber-600">To follow</span>
-                                ) : '-'}
-                              </td>
-                              <td className="py-3 pr-3 whitespace-nowrap">
-                                {booking.xero_invoice_number ? (
-                                  <span className="text-xs font-mono">{booking.xero_invoice_number}</span>
-                                ) : '-'}
-                              </td>
-                              <td className="py-3 whitespace-nowrap">
-                                <Badge
-                                  variant={booking.status === 'confirmed' ? 'default' : booking.status === 'cancelled' ? 'destructive' : 'secondary'}
-                                >
-                                  {booking.status || 'unknown'}
-                                </Badge>
-                              </td>
-                            </tr>
-                          );
+                                </td>
+                              </tr>
+                            );
+                          });
                         })}
                       </tbody>
-                      {filteredBookings.length > 0 && (
+                      {filteredGroups.length > 0 && (
                         <tfoot>
                           <tr className="border-t-2 font-medium">
                             <td className="pt-3 pr-3" colSpan={3}>
-                              Totals ({filteredBookings.length} registrations)
+                              Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredBookings.reduce((sum, b) => sum + (Number(b.ticket_price) || 0), 0))}
+                              {formatCurrency(summary.totalRevenue + summary.totalDiscount)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap text-green-600">
-                              {(() => {
-                                const totalDiscount = filteredBookings.reduce((sum, b) =>
-                                  sum + Math.max(0, (Number(b.ticket_price) || 0) - (Number(b.total_cost) || 0)), 0);
-                                return totalDiscount > 0 ? `-${formatCurrency(totalDiscount)}` : '-';
-                              })()}
+                              {summary.totalDiscount > 0 ? `-${formatCurrency(summary.totalDiscount)}` : '-'}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredBookings.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0))}
+                              {formatCurrency(summary.totalRevenue)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredBookings.reduce((sum, b) => sum + (Number(b.voucher_amount) || 0), 0))}
+                              {formatCurrency(summary.totalVoucher)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(filteredBookings.reduce((sum, b) => sum + (Number(b.training_fund_amount) || 0), 0))}
+                              {formatCurrency(summary.totalTrainingFund)}
                             </td>
                             <td className="pt-3 pr-3" colSpan={4}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
