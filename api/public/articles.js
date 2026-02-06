@@ -93,14 +93,14 @@ export default async function handler(req, res) {
     if (guestWriterIds.length > 0) {
       const { data: guestWriters } = await supabase
         .from('guest_writer')
-        .select('id, full_name, profile_image_url')
+        .select('id, full_name, profile_photo_url')
         .in('id', guestWriterIds);
 
       if (guestWriters) {
         guestWriters.forEach(gw => {
           guestWriterData[gw.id] = {
             name: gw.full_name,
-            profilePicture: gw.profile_image_url
+            profilePicture: gw.profile_photo_url
           };
         });
       }

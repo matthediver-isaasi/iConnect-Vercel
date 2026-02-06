@@ -70,7 +70,7 @@ export default function ArticlePreview() {
 
   const getAuthorName = () => {
     if (article?.guest_writer_id && guestWriter) {
-      return guestWriter.name;
+      return guestWriter.full_name;
     }
     if (authorMember) {
       return `${authorMember.first_name || ''} ${authorMember.last_name || ''}`.trim() || authorMember.email;
