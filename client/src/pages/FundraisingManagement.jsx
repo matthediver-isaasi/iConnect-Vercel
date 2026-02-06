@@ -63,11 +63,23 @@ function formatRelativeTime(dateStr) {
   return formatDate(dateStr);
 }
 
-function progressGradient(percent) {
-  return {
-    background: `linear-gradient(90deg, #ef4444 0%, #f59e0b 40%, #22c55e 100%)`,
-    width: `${percent}%`
-  };
+function ProgressBar({ percent, height = 'h-2.5' }) {
+  const clamped = Math.min(100, Math.max(0, percent));
+  return (
+    <div className={`relative w-full rounded-full ${height} overflow-hidden`}
+         style={{ background: 'linear-gradient(90deg, #ef4444 0%, #f59e0b 40%, #22c55e 100%)' }}>
+      <div
+        className="absolute top-0 right-0 h-full bg-muted/80 rounded-r-full transition-all duration-700"
+        style={{ width: `${100 - clamped}%` }}
+      />
+      {clamped > 0 && clamped < 100 && (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-1 rounded-full bg-foreground shadow-sm transition-all duration-700"
+          style={{ left: `calc(${clamped}% - 2px)`, height: 'calc(100% + 4px)' }}
+        />
+      )}
+    </div>
+  );
 }
 
 const STATUS_CONFIG = {
@@ -262,12 +274,7 @@ function CampaignList({ onSelect, onEdit }) {
                       {progressPercent}% of {formatCurrency(campaign.goal_amount, campaign.currency)}
                     </span>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={progressGradient(progressPercent)}
-                    />
-                  </div>
+                  <ProgressBar percent={progressPercent} />
                 </div>
                 <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
@@ -606,12 +613,7 @@ function CampaignDetail({ campaignId, onBack }) {
               <span className="text-4xl font-bold text-primary">{progressPercent}%</span>
             </div>
           </div>
-          <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={progressGradient(progressPercent)}
-            />
-          </div>
+          <ProgressBar percent={progressPercent} height="h-3" />
           {campaign.end_date && (
             <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5" />
@@ -736,12 +738,7 @@ function CampaignDetail({ campaignId, onBack }) {
                             </div>
                           </div>
                           <div className="ml-12">
-                            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-500"
-                                style={progressGradient(memberProgress)}
-                              />
-                            </div>
+                            <ProgressBar percent={memberProgress} height="h-1.5" />
                           </div>
                         </div>
                       );
@@ -974,12 +971,7 @@ function CampaignDetail({ campaignId, onBack }) {
                           </div>
                         </div>
                         {memberGoal > 0 && (
-                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all duration-500"
-                              style={progressGradient(memberProgress)}
-                            />
-                          </div>
+                          <ProgressBar percent={memberProgress} height="h-1.5" />
                         )}
                       </div>
                     );
