@@ -367,6 +367,12 @@ async function handlePost(req, res, tenantId) {
         billing_period: config.billing_period || 'annual',
         is_active: config.is_active !== false,
         effective_from: config.effective_from,
+        membership_start_month: config.membership_start_month ?? 1,
+        membership_start_day: config.membership_start_day ?? 1,
+        prorata_enabled: config.prorata_enabled ?? false,
+        free_period_amount: config.free_period_amount || null,
+        free_period_unit: config.free_period_amount ? (config.free_period_unit || 'months') : null,
+        rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -432,6 +438,12 @@ async function handlePost(req, res, tenantId) {
       is_active: config.is_active !== false,
       effective_from: config.effective_from,
       effective_to: null,
+      membership_start_month: config.membership_start_month ?? 1,
+      membership_start_day: config.membership_start_day ?? 1,
+      prorata_enabled: config.prorata_enabled ?? false,
+      free_period_amount: config.free_period_amount || null,
+      free_period_unit: config.free_period_amount ? (config.free_period_unit || 'months') : null,
+      rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
     })
     .select()
     .single();

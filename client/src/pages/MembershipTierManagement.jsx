@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, Eye, PlusCircle
@@ -13,6 +14,23 @@ import {
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+
+const MONTHS = [
+  { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
+  { value: 4, label: 'April' }, { value: 5, label: 'May' }, { value: 6, label: 'June' },
+  { value: 7, label: 'July' }, { value: 8, label: 'August' }, { value: 9, label: 'September' },
+  { value: 10, label: 'October' }, { value: 11, label: 'November' }, { value: 12, label: 'December' },
+];
+
+const FREE_PERIOD_UNITS = [
+  { value: 'days', label: 'Days' },
+  { value: 'weeks', label: 'Weeks' },
+  { value: 'months', label: 'Months' },
+];
+
+function getDaysInMonth(month) {
+  return new Date(2024, month, 0).getDate();
+}
 
 const CURRENCIES = [
   { value: 'GBP', label: 'GBP (\u00a3)', symbol: '\u00a3' },
@@ -57,6 +75,12 @@ export default function MembershipTierManagement() {
     billing_period: 'annual',
     is_active: true,
     effective_from: getTodayStr(),
+    membership_start_month: 1,
+    membership_start_day: 1,
+    prorata_enabled: false,
+    free_period_amount: null,
+    free_period_unit: null,
+    rollover_enabled: false,
   });
 
   const [bands, setBands] = useState([]);
@@ -134,6 +158,12 @@ export default function MembershipTierManagement() {
         billing_period: c.billing_period || 'annual',
         is_active: c.is_active !== false,
         effective_from: c.effective_from || '',
+        membership_start_month: c.membership_start_month ?? 1,
+        membership_start_day: c.membership_start_day ?? 1,
+        prorata_enabled: c.prorata_enabled ?? false,
+        free_period_amount: c.free_period_amount ?? null,
+        free_period_unit: c.free_period_unit ?? null,
+        rollover_enabled: c.rollover_enabled ?? false,
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -149,16 +179,23 @@ export default function MembershipTierManagement() {
   useEffect(() => {
     if (tierData && !viewingHistorical && !isCreatingNew) {
       if (tierData.config) {
+        const c = tierData.config;
         setConfig({
-          id: tierData.config.id,
-          name: tierData.config.name || 'Default',
-          field_source: tierData.config.field_source || '',
-          field_id: tierData.config.field_id || null,
-          field_name: tierData.config.field_name || null,
-          currency: tierData.config.currency || 'GBP',
-          billing_period: tierData.config.billing_period || 'annual',
-          is_active: tierData.config.is_active !== false,
-          effective_from: tierData.config.effective_from || '',
+          id: c.id,
+          name: c.name || 'Default',
+          field_source: c.field_source || '',
+          field_id: c.field_id || null,
+          field_name: c.field_name || null,
+          currency: c.currency || 'GBP',
+          billing_period: c.billing_period || 'annual',
+          is_active: c.is_active !== false,
+          effective_from: c.effective_from || '',
+          membership_start_month: c.membership_start_month ?? 1,
+          membership_start_day: c.membership_start_day ?? 1,
+          prorata_enabled: c.prorata_enabled ?? false,
+          free_period_amount: c.free_period_amount ?? null,
+          free_period_unit: c.free_period_unit ?? null,
+          rollover_enabled: c.rollover_enabled ?? false,
         });
       }
       if (tierData.bands?.length > 0) {
@@ -317,6 +354,12 @@ export default function MembershipTierManagement() {
       billing_period: currentConfig?.billing_period || 'annual',
       is_active: true,
       effective_from: getTodayStr(),
+      membership_start_month: currentConfig?.membership_start_month ?? 1,
+      membership_start_day: currentConfig?.membership_start_day ?? 1,
+      prorata_enabled: currentConfig?.prorata_enabled ?? false,
+      free_period_amount: currentConfig?.free_period_amount ?? null,
+      free_period_unit: currentConfig?.free_period_unit ?? null,
+      rollover_enabled: currentConfig?.rollover_enabled ?? false,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -641,6 +684,133 @@ export default function MembershipTierManagement() {
                   This structure has been active since {formatDate(config.effective_from)}
                 </p>
               )}
+            </div>
+          </div>
+
+          <div className="border-t pt-4 mt-2">
+            <h3 className="text-sm font-medium mb-3">Membership Year & Pro-rata Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Membership Year Start</Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={String(config.membership_start_month)}
+                    onValueChange={(v) => {
+                      const newMonth = parseInt(v);
+                      const maxDay = getDaysInMonth(newMonth);
+                      handleConfigChange('membership_start_month', newMonth);
+                      if (config.membership_start_day > maxDay) {
+                        handleConfigChange('membership_start_day', maxDay);
+                      }
+                    }}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger className="flex-1" data-testid="select-start-month">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS.map(m => (
+                        <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(config.membership_start_day)}
+                    onValueChange={(v) => handleConfigChange('membership_start_day', parseInt(v))}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger className="w-20" data-testid="select-start-day">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: getDaysInMonth(config.membership_start_month) }, (_, i) => i + 1).map(d => (
+                        <SelectItem key={d} value={String(d)}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  The date each membership year begins (e.g. 1 April)
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Pro-rata Year</Label>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Calculate fee based on remaining days in the membership year
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.prorata_enabled}
+                    onCheckedChange={(v) => handleConfigChange('prorata_enabled', v)}
+                    disabled={!isEditable}
+                    data-testid="switch-prorata"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className="space-y-2">
+                <Label>Free Period for New Members</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={config.free_period_amount ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? null : parseInt(e.target.value);
+                      handleConfigChange('free_period_amount', val);
+                      if (val && !config.free_period_unit) {
+                        handleConfigChange('free_period_unit', 'months');
+                      }
+                      if (!val) {
+                        handleConfigChange('free_period_unit', null);
+                      }
+                    }}
+                    placeholder="0"
+                    className="w-24"
+                    disabled={!isEditable}
+                    data-testid="input-free-period-amount"
+                  />
+                  <Select
+                    value={config.free_period_unit || 'months'}
+                    onValueChange={(v) => handleConfigChange('free_period_unit', v)}
+                    disabled={!isEditable || !config.free_period_amount}
+                  >
+                    <SelectTrigger className="w-28" data-testid="select-free-period-unit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FREE_PERIOD_UNITS.map(u => (
+                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Deducted from the annual fee for new members
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Rollover Discount</Label>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      If free period extends beyond the current year, apply remaining discount to the next full year
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.rollover_enabled}
+                    onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
+                    disabled={!isEditable || !config.free_period_amount}
+                    data-testid="switch-rollover"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>

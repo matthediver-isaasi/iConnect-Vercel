@@ -163,3 +163,62 @@ The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (R
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending domains, email delivery, and a native Email Marketing System (EMS) with full tracking capabilities (campaign management, audience targeting, recipient filtering, link/open tracking, bounce handling, unsubscribe management, click heatmap, analytics).
 -   **Zoho Campaigns:** Integrations for syncing member communication preferences, supporting multi-tenant deployments with encrypted credentials and background sync jobs.!!
+
+<!-- ⚠️ CRITICAL: DO NOT REMOVE THIS SECTION - Pro-rata Pricing Logic ⚠️ -->
+## Membership Tier Pro-rata Pricing System
+
+**⚠️ NEVER REMOVE THIS SECTION - These rules define the pro-rata pricing calculation logic ⚠️**
+
+The membership tier system supports 4 additional settings on `membership_tier_config`:
+
+### Settings
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `membership_start_month` | integer (1-12) | Month when membership year begins (e.g. 4 = April) |
+| `membership_start_day` | integer (1-31) | Day when membership year begins (e.g. 1 = 1st) |
+| `prorata_enabled` | boolean | If true, new members pay a reduced fee based on remaining days in the membership year |
+| `free_period_amount` | integer | Number of free days/weeks/months for new members |
+| `free_period_unit` | text ('days'/'weeks'/'months') | Unit for the free period |
+| `rollover_enabled` | boolean | If true, unused free period rolls into the next year's fee calculation |
+
+### Pro-rata Calculation Logic
+
+When `prorata_enabled` is ON:
+- The annual fee is divided by the total days in the membership year
+- The fee charged = annual_fee × (remaining_days / total_days_in_year)
+
+### Free Period Logic
+
+The free period is deducted from the annual fee:
+- E.g. Annual fee = £1,200, free period = 6 months → effective annual cost = £600
+
+### Rollover Logic (the most complex scenario)
+
+**Without rollover:** If a member joins with 2 months left and gets 6 months free, the free period covers the remaining 2 months (current year = £0). The next year is charged at the full annual fee — unused free months are lost.
+
+**With rollover ON:** The unused free months carry forward to reduce the next full year only.
+
+**Example calculation with rollover:**
+
+| Step | Calculation |
+|------|------------|
+| Annual fee | £1,200 |
+| Free period | 6 months |
+| Adjusted annual (fee minus free) | £1,200 - £600 = £600 |
+| Current year (pro-rata 2 months of adjusted) | £600 × 2/12 = £100 |
+| Remaining free months for next year | 6 - 2 = 4 months |
+| Next year (full annual minus 4 months discount) | £1,200 - £400 = £800 |
+| All subsequent years | £1,200 (full fee) |
+
+### Key Rules
+- Rollover only applies to the **next full year** — it does not cascade beyond one year
+- Free period is always deducted from the annual fee, not added as extra free time at the end
+- Pro-rata is calculated by remaining days, not months (for precision)
+- The membership year start date defines when the year resets (e.g. 1 April to 31 March)
+
+### Key Files
+- `api/membership/tiers.js` - CRUD API for tier config including pro-rata settings
+- `client/src/pages/MembershipTierManagement.jsx` - Admin UI for managing all tier settings
+
+<!-- ⚠️ END CRITICAL SECTION - DO NOT REMOVE ⚠️ -->
