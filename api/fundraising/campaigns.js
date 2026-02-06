@@ -65,21 +65,77 @@ async function handleGet(req, res, tenantId) {
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: true });
 
-    const { data: donations } = await supabase
+    const { data: allDonations } = await supabase
       .from('fundraising_donation')
-      .select('amount, payment_status')
+      .select('id, team_member_id, donor_name, donor_email, donor_message, is_anonymous, amount, currency, gift_aid, gift_aid_address_line_1, gift_aid_city, gift_aid_postcode, payment_status, created_at')
       .eq('campaign_id', id)
       .eq('tenant_id', tenantId)
-      .eq('payment_status', 'succeeded');
+      .order('created_at', { ascending: false });
 
-    const totalRaised = (donations || []).reduce((sum, d) => sum + parseFloat(d.amount || 0), 0);
-    const donationCount = (donations || []).length;
+    const donations = allDonations || [];
+    const succeededDonations = donations.filter(d => d.payment_status === 'succeeded');
+    const totalRaised = succeededDonations.reduce((sum, d) => sum + parseFloat(d.amount || 0), 0);
+    const donationCount = succeededDonations.length;
+    const giftAidDonations = succeededDonations.filter(d => d.gift_aid);
+    const giftAidTotal = giftAidDonations.reduce((sum, d) => sum + parseFloat(d.amount || 0) * 0.25, 0);
+    const avgDonation = donationCount > 0 ? totalRaised / donationCount : 0;
+
+    const uniqueDonors = new Set(succeededDonations.map(d => d.donor_email).filter(Boolean)).size;
+
+    const memberStats = {};
+    succeededDonations.forEach(d => {
+      if (!memberStats[d.team_member_id]) {
+        memberStats[d.team_member_id] = { raised: 0, count: 0, gift_aid_count: 0 };
+      }
+      memberStats[d.team_member_id].raised += parseFloat(d.amount || 0);
+      memberStats[d.team_member_id].count += 1;
+      if (d.gift_aid) memberStats[d.team_member_id].gift_aid_count += 1;
+    });
+
+    const enrichedTeamMembers = (teamMembers || []).map(m => ({
+      ...m,
+      total_raised: memberStats[m.id]?.raised || 0,
+      donation_count: memberStats[m.id]?.count || 0,
+      gift_aid_count: memberStats[m.id]?.gift_aid_count || 0
+    }));
+
+    const topDonors = succeededDonations
+      .filter(d => !d.is_anonymous)
+      .sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount))
+      .slice(0, 10)
+      .map(d => ({
+        donor_name: d.donor_name,
+        amount: d.amount,
+        currency: d.currency,
+        gift_aid: d.gift_aid,
+        created_at: d.created_at,
+        donor_message: d.donor_message
+      }));
+
+    const recentDonations = donations.slice(0, 15).map(d => ({
+      id: d.id,
+      donor_name: d.is_anonymous ? 'Anonymous' : d.donor_name,
+      amount: d.amount,
+      currency: d.currency,
+      gift_aid: d.gift_aid,
+      payment_status: d.payment_status,
+      created_at: d.created_at,
+      donor_message: d.donor_message,
+      team_member_id: d.team_member_id
+    }));
 
     return res.json({
       ...data,
-      team_members: teamMembers || [],
+      team_members: enrichedTeamMembers,
       total_raised: totalRaised,
-      donation_count: donationCount
+      donation_count: donationCount,
+      gift_aid_total: giftAidTotal,
+      gift_aid_count: giftAidDonations.length,
+      avg_donation: avgDonation,
+      unique_donors: uniqueDonors,
+      pending_count: donations.filter(d => d.payment_status === 'pending').length,
+      top_donors: topDonors,
+      recent_donations: recentDonations
     });
   }
 
