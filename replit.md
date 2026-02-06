@@ -36,6 +36,8 @@ The tenant resolver (`api/_lib/tenantResolver.js`) handles domain-to-tenant mapp
 -   **Booking System:** Agent booking system with tenant-scoped meeting templates.
 -   **Organisation Membership Tab:** Per-organisation membership tier view showing current tier, editable control variable, next year fee preview with rollover discount, and historical fee records. Supports renewal overrides (structure or manual price) via `api/membership/org-membership-override.js` with mandatory notes for audit trail stored in `organisation_membership_override` table.
 
+-   **Fundraising Module:** Tenant-scoped fundraising campaigns with team members (internal or external), unique donation page links per team member, Stripe payment processing, UK Gift Aid capture (address fields + HMRC declaration). Public donation pages are embeddable via iframe. Admin: `api/fundraising/campaigns.js`, `api/fundraising/team-members.js`, `api/fundraising/donations.js`. Public: `api/public/fundraising/[token].js`, `api/public/fundraising/donate.js`, `api/public/fundraising/confirm-donation.js`. Frontend: `FundraisingManagement.jsx` (admin), `DonatePage.jsx` (public). Tables: `fundraising_campaign`, `fundraising_team_member`, `fundraising_donation`. Init: `api/admin/init-fundraising-tables.js`.
+
 ## Event Timezone Handling
 Events store times in UTC with a separate `timezone` field for display purposes. Display logic prioritizes Zoom event timezones, then `event.timezone`, falling back to `'Europe/London'`. Time formatting utilities are provided in `client/src/utils/timeFormat.js`.
 
