@@ -461,7 +461,7 @@ Respond with a JSON object containing exactly two fields:
 
   if (isNewThread) {
     return (
-      <div className="max-w-3xl mx-auto p-4 space-y-4">
+      <div className="max-w-5xl mx-auto p-4 space-y-4">
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="ghost"
@@ -534,7 +534,7 @@ Respond with a JSON object containing exactly two fields:
 
   if (!thread) {
     return (
-      <div className="max-w-3xl mx-auto p-4 space-y-4">
+      <div className="max-w-5xl mx-auto p-4 space-y-4">
         <Button
           variant="ghost"
           onClick={() => navigate(createPageUrl("Forum"))}
@@ -833,7 +833,7 @@ Respond with a JSON object containing exactly two fields:
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 space-y-4">
+    <div className="max-w-5xl mx-auto p-4 space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         <Button
           variant="ghost"
@@ -990,6 +990,10 @@ Respond with a JSON object containing exactly two fields:
                 rows={4}
                 data-testid="input-reply-content"
               />
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <ShieldAlert className="w-3 h-3" />
+                Comments are automatically checked for inappropriate content
+              </p>
               <div className="flex justify-end">
                 <Button
                   onClick={async () => {
