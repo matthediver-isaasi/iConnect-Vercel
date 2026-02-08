@@ -426,16 +426,16 @@ export default function ForumPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {accessibleCategories.map((cat) => (
             <Card
               key={cat.id}
-              className="cursor-pointer hover-elevate"
+              className="cursor-pointer hover-elevate flex flex-col"
               onClick={() => setSearchParams({ categoryId: cat.id })}
               data-testid={`card-category-${cat.id}`}
             >
-              {cat.header_image_url && (
-                <div className="relative w-full h-32 overflow-hidden rounded-t-md" data-testid={`img-category-banner-${cat.id}`}>
+              {cat.header_image_url ? (
+                <div className="relative w-full h-44 overflow-hidden rounded-t-md" data-testid={`img-category-banner-${cat.id}`}>
                   <img
                     src={cat.header_image_url}
                     alt={cat.name}
@@ -446,35 +446,11 @@ export default function ForumPage() {
                         : '50% 50%'
                     }}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                  <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 flex-wrap">
-                    <h3 className="font-medium text-white drop-shadow-sm" data-testid={`text-category-name-${cat.id}`}>
-                      {cat.icon && <span className="mr-1">{cat.icon}</span>}
-                      {cat.name}
-                    </h3>
-                    {cat.group_id && groupMap[cat.group_id] && (
-                      <Badge variant="secondary" className="text-xs" data-testid={`badge-group-${cat.id}`}>
-                        <Users className="w-3 h-3 mr-0.5" />
-                        {groupMap[cat.group_id]}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-              <CardContent className={`flex items-center gap-4 p-4 ${cat.header_image_url ? 'pt-2' : ''}`}>
-                {!cat.header_image_url && (
-                  <div className="flex items-center justify-center w-10 h-10 rounded-md bg-muted text-muted-foreground shrink-0">
-                    {cat.icon ? (
-                      <span className="text-lg">{cat.icon}</span>
-                    ) : (
-                      <MessageSquare className="w-5 h-5" />
-                    )}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  {!cat.header_image_url && (
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+                  <div className="absolute bottom-3 left-4 right-4">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-medium" data-testid={`text-category-name-${cat.id}`}>
+                      <h3 className="font-semibold text-white text-lg drop-shadow-sm" data-testid={`text-category-name-${cat.id}`}>
+                        {cat.icon && <span className="mr-1">{cat.icon}</span>}
                         {cat.name}
                       </h3>
                       {cat.group_id && groupMap[cat.group_id] && (
@@ -484,14 +460,39 @@ export default function ForumPage() {
                         </Badge>
                       )}
                     </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative w-full h-44 overflow-hidden rounded-t-md bg-muted flex items-center justify-center">
+                  {cat.icon ? (
+                    <span className="text-4xl">{cat.icon}</span>
+                  ) : (
+                    <MessageSquare className="w-12 h-12 text-muted-foreground/30" />
                   )}
+                  <div className="absolute bottom-3 left-4 right-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-lg" data-testid={`text-category-name-${cat.id}`}>
+                        {cat.name}
+                      </h3>
+                      {cat.group_id && groupMap[cat.group_id] && (
+                        <Badge variant="secondary" className="text-xs" data-testid={`badge-group-${cat.id}`}>
+                          <Users className="w-3 h-3 mr-0.5" />
+                          {groupMap[cat.group_id]}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <CardContent className="flex items-center gap-3 p-4 mt-auto">
+                <div className="flex-1 min-w-0">
                   {cat.description && (
-                    <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1" data-testid={`text-category-desc-${cat.id}`}>
+                    <p className="text-sm text-muted-foreground line-clamp-2" data-testid={`text-category-desc-${cat.id}`}>
                       {cat.description}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-4 shrink-0 text-sm text-muted-foreground">
+                <div className="flex items-center gap-3 shrink-0 text-sm text-muted-foreground">
                   <div className="flex items-center gap-1" data-testid={`text-thread-count-${cat.id}`}>
                     <MessageCircle className="w-4 h-4" />
                     {threadCountByCategory[cat.id] || 0}
