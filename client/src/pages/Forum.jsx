@@ -217,14 +217,44 @@ export default function ForumPage() {
 
         {selectedCategory && (
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold" data-testid="text-category-name">
-              {selectedCategory.icon && <span className="mr-2">{selectedCategory.icon}</span>}
-              {selectedCategory.name}
-            </h1>
-            {selectedCategory.description && (
-              <p className="text-muted-foreground" data-testid="text-category-description">
-                {selectedCategory.description}
-              </p>
+            {selectedCategory.header_image_url && (
+              <div className="relative w-full h-40 rounded-md overflow-hidden mb-3" data-testid="img-category-detail-banner">
+                <img
+                  src={selectedCategory.header_image_url}
+                  alt={selectedCategory.name}
+                  className="w-full h-full object-cover"
+                  style={{
+                    objectPosition: selectedCategory.header_image_focal_point
+                      ? `${selectedCategory.header_image_focal_point.x}% ${selectedCategory.header_image_focal_point.y}%`
+                      : '50% 50%'
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-3 left-4">
+                  <h1 className="text-2xl font-semibold text-white drop-shadow-sm" data-testid="text-category-name">
+                    {selectedCategory.icon && <span className="mr-2">{selectedCategory.icon}</span>}
+                    {selectedCategory.name}
+                  </h1>
+                  {selectedCategory.description && (
+                    <p className="text-white/80 text-sm mt-0.5" data-testid="text-category-description">
+                      {selectedCategory.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+            {!selectedCategory.header_image_url && (
+              <>
+                <h1 className="text-2xl font-semibold" data-testid="text-category-name">
+                  {selectedCategory.icon && <span className="mr-2">{selectedCategory.icon}</span>}
+                  {selectedCategory.name}
+                </h1>
+                {selectedCategory.description && (
+                  <p className="text-muted-foreground" data-testid="text-category-description">
+                    {selectedCategory.description}
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -404,17 +434,22 @@ export default function ForumPage() {
               onClick={() => setSearchParams({ categoryId: cat.id })}
               data-testid={`card-category-${cat.id}`}
             >
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className="flex items-center justify-center w-10 h-10 rounded-md bg-muted text-muted-foreground shrink-0">
-                  {cat.icon ? (
-                    <span className="text-lg">{cat.icon}</span>
-                  ) : (
-                    <MessageSquare className="w-5 h-5" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-medium" data-testid={`text-category-name-${cat.id}`}>
+              {cat.header_image_url && (
+                <div className="relative w-full h-32 overflow-hidden rounded-t-md" data-testid={`img-category-banner-${cat.id}`}>
+                  <img
+                    src={cat.header_image_url}
+                    alt={cat.name}
+                    className="w-full h-full object-cover"
+                    style={{
+                      objectPosition: cat.header_image_focal_point
+                        ? `${cat.header_image_focal_point.x}% ${cat.header_image_focal_point.y}%`
+                        : '50% 50%'
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                  <div className="absolute bottom-2 left-3 right-3 flex items-center gap-2 flex-wrap">
+                    <h3 className="font-medium text-white drop-shadow-sm" data-testid={`text-category-name-${cat.id}`}>
+                      {cat.icon && <span className="mr-1">{cat.icon}</span>}
                       {cat.name}
                     </h3>
                     {cat.group_id && groupMap[cat.group_id] && (
@@ -424,6 +459,32 @@ export default function ForumPage() {
                       </Badge>
                     )}
                   </div>
+                </div>
+              )}
+              <CardContent className={`flex items-center gap-4 p-4 ${cat.header_image_url ? 'pt-2' : ''}`}>
+                {!cat.header_image_url && (
+                  <div className="flex items-center justify-center w-10 h-10 rounded-md bg-muted text-muted-foreground shrink-0">
+                    {cat.icon ? (
+                      <span className="text-lg">{cat.icon}</span>
+                    ) : (
+                      <MessageSquare className="w-5 h-5" />
+                    )}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  {!cat.header_image_url && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-medium" data-testid={`text-category-name-${cat.id}`}>
+                        {cat.name}
+                      </h3>
+                      {cat.group_id && groupMap[cat.group_id] && (
+                        <Badge variant="secondary" className="text-xs" data-testid={`badge-group-${cat.id}`}>
+                          <Users className="w-3 h-3 mr-0.5" />
+                          {groupMap[cat.group_id]}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
                   {cat.description && (
                     <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1" data-testid={`text-category-desc-${cat.id}`}>
                       {cat.description}

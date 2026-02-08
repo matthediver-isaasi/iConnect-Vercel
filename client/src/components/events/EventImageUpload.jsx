@@ -18,7 +18,9 @@ export default function EventImageUpload({
   value, 
   onChange, 
   disabled = false,
-  className = ""
+  className = "",
+  label = "Event Image",
+  helpText = "Optional: Add an image to display on the event card"
 }) {
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState(value ? "preview" : "upload");
@@ -92,7 +94,7 @@ export default function EventImageUpload({
   if (disabled) {
     return (
       <div className={`space-y-2 ${className}`}>
-        <Label>Event Image</Label>
+        <Label>{label}</Label>
         {value ? (
           <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
             <img 
@@ -117,7 +119,7 @@ export default function EventImageUpload({
 
   return (
     <div className={`space-y-2 ${className}`}>
-      <Label>Event Image</Label>
+      <Label>{label}</Label>
       
       {value && activeTab === "preview" ? (
         <div className="space-y-3">
@@ -231,7 +233,7 @@ export default function EventImageUpload({
       )}
       
       <p className="text-xs text-slate-500">
-        Optional: Add an image to display on the event card
+        {helpText}
       </p>
     </div>
   );

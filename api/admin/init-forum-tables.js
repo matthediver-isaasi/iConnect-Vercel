@@ -14,10 +14,22 @@ CREATE TABLE IF NOT EXISTS forum_category (
   group_id UUID DEFAULT NULL,
   is_active BOOLEAN DEFAULT true,
   icon TEXT,
+  header_image_url TEXT,
+  header_image_focal_point JSONB DEFAULT '{"x": 50, "y": 50}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tenant_id, slug)
 );
+
+-- Add header image columns if they don't exist (for existing installations)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_category' AND column_name = 'header_image_url') THEN
+    ALTER TABLE forum_category ADD COLUMN header_image_url TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_category' AND column_name = 'header_image_focal_point') THEN
+    ALTER TABLE forum_category ADD COLUMN header_image_focal_point JSONB DEFAULT '{"x": 50, "y": 50}';
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_forum_category_tenant ON forum_category(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_forum_category_group ON forum_category(group_id);

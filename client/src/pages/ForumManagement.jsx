@@ -16,6 +16,8 @@ import { MessageSquare, Plus, Pencil, Trash2, Shield, AlertTriangle, Loader2, Da
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import EventImageUpload from "@/components/events/EventImageUpload";
+import { FocalPointPicker } from "@/components/FocalPointPicker";
 
 function generateSlug(name) {
   return name
@@ -43,7 +45,9 @@ export default function ForumManagementPage() {
     display_order: 0,
     is_active: true,
     group_id: '',
-    icon: ''
+    icon: '',
+    header_image_url: '',
+    header_image_focal_point: { x: 50, y: 50 }
   });
 
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
@@ -201,7 +205,7 @@ export default function ForumManagementPage() {
   });
 
   const resetCategoryForm = () => {
-    setCategoryForm({ name: '', description: '', slug: '', display_order: 0, is_active: true, group_id: '', icon: '' });
+    setCategoryForm({ name: '', description: '', slug: '', display_order: 0, is_active: true, group_id: '', icon: '', header_image_url: '', header_image_focal_point: { x: 50, y: 50 } });
     setEditingCategory(null);
     setSlugManuallyEdited(false);
   };
@@ -221,7 +225,9 @@ export default function ForumManagementPage() {
       display_order: category.display_order ?? 0,
       is_active: category.is_active !== false,
       group_id: category.group_id || '',
-      icon: category.icon || ''
+      icon: category.icon || '',
+      header_image_url: category.header_image_url || '',
+      header_image_focal_point: category.header_image_focal_point || { x: 50, y: 50 }
     });
     setSlugManuallyEdited(true);
     setShowCategoryDialog(true);
@@ -249,7 +255,9 @@ export default function ForumManagementPage() {
       display_order: parseInt(categoryForm.display_order) || 0,
       is_active: categoryForm.is_active,
       icon: categoryForm.icon.trim() || null,
-      group_id: categoryForm.group_id || null
+      group_id: categoryForm.group_id || null,
+      header_image_url: categoryForm.header_image_url || null,
+      header_image_focal_point: categoryForm.header_image_url ? categoryForm.header_image_focal_point : null
     };
 
     if (editingCategory) {
@@ -453,7 +461,18 @@ export default function ForumManagementPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {category.icon && <span className="text-sm">{category.icon}</span>}
+                            {category.header_image_url ? (
+                              <div className="w-8 h-8 rounded overflow-hidden shrink-0 border">
+                                <img
+                                  src={category.header_image_url}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                  style={category.header_image_focal_point ? { objectPosition: `${category.header_image_focal_point.x}% ${category.header_image_focal_point.y}%` } : undefined}
+                                />
+                              </div>
+                            ) : category.icon ? (
+                              <span className="text-sm">{category.icon}</span>
+                            ) : null}
                             <span className="font-medium" data-testid={`text-category-name-${category.id}`}>{category.name}</span>
                           </div>
                         </TableCell>
@@ -679,7 +698,7 @@ export default function ForumManagementPage() {
       )}
 
       <Dialog open={showCategoryDialog} onOpenChange={(open) => { if (!open) { setShowCategoryDialog(false); resetCategoryForm(); } }}>
-        <DialogContent className="max-w-lg" data-testid="dialog-category">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-category">
           <DialogHeader>
             <DialogTitle>{editingCategory ? 'Edit Category' : 'Create Category'}</DialogTitle>
             <DialogDescription>
@@ -757,6 +776,22 @@ export default function ForumManagementPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <EventImageUpload
+                value={categoryForm.header_image_url}
+                onChange={(url) => setCategoryForm(prev => ({ ...prev, header_image_url: url }))}
+                label="Header Image"
+                helpText="Optional: Add a banner image for this forum category"
+                data-testid="input-category-header-image"
+              />
+              {categoryForm.header_image_url && (
+                <FocalPointPicker
+                  imageUrl={categoryForm.header_image_url}
+                  focalPoint={categoryForm.header_image_focal_point}
+                  onChange={(fp) => setCategoryForm(prev => ({ ...prev, header_image_focal_point: fp }))}
+                />
+              )}
             </div>
             <div className="flex items-center justify-between">
               <Label htmlFor="cat-active">Active</Label>
