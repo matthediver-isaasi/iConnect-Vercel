@@ -683,7 +683,7 @@ export default async function handler(req, res) {
           .from('organization')
           .select('is_primary, name')
           .eq('id', id)
-          .eq('tenant_id', tenantId)
+          .eq('tenant_id', tenantCtx.tenantId)
           .single();
         
         if (orgCheckError) {
