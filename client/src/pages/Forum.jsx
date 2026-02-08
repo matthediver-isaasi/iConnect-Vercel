@@ -15,6 +15,14 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 const THREADS_PER_PAGE = 15;
 
+const parseFocalPoint = (fp) => {
+  if (!fp) return null;
+  if (typeof fp === "string") {
+    try { return JSON.parse(fp); } catch { return null; }
+  }
+  return fp;
+};
+
 export default function ForumPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -218,15 +226,16 @@ export default function ForumPage() {
         {selectedCategory && (
           <div className="space-y-1">
             {selectedCategory.header_image_url && (
-              <div className="relative w-full h-40 rounded-md overflow-hidden mb-3" data-testid="img-category-detail-banner">
+              <div className="relative w-full h-56 rounded-md overflow-hidden mb-3" data-testid="img-category-detail-banner">
                 <img
                   src={selectedCategory.header_image_url}
                   alt={selectedCategory.name}
                   className="w-full h-full object-cover"
                   style={{
-                    objectPosition: selectedCategory.header_image_focal_point
-                      ? `${selectedCategory.header_image_focal_point.x}% ${selectedCategory.header_image_focal_point.y}%`
-                      : '50% 50%'
+                    objectPosition: (() => {
+                      const fp = parseFocalPoint(selectedCategory.header_image_focal_point);
+                      return fp ? `${fp.x}% ${fp.y}%` : '50% 50%';
+                    })()
                   }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -435,15 +444,16 @@ export default function ForumPage() {
               data-testid={`card-category-${cat.id}`}
             >
               {cat.header_image_url ? (
-                <div className="relative w-full h-44 overflow-hidden rounded-t-md" data-testid={`img-category-banner-${cat.id}`}>
+                <div className="relative w-full h-56 overflow-hidden rounded-t-md" data-testid={`img-category-banner-${cat.id}`}>
                   <img
                     src={cat.header_image_url}
                     alt={cat.name}
                     className="w-full h-full object-cover"
                     style={{
-                      objectPosition: cat.header_image_focal_point
-                        ? `${cat.header_image_focal_point.x}% ${cat.header_image_focal_point.y}%`
-                        : '50% 50%'
+                      objectPosition: (() => {
+                        const fp = parseFocalPoint(cat.header_image_focal_point);
+                        return fp ? `${fp.x}% ${fp.y}%` : '50% 50%';
+                      })()
                     }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
@@ -463,7 +473,7 @@ export default function ForumPage() {
                   </div>
                 </div>
               ) : (
-                <div className="relative w-full h-44 overflow-hidden rounded-t-md bg-muted flex items-center justify-center">
+                <div className="relative w-full h-56 overflow-hidden rounded-t-md bg-muted flex items-center justify-center">
                   {cat.icon ? (
                     <span className="text-4xl">{cat.icon}</span>
                   ) : (
