@@ -806,7 +806,8 @@ export default async function handler(req, res) {
             }
           }
           
-          if (resolvedTenantId) {
+          const entitiesWithoutTenantId = ['ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction'];
+          if (resolvedTenantId && !entitiesWithoutTenantId.includes(entity)) {
             sanitizedBody.tenant_id = resolvedTenantId;
           }
           
