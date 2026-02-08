@@ -50,6 +50,7 @@ const MODULE_ICONS = {
   "membership": Users,
   "organisation": Building2,
   "content": FileText,
+  "forum": Users,
   "jobs": Briefcase,
   "site-builder": Layout,
   "forms": ClipboardList,

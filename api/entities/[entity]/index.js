@@ -177,6 +177,12 @@ const entityToTable = {
   'EmailUnsubscribe': 'email_unsubscribe',
   'MembershipTierConfig': 'membership_tier_config',
   'MembershipTierBand': 'membership_tier_band',
+  'ForumCategory': 'forum_category',
+  'ForumThread': 'forum_thread',
+  'ForumPost': 'forum_post',
+  'ForumReaction': 'forum_reaction',
+  'ForumReport': 'forum_report',
+  'ForumModerationLog': 'forum_moderation_log',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -643,7 +649,8 @@ export default async function handler(req, res) {
               'ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction', 'BlogPost',
               'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
               'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
-              'CommunicationCategory', 'CommunicationCategoryRole'
+              'CommunicationCategory', 'CommunicationCategoryRole',
+              'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -811,7 +818,8 @@ export default async function handler(req, res) {
             'ArticleComment', 'ArticleReaction', 'ArticleView', 'CommentReaction', 'BlogPost',
             'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
             'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
-            'CommunicationCategory', 'CommunicationCategoryRole'
+            'CommunicationCategory', 'CommunicationCategoryRole',
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided

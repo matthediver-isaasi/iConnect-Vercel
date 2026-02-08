@@ -283,6 +283,54 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "forum",
+    label: "Forum",
+    icon: "MessageSquare",
+    pages: [
+      {
+        id: "forum.browse",
+        label: "Browse Forums",
+        features: [
+          { id: "forum.browse.search", label: "Search Threads" }
+        ]
+      },
+      {
+        id: "forum.threads",
+        label: "Threads & Posts",
+        features: [
+          { id: "forum.threads.create", label: "Create Threads" },
+          { id: "forum.threads.reply", label: "Reply to Threads" },
+          { id: "forum.threads.edit-own", label: "Edit Own Posts" },
+          { id: "forum.threads.delete-own", label: "Delete Own Posts" },
+          { id: "forum.threads.edit-any", label: "Edit Any Post" },
+          { id: "forum.threads.delete-any", label: "Delete Any Post" },
+          { id: "forum.threads.react", label: "React to Posts" },
+          { id: "forum.threads.report", label: "Report Content" },
+          { id: "forum.threads.upload-media", label: "Upload Media" }
+        ]
+      },
+      {
+        id: "forum.moderation",
+        label: "Moderation",
+        features: [
+          { id: "forum.moderation.pin-threads", label: "Pin / Unpin Threads" },
+          { id: "forum.moderation.lock-threads", label: "Lock / Unlock Threads" },
+          { id: "forum.moderation.move-threads", label: "Move Threads" },
+          { id: "forum.moderation.hide-posts", label: "Hide / Remove Posts" },
+          { id: "forum.moderation.manage-reports", label: "Manage Reports" }
+        ]
+      },
+      {
+        id: "forum.management",
+        label: "Forum Management",
+        features: [
+          { id: "forum.management.categories", label: "Manage Categories" },
+          { id: "forum.management.moderation-log", label: "View Moderation Log" }
+        ]
+      }
+    ]
+  },
+  {
     id: "jobs",
     label: "Job Board",
     icon: "Briefcase",

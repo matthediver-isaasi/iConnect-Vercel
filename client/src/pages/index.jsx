@@ -277,6 +277,12 @@ import MembershipTierManagement from "./MembershipTierManagement";
 
 import SearchResults from "./SearchResults";
 
+import Forum from "./Forum";
+
+import ForumThread from "./ForumThread";
+
+import ForumManagement from "./ForumManagement";
+
 import FundraisingManagement from "./FundraisingManagement";
 
 import DonatePage from "./DonatePage";
@@ -590,6 +596,9 @@ const PAGES = {
     DueDiligenceConfig: DueDiligenceConfig,
     ReviewSubmission: ReviewSubmission,
     
+    Forum: Forum,
+    ForumThread: ForumThread,
+    ForumManagement: ForumManagement,
 }
 
 function _getCurrentPage(url) {
@@ -819,6 +828,10 @@ function PagesContent() {
                 <Route path="/DueDiligenceConfig" element={<DueDiligenceConfig />} />
                 <Route path="/ReviewSubmission" element={<ReviewSubmission />} />
                 <Route path="/DueDiligenceReports" element={<DueDiligenceReports />} />
+                
+                <Route path="/Forum" element={<Forum />} />
+                <Route path="/ForumThread" element={<ForumThread />} />
+                <Route path="/ForumManagement" element={<ForumManagement />} />
                 
                 <Route path="/NewsEditor" element={<NewsEditor />} />
                 

@@ -141,6 +141,12 @@ const navigationItems = [
     featureId: "page_MyJobPostings"
   },
   {
+    title: "Forum",
+    url: createPageUrl("Forum"),
+    icon: MessageSquare,
+    featureId: "page_Forum"
+  },
+  {
     title: "About Me",
     url: "/about-me",
     icon: Settings,
@@ -292,6 +298,12 @@ const adminNavigationItems = [
     url: createPageUrl("ResourceSettings"),
     icon: FolderTree,
     featureId: "page_ResourceSettings"
+  },
+  {
+    title: "Forum Management",
+    url: createPageUrl("ForumManagement"),
+    icon: MessageSquare,
+    featureId: "page_ForumManagement"
   },
   {
     title: "Resource Management",
@@ -930,7 +942,9 @@ const pageToPortalPageMap = {
   'Preferences': 'portal_about_me',
   'about-me': 'portal_about_me',
   'Support': 'portal_support',
-  'Dashboard': 'portal_dashboard'
+  'Dashboard': 'portal_dashboard',
+  'Forum': 'portal_forum',
+  'ForumThread': 'portal_forum'
 };
 
 // Get the portal page identifier for the current page
@@ -1143,6 +1157,9 @@ useEffect(() => {
     'TourManagement': 'page_admin_TourManagement',
     'MemberGroupManagement': 'page_admin_MemberGroupManagement',
     'PageVisibilitySettings': 'page_admin_PageVisibilitySettings',
+    'Forum': 'page_user_Forum',
+    'ForumThread': 'page_user_Forum',
+    'ForumManagement': 'page_admin_ForumManagement',
   };
 
   // Helper function to check if current page is excluded

@@ -164,7 +164,8 @@ export default async function handler(req, res) {
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'ButtonStyle', 'BlogPost',
-            'CommunicationCategory', 'CommunicationCategoryRole'
+            'CommunicationCategory', 'CommunicationCategoryRole',
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -216,7 +217,8 @@ export default async function handler(req, res) {
                 'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
                 'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
                 'ButtonStyle', 'BlogPost',
-                'CommunicationCategory', 'CommunicationCategoryRole'
+                'CommunicationCategory', 'CommunicationCategoryRole',
+                'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -340,7 +342,8 @@ export default async function handler(req, res) {
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'ButtonStyle', 'BlogPost',
-            'CommunicationCategory', 'CommunicationCategoryRole'
+            'CommunicationCategory', 'CommunicationCategoryRole',
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -443,7 +446,8 @@ export default async function handler(req, res) {
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'ButtonStyle', 'BlogPost',
-            'CommunicationCategory', 'CommunicationCategoryRole'
+            'CommunicationCategory', 'CommunicationCategoryRole',
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

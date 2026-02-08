@@ -129,5 +129,17 @@ export const WorkflowLog = base44.entities.WorkflowLog;
 
 export const TrainingFundTransaction = base44.entities.TrainingFundTransaction;
 
+export const ForumCategory = base44.entities.ForumCategory;
+
+export const ForumThread = base44.entities.ForumThread;
+
+export const ForumPost = base44.entities.ForumPost;
+
+export const ForumReaction = base44.entities.ForumReaction;
+
+export const ForumReport = base44.entities.ForumReport;
+
+export const ForumModerationLog = base44.entities.ForumModerationLog;
+
 // auth sdk:
 export const User = base44.auth;
