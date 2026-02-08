@@ -59,16 +59,24 @@ export default async function handler(req, res) {
       const config = tableMap[entityType];
       if (!config) continue;
 
-      const { data: entities, error: fetchError } = await supabase
-        .from(config.table)
-        .select(config.fields)
-        .in('id', ids)
-        .eq('tenant_id', tenantId);
+      try {
+        const { data: entities, error: fetchError } = await supabase
+          .from(config.table)
+          .select(config.fields)
+          .in('id', ids)
+          .eq('tenant_id', tenantId);
 
-      if (!fetchError && entities) {
-        for (const entity of entities) {
-          entityData[`${entityType}:${entity.id}`] = entity;
+        if (fetchError) {
+          console.error(`[Bookmarks Enriched] Error fetching ${entityType}:`, fetchError);
         }
+
+        if (entities) {
+          for (const entity of entities) {
+            entityData[`${entityType}:${entity.id}`] = entity;
+          }
+        }
+      } catch (lookupErr) {
+        console.error(`[Bookmarks Enriched] Exception fetching ${entityType}:`, lookupErr);
       }
     }
 

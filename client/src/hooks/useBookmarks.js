@@ -23,13 +23,13 @@ export function useBookmarks() {
   const { data: enrichedBookmarks = [], isLoading } = useQuery({
     queryKey: ["bookmarks", "enriched"],
     queryFn: fetchBookmarks,
-    staleTime: 30000,
+    staleTime: 5000,
   });
 
   const { data: rawBookmarks = [] } = useQuery({
     queryKey: ["bookmarks", "ids"],
     queryFn: fetchMyBookmarkIds,
-    staleTime: 30000,
+    staleTime: 5000,
   });
 
   const isBookmarked = useCallback(
@@ -55,7 +55,7 @@ export function useBookmarks() {
 
       if (!res.ok) throw new Error("Failed to toggle bookmark");
 
-      queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
+      await queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
       return !existing;
     },
     [isBookmarked, queryClient]

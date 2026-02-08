@@ -4,7 +4,7 @@ import { Bookmark } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
-export default function BookmarkButton({ entityType, entityId, variant = "ghost", size = "icon", className = "" }) {
+export default function BookmarkButton({ entityType, entityId, size = "icon", className = "" }) {
   const { isBookmarked, toggleBookmark } = useBookmarks();
   const [isToggling, setIsToggling] = useState(false);
 
@@ -28,17 +28,15 @@ export default function BookmarkButton({ entityType, entityId, variant = "ghost"
     <Tooltip>
       <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
         <Button
-          variant={variant}
+          variant={bookmarked ? "default" : "outline"}
           size={size}
           onClick={handleToggle}
           disabled={isToggling}
-          className={className}
+          className={`${bookmarked ? "bg-amber-500 border-amber-500 text-white" : ""} ${className}`}
           data-testid={`bookmark-toggle-${entityType}-${entityId}`}
         >
           <Bookmark
-            className={`w-4 h-4 transition-colors ${
-              bookmarked ? "fill-current text-yellow-500" : ""
-            }`}
+            className={`w-4 h-4 ${bookmarked ? "fill-current" : ""}`}
           />
         </Button>
       </TooltipTrigger>
