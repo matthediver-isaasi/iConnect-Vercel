@@ -39,18 +39,36 @@ export default async function handler(req, res) {
     const isOwner = post.created_by === tenantCtx.memberId;
     const isTenantAdmin = !!tenantCtx.tenantUserId;
 
+    console.log('[Forum Delete Post] Permission check:', {
+      postCreatedBy: post.created_by,
+      contextMemberId: tenantCtx.memberId,
+      isOwner,
+      isTenantAdmin,
+      roleId: tenantCtx.roleId,
+      tenantUserId: tenantCtx.tenantUserId
+    });
+
     let canDeleteAny = isTenantAdmin;
     let canDeleteOwn = false;
     if (tenantCtx.roleId) {
-      const { data: features } = await supabase
+      const { data: features, error: featError } = await supabase
         .from('role_feature')
         .select('feature_key')
         .eq('role_id', tenantCtx.roleId)
         .in('feature_key', ['forum.threads.delete-any', 'forum.threads.delete-own']);
+      console.log('[Forum Delete Post] Role features query:', {
+        roleId: tenantCtx.roleId,
+        features: features?.map(f => f.feature_key),
+        error: featError?.message
+      });
       const featureKeys = (features || []).map(f => f.feature_key);
       if (featureKeys.includes('forum.threads.delete-any')) canDeleteAny = true;
       if (featureKeys.includes('forum.threads.delete-own')) canDeleteOwn = true;
+    } else {
+      console.log('[Forum Delete Post] No roleId - skipping permission feature check');
     }
+
+    console.log('[Forum Delete Post] Final permission:', { canDeleteAny, canDeleteOwn, isOwner, allowed: canDeleteAny || (canDeleteOwn && isOwner) });
 
     if (!canDeleteAny && !(canDeleteOwn && isOwner)) {
       return res.status(403).json({ error: 'You do not have permission to delete this post' });
