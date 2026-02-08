@@ -46,7 +46,8 @@ export default async function handler(req, res) {
         summary,
         event_type,
         is_online,
-        available_seats
+        available_seats,
+        donation_config
       `)
       .eq('id', eventId)
       .eq('tenant_id', tenant.id)
@@ -89,7 +90,8 @@ export default async function handler(req, res) {
       event_type: event.event_type,
       is_online: event.is_online,
       available_seats: event.available_seats,
-      pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
+      pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
+      donation_config: event.donation_config || null
     };
 
     return res.status(200).json(publicEvent);
