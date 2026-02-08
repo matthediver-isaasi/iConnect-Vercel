@@ -89,6 +89,12 @@ const entityToTable = {
   'FormSubmissionDueDiligence': 'form_submission_due_diligence',
   'MembershipTierConfig': 'membership_tier_config',
   'MembershipTierBand': 'membership_tier_band',
+  'ForumCategory': 'forum_category',
+  'ForumThread': 'forum_thread',
+  'ForumPost': 'forum_post',
+  'ForumReaction': 'forum_reaction',
+  'ForumReport': 'forum_report',
+  'ForumModerationLog': 'forum_moderation_log',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
