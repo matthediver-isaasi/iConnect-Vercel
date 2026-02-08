@@ -503,7 +503,7 @@ function SidebarEdgeToggle() {
 }
 
 // Separate component for sidebar footer content to use useSidebar hook
-function SidebarFooterContent({ memberInfo, memberRole, handleLogout, onBookmarkClick }) {
+function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
   
@@ -526,19 +526,6 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout, onBookmark
           <TooltipContent side="right">
             {memberInfo.first_name} {memberInfo.last_name}
           </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onBookmarkClick}
-              data-testid="button-bookmarks-collapsed"
-            >
-              <Bookmark className="w-4 h-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">My Bookmarks</TooltipContent>
         </Tooltip>
         {memberInfo.hasTenantUserLink && (
           <Tooltip>
@@ -595,15 +582,6 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout, onBookmark
           </div>
         )}
       </div>
-      <Button
-        variant="ghost"
-        className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-        onClick={onBookmarkClick}
-        data-testid="button-bookmarks-expanded"
-      >
-        <Bookmark className="w-4 h-4 mr-2" />
-        My Bookmarks
-      </Button>
       {memberInfo.hasTenantUserLink && (
         <Button
           variant="ghost"
@@ -2128,7 +2106,6 @@ useEffect(() => {
                 memberInfo={memberInfo} 
                 memberRole={memberRole} 
                 handleLogout={handleLogout}
-                onBookmarkClick={() => setBookmarkDrawerOpen(true)}
               />
             </SidebarFooter>
           </Sidebar>
@@ -2164,26 +2141,14 @@ useEffect(() => {
                   </div>
                 </Link>
               )}
-              <div className="flex items-center gap-1">
-                {memberInfo && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setBookmarkDrawerOpen(true)}
-                    data-testid="button-bookmarks-mobile"
-                  >
-                    <Bookmark className="w-5 h-5" />
-                  </Button>
-                )}
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  onClick={() => setMobileMenuOpen(true)}
-                  data-testid="button-mobile-menu"
-                >
-                  <Menu className="w-6 h-6" />
-                </Button>
-              </div>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => setMobileMenuOpen(true)}
+                data-testid="button-mobile-menu"
+              >
+                <Menu className="w-6 h-6" />
+              </Button>
             </header>
 
             {/* Mobile Navigation Sheet */}
@@ -2489,7 +2454,19 @@ useEffect(() => {
       </SidebarProvider>
       
       {memberInfo && (
-        <BookmarkDrawer open={bookmarkDrawerOpen} onOpenChange={setBookmarkDrawerOpen} />
+        <>
+          <Button
+            variant="default"
+            size="icon"
+            onClick={() => setBookmarkDrawerOpen(true)}
+            className="fixed right-0 top-1/2 -translate-y-1/2 z-40 rounded-l-md rounded-r-none"
+            data-testid="button-bookmarks-tab"
+            aria-label="Open bookmarks"
+          >
+            <Bookmark className="w-4 h-4" />
+          </Button>
+          <BookmarkDrawer open={bookmarkDrawerOpen} onOpenChange={setBookmarkDrawerOpen} />
+        </>
       )}
     </div>
   );
