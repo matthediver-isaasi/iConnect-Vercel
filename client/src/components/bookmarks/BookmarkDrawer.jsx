@@ -44,6 +44,8 @@ const SECTION_MAP = {
     key: "blog_post",
     label: "Blog Posts",
     icon: BookOpen,
+    color: "text-blue-600 dark:text-blue-400",
+    headerBg: "bg-blue-50 dark:bg-blue-950/30",
     getUrl: (item) => {
       if (item.entity?.slug) {
         return createPageUrl("ArticleView") + "?slug=" + item.entity.slug;
@@ -57,6 +59,8 @@ const SECTION_MAP = {
     key: "news_post",
     label: "News",
     icon: Newspaper,
+    color: "text-amber-600 dark:text-amber-400",
+    headerBg: "bg-amber-50 dark:bg-amber-950/30",
     getUrl: (item) => {
       if (item.entity?.slug) {
         return createPageUrl("NewsView") + "?slug=" + item.entity.slug;
@@ -70,6 +74,8 @@ const SECTION_MAP = {
     key: "event",
     label: "Events",
     icon: Calendar,
+    color: "text-emerald-600 dark:text-emerald-400",
+    headerBg: "bg-emerald-50 dark:bg-emerald-950/30",
     getUrl: (item) => createPageUrl("EventDetails") + "?id=" + item.entity_id,
     getTitle: (item) => item.entity?.title || "Untitled Event",
     getSubtitle: (item) => item.entity?.start_date ? format(new Date(item.entity.start_date), "d MMM yyyy") : null,
@@ -78,6 +84,8 @@ const SECTION_MAP = {
     key: "resource",
     label: "Resources",
     icon: FolderOpen,
+    color: "text-violet-600 dark:text-violet-400",
+    headerBg: "bg-violet-50 dark:bg-violet-950/30",
     getUrl: (item) => createPageUrl("Resources"),
     getTitle: (item) => item.entity?.title || "Untitled Resource",
     getSubtitle: (item) => item.entity?.description ? item.entity.description.substring(0, 60) + (item.entity.description.length > 60 ? "..." : "") : null,
@@ -86,6 +94,8 @@ const SECTION_MAP = {
     key: "forum_thread",
     label: "Forum Threads",
     icon: MessageSquare,
+    color: "text-rose-600 dark:text-rose-400",
+    headerBg: "bg-rose-50 dark:bg-rose-950/30",
     getUrl: (item) => createPageUrl("ForumThread") + "?threadId=" + item.entity_id,
     getTitle: (item) => item.entity?.title || "Untitled Thread",
     getSubtitle: (item) => {
@@ -120,7 +130,7 @@ function SortableCategorySection({ id, section, items, isOpen, onToggle, onOpenC
   return (
     <div ref={setNodeRef} style={style} className="border shadow-sm bg-card">
       <Collapsible open={isOpen} onOpenChange={onToggle}>
-        <div className="flex items-center gap-1 px-1">
+        <div className={`flex items-center gap-1 px-1 ${section.headerBg}`}>
           <button
             className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground/50 hover:text-muted-foreground touch-none"
             data-testid={`bookmark-section-drag-${section.key}`}
@@ -131,15 +141,15 @@ function SortableCategorySection({ id, section, items, isOpen, onToggle, onOpenC
           </button>
           <CollapsibleTrigger asChild>
             <button
-              className="flex items-center gap-2 flex-1 px-2 py-2 text-sm font-medium text-muted-foreground hover-elevate"
+              className="flex items-center gap-2 flex-1 px-2 py-2 text-sm font-medium text-foreground hover-elevate"
               data-testid={`bookmark-section-toggle-${section.key}`}
             >
               {isOpen ? (
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               )}
-              <SectionIcon className="w-4 h-4" />
+              <SectionIcon className={`w-4 h-4 ${section.color}`} />
               <span>{section.label}</span>
               <Badge variant="secondary" className="ml-auto text-xs">
                 {items.length}
