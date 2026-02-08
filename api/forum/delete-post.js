@@ -51,19 +51,45 @@ export default async function handler(req, res) {
     let canDeleteAny = isTenantAdmin;
     let canDeleteOwn = false;
     if (tenantCtx.roleId) {
-      const { data: features, error: featError } = await supabase
-        .from('role_feature')
-        .select('feature_key')
-        .eq('role_id', tenantCtx.roleId)
-        .in('feature_key', ['forum.threads.delete-any', 'forum.threads.delete-own']);
-      console.log('[Forum Delete Post] Role features query:', {
+      const { data: role, error: roleError } = await supabase
+        .from('role')
+        .select('excluded_features')
+        .eq('id', tenantCtx.roleId)
+        .single();
+      const roleExcluded = role?.excluded_features || [];
+
+      let memberExcluded = [];
+      if (tenantCtx.memberId) {
+        const { data: member } = await supabase
+          .from('member')
+          .select('member_excluded_features')
+          .eq('id', tenantCtx.memberId)
+          .single();
+        memberExcluded = member?.member_excluded_features || [];
+      }
+
+      const excluded = [...roleExcluded, ...memberExcluded];
+      console.log('[Forum Delete Post] Exclusions:', {
         roleId: tenantCtx.roleId,
-        features: features?.map(f => f.feature_key),
-        error: featError?.message
+        roleExcluded,
+        memberExcluded,
+        error: roleError?.message
       });
-      const featureKeys = (features || []).map(f => f.feature_key);
-      if (featureKeys.includes('forum.threads.delete-any')) canDeleteAny = true;
-      if (featureKeys.includes('forum.threads.delete-own')) canDeleteOwn = true;
+      const isExcluded = (featureKey) => {
+        if (excluded.includes(featureKey)) return true;
+        const parts = featureKey.split('.');
+        if (parts.length >= 2) {
+          const pageId = parts.slice(0, 2).join('.');
+          if (excluded.includes(pageId)) return true;
+        }
+        if (parts.length >= 1) {
+          const moduleId = parts[0];
+          if (excluded.includes(moduleId)) return true;
+        }
+        return false;
+      };
+      if (!isExcluded('forum.threads.delete-any')) canDeleteAny = true;
+      if (!isExcluded('forum.threads.delete-own')) canDeleteOwn = true;
     } else {
       console.log('[Forum Delete Post] No roleId - skipping permission feature check');
     }
