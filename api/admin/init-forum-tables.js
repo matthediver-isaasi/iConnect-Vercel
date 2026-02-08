@@ -1,5 +1,7 @@
+import { databaseUrl } from '../_lib/database.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import pg from 'pg';
 
 const FORUM_SQL = `
 CREATE TABLE IF NOT EXISTS forum_category (
@@ -116,10 +118,6 @@ CREATE INDEX IF NOT EXISTS idx_forum_mod_log_target ON forum_moderation_log(targ
 `;
 
 export default async function handler(req, res) {
-  if (!supabase) {
-    return res.status(500).json({ error: 'Database not configured' });
-  }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -130,36 +128,35 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { error } = await supabase.rpc('exec_sql', {
-      sql_text: FORUM_SQL
-    });
-
-    if (error) {
-      if (error.message?.includes('function') && error.message?.includes('does not exist')) {
-        const { error: checkError } = await supabase
-          .from('forum_category')
-          .select('id')
-          .limit(1);
-
-        if (checkError && checkError.code === '42P01') {
-          return res.status(200).json({
-            success: false,
-            message: 'Tables do not exist yet. Please create the forum tables manually in Supabase SQL editor.',
-            sql: FORUM_SQL
-          });
-        }
-        return res.status(200).json({ success: true, message: 'Forum tables already exist' });
-      }
-      throw error;
+    const connString = databaseUrl;
+    if (!connString) {
+      return res.status(500).json({ 
+        error: 'DATABASE_URL not configured. Please run the SQL manually in Supabase SQL Editor.',
+        sql: FORUM_SQL
+      });
     }
 
-    await supabase.rpc('exec_sql', {
-      sql_text: "NOTIFY pgrst, 'reload schema';"
-    });
+    const client = new pg.Client({ connectionString: connString, ssl: { rejectUnauthorized: false } });
+    await client.connect();
+
+    try {
+      await client.query(FORUM_SQL);
+      await client.end();
+    } catch (sqlErr) {
+      await client.end();
+      throw sqlErr;
+    }
+
+    if (supabase) {
+      try {
+        await supabase.rpc('exec_sql', { sql_text: "NOTIFY pgrst, 'reload schema';" });
+      } catch (e) {
+      }
+    }
 
     return res.status(200).json({ success: true, message: 'Forum tables created successfully' });
   } catch (error) {
     console.error('[InitForumTables] Error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message, sql: FORUM_SQL });
   }
 }
