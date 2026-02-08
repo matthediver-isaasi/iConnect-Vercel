@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -101,20 +101,25 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[360px] sm:w-[420px] p-0 flex flex-col" style={{ borderRadius: 0 }}>
+      <SheetContent side="right" hideClose className="w-[360px] sm:w-[420px] p-0 flex flex-col overflow-hidden" style={{ borderRadius: 0 }}>
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />
-            My Bookmarks
+            <span className="flex-1">My Bookmarks</span>
             {totalCount > 0 && (
-              <Badge variant="secondary" className="ml-auto">
+              <Badge variant="secondary">
                 {totalCount}
               </Badge>
             )}
+            <SheetClose asChild>
+              <Button variant="ghost" size="icon" data-testid="button-bookmarks-close">
+                <X className="h-4 w-4" />
+              </Button>
+            </SheetClose>
           </SheetTitle>
         </SheetHeader>
 
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="flex-1 overflow-hidden p-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
