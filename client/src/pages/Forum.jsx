@@ -109,7 +109,7 @@ export default function ForumPage() {
     const latest = {};
     threads.forEach((t) => {
       if (t.category_id) {
-        const activity = t.last_activity_at || t.created_date;
+        const activity = t.last_post_at || t.created_at;
         if (activity && (!latest[t.category_id] || activity > latest[t.category_id])) {
           latest[t.category_id] = activity;
         }
@@ -147,12 +147,12 @@ export default function ForumPage() {
 
     const sortFn = (a, b) => {
       if (sortBy === "latest_activity") {
-        return (b.last_activity_at || b.created_date || "").localeCompare(
-          a.last_activity_at || a.created_date || ""
+        return (b.last_post_at || b.created_at || "").localeCompare(
+          a.last_post_at || a.created_at || ""
         );
       }
       if (sortBy === "newest") {
-        return (b.created_date || "").localeCompare(a.created_date || "");
+        return (b.created_at || "").localeCompare(a.created_at || "");
       }
       if (sortBy === "most_replies") {
         return (b.post_count || 0) - (a.post_count || 0);
@@ -316,7 +316,7 @@ export default function ForumPage() {
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              by {memberMap[thread.created_by] || "Unknown"} · {formatDate(thread.created_date)}
+                              by {memberMap[thread.created_by] || "Unknown"} · {formatDate(thread.created_at)}
                             </p>
                           </div>
                         </div>
@@ -335,7 +335,7 @@ export default function ForumPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <span className="text-sm text-muted-foreground">
-                          {formatDate(thread.last_activity_at || thread.created_date)}
+                          {formatDate(thread.last_post_at || thread.created_at)}
                         </span>
                       </TableCell>
                     </TableRow>

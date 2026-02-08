@@ -103,7 +103,7 @@ export default function ForumThreadPage() {
     queryFn: () =>
       base44.entities.ForumPost.list({
         filter: { thread_id: threadId },
-        sort: { created_date: "asc" },
+        sort: { created_at: "asc" },
       }),
     enabled: !!threadId && !isNewThread,
   });
@@ -513,7 +513,7 @@ export default function ForumThreadPage() {
                     {authorName}
                   </span>
                   <span className="text-xs text-muted-foreground" data-testid={`text-post-date-${post.id}`}>
-                    {formatDate(post.created_date)}
+                    {formatDate(post.created_at)}
                   </span>
                   {post.is_edited && (
                     <span className="text-xs text-muted-foreground italic" data-testid={`text-post-edited-${post.id}`}>
@@ -697,7 +697,7 @@ export default function ForumThreadPage() {
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-date">
                 <Clock className="w-3.5 h-3.5" />
-                {formatDate(thread.created_date)}
+                {formatDate(thread.created_at)}
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-views">
                 <Eye className="w-3.5 h-3.5" />
