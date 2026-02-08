@@ -482,6 +482,15 @@ export default function PaymentOptions({
       return;
     }
 
+    // For free events with donations enabled, show the donation modal before proceeding
+    if (remainingBalance === 0) {
+      const eventDonationEnabled = event?.donation_config?.enabled === true;
+      if (eventDonationEnabled && !donationData) {
+        setShowDonationModal(true);
+        return;
+      }
+    }
+
     // If paying by account and user indicated they have a PO number, require it
     if (remainingBalance > 0 && remainingBalancePaymentMethod === 'account' && !purchaseOrderNumber.trim() && !poSupplyLater) {
       toast.error("Please enter a purchase order number");
@@ -532,14 +541,24 @@ export default function PaymentOptions({
     setDonationData(data);
     setShowDonationModal(false);
     const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
-    await proceedToStripePayment(paymentEmail, data.amount || 0);
+    const donationAmt = data.amount || 0;
+    const totalCharge = remainingBalance + donationAmt;
+    if (totalCharge > 0) {
+      await proceedToStripePayment(paymentEmail, donationAmt);
+    } else {
+      await processOneOffBooking();
+    }
   };
 
   const handleDonationSkip = async () => {
     setDonationData({ amount: 0, gift_aid: false, gift_aid_address: null });
     setShowDonationModal(false);
-    const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
-    await proceedToStripePayment(paymentEmail, 0);
+    if (remainingBalance > 0) {
+      const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
+      await proceedToStripePayment(paymentEmail, 0);
+    } else {
+      await processOneOffBooking();
+    }
   };
 
   // Process one-off booking (after payment if needed)
