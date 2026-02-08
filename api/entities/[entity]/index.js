@@ -652,7 +652,9 @@ export default async function handler(req, res) {
               'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
               'CommunicationCategory', 'CommunicationCategoryRole',
               'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
-              'MemberBookmark', 'Role', 'Speaker'
+              'MemberBookmark', 'Role', 'Speaker',
+              'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
+              'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -823,7 +825,9 @@ export default async function handler(req, res) {
             'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
             'CommunicationCategory', 'CommunicationCategoryRole',
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
-            'MemberBookmark', 'Role', 'Speaker'
+            'MemberBookmark', 'Role', 'Speaker',
+            'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided
