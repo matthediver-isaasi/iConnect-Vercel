@@ -68,28 +68,68 @@ export function useBookmarks() {
 
   const reorderCategories = useCallback(
     async (newOrder) => {
-      const res = await fetch(`${API_BASE}/reorder`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "categories", category_order: newOrder }),
+      const previousData = queryClient.getQueryData(["bookmarks", "enriched"]);
+      queryClient.setQueryData(["bookmarks", "enriched"], (old) => {
+        if (!old) return old;
+        return { ...old, categoryOrder: newOrder };
       });
-      if (!res.ok) throw new Error("Failed to reorder categories");
-      await queryClient.invalidateQueries({ queryKey: ["bookmarks", "enriched"] });
+
+      try {
+        const res = await fetch(`${API_BASE}/reorder`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "categories", category_order: newOrder }),
+        });
+        if (!res.ok) {
+          queryClient.setQueryData(["bookmarks", "enriched"], previousData);
+          throw new Error("Failed to reorder categories");
+        }
+      } catch (err) {
+        queryClient.setQueryData(["bookmarks", "enriched"], previousData);
+        throw err;
+      }
     },
     [queryClient]
   );
 
   const reorderItems = useCallback(
     async (entityType, orderedIds) => {
-      const res = await fetch(`${API_BASE}/reorder`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "items", entity_type: entityType, ordered_ids: orderedIds }),
+      const previousData = queryClient.getQueryData(["bookmarks", "enriched"]);
+      queryClient.setQueryData(["bookmarks", "enriched"], (old) => {
+        if (!old) return old;
+        const itemsOfType = old.bookmarks.filter(b => b.entity_type === entityType);
+        const orderMap = new Map(orderedIds.map((id, idx) => [id, idx]));
+        const sortedItems = [...itemsOfType].sort((a, b) => {
+          const aIdx = orderMap.get(a.entity_id) ?? Infinity;
+          const bIdx = orderMap.get(b.entity_id) ?? Infinity;
+          return aIdx - bIdx;
+        });
+        let typeIdx = 0;
+        const newBookmarks = old.bookmarks.map(b => {
+          if (b.entity_type === entityType) {
+            return sortedItems[typeIdx++];
+          }
+          return b;
+        });
+        return { ...old, bookmarks: newBookmarks };
       });
-      if (!res.ok) throw new Error("Failed to reorder items");
-      await queryClient.invalidateQueries({ queryKey: ["bookmarks", "enriched"] });
+
+      try {
+        const res = await fetch(`${API_BASE}/reorder`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "items", entity_type: entityType, ordered_ids: orderedIds }),
+        });
+        if (!res.ok) {
+          queryClient.setQueryData(["bookmarks", "enriched"], previousData);
+          throw new Error("Failed to reorder items");
+        }
+      } catch (err) {
+        queryClient.setQueryData(["bookmarks", "enriched"], previousData);
+        throw err;
+      }
     },
     [queryClient]
   );

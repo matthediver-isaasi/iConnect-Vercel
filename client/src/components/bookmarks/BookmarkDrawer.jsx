@@ -117,9 +117,9 @@ function SortableCategorySection({ id, section, items, isOpen, onToggle, onOpenC
   const SectionIcon = section.icon;
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className="border shadow-sm bg-card">
       <Collapsible open={isOpen} onOpenChange={onToggle}>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 px-1">
           <button
             className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground/50 hover:text-muted-foreground touch-none"
             data-testid={`bookmark-section-drag-${section.key}`}
@@ -130,7 +130,7 @@ function SortableCategorySection({ id, section, items, isOpen, onToggle, onOpenC
           </button>
           <CollapsibleTrigger asChild>
             <button
-              className="flex items-center gap-2 flex-1 px-2 py-2 text-sm font-medium text-muted-foreground hover-elevate rounded-md"
+              className="flex items-center gap-2 flex-1 px-2 py-2 text-sm font-medium text-muted-foreground hover-elevate"
               data-testid={`bookmark-section-toggle-${section.key}`}
             >
               {isOpen ? (
@@ -147,13 +147,15 @@ function SortableCategorySection({ id, section, items, isOpen, onToggle, onOpenC
           </CollapsibleTrigger>
         </div>
         <CollapsibleContent>
-          <SortableItemList
-            section={section}
-            items={items}
-            onOpenChange={onOpenChange}
-            onRemoveBookmark={onRemoveBookmark}
-            onItemReorder={onItemReorder}
-          />
+          <div className="border-t">
+            <SortableItemList
+              section={section}
+              items={items}
+              onOpenChange={onOpenChange}
+              onRemoveBookmark={onRemoveBookmark}
+              onItemReorder={onItemReorder}
+            />
+          </div>
         </CollapsibleContent>
       </Collapsible>
     </div>
@@ -231,7 +233,7 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
           <GripVertical className="w-3 h-3" />
         </button>
         <div
-          className="group flex items-start gap-2 flex-1 min-w-0 px-2 py-1.5 rounded-md text-sm overflow-hidden opacity-60"
+          className="group flex items-start gap-2 flex-1 min-w-0 px-2 py-1.5 text-sm overflow-hidden opacity-60"
           data-testid={`bookmark-item-${item.entity_type}-${item.entity_id}`}
         >
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
@@ -271,7 +273,7 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
       <Link
         to={section.getUrl(item)}
         onClick={() => onOpenChange(false)}
-        className="group flex items-start gap-2 flex-1 min-w-0 px-2 py-1.5 rounded-md hover-elevate text-sm overflow-hidden"
+        className="group flex items-start gap-2 flex-1 min-w-0 px-2 py-1.5 hover-elevate text-sm overflow-hidden"
         data-testid={`bookmark-item-${item.entity_type}-${item.entity_id}`}
       >
         <div className="flex-1 min-w-0 overflow-hidden">
@@ -356,7 +358,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col" style={{ borderRadius: 0, overflow: 'hidden' }}>
+      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col rounded-none">
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />
@@ -394,7 +396,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
               onDragEnd={handleCategoryDragEnd}
             >
               <SortableContext items={visibleCategoryIds} strategy={verticalListSortingStrategy}>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {orderedSections.map((section) => {
                     const items = grouped[section.key] || [];
                     if (items.length === 0) return null;
