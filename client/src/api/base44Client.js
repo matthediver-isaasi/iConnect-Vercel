@@ -266,6 +266,12 @@ class EntitiesProxy {
   get EmailLinkClick() { return this._getEntity('EmailLinkClick'); }
   get EmailEvent() { return this._getEntity('EmailEvent'); }
   get EmailUnsubscribe() { return this._getEntity('EmailUnsubscribe'); }
+  get ForumCategory() { return this._getEntity('ForumCategory'); }
+  get ForumThread() { return this._getEntity('ForumThread'); }
+  get ForumPost() { return this._getEntity('ForumPost'); }
+  get ForumReaction() { return this._getEntity('ForumReaction'); }
+  get ForumReport() { return this._getEntity('ForumReport'); }
+  get ForumModerationLog() { return this._getEntity('ForumModerationLog'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets
