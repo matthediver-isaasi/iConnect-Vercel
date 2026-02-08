@@ -391,15 +391,11 @@ export default function EditEvent() {
     return setting?.setting_value === 'true';
   }, [systemSettings]);
 
-  const { data: zohoCampaignLists = [] } = useQuery({
-    queryKey: ['/api/zoho-campaigns/lists'],
-    queryFn: async () => {
-      const response = await fetch('/api/zoho-campaigns/lists', { credentials: 'include' });
-      if (!response.ok) return [];
-      const data = await response.json();
-      return data.lists || [];
-    },
-    enabled: isDonationGloballyEnabled
+  const { data: communicationCategories = [] } = useQuery({
+    queryKey: ['communication-categories'],
+    queryFn: () => base44.entities.CommunicationCategory.list({ sort: { display_order: 'asc' } }),
+    enabled: isDonationGloballyEnabled,
+    retry: 1,
   });
 
   // For EditEvent, we do NOT auto-apply default VAT to existing tickets
@@ -2802,20 +2798,20 @@ export default function EditEvent() {
                     <div className="space-y-2">
                       <Label htmlFor="donation-email-list">Email Communication List</Label>
                       <p className="text-xs text-slate-500">
-                        Donors will be added to this Zoho Campaigns mailing list.
+                        Donors will be added to this subscription list.
                       </p>
                       <Select
                         value={donationConfig.email_list_key || '_none'}
                         onValueChange={(value) => setDonationConfig(prev => ({ ...prev, email_list_key: value === '_none' ? '' : value }))}
                       >
                         <SelectTrigger data-testid="select-donation-email-list">
-                          <SelectValue placeholder="Select a mailing list" />
+                          <SelectValue placeholder="Select a subscription list" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">No list</SelectItem>
-                          {zohoCampaignLists.map((list) => (
-                            <SelectItem key={list.listkey || list.listuniqid} value={list.listkey || list.listuniqid}>
-                              {list.listname}
+                          {communicationCategories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.id}>
+                              {cat.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
