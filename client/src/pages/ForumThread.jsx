@@ -251,13 +251,26 @@ export default function ForumThreadPage() {
   });
 
   const deletePostMutation = useMutation({
-    mutationFn: (postId) => base44.entities.ForumPost.delete(postId),
-    onSuccess: () => {
+    mutationFn: async (postId) => {
+      const res = await fetch("/api/forum/delete-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ postId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to delete post");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["forum-posts", threadId] });
       queryClient.invalidateQueries({ queryKey: ["forum-thread", threadId] });
+      queryClient.invalidateQueries({ queryKey: ["forum-reactions", threadId] });
       setShowDeleteConfirm(false);
       setDeletePostId(null);
-      toast.success("Post deleted");
+      toast.success(data.action === "soft_deleted" ? "Post removed" : "Post deleted");
     },
     onError: (err) => toast.error("Failed to delete post: " + err.message),
   });
@@ -579,6 +592,53 @@ Respond with a JSON object containing exactly two fields:
     const effectiveDepth = Math.min(depth, MAX_NESTING_DEPTH);
     const children = childPostsMap[post.id] || [];
     const isCollapsed = collapsedReplies[post.id] ?? false;
+
+    if (post.is_deleted) {
+      return (
+        <div key={post.id} data-testid={`post-${post.id}`}>
+          <div className={effectiveDepth > 0 ? "border-l-2 border-muted-foreground/20 pl-4 sm:pl-6" : ""}>
+            <Card className="opacity-50">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-9 w-9 shrink-0">
+                    <AvatarFallback className="text-xs">
+                      <Trash2 className="w-4 h-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <p className="text-sm text-muted-foreground italic" data-testid={`text-post-deleted-${post.id}`}>
+                    This post has been deleted
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {children.length > 0 && (
+              <div className="mt-3">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs text-muted-foreground mb-2"
+                  onClick={(e) => { e.stopPropagation(); toggleCollapsed(post.id); }}
+                  data-testid={`button-toggle-replies-${post.id}`}
+                >
+                  {isCollapsed ? (
+                    <ChevronDown className="w-3.5 h-3.5 mr-1" />
+                  ) : (
+                    <ChevronUp className="w-3.5 h-3.5 mr-1" />
+                  )}
+                  {children.length} {children.length === 1 ? "reply" : "replies"}
+                </Button>
+                {!isCollapsed && (
+                  <div className="space-y-3">
+                    {children.map((child) => renderPost(child, depth + 1))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div key={post.id} data-testid={`post-${post.id}`}>
@@ -1021,7 +1081,10 @@ Respond with a JSON object containing exactly two fields:
           <DialogHeader>
             <DialogTitle>Delete Post</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this post? This action cannot be undone.
+              {deletePostId && (childPostsMap[deletePostId] || []).length > 0
+                ? "This post has replies. It will be marked as deleted but kept in place so the replies remain visible."
+                : "Are you sure you want to delete this post? This action cannot be undone."
+              }
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -68,12 +68,20 @@ CREATE TABLE IF NOT EXISTS forum_post (
   created_by UUID NOT NULL,
   created_by_type TEXT NOT NULL DEFAULT 'member' CHECK (created_by_type IN ('member', 'tenant_user')),
   is_hidden BOOLEAN DEFAULT false,
+  is_deleted BOOLEAN DEFAULT false,
   is_edited BOOLEAN DEFAULT false,
   edited_at TIMESTAMPTZ,
   reaction_count INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add is_deleted column if it doesn't exist (for existing installations)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_post' AND column_name = 'is_deleted') THEN
+    ALTER TABLE forum_post ADD COLUMN is_deleted BOOLEAN DEFAULT false;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_forum_post_tenant ON forum_post(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_forum_post_thread ON forum_post(thread_id);
