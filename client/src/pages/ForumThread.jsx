@@ -648,24 +648,34 @@ Respond with a JSON object containing exactly two fields:
                 )}
 
                 {!isEditing && (
-                  <div className="flex items-center gap-1 mt-3 flex-wrap">
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
                     <Button
-                      size="sm"
-                      variant={hasLiked ? "secondary" : "ghost"}
+                      variant="outline"
                       onClick={() => toggleReactionMutation.mutate({ postId: post.id, reactionType: "like" })}
+                      disabled={toggleReactionMutation.isPending}
+                      className={`gap-2 ${
+                        hasLiked
+                          ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950 dark:border-blue-700 dark:text-blue-300'
+                          : ''
+                      } transition-all no-default-hover-elevate no-default-active-elevate`}
                       data-testid={`button-like-${post.id}`}
                     >
-                      <ThumbsUp className={`w-3.5 h-3.5 mr-1 ${hasLiked ? "fill-current" : ""}`} />
-                      {likeCount > 0 && <span className="text-xs">{likeCount}</span>}
+                      <ThumbsUp className={`w-4 h-4 ${hasLiked ? "fill-blue-700 dark:fill-blue-300" : ""}`} />
+                      <span className="text-sm font-semibold">{likeCount}</span>
                     </Button>
                     <Button
-                      size="sm"
-                      variant={hasDisliked ? "secondary" : "ghost"}
+                      variant="outline"
                       onClick={() => toggleReactionMutation.mutate({ postId: post.id, reactionType: "dislike" })}
+                      disabled={toggleReactionMutation.isPending}
+                      className={`gap-2 ${
+                        hasDisliked
+                          ? 'bg-red-50 border-red-300 text-red-700 dark:bg-red-950 dark:border-red-700 dark:text-red-300'
+                          : ''
+                      } transition-all no-default-hover-elevate no-default-active-elevate`}
                       data-testid={`button-dislike-${post.id}`}
                     >
-                      <ThumbsDown className={`w-3.5 h-3.5 mr-1 ${hasDisliked ? "fill-current" : ""}`} />
-                      {dislikeCount > 0 && <span className="text-xs">{dislikeCount}</span>}
+                      <ThumbsDown className={`w-4 h-4 ${hasDisliked ? "fill-red-700 dark:fill-red-300" : ""}`} />
+                      <span className="text-sm font-semibold">{dislikeCount}</span>
                     </Button>
 
                     {canReply && !thread.is_locked && (
