@@ -16,6 +16,7 @@ export default function OrganisationDirectorySettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
+  const [directoryHeader, setDirectoryHeader] = useState("Organisation Directory");
   const [showLogo, setShowLogo] = useState(true);
   const [showTitle, setShowTitle] = useState(true);
   const [showDomains, setShowDomains] = useState(true);
@@ -86,6 +87,7 @@ export default function OrganisationDirectorySettingsPage() {
     queryKey: ['organisation-directory-settings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
+      const headerSetting = allSettings.find((s) => s.setting_key === 'org_directory_header');
       const logoSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_logo');
       const titleSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_title');
       const domainsSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_domains');
@@ -95,6 +97,7 @@ export default function OrganisationDirectorySettingsPage() {
       const excludedOrgsSetting = allSettings.find((s) => s.setting_key === 'org_directory_excluded_orgs');
       const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
       return {
+        header: headerSetting,
         logo: logoSetting,
         title: titleSetting,
         domains: domainsSetting,
@@ -109,6 +112,9 @@ export default function OrganisationDirectorySettingsPage() {
   });
 
   useEffect(() => {
+    if (settings?.header) {
+      setDirectoryHeader(settings.header.setting_value || "Organisation Directory");
+    }
     if (settings?.logo) {
       setShowLogo(settings.logo.setting_value === 'true');
     }
@@ -168,6 +174,19 @@ export default function OrganisationDirectorySettingsPage() {
       // Validation: at least one of logo or title must be enabled
       if (!showLogo && !showTitle) {
         throw new Error('At least one of Logo or Title must be enabled');
+      }
+
+      // Save header setting
+      if (settings?.header) {
+        await base44.entities.SystemSettings.update(settings.header.id, {
+          setting_value: directoryHeader.trim() || 'Organisation Directory'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_header',
+          setting_value: directoryHeader.trim() || 'Organisation Directory',
+          description: 'Page header title for the organisation directory'
+        });
       }
 
       // Save logo setting
@@ -335,6 +354,22 @@ export default function OrganisationDirectorySettingsPage() {
             <CardTitle>Display Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="p-4 bg-slate-50 rounded-lg space-y-2">
+              <Label htmlFor="directoryHeader" className="text-base font-medium">
+                Page Header
+              </Label>
+              <p className="text-sm text-slate-600">
+                The heading displayed at the top of the organisation directory page
+              </p>
+              <Input
+                id="directoryHeader"
+                value={directoryHeader}
+                onChange={(e) => setDirectoryHeader(e.target.value)}
+                placeholder="Organisation Directory"
+                data-testid="input-directory-header"
+              />
+            </div>
+
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
               <div>
                 <Label htmlFor="showLogo" className="text-base font-medium cursor-pointer">

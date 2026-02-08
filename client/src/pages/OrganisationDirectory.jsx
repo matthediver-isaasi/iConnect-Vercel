@@ -56,6 +56,7 @@ export default function OrganisationDirectoryPage() {
     queryKey: ['organisation-directory-settings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
+      const headerSetting = allSettings.find(s => s.setting_key === 'org_directory_header');
       const logoSetting = allSettings.find(s => s.setting_key === 'org_directory_show_logo');
       const titleSetting = allSettings.find(s => s.setting_key === 'org_directory_show_title');
       const domainsSetting = allSettings.find(s => s.setting_key === 'org_directory_show_domains');
@@ -84,8 +85,9 @@ export default function OrganisationDirectoryPage() {
       }
       
       return {
+        header: headerSetting?.setting_value || 'Organisation Directory',
         showLogo: logoSetting?.setting_value !== 'false',
-        showTitle: titleSetting?.setting_value !== 'false', // Default to true if not set
+        showTitle: titleSetting?.setting_value !== 'false',
         showDomains: domainsSetting?.setting_value !== 'false',
         showMemberCount: memberCountSetting?.setting_value !== 'false',
         showNameTooltip: nameTooltipSetting?.setting_value === 'true',
@@ -389,9 +391,7 @@ export default function OrganisationDirectoryPage() {
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Building2 className="w-8 h-8 text-blue-600" />
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">University Directory
-
-            </h1>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">{displaySettings?.header || 'Organisation Directory'}</h1>
           </div>
           <p className="text-slate-600">
             {filteredOrganizations.length} {filteredOrganizations.length === 1 ? 'organisation' : 'organisations'}
