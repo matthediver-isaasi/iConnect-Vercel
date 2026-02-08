@@ -86,7 +86,7 @@ const SECTION_MAP = {
     icon: FolderOpen,
     color: "text-violet-600 dark:text-violet-400",
     headerBg: "bg-violet-50 dark:bg-violet-950/30",
-    getUrl: (item) => createPageUrl("Resources"),
+    getUrl: (item) => createPageUrl("Resources") + "?resourceId=" + item.entity_id,
     getTitle: (item) => item.entity?.title || "Untitled Resource",
     getSubtitle: (item) => item.entity?.description ? item.entity.description.substring(0, 60) + (item.entity.description.length > 60 ? "..." : "") : null,
   },
