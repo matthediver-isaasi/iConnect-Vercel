@@ -28,9 +28,9 @@ const SECTION_CONFIG = [
     icon: BookOpen,
     getUrl: (item) => {
       if (item.entity?.slug) {
-        return `/articles/view/${item.entity.slug}`;
+        return createPageUrl("ArticleView") + "?slug=" + item.entity.slug;
       }
-      return createPageUrl("ArticleView") + "?id=" + item.entity_id;
+      return createPageUrl("ArticleView");
     },
     getTitle: (item) => item.entity?.title || "Untitled Post",
     getSubtitle: (item) => item.entity?.created_at ? format(new Date(item.entity.created_at), "d MMM yyyy") : null,
@@ -101,7 +101,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[360px] sm:w-[420px] p-0 flex flex-col">
+      <SheetContent side="right" className="w-[360px] sm:w-[420px] p-0 flex flex-col rounded-r-none">
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />

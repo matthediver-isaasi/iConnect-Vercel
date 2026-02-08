@@ -48,10 +48,10 @@ export default async function handler(req, res) {
     const entityData = {};
 
     const tableMap = {
-      blog_post: { table: 'blog_post', fields: 'id, title, slug, cover_image, created_at' },
+      blog_post: { table: 'blog_post', fields: 'id, title, slug, created_at' },
       resource: { table: 'resource', fields: 'id, title, description, created_at' },
-      news_post: { table: 'news_post', fields: 'id, title, slug, cover_image, created_at' },
-      event: { table: 'event', fields: 'id, title, start_date, cover_image, created_at' },
+      news_post: { table: 'news_post', fields: 'id, title, slug, created_at' },
+      event: { table: 'event', fields: 'id, title, start_date, created_at' },
       forum_thread: { table: 'forum_thread', fields: 'id, title, slug, created_at, post_count' }
     };
 
