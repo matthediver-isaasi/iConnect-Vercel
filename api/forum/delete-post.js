@@ -1,30 +1,5 @@
-import { supabase, databaseUrl } from '../_lib/database.js';
+import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import pg from 'pg';
-
-async function ensureIsDeletedColumn() {
-  if (!databaseUrl) return;
-  try {
-    const client = new pg.Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
-    await client.connect();
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_post' AND column_name = 'is_deleted') THEN
-          ALTER TABLE forum_post ADD COLUMN is_deleted BOOLEAN DEFAULT false;
-        END IF;
-      END $$;
-    `);
-    await client.end();
-    console.log('[Forum Delete Post] Ensured is_deleted column exists');
-    if (supabase) {
-      try {
-        await supabase.rpc('exec_sql', { sql_text: "NOTIFY pgrst, 'reload schema';" });
-      } catch (e) {}
-    }
-  } catch (err) {
-    console.error('[Forum Delete Post] Migration error:', err.message);
-  }
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -143,21 +118,6 @@ export default async function handler(req, res) {
         })
         .eq('id', postId)
         .eq('tenant_id', tenantCtx.tenantId);
-
-      if (updateError && updateError.code === 'PGRST204') {
-        console.log('[Forum Delete Post] is_deleted column missing, running migration...');
-        await ensureIsDeletedColumn();
-        const retry = await supabase
-          .from('forum_post')
-          .update({
-            is_deleted: true,
-            content: '[Deleted]',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', postId)
-          .eq('tenant_id', tenantCtx.tenantId);
-        updateError = retry.error;
-      }
 
       if (updateError) {
         console.error('[Forum Delete Post] Soft delete error:', updateError);
