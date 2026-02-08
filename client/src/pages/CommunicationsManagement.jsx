@@ -380,7 +380,7 @@ export default function CommunicationsManagementPage() {
 
   const createCategoryMutation = useMutation({
     mutationFn: async (data) => {
-      const { selectedRoles, ...categoryData } = data;
+      const { selectedRoles = [], ...categoryData } = data;
       const category = await base44.entities.CommunicationCategory.create(categoryData);
       
       for (const roleId of selectedRoles) {
@@ -405,7 +405,7 @@ export default function CommunicationsManagementPage() {
 
   const updateCategoryMutation = useMutation({
     mutationFn: async ({ id, data }) => {
-      const { selectedRoles, ...categoryData } = data;
+      const { selectedRoles = [], ...categoryData } = data;
       await base44.entities.CommunicationCategory.update(id, categoryData);
       
       const existingRoles = categoryRoles.filter(cr => cr.category_id === id);
@@ -462,8 +462,8 @@ export default function CommunicationsManagementPage() {
       toast.error('Please enter a category name');
       return;
     }
-    if (!editingCategory.selectedRoles || editingCategory.selectedRoles.length === 0) {
-      toast.error('Please select at least one role');
+    if (!editingCategory.is_public && (!editingCategory.selectedRoles || editingCategory.selectedRoles.length === 0)) {
+      toast.error('Please select at least one role or mark the list as public');
       return;
     }
 
@@ -479,6 +479,7 @@ export default function CommunicationsManagementPage() {
       name: '',
       description: '',
       is_active: true,
+      is_public: false,
       display_order: categories.length,
       selectedRoles: []
     });
@@ -557,10 +558,14 @@ CREATE TABLE IF NOT EXISTS communication_category (
   name TEXT NOT NULL,
   description TEXT,
   is_active BOOLEAN DEFAULT true,
+  is_public BOOLEAN DEFAULT false,
   display_order INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Add is_public column if table already exists
+ALTER TABLE communication_category ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;
 
 -- Role assignments for each category
 CREATE TABLE IF NOT EXISTS communication_category_role (
@@ -759,6 +764,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               <h3 className="text-lg font-semibold text-slate-900">
                                 {category.name}
                               </h3>
+                              {category.is_public && (
+                                <Badge variant="outline" className="text-xs border-pink-200 text-pink-700 bg-pink-50">
+                                  Public
+                                </Badge>
+                              )}
                               {!category.is_active && (
                                 <Badge variant="secondary" className="text-xs">
                                   Inactive
@@ -957,10 +967,27 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   />
                 </div>
                 
+                <div className="flex items-center justify-between gap-4 p-3 border border-slate-200 rounded-lg">
+                  <div className="space-y-1">
+                    <Label htmlFor="is_public" className="cursor-pointer">
+                      Public List
+                    </Label>
+                    <p className="text-xs text-slate-500">
+                      Allow non-members (e.g. donors, guests) to be added to this list
+                    </p>
+                  </div>
+                  <Switch
+                    id="is_public"
+                    checked={editingCategory.is_public || false}
+                    onCheckedChange={(checked) => setEditingCategory({ ...editingCategory, is_public: checked })}
+                    data-testid="switch-category-public"
+                  />
+                </div>
+
                 <div className="space-y-2">
-                  <Label>Applicable Roles *</Label>
+                  <Label>Applicable Roles {!editingCategory.is_public && '*'}</Label>
                   <p className="text-xs text-slate-500 mb-2">
-                    Select which roles can subscribe to this category
+                    Select which member roles can subscribe to this category
                   </p>
                   <div className="border border-slate-200 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
                     {roles.filter(r => r.is_active !== false).map(role => (

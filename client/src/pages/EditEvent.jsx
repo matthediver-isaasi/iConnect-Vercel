@@ -2809,7 +2809,7 @@ export default function EditEvent() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">No list</SelectItem>
-                          {communicationCategories.map((cat) => (
+                          {communicationCategories.filter(cat => cat.is_public && cat.is_active).map((cat) => (
                             <SelectItem key={cat.id} value={cat.id}>
                               {cat.name}
                             </SelectItem>
