@@ -375,7 +375,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col rounded-none">
+      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col !rounded-none" style={{ borderRadius: 0 }}>
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />

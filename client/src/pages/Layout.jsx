@@ -2459,7 +2459,7 @@ useEffect(() => {
             variant="default"
             size="icon"
             onClick={() => setBookmarkDrawerOpen(true)}
-            className="fixed right-0 top-24 z-40 rounded-none"
+            className="fixed right-0 top-24 z-40 !rounded-none"
             data-testid="button-bookmarks-tab"
             aria-label="Open bookmarks"
           >
