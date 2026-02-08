@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -101,7 +100,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" hideClose className="w-[360px] sm:w-[420px] p-0 flex flex-col overflow-hidden" style={{ borderRadius: 0 }}>
+      <SheetContent side="right" hideClose className="!max-w-[360px] sm:!max-w-[420px] w-[360px] sm:w-[420px] p-0 flex flex-col" style={{ borderRadius: 0, overflow: 'hidden' }}>
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />
@@ -119,7 +118,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
           </SheetTitle>
         </SheetHeader>
 
-        <ScrollArea className="flex-1 overflow-hidden p-4">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
@@ -171,10 +170,10 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
                             key={item.id}
                             to={section.getUrl(item)}
                             onClick={() => onOpenChange(false)}
-                            className="group flex items-start gap-2 px-3 py-2 rounded-md hover-elevate text-sm"
+                            className="group flex items-start gap-2 px-3 py-2 rounded-md hover-elevate text-sm overflow-hidden"
                             data-testid={`bookmark-item-${item.entity_type}-${item.entity_id}`}
                           >
-                            <div className="flex-1 min-w-0">
+                            <div className="flex-1 min-w-0 overflow-hidden">
                               <p className="font-medium truncate text-foreground">
                                 {section.getTitle(item)}
                               </p>
@@ -203,7 +202,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
               })}
             </div>
           )}
-        </ScrollArea>
+        </div>
       </SheetContent>
     </Sheet>
   );
