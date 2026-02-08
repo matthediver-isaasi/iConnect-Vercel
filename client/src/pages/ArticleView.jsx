@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp, UserPlus, UserMinus } from "lucide-react";
+import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp, UserPlus, UserMinus, Bookmark } from "lucide-react";
 import { format } from "date-fns";
 import { Link, useParams } from "react-router-dom";
 import ArticleComments from "../components/blog/ArticleComments";
@@ -15,6 +15,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 
 export default function ArticleViewPage() {
   const queryClient = useQueryClient();
@@ -727,9 +728,14 @@ export default function ArticleViewPage() {
             </div>
 
             {/* Title */}
-            <h1 className="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
-              {article.title}
-            </h1>
+            <div className="flex items-start gap-3 mb-6">
+              <h1 className="text-4xl md:text-5xl font-bold text-slate-900 flex-1">
+                {article.title}
+              </h1>
+              {isAuthenticated && article.id && (
+                <BookmarkButton entityType="blog_post" entityId={article.id} />
+              )}
+            </div>
 
             {/* Summary */}
             {article.summary && (

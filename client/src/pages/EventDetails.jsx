@@ -32,6 +32,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
 import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityRealtime";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 
 export default function EventDetailsPage() {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
@@ -1168,7 +1169,12 @@ export default function EventDetailsPage() {
                     ))}
                   </div>
                 )}
-                <h1 className="text-3xl font-bold text-slate-900 mb-2">{event.title}</h1>
+                <div className="flex items-start gap-3 mb-2">
+                  <h1 className="text-3xl font-bold text-slate-900 flex-1">{event.title}</h1>
+                  {memberInfo && event.id && (
+                    <BookmarkButton entityType="event" entityId={event.id} />
+                  )}
+                </div>
                 
                 <div className="space-y-3 pt-4">
                   {startDate && (

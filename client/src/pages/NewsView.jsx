@@ -2,13 +2,14 @@ import React, { useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, Edit, Tag, Linkedin, Mail } from "lucide-react";
+import { ArrowLeft, Calendar, Edit, Tag, Linkedin, Mail, Bookmark } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useNewsPostBySlug } from "@/hooks/useNewsPostData";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 
 export default function NewsViewPage() {
   const { memberInfo, isAdmin } = useMemberAccess();
@@ -139,9 +140,14 @@ export default function NewsViewPage() {
           )}
           
           <CardContent className="pt-8 pb-12 px-8 md:px-12">
-            <h1 className="text-4xl md:text-5xl font-bold text-slate-900 mb-4">
-              {news.title}
-            </h1>
+            <div className="flex items-start gap-3 mb-4">
+              <h1 className="text-4xl md:text-5xl font-bold text-slate-900 flex-1">
+                {news.title}
+              </h1>
+              {memberInfo && news.id && (
+                <BookmarkButton entityType="news_post" entityId={news.id} />
+              )}
+            </div>
 
             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600 mb-6">
               {news.subcategories && news.subcategories.length > 0 && (

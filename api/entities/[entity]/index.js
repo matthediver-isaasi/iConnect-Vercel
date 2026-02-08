@@ -183,6 +183,7 @@ const entityToTable = {
   'ForumReaction': 'forum_reaction',
   'ForumReport': 'forum_report',
   'ForumModerationLog': 'forum_moderation_log',
+  'MemberBookmark': 'member_bookmark',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -650,7 +651,8 @@ export default async function handler(req, res) {
               'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
               'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
               'CommunicationCategory', 'CommunicationCategoryRole',
-              'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
+              'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
+              'MemberBookmark'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -819,7 +821,8 @@ export default async function handler(req, res) {
             'WallOfFameSection', 'WallOfFameCategory', 'WallOfFamePerson',
             'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
             'CommunicationCategory', 'CommunicationCategoryRole',
-            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
+            'MemberBookmark'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided

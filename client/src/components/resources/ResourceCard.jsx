@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus, Copy, Check } from "lucide-react";
+import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus, Copy, Check, Bookmark } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -14,6 +14,7 @@ import {
 import { createPageUrl } from "@/utils";
 import AGCASButton from "../ui/AGCASButton";
 import AGCASSquareButton from "../ui/AGCASSquareButton";
+import BookmarkButton from "../bookmarks/BookmarkButton";
 
 const iconMap = {
   ArrowUpRight,
@@ -357,7 +358,12 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
       )}
       
       <CardHeader className="pb-3 flex-grow">
-        <CardTitle className="text-lg line-clamp-2">{resource.title}</CardTitle>
+        <div className="flex items-start gap-2">
+          <CardTitle className="text-lg line-clamp-2 flex-1">{resource.title}</CardTitle>
+          {isAuthenticated && resource.id && (
+            <BookmarkButton entityType="resource" entityId={resource.id} />
+          )}
+        </div>
         
         {(resource.published_date || resource.created_date) && (
           <div className="flex items-center gap-1 text-xs text-slate-500 py-3">

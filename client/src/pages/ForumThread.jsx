@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 
 function generateSlug(name) {
   return name
@@ -744,6 +745,9 @@ Respond with a JSON object containing exactly two fields:
               <h1 className="text-xl font-semibold" data-testid="text-thread-title">
                 {thread.title}
               </h1>
+              {memberInfo && thread.id && (
+                <BookmarkButton entityType="forum_thread" entityId={thread.id} />
+              )}
               {thread.is_pinned && (
                 <Badge variant="secondary" className="text-xs" data-testid="badge-thread-pinned">
                   <Pin className="w-3 h-3 mr-0.5" />

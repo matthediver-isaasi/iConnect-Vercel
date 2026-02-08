@@ -1,0 +1,80 @@
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+const API_BASE = "/api/bookmarks";
+
+async function fetchBookmarks() {
+  const res = await fetch(`${API_BASE}/enriched`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to fetch bookmarks");
+  const data = await res.json();
+  return data.bookmarks || [];
+}
+
+async function fetchMyBookmarkIds() {
+  const res = await fetch(API_BASE, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to fetch bookmarks");
+  const data = await res.json();
+  return data.bookmarks || [];
+}
+
+export function useBookmarks() {
+  const queryClient = useQueryClient();
+
+  const { data: enrichedBookmarks = [], isLoading } = useQuery({
+    queryKey: ["bookmarks", "enriched"],
+    queryFn: fetchBookmarks,
+    staleTime: 30000,
+  });
+
+  const { data: rawBookmarks = [] } = useQuery({
+    queryKey: ["bookmarks", "ids"],
+    queryFn: fetchMyBookmarkIds,
+    staleTime: 30000,
+  });
+
+  const isBookmarked = useCallback(
+    (entityType, entityId) => {
+      return rawBookmarks.some(
+        (b) => b.entity_type === entityType && b.entity_id === entityId
+      );
+    },
+    [rawBookmarks]
+  );
+
+  const toggleBookmark = useCallback(
+    async (entityType, entityId) => {
+      const existing = isBookmarked(entityType, entityId);
+      const method = existing ? "DELETE" : "POST";
+
+      const res = await fetch(API_BASE, {
+        method,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entity_type: entityType, entity_id: entityId }),
+      });
+
+      if (!res.ok) throw new Error("Failed to toggle bookmark");
+
+      queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
+      return !existing;
+    },
+    [isBookmarked, queryClient]
+  );
+
+  const grouped = {
+    blog_post: enrichedBookmarks.filter((b) => b.entity_type === "blog_post"),
+    resource: enrichedBookmarks.filter((b) => b.entity_type === "resource"),
+    news_post: enrichedBookmarks.filter((b) => b.entity_type === "news_post"),
+    event: enrichedBookmarks.filter((b) => b.entity_type === "event"),
+    forum_thread: enrichedBookmarks.filter((b) => b.entity_type === "forum_thread"),
+  };
+
+  return {
+    bookmarks: enrichedBookmarks,
+    grouped,
+    isBookmarked,
+    toggleBookmark,
+    isLoading,
+    totalCount: enrichedBookmarks.length,
+  };
+}

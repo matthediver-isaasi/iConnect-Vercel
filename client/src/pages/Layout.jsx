@@ -43,6 +43,7 @@ import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
 import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
 import { SiGoogle } from "react-icons/si";
+import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
@@ -502,7 +503,7 @@ function SidebarEdgeToggle() {
 }
 
 // Separate component for sidebar footer content to use useSidebar hook
-function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
+function SidebarFooterContent({ memberInfo, memberRole, handleLogout, onBookmarkClick }) {
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
   
@@ -525,6 +526,19 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
           <TooltipContent side="right">
             {memberInfo.first_name} {memberInfo.last_name}
           </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onBookmarkClick}
+              data-testid="button-bookmarks-collapsed"
+            >
+              <Bookmark className="w-4 h-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">My Bookmarks</TooltipContent>
         </Tooltip>
         {memberInfo.hasTenantUserLink && (
           <Tooltip>
@@ -581,6 +595,15 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
           </div>
         )}
       </div>
+      <Button
+        variant="ghost"
+        className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+        onClick={onBookmarkClick}
+        data-testid="button-bookmarks-expanded"
+      >
+        <Bookmark className="w-4 h-4 mr-2" />
+        My Bookmarks
+      </Button>
       {memberInfo.hasTenantUserLink && (
         <Button
           variant="ghost"
@@ -740,6 +763,8 @@ export default function Layout({ children, currentPageName }) {
   
   // Mobile navigation menu state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Bookmarks drawer state
+  const [bookmarkDrawerOpen, setBookmarkDrawerOpen] = useState(false);
 
   const { hasPendingPOs, pendingPOCount, isLoading: pendingPOsLoading } = usePendingPurchaseOrders();
   
@@ -2102,7 +2127,8 @@ useEffect(() => {
               <SidebarFooterContent 
                 memberInfo={memberInfo} 
                 memberRole={memberRole} 
-                handleLogout={handleLogout} 
+                handleLogout={handleLogout}
+                onBookmarkClick={() => setBookmarkDrawerOpen(true)}
               />
             </SidebarFooter>
           </Sidebar>
@@ -2138,14 +2164,26 @@ useEffect(() => {
                   </div>
                 </Link>
               )}
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => setMobileMenuOpen(true)}
-                data-testid="button-mobile-menu"
-              >
-                <Menu className="w-6 h-6" />
-              </Button>
+              <div className="flex items-center gap-1">
+                {memberInfo && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setBookmarkDrawerOpen(true)}
+                    data-testid="button-bookmarks-mobile"
+                  >
+                    <Bookmark className="w-5 h-5" />
+                  </Button>
+                )}
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => setMobileMenuOpen(true)}
+                  data-testid="button-mobile-menu"
+                >
+                  <Menu className="w-6 h-6" />
+                </Button>
+              </div>
             </header>
 
             {/* Mobile Navigation Sheet */}
@@ -2449,6 +2487,10 @@ useEffect(() => {
           )}
         </div>
       </SidebarProvider>
+      
+      {memberInfo && (
+        <BookmarkDrawer open={bookmarkDrawerOpen} onOpenChange={setBookmarkDrawerOpen} />
+      )}
     </div>
   );
 }

@@ -95,6 +95,7 @@ const entityToTable = {
   'ForumReaction': 'forum_reaction',
   'ForumReport': 'forum_report',
   'ForumModerationLog': 'forum_moderation_log',
+  'MemberBookmark': 'member_bookmark',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -171,7 +172,8 @@ export default async function handler(req, res) {
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'ButtonStyle', 'BlogPost',
             'CommunicationCategory', 'CommunicationCategoryRole',
-            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
+            'MemberBookmark'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -224,7 +226,8 @@ export default async function handler(req, res) {
                 'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
                 'ButtonStyle', 'BlogPost',
                 'CommunicationCategory', 'CommunicationCategoryRole',
-                'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
+                'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
+                'MemberBookmark'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -349,7 +352,8 @@ export default async function handler(req, res) {
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'ButtonStyle', 'BlogPost',
             'CommunicationCategory', 'CommunicationCategoryRole',
-            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
+            'MemberBookmark'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -453,7 +457,8 @@ export default async function handler(req, res) {
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'ButtonStyle', 'BlogPost',
             'CommunicationCategory', 'CommunicationCategoryRole',
-            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog'
+            'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
+            'MemberBookmark'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
