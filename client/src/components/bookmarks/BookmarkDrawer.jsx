@@ -33,7 +33,7 @@ const SECTION_CONFIG = [
       return createPageUrl("ArticleView");
     },
     getTitle: (item) => item.entity?.title || "Untitled Post",
-    getSubtitle: (item) => item.entity?.created_at ? format(new Date(item.entity.created_at), "d MMM yyyy") : null,
+    getSubtitle: (item) => item.entity?.published_date ? format(new Date(item.entity.published_date), "d MMM yyyy") : null,
   },
   {
     key: "news_post",
@@ -46,7 +46,7 @@ const SECTION_CONFIG = [
       return createPageUrl("News");
     },
     getTitle: (item) => item.entity?.title || "Untitled News",
-    getSubtitle: (item) => item.entity?.created_at ? format(new Date(item.entity.created_at), "d MMM yyyy") : null,
+    getSubtitle: (item) => item.entity?.published_date ? format(new Date(item.entity.published_date), "d MMM yyyy") : null,
   },
   {
     key: "event",
@@ -101,7 +101,7 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[360px] sm:w-[420px] p-0 flex flex-col rounded-r-none">
+      <SheetContent side="right" className="w-[360px] sm:w-[420px] p-0 flex flex-col" style={{ borderRadius: 0 }}>
         <SheetHeader className="border-b p-4">
           <SheetTitle className="flex items-center gap-2">
             <Bookmark className="w-5 h-5" />
