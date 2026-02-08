@@ -46,10 +46,10 @@ export default async function handler(req, res) {
         .from('role_feature')
         .select('feature_key')
         .eq('role_id', tenantCtx.roleId)
-        .in('feature_key', ['forum.posts.delete-any', 'forum.posts.delete-own']);
+        .in('feature_key', ['forum.threads.delete-any', 'forum.threads.delete-own']);
       const featureKeys = (features || []).map(f => f.feature_key);
-      if (featureKeys.includes('forum.posts.delete-any')) canDeleteAny = true;
-      if (featureKeys.includes('forum.posts.delete-own')) canDeleteOwn = true;
+      if (featureKeys.includes('forum.threads.delete-any')) canDeleteAny = true;
+      if (featureKeys.includes('forum.threads.delete-own')) canDeleteOwn = true;
     }
 
     if (!canDeleteAny && !(canDeleteOwn && isOwner)) {
