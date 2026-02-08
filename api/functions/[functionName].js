@@ -1531,16 +1531,44 @@ const functionHandlers = {
       return { success: false, error: 'No attendees provided' };
     }
 
+    // Get event details first (needed for tenant scoping)
+    const { data: event, error: eventError } = await supabase
+      .from('event')
+      .select('*')
+      .eq('id', eventId)
+      .single();
+
+    if (eventError || !event) {
+      console.error('[createOneOffEventBooking] Event query error:', eventError);
+      return { success: false, error: 'Event not found' };
+    }
+
+    // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
+    if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
+      console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
+      return { success: false, error: 'Registration is closed for this event' };
+    }
+    
+    if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
+      console.log('[createOneOffEventBooking] Blocking registration - past registration deadline:', eventId);
+      return { success: false, error: 'Registration deadline has passed for this event' };
+    }
+
     // Get member details (skip for guest bookings)
     let member = null;
     let org = null;
     
     if (!isGuestBooking) {
-      const { data: memberData, error: memberError } = await supabase
+      let memberQuery = supabase
         .from('member')
         .select('*')
-        .ilike('email', memberEmail.toLowerCase())
-        .maybeSingle();
+        .ilike('email', memberEmail.toLowerCase());
+      
+      if (event.tenant_id) {
+        memberQuery = memberQuery.eq('tenant_id', event.tenant_id);
+      }
+      
+      const { data: memberData, error: memberError } = await memberQuery.maybeSingle();
       
       if (memberError || !memberData) {
         console.error('[createOneOffEventBooking] Member query error:', memberError);
@@ -1569,29 +1597,6 @@ const functionHandlers = {
       }
     } else {
       console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
-    }
-
-    // Get event details
-    const { data: event, error: eventError } = await supabase
-      .from('event')
-      .select('*')
-      .eq('id', eventId)
-      .single();
-
-    if (eventError || !event) {
-      console.error('[createOneOffEventBooking] Event query error:', eventError);
-      return { success: false, error: 'Event not found' };
-    }
-
-    // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
-    if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
-      console.log('[createOneOffEventBooking] Blocking registration - event is closed:', eventId);
-      return { success: false, error: 'Registration is closed for this event' };
-    }
-    
-    if (event.registration_closes_at && new Date() > new Date(event.registration_closes_at)) {
-      console.log('[createOneOffEventBooking] Blocking registration - past registration deadline:', eventId);
-      return { success: false, error: 'Registration deadline has passed for this event' };
     }
 
     // Verify Stripe payment if card payment was used
