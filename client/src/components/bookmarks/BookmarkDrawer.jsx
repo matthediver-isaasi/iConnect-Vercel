@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -13,15 +13,32 @@ import {
   ChevronDown,
   ChevronRight,
   X,
-  ExternalLink,
+  GripVertical,
 } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { format } from "date-fns";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
-const SECTION_CONFIG = [
-  {
+const SECTION_MAP = {
+  blog_post: {
     key: "blog_post",
     label: "Blog Posts",
     icon: BookOpen,
@@ -34,7 +51,7 @@ const SECTION_CONFIG = [
     getTitle: (item) => item.entity?.title || "Untitled Post",
     getSubtitle: (item) => item.entity?.published_date ? format(new Date(item.entity.published_date), "d MMM yyyy") : null,
   },
-  {
+  news_post: {
     key: "news_post",
     label: "News",
     icon: Newspaper,
@@ -47,7 +64,7 @@ const SECTION_CONFIG = [
     getTitle: (item) => item.entity?.title || "Untitled News",
     getSubtitle: (item) => item.entity?.published_date ? format(new Date(item.entity.published_date), "d MMM yyyy") : null,
   },
-  {
+  event: {
     key: "event",
     label: "Events",
     icon: Calendar,
@@ -55,7 +72,7 @@ const SECTION_CONFIG = [
     getTitle: (item) => item.entity?.title || "Untitled Event",
     getSubtitle: (item) => item.entity?.start_date ? format(new Date(item.entity.start_date), "d MMM yyyy") : null,
   },
-  {
+  resource: {
     key: "resource",
     label: "Resources",
     icon: FolderOpen,
@@ -63,7 +80,7 @@ const SECTION_CONFIG = [
     getTitle: (item) => item.entity?.title || "Untitled Resource",
     getSubtitle: (item) => item.entity?.description ? item.entity.description.substring(0, 60) + (item.entity.description.length > 60 ? "..." : "") : null,
   },
-  {
+  forum_thread: {
     key: "forum_thread",
     label: "Forum Threads",
     icon: MessageSquare,
@@ -76,13 +93,192 @@ const SECTION_CONFIG = [
       return parts.join(" · ") || null;
     },
   },
-];
+};
+
+function SortableCategorySection({ id, section, items, isOpen, onToggle, onOpenChange, onRemoveBookmark, onItemReorder }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative',
+    zIndex: isDragging ? 10 : 'auto',
+  };
+
+  const SectionIcon = section.icon;
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Collapsible open={isOpen} onOpenChange={onToggle}>
+        <div className="flex items-center gap-1">
+          <button
+            className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground/50 hover:text-muted-foreground touch-none"
+            data-testid={`bookmark-section-drag-${section.key}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </button>
+          <CollapsibleTrigger asChild>
+            <button
+              className="flex items-center gap-2 flex-1 px-2 py-2 text-sm font-medium text-muted-foreground hover-elevate rounded-md"
+              data-testid={`bookmark-section-toggle-${section.key}`}
+            >
+              {isOpen ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+              <SectionIcon className="w-4 h-4" />
+              <span>{section.label}</span>
+              <Badge variant="secondary" className="ml-auto text-xs">
+                {items.length}
+              </Badge>
+            </button>
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent>
+          <SortableItemList
+            section={section}
+            items={items}
+            onOpenChange={onOpenChange}
+            onRemoveBookmark={onRemoveBookmark}
+            onItemReorder={onItemReorder}
+          />
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
+function SortableItemList({ section, items, onOpenChange, onRemoveBookmark, onItemReorder }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const itemIds = items.map((item) => item.entity_id);
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = itemIds.indexOf(active.id);
+    const newIndex = itemIds.indexOf(over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newOrder = arrayMove(itemIds, oldIndex, newIndex);
+    onItemReorder(section.key, newOrder);
+  };
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1 pl-2 mt-1">
+          {items.map((item) => (
+            <SortableBookmarkItem
+              key={item.entity_id}
+              item={item}
+              section={section}
+              onOpenChange={onOpenChange}
+              onRemoveBookmark={onRemoveBookmark}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.entity_id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative',
+    zIndex: isDragging ? 10 : 'auto',
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-start gap-1">
+      <button
+        className="cursor-grab active:cursor-grabbing p-1 mt-1.5 text-muted-foreground/50 hover:text-muted-foreground shrink-0 touch-none"
+        data-testid={`bookmark-item-drag-${item.entity_type}-${item.entity_id}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="w-3 h-3" />
+      </button>
+      <Link
+        to={section.getUrl(item)}
+        onClick={() => onOpenChange(false)}
+        className="group flex items-start gap-2 flex-1 min-w-0 px-2 py-1.5 rounded-md hover-elevate text-sm overflow-hidden"
+        data-testid={`bookmark-item-${item.entity_type}-${item.entity_id}`}
+      >
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <p className="font-medium truncate text-foreground">
+            {section.getTitle(item)}
+          </p>
+          {section.getSubtitle(item) && (
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {section.getSubtitle(item)}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ visibility: "visible" }}
+          onClick={(e) => onRemoveBookmark(item.entity_type, item.entity_id, e)}
+          data-testid={`bookmark-remove-${item.entity_type}-${item.entity_id}`}
+        >
+          <X className="w-3 h-3" />
+        </Button>
+      </Link>
+    </div>
+  );
+}
 
 export default function BookmarkDrawer({ open, onOpenChange }) {
-  const { grouped, toggleBookmark, isLoading, totalCount } = useBookmarks();
+  const { grouped, categoryOrder, toggleBookmark, reorderCategories, reorderItems, isLoading, totalCount } = useBookmarks();
   const [expandedSections, setExpandedSections] = useState(
-    SECTION_CONFIG.reduce((acc, s) => ({ ...acc, [s.key]: true }), {})
+    Object.keys(SECTION_MAP).reduce((acc, key) => ({ ...acc, [key]: true }), {})
   );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const orderedSections = useMemo(() => {
+    return categoryOrder
+      .filter((key) => SECTION_MAP[key])
+      .map((key) => SECTION_MAP[key]);
+  }, [categoryOrder]);
+
+  const visibleCategoryIds = useMemo(() => {
+    return orderedSections
+      .filter((s) => (grouped[s.key] || []).length > 0)
+      .map((s) => s.key);
+  }, [orderedSections, grouped]);
 
   const toggleSection = (key) => {
     setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -96,6 +292,24 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
     } catch (err) {
       console.error("Failed to remove bookmark:", err);
     }
+  };
+
+  const handleCategoryDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIdx = visibleCategoryIds.indexOf(active.id);
+    const newIdx = visibleCategoryIds.indexOf(over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+
+    const reorderedVisible = arrayMove([...visibleCategoryIds], oldIdx, newIdx);
+    const hiddenKeys = categoryOrder.filter((k) => !visibleCategoryIds.includes(k));
+    const newOrder = [...reorderedVisible, ...hiddenKeys];
+    reorderCategories(newOrder);
+  };
+
+  const handleItemReorder = (entityType, orderedIds) => {
+    reorderItems(entityType, orderedIds);
   };
 
   return (
@@ -132,75 +346,34 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {SECTION_CONFIG.map((section) => {
-                const items = grouped[section.key] || [];
-                if (items.length === 0) return null;
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleCategoryDragEnd}
+            >
+              <SortableContext items={visibleCategoryIds} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {orderedSections.map((section) => {
+                    const items = grouped[section.key] || [];
+                    if (items.length === 0) return null;
 
-                const SectionIcon = section.icon;
-                const isOpen = expandedSections[section.key];
-
-                return (
-                  <Collapsible
-                    key={section.key}
-                    open={isOpen}
-                    onOpenChange={() => toggleSection(section.key)}
-                  >
-                    <CollapsibleTrigger asChild>
-                      <button
-                        className="flex items-center gap-2 w-full px-2 py-2 text-sm font-medium text-muted-foreground hover-elevate rounded-md"
-                        data-testid={`bookmark-section-toggle-${section.key}`}
-                      >
-                        {isOpen ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4" />
-                        )}
-                        <SectionIcon className="w-4 h-4" />
-                        <span>{section.label}</span>
-                        <Badge variant="secondary" className="ml-auto text-xs">
-                          {items.length}
-                        </Badge>
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-1 pl-2 mt-1">
-                        {items.map((item) => (
-                          <Link
-                            key={item.id}
-                            to={section.getUrl(item)}
-                            onClick={() => onOpenChange(false)}
-                            className="group flex items-start gap-2 px-3 py-2 rounded-md hover-elevate text-sm overflow-hidden"
-                            data-testid={`bookmark-item-${item.entity_type}-${item.entity_id}`}
-                          >
-                            <div className="flex-1 min-w-0 overflow-hidden">
-                              <p className="font-medium truncate text-foreground">
-                                {section.getTitle(item)}
-                              </p>
-                              {section.getSubtitle(item) && (
-                                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                  {section.getSubtitle(item)}
-                                </p>
-                              )}
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                              style={{ visibility: "visible" }}
-                              onClick={(e) => handleRemoveBookmark(item.entity_type, item.entity_id, e)}
-                              data-testid={`bookmark-remove-${item.entity_type}-${item.entity_id}`}
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </Link>
-                        ))}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                );
-              })}
-            </div>
+                    return (
+                      <SortableCategorySection
+                        key={section.key}
+                        id={section.key}
+                        section={section}
+                        items={items}
+                        isOpen={expandedSections[section.key]}
+                        onToggle={() => toggleSection(section.key)}
+                        onOpenChange={onOpenChange}
+                        onRemoveBookmark={handleRemoveBookmark}
+                        onItemReorder={handleItemReorder}
+                      />
+                    );
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </SheetContent>

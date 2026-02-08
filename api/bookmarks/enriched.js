@@ -28,7 +28,15 @@ export default async function handler(req, res) {
       .select('*')
       .eq('tenant_id', tenantId)
       .eq('member_id', memberId)
+      .order('sort_order', { ascending: true })
       .order('created_at', { ascending: false });
+
+    const { data: prefs } = await supabase
+      .from('member_bookmark_preferences')
+      .select('category_order')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', memberId)
+      .maybeSingle();
 
     if (error) {
       console.error('[Bookmarks Enriched] GET error:', error);
@@ -85,7 +93,8 @@ export default async function handler(req, res) {
       entity: entityData[`${bm.entity_type}:${bm.entity_id}`] || null
     }));
 
-    return res.json({ bookmarks: enriched });
+    const categoryOrder = prefs?.category_order || null;
+    return res.json({ bookmarks: enriched, category_order: categoryOrder });
   } catch (error) {
     console.error('[Bookmarks Enriched] Error:', error);
     return res.status(500).json({ error: error.message });

@@ -3,11 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const API_BASE = "/api/bookmarks";
 
+const DEFAULT_CATEGORY_ORDER = ["blog_post", "news_post", "event", "resource", "forum_thread"];
+
 async function fetchBookmarks() {
   const res = await fetch(`${API_BASE}/enriched`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to fetch bookmarks");
   const data = await res.json();
-  return data.bookmarks || [];
+  return { bookmarks: data.bookmarks || [], categoryOrder: data.category_order || null };
 }
 
 async function fetchMyBookmarkIds() {
@@ -20,11 +22,14 @@ async function fetchMyBookmarkIds() {
 export function useBookmarks() {
   const queryClient = useQueryClient();
 
-  const { data: enrichedBookmarks = [], isLoading } = useQuery({
+  const { data: enrichedData = { bookmarks: [], categoryOrder: null }, isLoading } = useQuery({
     queryKey: ["bookmarks", "enriched"],
     queryFn: fetchBookmarks,
     staleTime: 5000,
   });
+
+  const enrichedBookmarks = enrichedData.bookmarks;
+  const categoryOrder = enrichedData.categoryOrder || DEFAULT_CATEGORY_ORDER;
 
   const { data: rawBookmarks = [] } = useQuery({
     queryKey: ["bookmarks", "ids"],
@@ -61,6 +66,34 @@ export function useBookmarks() {
     [isBookmarked, queryClient]
   );
 
+  const reorderCategories = useCallback(
+    async (newOrder) => {
+      const res = await fetch(`${API_BASE}/reorder`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "categories", category_order: newOrder }),
+      });
+      if (!res.ok) throw new Error("Failed to reorder categories");
+      await queryClient.invalidateQueries({ queryKey: ["bookmarks", "enriched"] });
+    },
+    [queryClient]
+  );
+
+  const reorderItems = useCallback(
+    async (entityType, orderedIds) => {
+      const res = await fetch(`${API_BASE}/reorder`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "items", entity_type: entityType, ordered_ids: orderedIds }),
+      });
+      if (!res.ok) throw new Error("Failed to reorder items");
+      await queryClient.invalidateQueries({ queryKey: ["bookmarks", "enriched"] });
+    },
+    [queryClient]
+  );
+
   const grouped = {
     blog_post: enrichedBookmarks.filter((b) => b.entity_type === "blog_post"),
     resource: enrichedBookmarks.filter((b) => b.entity_type === "resource"),
@@ -72,8 +105,11 @@ export function useBookmarks() {
   return {
     bookmarks: enrichedBookmarks,
     grouped,
+    categoryOrder,
     isBookmarked,
     toggleBookmark,
+    reorderCategories,
+    reorderItems,
     isLoading,
     totalCount: enrichedBookmarks.length,
   };

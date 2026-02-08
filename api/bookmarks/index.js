@@ -27,6 +27,7 @@ export default async function handler(req, res) {
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('member_id', memberId)
+        .order('sort_order', { ascending: true })
         .order('created_at', { ascending: false });
 
       if (entity_type) {
@@ -55,13 +56,26 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `entity_type must be one of: ${validTypes.join(', ')}` });
       }
 
+      const { data: maxRow } = await supabase
+        .from('member_bookmark')
+        .select('sort_order')
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberId)
+        .eq('entity_type', entity_type)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
+
       const { data: bookmark, error } = await supabase
         .from('member_bookmark')
         .upsert({
           tenant_id: tenantId,
           member_id: memberId,
           entity_type,
-          entity_id
+          entity_id,
+          sort_order: nextSortOrder
         }, { onConflict: 'tenant_id,member_id,entity_type,entity_id' })
         .select()
         .single();

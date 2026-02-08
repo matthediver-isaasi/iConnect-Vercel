@@ -10,13 +10,27 @@ CREATE TABLE IF NOT EXISTS member_bookmark (
   member_id UUID NOT NULL,
   entity_type TEXT NOT NULL CHECK (entity_type IN ('blog_post', 'resource', 'news_post', 'event', 'forum_thread')),
   entity_id UUID NOT NULL,
+  sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tenant_id, member_id, entity_type, entity_id)
 );
 
+ALTER TABLE member_bookmark ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_member_bookmark_tenant ON member_bookmark(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_member_bookmark_member ON member_bookmark(member_id);
 CREATE INDEX IF NOT EXISTS idx_member_bookmark_entity ON member_bookmark(entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS member_bookmark_preferences (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  member_id UUID NOT NULL,
+  category_order JSONB DEFAULT '["blog_post","news_post","event","resource","forum_thread"]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(tenant_id, member_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_member_bookmark_prefs_member ON member_bookmark_preferences(tenant_id, member_id);
 `;
 
 export default async function handler(req, res) {
