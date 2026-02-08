@@ -22,7 +22,7 @@ async function fetchMyBookmarkIds() {
 export function useBookmarks() {
   const queryClient = useQueryClient();
 
-  const { data: enrichedData = { bookmarks: [], categoryOrder: null }, isLoading } = useQuery({
+  const { data: enrichedData = { bookmarks: [], categoryOrder: null }, isLoading, refetch: refetchEnriched } = useQuery({
     queryKey: ["bookmarks", "enriched"],
     queryFn: fetchBookmarks,
     staleTime: 5000,
@@ -150,6 +150,7 @@ export function useBookmarks() {
     toggleBookmark,
     reorderCategories,
     reorderItems,
+    refetchEnriched,
     isLoading,
     totalCount: enrichedBookmarks.length,
   };

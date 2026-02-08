@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   X,
   GripVertical,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useBookmarks } from "@/hooks/useBookmarks";
@@ -253,7 +254,7 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
             onClick={(e) => onRemoveBookmark(item.entity_type, item.entity_id, e)}
             data-testid={`bookmark-remove-${item.entity_type}-${item.entity_id}`}
           >
-            <X className="w-3 h-3" />
+            <Trash2 className="w-3 h-3" />
           </Button>
         </div>
       </div>
@@ -294,7 +295,7 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
           onClick={(e) => onRemoveBookmark(item.entity_type, item.entity_id, e)}
           data-testid={`bookmark-remove-${item.entity_type}-${item.entity_id}`}
         >
-          <X className="w-3 h-3" />
+          <Trash2 className="w-3 h-3" />
         </Button>
       </Link>
     </div>
@@ -302,10 +303,16 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
 }
 
 export default function BookmarkDrawer({ open, onOpenChange }) {
-  const { grouped, categoryOrder, toggleBookmark, reorderCategories, reorderItems, isLoading, totalCount } = useBookmarks();
+  const { grouped, categoryOrder, toggleBookmark, reorderCategories, reorderItems, refetchEnriched, isLoading, totalCount } = useBookmarks();
   const [expandedSections, setExpandedSections] = useState(
     Object.keys(SECTION_MAP).reduce((acc, key) => ({ ...acc, [key]: true }), {})
   );
+
+  useEffect(() => {
+    if (open) {
+      refetchEnriched();
+    }
+  }, [open, refetchEnriched]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
