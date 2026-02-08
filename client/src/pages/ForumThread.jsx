@@ -10,9 +10,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  MessageSquare, Pin, Lock, Heart, Flag, Pencil, Trash2,
+  MessageSquare, Pin, Lock, ThumbsUp, ThumbsDown, Flag, Pencil, Trash2,
   ChevronLeft, Send, MoreVertical, Reply, Eye, Clock,
-  Loader2, X, EyeOff, ArrowRightLeft, ShieldAlert
+  Loader2, X, EyeOff, ArrowRightLeft, ShieldAlert, ChevronsDown, ChevronDown, ChevronUp
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -83,6 +83,8 @@ export default function ForumThreadPage() {
   const [moveCategoryId, setMoveCategoryId] = useState("");
   const [showMoreActions, setShowMoreActions] = useState(null);
   const [isCheckingContent, setIsCheckingContent] = useState(false);
+  const [collapsedReplies, setCollapsedReplies] = useState({});
+  const bottomRef = useRef(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -261,17 +263,23 @@ export default function ForumThreadPage() {
   });
 
   const toggleReactionMutation = useMutation({
-    mutationFn: async (postId) => {
-      const existing = reactions.find(
-        (r) => r.post_id === postId && r.member_id === memberInfo.id
+    mutationFn: async ({ postId, reactionType }) => {
+      const existingSameType = reactions.find(
+        (r) => r.post_id === postId && r.member_id === memberInfo.id && r.reaction_type === reactionType
       );
-      if (existing) {
-        await base44.entities.ForumReaction.delete(existing.id);
+      const existingOtherType = reactions.find(
+        (r) => r.post_id === postId && r.member_id === memberInfo.id && r.reaction_type !== reactionType
+      );
+      if (existingOtherType) {
+        await base44.entities.ForumReaction.delete(existingOtherType.id);
+      }
+      if (existingSameType) {
+        await base44.entities.ForumReaction.delete(existingSameType.id);
       } else {
         await base44.entities.ForumReaction.create({
           post_id: postId,
           member_id: memberInfo.id,
-          reaction_type: "like",
+          reaction_type: reactionType,
         });
       }
     },
@@ -555,14 +563,22 @@ Respond with a JSON object containing exactly two fields:
 
   const MAX_NESTING_DEPTH = 5;
 
+  const toggleCollapsed = (postId) => {
+    setCollapsedReplies(prev => ({ ...prev, [postId]: !prev[postId] }));
+  };
+
   const renderPost = (post, depth = 0) => {
     const authorName = memberMap[post.created_by] || "Unknown";
     const postReactions = reactionsByPost[post.id] || [];
-    const likeCount = postReactions.length;
-    const hasLiked = postReactions.some((r) => r.member_id === memberInfo?.id);
+    const likeCount = postReactions.filter(r => r.reaction_type === "like").length;
+    const dislikeCount = postReactions.filter(r => r.reaction_type === "dislike").length;
+    const myReaction = postReactions.find((r) => r.member_id === memberInfo?.id);
+    const hasLiked = myReaction?.reaction_type === "like";
+    const hasDisliked = myReaction?.reaction_type === "dislike";
     const isEditing = editingPostId === post.id;
     const effectiveDepth = Math.min(depth, MAX_NESTING_DEPTH);
     const children = childPostsMap[post.id] || [];
+    const isCollapsed = collapsedReplies[post.id] ?? false;
 
     return (
       <div key={post.id} data-testid={`post-${post.id}`}>
@@ -635,13 +651,21 @@ Respond with a JSON object containing exactly two fields:
                   <div className="flex items-center gap-1 mt-3 flex-wrap">
                     <Button
                       size="sm"
-                      variant="ghost"
-                      className={`toggle-elevate ${hasLiked ? "toggle-elevated text-red-500" : ""}`}
-                      onClick={() => toggleReactionMutation.mutate(post.id)}
+                      variant={hasLiked ? "secondary" : "ghost"}
+                      onClick={() => toggleReactionMutation.mutate({ postId: post.id, reactionType: "like" })}
                       data-testid={`button-like-${post.id}`}
                     >
-                      <Heart className={`w-3.5 h-3.5 mr-1 ${hasLiked ? "fill-current" : ""}`} />
+                      <ThumbsUp className={`w-3.5 h-3.5 mr-1 ${hasLiked ? "fill-current" : ""}`} />
                       {likeCount > 0 && <span className="text-xs">{likeCount}</span>}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={hasDisliked ? "secondary" : "ghost"}
+                      onClick={() => toggleReactionMutation.mutate({ postId: post.id, reactionType: "dislike" })}
+                      data-testid={`button-dislike-${post.id}`}
+                    >
+                      <ThumbsDown className={`w-3.5 h-3.5 mr-1 ${hasDisliked ? "fill-current" : ""}`} />
+                      {dislikeCount > 0 && <span className="text-xs">{dislikeCount}</span>}
                     </Button>
 
                     {canReply && !thread.is_locked && (
@@ -711,8 +735,26 @@ Respond with a JSON object containing exactly two fields:
         </Card>
 
         {children.length > 0 && (
-          <div className="space-y-3 mt-3">
-            {children.map((child) => renderPost(child, depth + 1))}
+          <div className="mt-3">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs text-muted-foreground mb-2"
+              onClick={(e) => { e.stopPropagation(); toggleCollapsed(post.id); }}
+              data-testid={`button-toggle-replies-${post.id}`}
+            >
+              {isCollapsed ? (
+                <ChevronDown className="w-3.5 h-3.5 mr-1" />
+              ) : (
+                <ChevronUp className="w-3.5 h-3.5 mr-1" />
+              )}
+              {children.length} {children.length === 1 ? "reply" : "replies"}
+            </Button>
+            {!isCollapsed && (
+              <div className="space-y-3">
+                {children.map((child) => renderPost(child, depth + 1))}
+              </div>
+            )}
           </div>
         )}
         </div>
@@ -777,50 +819,60 @@ Respond with a JSON object containing exactly two fields:
           </div>
         </div>
 
-        {(canPin || canLock || canMove) && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {canPin && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => pinMutation.mutate(!thread.is_pinned)}
-                disabled={pinMutation.isPending}
-                data-testid="button-pin-thread"
-              >
-                <Pin className="w-3.5 h-3.5 mr-1" />
-                {thread.is_pinned ? "Unpin" : "Pin"}
-              </Button>
-            )}
-            {canLock && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => lockMutation.mutate(!thread.is_locked)}
-                disabled={lockMutation.isPending}
-                data-testid="button-lock-thread"
-              >
-                <Lock className="w-3.5 h-3.5 mr-1" />
-                {thread.is_locked ? "Unlock" : "Lock"}
-              </Button>
-            )}
-            {canMove && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowMoveDialog(true)}
-                data-testid="button-move-thread"
-              >
-                <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
-                Move
-              </Button>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {canPin && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => pinMutation.mutate(!thread.is_pinned)}
+              disabled={pinMutation.isPending}
+              data-testid="button-pin-thread"
+            >
+              <Pin className="w-3.5 h-3.5 mr-1" />
+              {thread.is_pinned ? "Unpin" : "Pin"}
+            </Button>
+          )}
+          {canLock && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => lockMutation.mutate(!thread.is_locked)}
+              disabled={lockMutation.isPending}
+              data-testid="button-lock-thread"
+            >
+              <Lock className="w-3.5 h-3.5 mr-1" />
+              {thread.is_locked ? "Unlock" : "Lock"}
+            </Button>
+          )}
+          {canMove && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowMoveDialog(true)}
+              data-testid="button-move-thread"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
+              Move
+            </Button>
+          )}
+          {posts.length > 3 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
+              data-testid="button-go-to-latest"
+            >
+              <ChevronsDown className="w-3.5 h-3.5 mr-1" />
+              Go to latest
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">
         {parentPosts.map((post) => renderPost(post))}
       </div>
+      <div ref={bottomRef} />
 
       {posts.length === 0 && (
         <Card>
