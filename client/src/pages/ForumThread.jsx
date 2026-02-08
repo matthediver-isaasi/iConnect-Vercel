@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   MessageSquare, Pin, Lock, Heart, Flag, Pencil, Trash2,
   ChevronLeft, Send, MoreVertical, Reply, Eye, Clock,
-  Loader2, X, EyeOff, ArrowRightLeft
+  Loader2, X, EyeOff, ArrowRightLeft, ShieldAlert
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -81,6 +81,7 @@ export default function ForumThreadPage() {
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [moveCategoryId, setMoveCategoryId] = useState("");
   const [showMoreActions, setShowMoreActions] = useState(null);
+  const [isCheckingContent, setIsCheckingContent] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -363,11 +364,68 @@ export default function ForumThreadPage() {
     onError: (err) => toast.error("Failed: " + err.message),
   });
 
+  const moderateContent = async (content) => {
+    if (!content || !content.trim()) {
+      toast.error('Please enter some content before posting.');
+      return false;
+    }
+    try {
+      setIsCheckingContent(true);
+      const moderationResult = await base44.integrations.Core.InvokeLLM({
+        prompt: `You are a content moderation system. Analyze the following forum post for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment.
+
+Post to analyze: "${content}"
+
+Respond with a JSON object containing exactly two fields:
+- "is_safe": true if the content is appropriate for posting, false if it contains inappropriate content
+- "reason": a brief explanation if flagged, or empty string if safe`,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            is_safe: {
+              type: "boolean",
+              description: "true if content is appropriate, false if it contains inappropriate content"
+            },
+            reason: {
+              type: "string",
+              description: "brief explanation if flagged"
+            }
+          }
+        }
+      });
+
+      const isSafe = typeof moderationResult.is_safe === 'boolean'
+        ? moderationResult.is_safe
+        : moderationResult.analysis?.is_safe ?? true;
+
+      if (!isSafe) {
+        toast.error(
+          <>
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Post blocked</p>
+                <p className="text-sm">Your post contains inappropriate content and cannot be submitted. Please revise and try again.</p>
+              </div>
+            </div>
+          </>,
+          { duration: 5000 }
+        );
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('Content moderation error:', error);
+      toast.error('Failed to verify content. Please try again.');
+      return false;
+    } finally {
+      setIsCheckingContent(false);
+    }
+  };
+
   const handleReplyTo = (post) => {
     setReplyingToPost(post.id);
-    const authorName = memberMap[post.created_by] || "Unknown";
-    const quote = post.content?.substring(0, 100) || "";
-    setReplyContent(`> ${authorName} wrote:\n> ${quote}${post.content?.length > 100 ? "..." : ""}\n\n`);
+    setReplyContent("");
     setTimeout(() => replyRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
@@ -423,16 +481,19 @@ export default function ForumThreadPage() {
             </div>
             <div className="flex justify-end">
               <Button
-                onClick={() => createThreadMutation.mutate()}
-                disabled={!newTitle.trim() || !newContent.trim() || createThreadMutation.isPending || !canCreateThread}
+                onClick={async () => {
+                  const safe = await moderateContent(newContent.trim());
+                  if (safe) createThreadMutation.mutate();
+                }}
+                disabled={!newTitle.trim() || !newContent.trim() || createThreadMutation.isPending || isCheckingContent || !canCreateThread}
                 data-testid="button-submit-thread"
               >
-                {createThreadMutation.isPending ? (
+                {(createThreadMutation.isPending || isCheckingContent) ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-1" />
                 ) : (
                   <Send className="w-4 h-4 mr-1" />
                 )}
-                Create Thread
+                {isCheckingContent ? "Checking..." : "Create Thread"}
               </Button>
             </div>
           </CardContent>
@@ -763,20 +824,32 @@ export default function ForumThreadPage() {
 
       {canReply && !thread.is_locked && (
         <div ref={replyRef} className="space-y-2" data-testid="reply-section">
-          {replyingToPost && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Reply className="w-3.5 h-3.5" />
-              <span>Replying to {memberMap[posts.find((p) => p.id === replyingToPost)?.created_by] || "a post"}</span>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => { setReplyingToPost(null); setReplyContent(""); }}
-                data-testid="button-cancel-reply-to"
-              >
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          )}
+          {replyingToPost && (() => {
+            const parentPost = posts.find((p) => p.id === replyingToPost);
+            const parentAuthor = parentPost ? (memberMap[parentPost.created_by] || "Unknown") : "a post";
+            const parentSnippet = parentPost?.content?.substring(0, 120) || "";
+            return (
+              <div className="flex items-start justify-between gap-2 rounded-md bg-muted/50 p-3">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Reply className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Replying to {parentAuthor}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {parentSnippet}{parentPost?.content?.length > 120 ? "..." : ""}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => { setReplyingToPost(null); setReplyContent(""); }}
+                  data-testid="button-cancel-reply-to"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            );
+          })()}
           <Card>
             <CardContent className="p-4 space-y-3">
               <Textarea
@@ -788,16 +861,19 @@ export default function ForumThreadPage() {
               />
               <div className="flex justify-end">
                 <Button
-                  onClick={() => replyMutation.mutate()}
-                  disabled={!replyContent.trim() || replyMutation.isPending}
+                  onClick={async () => {
+                    const safe = await moderateContent(replyContent.trim());
+                    if (safe) replyMutation.mutate();
+                  }}
+                  disabled={!replyContent.trim() || replyMutation.isPending || isCheckingContent}
                   data-testid="button-submit-reply"
                 >
-                  {replyMutation.isPending ? (
+                  {(replyMutation.isPending || isCheckingContent) ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-1" />
                   ) : (
                     <Send className="w-4 h-4 mr-1" />
                   )}
-                  Reply
+                  {isCheckingContent ? "Checking..." : "Reply"}
                 </Button>
               </div>
             </CardContent>
