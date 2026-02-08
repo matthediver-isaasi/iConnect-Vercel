@@ -81,6 +81,8 @@ const builtInPages = [
   { value: "EventSettings", label: "Event Settings" },
   { value: "FileManagement", label: "File Management" },
   { value: "FloaterManagement", label: "Floater Management" },
+  { value: "Forum", label: "Forum" },
+  { value: "ForumManagement", label: "Forum Management" },
   { value: "FormBuilder", label: "Form Builder" },
   { value: "FormManagement", label: "Form Management" },
   { value: "FormSettings", label: "Form Settings" },
