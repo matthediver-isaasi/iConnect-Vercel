@@ -88,10 +88,14 @@ export default async function handler(req, res) {
       }
     }
 
-    const enriched = bookmarks.map(bm => ({
-      ...bm,
-      entity: entityData[`${bm.entity_type}:${bm.entity_id}`] || null
-    }));
+    const enriched = bookmarks.map(bm => {
+      const entity = entityData[`${bm.entity_type}:${bm.entity_id}`] || null;
+      return {
+        ...bm,
+        entity,
+        unavailable: !entity
+      };
+    });
 
     const categoryOrder = prefs?.category_order || null;
     return res.json({ bookmarks: enriched, category_order: categoryOrder });

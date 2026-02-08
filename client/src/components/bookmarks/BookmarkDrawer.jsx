@@ -14,6 +14,7 @@ import {
   ChevronRight,
   X,
   GripVertical,
+  AlertTriangle,
 } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useBookmarks } from "@/hooks/useBookmarks";
@@ -215,6 +216,47 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
     position: 'relative',
     zIndex: isDragging ? 10 : 'auto',
   };
+
+  const isUnavailable = item.unavailable;
+
+  if (isUnavailable) {
+    return (
+      <div ref={setNodeRef} style={style} className="flex items-start gap-1">
+        <button
+          className="cursor-grab active:cursor-grabbing p-1 mt-1.5 text-muted-foreground/50 hover:text-muted-foreground shrink-0 touch-none"
+          data-testid={`bookmark-item-drag-${item.entity_type}-${item.entity_id}`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="w-3 h-3" />
+        </button>
+        <div
+          className="group flex items-start gap-2 flex-1 min-w-0 px-2 py-1.5 rounded-md text-sm overflow-hidden opacity-60"
+          data-testid={`bookmark-item-${item.entity_type}-${item.entity_id}`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <p className="font-medium truncate text-muted-foreground line-through">
+              {section.getTitle(item)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              No longer available
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ visibility: "visible" }}
+            onClick={(e) => onRemoveBookmark(item.entity_type, item.entity_id, e)}
+            data-testid={`bookmark-remove-${item.entity_type}-${item.entity_id}`}
+          >
+            <X className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-start gap-1">
