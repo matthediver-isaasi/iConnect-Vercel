@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Settings, Calendar, Clock, MapPin, Ticket, RefreshCw, Save, Image as ImageIcon, Upload, X, FileText, Plus, Trash2, Edit2, Tag } from "lucide-react";
+import { Settings, Calendar, Clock, MapPin, Ticket, RefreshCw, Save, Image as ImageIcon, Upload, X, FileText, Plus, Trash2, Edit2, Tag, Gift } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
@@ -33,6 +33,7 @@ export default function EventSettingsPage() {
   const [showEventSeats, setShowEventSeats] = useState(true);
   const [eventCardTitleClamp, setEventCardTitleClamp] = useState(true);
   const [showEventCardPrices, setShowEventCardPrices] = useState(false);
+  const [donationEnabled, setDonationEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -238,6 +239,11 @@ export default function EventSettingsPage() {
     const timeFormatSetting = settings.find(s => s.setting_key === 'event_time_format_24h');
     if (timeFormatSetting) {
       setUse24HourFormat(timeFormatSetting.setting_value === 'true');
+    }
+    
+    const donationSetting = settings.find(s => s.setting_key === 'event_donation_enabled');
+    if (donationSetting) {
+      setDonationEnabled(donationSetting.setting_value === 'true');
     }
   }, [settings]);
 
@@ -445,6 +451,22 @@ export default function EventSettingsPage() {
           setting_key: 'event_time_format_24h',
           setting_value: use24HourFormat.toString(),
           description: 'Use 24-hour time format for event times'
+        });
+      }
+      
+      // Save event donation enabled setting
+      const donationSetting = settings.find(s => s.setting_key === 'event_donation_enabled');
+      
+      if (donationSetting) {
+        await base44.entities.SystemSettings.update(donationSetting.id, {
+          setting_value: donationEnabled.toString(),
+          description: 'Enable donation option during event registration checkout'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_donation_enabled',
+          setting_value: donationEnabled.toString(),
+          description: 'Enable donation option during event registration checkout'
         });
       }
       
@@ -1134,6 +1156,39 @@ export default function EventSettingsPage() {
                   Members will not be able to cancel tickets within this timeframe before the event starts.
                   Set to 0 to allow cancellations up until the event start time.
                 </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Donation Settings Section */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Gift className="w-5 h-5 text-pink-600" />
+              <CardTitle>Donation Settings</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="donation-enabled-toggle">
+                    Enable Donation
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, users paying by card will be offered the option to make a donation during event registration. 
+                    You can configure donation amounts and messages per event in the event editor.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="donation-enabled-toggle"
+                    checked={donationEnabled}
+                    onCheckedChange={setDonationEnabled}
+                    data-testid="switch-donation-enabled"
+                  />
+                </div>
               </div>
             </div>
           </CardContent>

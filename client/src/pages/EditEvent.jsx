@@ -38,7 +38,8 @@ import {
   FileText,
   Download,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Gift
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -145,6 +146,15 @@ export default function EditEvent() {
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
   const [emailCodeViewMode, setEmailCodeViewMode] = useState({}); // Track code view mode per email
+
+  const [donationConfig, setDonationConfig] = useState({
+    enabled: false,
+    preset_amounts: [5, 10, 25, 50],
+    allow_custom_amount: true,
+    custom_message: '',
+    email_list_key: ''
+  });
+  const [newPresetAmount, setNewPresetAmount] = useState('');
 
   // Quill modules for rich text editing
   const emailQuillModules = {
@@ -375,6 +385,22 @@ export default function EditEvent() {
     }
     return [];
   }, [systemSettings]);
+
+  const isDonationGloballyEnabled = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_donation_enabled');
+    return setting?.setting_value === 'true';
+  }, [systemSettings]);
+
+  const { data: zohoCampaignLists = [] } = useQuery({
+    queryKey: ['/api/zoho-campaigns/lists'],
+    queryFn: async () => {
+      const response = await fetch('/api/zoho-campaigns/lists', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.lists || [];
+    },
+    enabled: isDonationGloballyEnabled
+  });
 
   // For EditEvent, we do NOT auto-apply default VAT to existing tickets
   // They were intentionally set (or left blank) when created/edited
@@ -698,6 +724,16 @@ export default function EditEvent() {
       setShowTicketAvailability(event.show_ticket_availability === true);
       
       setInitialDataLoaded(true);
+
+      if (event.donation_config) {
+        setDonationConfig({
+          enabled: event.donation_config.enabled || false,
+          preset_amounts: event.donation_config.preset_amounts || [5, 10, 25, 50],
+          allow_custom_amount: event.donation_config.allow_custom_amount !== false,
+          custom_message: event.donation_config.custom_message || '',
+          email_list_key: event.donation_config.email_list_key || ''
+        });
+      }
 
       // Set isProgramEvent based on whether event has a program_tag
       const hasProgram = event.program_tag && event.program_tag !== "";
@@ -1088,7 +1124,8 @@ export default function EditEvent() {
       is_online: isOnlineEvent,
       status: eventTiming,
       event_state: eventState,
-      timezone: eventTimezone
+      timezone: eventTimezone,
+      donation_config: isDonationGloballyEnabled ? donationConfig : undefined
     };
 
     // Add ticket classes for one-off events
@@ -2644,6 +2681,151 @@ export default function EditEvent() {
               )}
             </CardContent>
           </Card>
+
+          {isDonationGloballyEnabled && (
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Gift className="h-5 w-5 text-pink-600" />
+                  Donation Configuration
+                </CardTitle>
+                <CardDescription>
+                  Configure the donation option shown to users during checkout
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="donation-event-toggle">Enable Donation for this Event</Label>
+                    <p className="text-xs text-slate-500">
+                      When enabled, users paying by card will be offered the chance to donate during checkout.
+                    </p>
+                  </div>
+                  <Switch
+                    id="donation-event-toggle"
+                    checked={donationConfig.enabled}
+                    onCheckedChange={(checked) => setDonationConfig(prev => ({ ...prev, enabled: checked }))}
+                    data-testid="switch-event-donation"
+                  />
+                </div>
+
+                {donationConfig.enabled && (
+                  <div className="space-y-5 pt-4 border-t border-slate-200">
+                    <div className="space-y-3">
+                      <Label>Preset Donation Amounts</Label>
+                      <p className="text-xs text-slate-500">
+                        These amounts will be shown as quick-select options on the donation modal.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {donationConfig.preset_amounts.map((amount, index) => (
+                          <Badge key={index} variant="secondary" className="text-sm gap-1.5">
+                            £{amount}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDonationConfig(prev => ({
+                                  ...prev,
+                                  preset_amounts: prev.preset_amounts.filter((_, i) => i !== index)
+                                }));
+                              }}
+                              className="ml-1 hover:text-red-600"
+                              data-testid={`button-remove-preset-amount-${index}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          placeholder="e.g., 100"
+                          value={newPresetAmount}
+                          onChange={(e) => setNewPresetAmount(e.target.value)}
+                          className="w-32"
+                          data-testid="input-new-preset-amount"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const val = parseFloat(newPresetAmount);
+                            if (val > 0 && !donationConfig.preset_amounts.includes(val)) {
+                              setDonationConfig(prev => ({
+                                ...prev,
+                                preset_amounts: [...prev.preset_amounts, val].sort((a, b) => a - b)
+                              }));
+                              setNewPresetAmount('');
+                            }
+                          }}
+                          data-testid="button-add-preset-amount"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label htmlFor="donation-custom-amount-toggle">Allow Custom Amount</Label>
+                        <p className="text-xs text-slate-500">
+                          Let donors enter any amount instead of choosing from presets.
+                        </p>
+                      </div>
+                      <Switch
+                        id="donation-custom-amount-toggle"
+                        checked={donationConfig.allow_custom_amount}
+                        onCheckedChange={(checked) => setDonationConfig(prev => ({ ...prev, allow_custom_amount: checked }))}
+                        data-testid="switch-donation-custom-amount"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="donation-custom-message">Custom Message</Label>
+                      <p className="text-xs text-slate-500">
+                        This message will be shown on the donation modal to encourage donations.
+                      </p>
+                      <Textarea
+                        id="donation-custom-message"
+                        value={donationConfig.custom_message}
+                        onChange={(e) => setDonationConfig(prev => ({ ...prev, custom_message: e.target.value }))}
+                        placeholder="e.g., Your donation helps us continue our important work..."
+                        rows={3}
+                        data-testid="textarea-donation-message"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="donation-email-list">Email Communication List</Label>
+                      <p className="text-xs text-slate-500">
+                        Donors will be added to this Zoho Campaigns mailing list.
+                      </p>
+                      <Select
+                        value={donationConfig.email_list_key || '_none'}
+                        onValueChange={(value) => setDonationConfig(prev => ({ ...prev, email_list_key: value === '_none' ? '' : value }))}
+                      >
+                        <SelectTrigger data-testid="select-donation-email-list">
+                          <SelectValue placeholder="Select a mailing list" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">No list</SelectItem>
+                          {zohoCampaignLists.map((list) => (
+                            <SelectItem key={list.listkey || list.listuniqid} value={list.listkey || list.listuniqid}>
+                              {list.listname}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Email Configuration Section */}
           <Card className="border-slate-200 shadow-sm mb-6">

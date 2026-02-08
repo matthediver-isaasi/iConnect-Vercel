@@ -17,6 +17,7 @@ import { createPageUrl } from "@/utils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
+import DonationModal from "./DonationModal";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 
 // Stripe promise will be initialized dynamically
@@ -159,6 +160,11 @@ export default function PaymentOptions({
   const [discountCodeInput, setDiscountCodeInput] = useState("");
   const [appliedDiscount, setAppliedDiscount] = useState(null);
   const [applyingDiscount, setApplyingDiscount] = useState(false);
+
+  // Donation state
+  const [showDonationModal, setShowDonationModal] = useState(false);
+  const [donationData, setDonationData] = useState(null);
+  const donationAmount = donationData?.amount || 0;
 
   const queryClient = useQueryClient();
 
@@ -466,38 +472,13 @@ export default function PaymentOptions({
         return;
       }
 
-      console.log('[PaymentOptions] Creating Stripe payment intent for amount:', remainingBalance);
-      setSubmitting(true);
-      try {
-        const response = await base44.functions.invoke('createStripePaymentIntent', {
-          amount: remainingBalance,
-          currency: 'gbp',
-          memberEmail: paymentEmail,
-          metadata: {
-            event_id: event.id,
-            event_title: event.title,
-            organization_id: organizationInfo?.id || null,
-            booking_type: isGuestCheckout ? 'guest_one_off_event' : 'one_off_event',
-            is_guest: isGuestCheckout ? 'true' : 'false'
-          }
-        });
-
-        console.log('[PaymentOptions] Stripe payment intent response:', response.data);
-        if (response.data.success) {
-          console.log('[PaymentOptions] Setting Stripe modal state to true');
-          setStripeClientSecret(response.data.clientSecret);
-          setStripePaymentIntentId(response.data.paymentIntentId);
-          setShowStripeModal(true);
-        } else {
-          console.error('[PaymentOptions] Stripe payment intent failed:', response.data.error);
-          toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
-        }
-      } catch (error) {
-        console.error("[PaymentOptions] Error creating Stripe Payment Intent:", error);
-        toast.error("Failed to initialize payment");
-      } finally {
-        setSubmitting(false);
+      const eventDonationEnabled = event?.donation_config?.enabled === true;
+      if (eventDonationEnabled && !donationData) {
+        setShowDonationModal(true);
+        return;
       }
+
+      await proceedToStripePayment(paymentEmail);
       return;
     }
 
@@ -510,6 +491,55 @@ export default function PaymentOptions({
     // Process the booking (for free events or when payment is fully covered)
     console.log('[PaymentOptions] Processing booking directly (no Stripe needed)', { remainingBalance, totalCost });
     await processOneOffBooking();
+  };
+
+  const proceedToStripePayment = async (paymentEmail, donationAmt = donationAmount) => {
+    const chargeAmount = remainingBalance + donationAmt;
+    console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount, '(event:', remainingBalance, '+ donation:', donationAmt, ')');
+    setSubmitting(true);
+    try {
+      const response = await base44.functions.invoke('createStripePaymentIntent', {
+        amount: chargeAmount,
+        currency: 'gbp',
+        memberEmail: paymentEmail,
+        metadata: {
+          event_id: event.id,
+          event_title: event.title,
+          organization_id: organizationInfo?.id || null,
+          booking_type: isGuestCheckout ? 'guest_one_off_event' : 'one_off_event',
+          is_guest: isGuestCheckout ? 'true' : 'false',
+          donation_amount: donationAmt > 0 ? donationAmt.toString() : undefined
+        }
+      });
+
+      console.log('[PaymentOptions] Stripe payment intent response:', response.data);
+      if (response.data.success) {
+        setStripeClientSecret(response.data.clientSecret);
+        setStripePaymentIntentId(response.data.paymentIntentId);
+        setShowStripeModal(true);
+      } else {
+        toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
+      }
+    } catch (error) {
+      console.error("[PaymentOptions] Error creating Stripe Payment Intent:", error);
+      toast.error("Failed to initialize payment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDonationConfirm = async (data) => {
+    setDonationData(data);
+    setShowDonationModal(false);
+    const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
+    await proceedToStripePayment(paymentEmail, data.amount || 0);
+  };
+
+  const handleDonationSkip = async () => {
+    setDonationData({ amount: 0, gift_aid: false, gift_aid_address: null });
+    setShowDonationModal(false);
+    const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
+    await proceedToStripePayment(paymentEmail, 0);
   };
 
   // Process one-off booking (after payment if needed)
@@ -538,7 +568,8 @@ export default function PaymentOptions({
         ticketClassPrice: selectedTicketClass?.price || ticketPrice,
         isGuestBooking: isGuestCheckout,
         discountCodeId: appliedDiscount?.discount_code_id || null,
-        discountCodeAmount: discountCodeSavings || 0
+        discountCodeAmount: discountCodeSavings || 0,
+        donationData: donationAmount > 0 ? donationData : null
       };
 
       // Add member-specific fields for logged-in users
@@ -1152,6 +1183,17 @@ export default function PaymentOptions({
         </CardContent>
       </Card>
 
+      {/* Donation Modal */}
+      {event?.donation_config?.enabled && (
+        <DonationModal
+          open={showDonationModal}
+          onOpenChange={setShowDonationModal}
+          donationConfig={event.donation_config}
+          onConfirm={handleDonationConfirm}
+          onSkip={handleDonationSkip}
+        />
+      )}
+
       {/* Stripe Payment Drawer */}
       <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col h-full">
@@ -1174,7 +1216,7 @@ export default function PaymentOptions({
                     setStripePaymentIntentId(null);
                     setSubmitting(false);
                   }}
-                  amount={remainingBalance}
+                  amount={remainingBalance + donationAmount}
                 />
               </Elements>
             )}
