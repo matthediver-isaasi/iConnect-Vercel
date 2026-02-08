@@ -552,16 +552,20 @@ Respond with a JSON object containing exactly two fields:
     return false;
   };
 
-  const renderPost = (post, isChild = false) => {
+  const MAX_NESTING_DEPTH = 5;
+
+  const renderPost = (post, depth = 0) => {
     const authorName = memberMap[post.created_by] || "Unknown";
     const postReactions = reactionsByPost[post.id] || [];
     const likeCount = postReactions.length;
     const hasLiked = postReactions.some((r) => r.member_id === memberInfo?.id);
     const isEditing = editingPostId === post.id;
+    const effectiveDepth = Math.min(depth, MAX_NESTING_DEPTH);
     const children = childPostsMap[post.id] || [];
 
     return (
-      <div key={post.id} className={isChild ? "ml-6 sm:ml-10" : ""} data-testid={`post-${post.id}`}>
+      <div key={post.id} data-testid={`post-${post.id}`}>
+        <div className={effectiveDepth > 0 ? "border-l-2 border-muted-foreground/20 pl-4 sm:pl-6" : ""}>
         <Card className={post.is_hidden ? "opacity-60" : ""}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
@@ -707,9 +711,10 @@ Respond with a JSON object containing exactly two fields:
 
         {children.length > 0 && (
           <div className="space-y-3 mt-3">
-            {children.map((child) => renderPost(child, true))}
+            {children.map((child) => renderPost(child, depth + 1))}
           </div>
         )}
+        </div>
       </div>
     );
   };
