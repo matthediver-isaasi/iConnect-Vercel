@@ -54,12 +54,69 @@ async function findMatchingMembers(emails) {
   return allMatches;
 }
 
+const DEPENDENT_TABLES = [
+  { table: 'member_group_assignment', col: 'member_id' },
+  { table: 'member_bookmark', col: 'member_id' },
+  { table: 'member_bookmark_preferences', col: 'member_id' },
+  { table: 'communication_preference', col: 'member_id' },
+  { table: 'preference_value', col: 'member_id' },
+  { table: 'event_booking', col: 'member_id' },
+  { table: 'due_diligence_response', col: 'member_id' },
+  { table: 'workflow_instance', col: 'member_id' },
+  { table: 'forum_reaction', col: 'member_id' },
+  { table: 'forum_report', col: 'reporter_id' },
+  { table: 'forum_post', col: 'author_id' },
+  { table: 'forum_thread', col: 'author_id' },
+  { table: 'fundraising_donation', col: 'member_id' },
+  { table: 'member_role', col: 'member_id' },
+];
+
+async function countDependentRecords(memberIds) {
+  const results = {};
+  for (const { table, col } of DEPENDENT_TABLES) {
+    let total = 0;
+    for (let i = 0; i < memberIds.length; i += 50) {
+      const batch = memberIds.slice(i, i + 50);
+      const { count, error } = await supabase
+        .from(table)
+        .select('*', { count: 'exact', head: true })
+        .in(col, batch);
+      if (error) {
+        results[table] = { count: 0, error: error.message };
+        break;
+      }
+      total += (count || 0);
+    }
+    if (!results[table]) results[table] = { count: total };
+  }
+  return results;
+}
+
+async function deleteDependentRecords(memberIds) {
+  console.log('  Cleaning up dependent records...');
+  for (const { table, col } of DEPENDENT_TABLES) {
+    for (let i = 0; i < memberIds.length; i += 50) {
+      const batch = memberIds.slice(i, i + 50);
+      const { error } = await supabase.from(table).delete().in(col, batch);
+      if (error && !error.message.includes('does not exist')) {
+        console.error(`  Warning: Error cleaning ${table}: ${error.message}`);
+      }
+    }
+  }
+  console.log('  Dependent records cleaned.');
+}
+
 async function deleteMembers(members) {
   const BATCH_SIZE = 20;
   let deletedCount = 0;
   let failedCount = 0;
   const failures = [];
 
+  const allIds = members.map(m => m.id);
+  await deleteDependentRecords(allIds);
+
+  console.log();
+  console.log('  Deleting member records...');
   for (let i = 0; i < members.length; i += BATCH_SIZE) {
     const batch = members.slice(i, i + BATCH_SIZE);
     const ids = batch.map(m => m.id);
@@ -70,9 +127,20 @@ async function deleteMembers(members) {
       .in('id', ids);
 
     if (error) {
-      console.error(`Error deleting batch starting at index ${i}:`, error.message);
-      failedCount += batch.length;
-      failures.push(...batch.map(m => ({ ...m, error: error.message })));
+      console.log(`  Batch ${Math.floor(i / BATCH_SIZE) + 1} failed, retrying individually...`);
+      for (const member of batch) {
+        const { error: individualError } = await supabase
+          .from('member')
+          .delete()
+          .eq('id', member.id);
+        if (individualError) {
+          console.error(`  Failed: ${member.email} — ${individualError.message}`);
+          failedCount++;
+          failures.push({ ...member, error: individualError.message });
+        } else {
+          deletedCount++;
+        }
+      }
     } else {
       deletedCount += batch.length;
       console.log(`  Deleted batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} members`);
@@ -144,11 +212,28 @@ async function main() {
   }
 
   if (notFound.length > 0) {
-    console.log('EMAILS NOT FOUND:');
+    console.log('EMAILS NOT FOUND (already deleted or not in database):');
     console.log('-'.repeat(70));
     notFound.forEach((email, i) => {
       console.log(`  ${String(i + 1).padStart(3)}. ${email}`);
     });
+    console.log();
+  }
+
+  if (matchedMembers.length > 0) {
+    const memberIds = matchedMembers.map(m => m.id);
+    console.log('DEPENDENT RECORDS (will be cleaned up before deletion):');
+    console.log('-'.repeat(70));
+    const depCounts = await countDependentRecords(memberIds);
+    for (const [table, info] of Object.entries(depCounts)) {
+      if (info.error) {
+        console.log(`  ${table.padEnd(35)} skipped (${info.error})`);
+      } else if (info.count > 0) {
+        console.log(`  ${table.padEnd(35)} ${info.count} records`);
+      }
+    }
+    const totalDep = Object.values(depCounts).reduce((sum, i) => sum + (i.count || 0), 0);
+    if (totalDep === 0) console.log('  (none found)');
     console.log();
   }
 
