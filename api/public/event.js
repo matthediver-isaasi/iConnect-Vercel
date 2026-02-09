@@ -47,11 +47,14 @@ export default async function handler(req, res) {
         event_type,
         is_online,
         available_seats,
-        donation_config
+        donation_config,
+        event_state,
+        program_tag,
+        registration_closes_at
       `)
       .eq('id', eventId)
       .eq('tenant_id', tenant.id)
-      .eq('status', 'published')
+      .in('status', ['published', 'tbc'])
       .single();
 
     if (error || !event) {
@@ -91,7 +94,10 @@ export default async function handler(req, res) {
       is_online: event.is_online,
       available_seats: event.available_seats,
       pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
-      donation_config: event.donation_config || null
+      donation_config: event.donation_config || null,
+      event_state: event.event_state,
+      program_tag: event.program_tag,
+      registration_closes_at: event.registration_closes_at
     };
 
     return res.status(200).json(publicEvent);
