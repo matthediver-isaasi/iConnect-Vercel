@@ -3,10 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Bookmark } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function BookmarkButton({ entityType, entityId, size = "icon", className = "" }) {
+  const { memberRole } = useMemberAccess();
   const { isBookmarked, toggleBookmark } = useBookmarks();
   const [isToggling, setIsToggling] = useState(false);
+
+  if (memberRole?.show_bookmarks === false) return null;
 
   const bookmarked = isBookmarked(entityType, entityId);
 

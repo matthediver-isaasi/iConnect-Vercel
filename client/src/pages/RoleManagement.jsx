@@ -419,6 +419,7 @@ export default function RoleManagementPage() {
       excluded_features: [],
       is_default: false,
       show_tours: true,
+      show_bookmarks: true,
       default_landing_page: "about-me",
       layout_theme: "default",
       segment_values: [],  // Initialize empty for new roles
@@ -471,6 +472,7 @@ export default function RoleManagementPage() {
       excluded_features: editingRole.excluded_features,
       is_default: editingRole.is_default,
       show_tours: editingRole.show_tours,
+      show_bookmarks: editingRole.show_bookmarks,
       default_landing_page: editingRole.default_landing_page || "about-me",
       layout_theme: editingRole.layout_theme || "default",
       requires_effective_from_date: editingRole.requires_effective_from_date || false,
@@ -601,6 +603,9 @@ export default function RoleManagementPage() {
                       <div className="flex gap-2 mt-2 flex-wrap">
                         {role.is_default && (
                           <Badge className="bg-green-100 text-green-700">Default Role</Badge>
+                        )}
+                        {role.show_bookmarks !== false && (
+                          <Badge className="bg-amber-100 text-amber-700">Bookmarks Enabled</Badge>
                         )}
                         {role.show_tours && (
                           <Badge className="bg-purple-100 text-purple-700">Tours Enabled</Badge>
@@ -944,10 +949,24 @@ export default function RoleManagementPage() {
                     </div>
                   )}
 
+                  <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                    <Switch
+                      id="show-bookmarks"
+                      checked={editingRole.show_bookmarks !== false}
+                      onCheckedChange={(checked) => setEditingRole({ ...editingRole, show_bookmarks: checked })}
+                    />
+                    <div className="flex-1">
+                      <Label htmlFor="show-bookmarks" className="cursor-pointer font-medium text-amber-900">Enable Bookmarks</Label>
+                      <p className="text-xs text-amber-700 mt-1">
+                        Allow users with this role to bookmark content and access the bookmarks drawer
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-3 p-4 bg-purple-50 rounded-lg border border-purple-200">
                     <Switch
                       id="show-tours"
-                      checked={editingRole.show_tours !== false} // Ensure it's true if undefined/null, false only if explicitly false
+                      checked={editingRole.show_tours !== false}
                       onCheckedChange={(checked) => setEditingRole({ ...editingRole, show_tours: checked })}
                     />
                     <div className="flex-1">

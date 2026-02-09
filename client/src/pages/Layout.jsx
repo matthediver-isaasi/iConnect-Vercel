@@ -2453,7 +2453,7 @@ useEffect(() => {
         </div>
       </SidebarProvider>
       
-      {memberInfo && (
+      {memberInfo && memberRole?.show_bookmarks !== false && (
         <>
           <Button
             variant="default"
