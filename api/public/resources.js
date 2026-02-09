@@ -40,7 +40,6 @@ export default async function handler(req, res) {
         target_url,
         resource_type,
         release_date,
-        published_date,
         author_name,
         subcategories,
         tags,
