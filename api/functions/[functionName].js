@@ -2620,7 +2620,46 @@ const functionHandlers = {
         // Don't fail the booking, just log the error
       }
     } else if (hasDonationListConfig && !member?.id) {
-      console.log(`[createOneOffEventBooking] Skipping email list subscription - guest booking (no member_id)`);
+      const emailListCategoryId = event.donation_config.email_list_key;
+      const guestEmail = guestInfo?.email || bookingAttendees?.[0]?.email;
+      const guestFirstName = guestInfo?.first_name || bookingAttendees?.[0]?.first_name || null;
+      const guestLastName = guestInfo?.last_name || bookingAttendees?.[0]?.last_name || null;
+
+      if (guestEmail) {
+        console.log(`[createOneOffEventBooking] Guest booking - subscribing ${guestEmail} to donation email list via email_subscriber`);
+        try {
+          const { data: category } = await supabase
+            .from('communication_category')
+            .select('id')
+            .eq('id', emailListCategoryId)
+            .eq('tenant_id', event.tenant_id)
+            .maybeSingle();
+
+          if (category) {
+            await supabase
+              .from('email_subscriber')
+              .upsert({
+                tenant_id: event.tenant_id,
+                email: guestEmail.toLowerCase(),
+                first_name: guestFirstName,
+                last_name: guestLastName,
+                communication_category_id: emailListCategoryId,
+                opted_out: false,
+                subscribed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }, {
+                onConflict: 'tenant_id,email,communication_category_id'
+              });
+            console.log(`[createOneOffEventBooking] Guest ${guestEmail} subscribed to donation email list ${emailListCategoryId}`);
+          } else {
+            console.warn(`[createOneOffEventBooking] Communication category ${emailListCategoryId} not found for tenant ${event.tenant_id} - skipping guest subscription`);
+          }
+        } catch (guestSubError) {
+          console.error(`[createOneOffEventBooking] Failed to subscribe guest to donation email list:`, guestSubError.message);
+        }
+      } else {
+        console.log(`[createOneOffEventBooking] Guest booking but no email available - skipping email list subscription`);
+      }
     }
 
     const response = {

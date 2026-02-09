@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink, Send } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink, Send, Globe } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -121,6 +121,17 @@ export default function CommunicationsManagementPage() {
     queryKey: ['all-members-for-export'],
     queryFn: () => base44.entities.Member.listAll(),
     staleTime: 60000,
+  });
+
+  const { data: externalSubscriberCounts = {} } = useQuery({
+    queryKey: ['external-subscriber-counts'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/external-subscribers', { credentials: 'include' });
+      if (!response.ok) return {};
+      const data = await response.json();
+      return data.counts || {};
+    },
+    staleTime: 30000,
   });
 
   const { data: zohoStatus, isLoading: zohoStatusLoading } = useQuery({
@@ -310,9 +321,70 @@ export default function CommunicationsManagementPage() {
     return getSubscribersForCategory(categoryId).length;
   };
 
+  const getExternalSubscriberCount = (categoryId) => {
+    return externalSubscriberCounts[categoryId] || 0;
+  };
+
+  const getTotalSubscriberCount = (categoryId) => {
+    return getSubscriberCount(categoryId) + getExternalSubscriberCount(categoryId);
+  };
+
+  const [subscriberTab, setSubscriberTab] = useState('members');
+  const [externalSubscribers, setExternalSubscribers] = useState([]);
+  const [externalSubscribersTotal, setExternalSubscribersTotal] = useState(0);
+  const [externalSubscribersPage, setExternalSubscribersPage] = useState(1);
+  const [loadingExternalSubscribers, setLoadingExternalSubscribers] = useState(false);
+  const [removingSubscriberId, setRemovingSubscriberId] = useState(null);
+
+  const fetchExternalSubscribers = async (categoryId, page = 1) => {
+    setLoadingExternalSubscribers(true);
+    try {
+      const response = await fetch(`/api/admin/external-subscribers?category_id=${categoryId}&page=${page}&per_page=${SUBSCRIBERS_PER_PAGE}`, {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setExternalSubscribers(data.subscribers || []);
+        setExternalSubscribersTotal(data.total || 0);
+        setExternalSubscribersPage(page);
+      }
+    } catch (error) {
+      console.error('Error fetching external subscribers:', error);
+    } finally {
+      setLoadingExternalSubscribers(false);
+    }
+  };
+
+  const handleRemoveExternalSubscriber = async (subscriberId) => {
+    setRemovingSubscriberId(subscriberId);
+    try {
+      const response = await fetch('/api/admin/external-subscribers', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriber_id: subscriberId })
+      });
+      if (response.ok) {
+        toast.success('External subscriber removed');
+        setExternalSubscribers(prev => prev.filter(s => s.id !== subscriberId));
+        setExternalSubscribersTotal(prev => prev - 1);
+        queryClient.invalidateQueries({ queryKey: ['external-subscriber-counts'] });
+      } else {
+        toast.error('Failed to remove subscriber');
+      }
+    } catch (error) {
+      toast.error('Failed to remove subscriber');
+    } finally {
+      setRemovingSubscriberId(null);
+    }
+  };
+
   const openSubscribersView = (category) => {
     setViewingCategory(category);
     setSubscribersPage(1);
+    setSubscriberTab('members');
+    setExternalSubscribers([]);
+    setExternalSubscribersTotal(0);
     setShowSubscribersDialog(true);
   };
 
@@ -329,29 +401,52 @@ export default function CommunicationsManagementPage() {
   const handleExportSubscribers = async (category) => {
     setExportingCategory(category.id);
     try {
-      const subscribers = getSubscribersForCategory(category.id);
+      const memberSubscribers = getSubscribersForCategory(category.id);
       
-      if (subscribers.length === 0) {
+      let extSubs = [];
+      try {
+        const response = await fetch(`/api/admin/external-subscribers?category_id=${category.id}&page=1&per_page=10000`, {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          extSubs = data.subscribers || [];
+        }
+      } catch (e) {
+        console.error('Error fetching external subscribers for export:', e);
+      }
+
+      if (memberSubscribers.length === 0 && extSubs.length === 0) {
         toast.info('No subscribers to export for this category');
         setExportingCategory(null);
         return;
       }
 
-      const headers = ['Name', 'Organisation', 'Job Title', 'Email'];
+      const headers = ['Name', 'Organisation', 'Job Title', 'Email', 'Type'];
       
-      const rows = subscribers.map(member => {
+      const memberRows = memberSubscribers.map(member => {
         const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A';
         const org = member.organization_name || 'N/A';
         const jobTitle = member.job_title || 'N/A';
         const email = member.email || 'N/A';
         
-        return [name, org, jobTitle, email].map(val => {
+        return [name, org, jobTitle, email, 'Member'].map(val => {
           const escaped = String(val).replace(/"/g, '""');
           return `"${escaped}"`;
         }).join(',');
       });
 
-      const csvContent = [headers.join(','), ...rows].join('\n');
+      const externalRows = extSubs.map(sub => {
+        const name = [sub.first_name, sub.last_name].filter(Boolean).join(' ') || 'N/A';
+        const email = sub.email || 'N/A';
+        
+        return [name, 'N/A', 'N/A', email, 'External'].map(val => {
+          const escaped = String(val).replace(/"/g, '""');
+          return `"${escaped}"`;
+        }).join(',');
+      });
+
+      const csvContent = [headers.join(','), ...memberRows, ...externalRows].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       
@@ -365,7 +460,8 @@ export default function CommunicationsManagementPage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      toast.success(`Exported ${subscribers.length} subscribers`);
+      const totalExported = memberSubscribers.length + extSubs.length;
+      toast.success(`Exported ${totalExported} subscribers (${memberSubscribers.length} members, ${extSubs.length} external)`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export subscribers');
@@ -750,6 +846,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 {categories.map((category) => {
                   const assignedRoles = getCategoryRoles(category.id);
                   const subscriberCount = getSubscriberCount(category.id);
+                  const externalCount = getExternalSubscriberCount(category.id);
+                  const totalCount = subscriberCount + externalCount;
                   
                   return (
                     <Card 
@@ -815,15 +913,18 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   title={membersLoading ? 'Loading members...' : 'View subscribers'}
                                   data-testid={`button-view-subscribers-${category.id}`}
                                 >
-                                  <span className="font-medium text-slate-900 hover:text-blue-600">{subscriberCount}</span> subscribers
+                                  <span className="font-medium text-slate-900 hover:text-blue-600">{totalCount}</span> subscribers
+                                  {externalCount > 0 && (
+                                    <span className="text-xs text-slate-400 ml-1">({subscriberCount} members, {externalCount} external)</span>
+                                  )}
                                 </button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                   onClick={() => handleExportSubscribers(category)}
-                                  disabled={exportingCategory === category.id || subscriberCount === 0 || membersLoading}
-                                  title={membersLoading ? 'Loading members...' : subscriberCount === 0 ? 'No subscribers to export' : 'Export subscribers to CSV'}
+                                  disabled={exportingCategory === category.id || totalCount === 0 || membersLoading}
+                                  title={membersLoading ? 'Loading members...' : totalCount === 0 ? 'No subscribers to export' : 'Export subscribers to CSV'}
                                   data-testid={`button-export-category-${category.id}`}
                                 >
                                   {exportingCategory === category.id || membersLoading ? (
@@ -1096,8 +1197,13 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   </DialogTitle>
                   <DialogDescription id="subscribers-dialog-description" className="mt-1">
                     {(() => {
-                      const { total } = getPaginatedSubscribers();
-                      return `${total} member${total !== 1 ? 's' : ''} subscribed to this category`;
+                      const memberCount = viewingCategory ? getSubscriberCount(viewingCategory.id) : 0;
+                      const extCount = viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0;
+                      const total = memberCount + extCount;
+                      if (extCount > 0) {
+                        return `${total} total subscribers (${memberCount} members, ${extCount} external)`;
+                      }
+                      return `${memberCount} member${memberCount !== 1 ? 's' : ''} subscribed to this category`;
                     })()}
                   </DialogDescription>
                 </div>
@@ -1120,96 +1226,210 @@ CREATE POLICY "Service role has full access to member_communication_preference"
             </DialogHeader>
             
             <div className="flex-1 overflow-auto mt-4">
-              {membersLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
-                  <span className="text-slate-600">Loading members...</span>
-                </div>
-              ) : (
-                <>
-                  {(() => {
-                    const { subscribers, totalPages, total } = getPaginatedSubscribers();
-                    
-                    if (total === 0) {
-                      return (
-                        <div className="text-center py-12">
-                          <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                          <p className="text-slate-600">No subscribers for this category</p>
-                        </div>
-                      );
-                    }
-                    
-                    return (
-                      <>
-                        <p className="text-xs text-slate-500 mb-3">Click on a member to edit their details</p>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Name</TableHead>
-                              <TableHead>Organisation</TableHead>
-                              <TableHead>Job Title</TableHead>
-                              <TableHead>Email</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {subscribers.map((member) => (
-                              <TableRow 
-                                key={member.id} 
-                                data-testid={`row-subscriber-${member.id}`}
-                                className="cursor-pointer hover:bg-blue-50 transition-colors"
-                                onClick={() => {
-                                  setShowSubscribersDialog(false);
-                                  navigate(`/AdminMemberEdit?id=${member.id}`);
-                                }}
-                              >
-                                <TableCell className="font-medium text-blue-600 hover:text-blue-700">
-                                  {[member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A'}
-                                </TableCell>
-                                <TableCell>{member.organization_name || 'N/A'}</TableCell>
-                                <TableCell>{member.job_title || 'N/A'}</TableCell>
-                                <TableCell className="text-slate-600">{member.email || 'N/A'}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+              <Tabs value={subscriberTab} onValueChange={(val) => {
+                setSubscriberTab(val);
+                if (val === 'external' && viewingCategory) {
+                  fetchExternalSubscribers(viewingCategory.id, 1);
+                }
+              }}>
+                <TabsList className="mb-4" data-testid="tabs-subscriber-type">
+                  <TabsTrigger value="members" data-testid="tab-members">
+                    <Users className="w-4 h-4 mr-1" />
+                    Members ({viewingCategory ? getSubscriberCount(viewingCategory.id) : 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="external" data-testid="tab-external">
+                    <Globe className="w-4 h-4 mr-1" />
+                    External ({viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0})
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="members">
+                  {membersLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
+                      <span className="text-slate-600">Loading members...</span>
+                    </div>
+                  ) : (
+                    <>
+                      {(() => {
+                        const { subscribers, totalPages, total } = getPaginatedSubscribers();
                         
-                        {totalPages > 1 && (
+                        if (total === 0) {
+                          return (
+                            <div className="text-center py-12">
+                              <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                              <p className="text-slate-600">No member subscribers for this category</p>
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <>
+                            <p className="text-xs text-slate-500 mb-3">Click on a member to edit their details</p>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Name</TableHead>
+                                  <TableHead>Organisation</TableHead>
+                                  <TableHead>Job Title</TableHead>
+                                  <TableHead>Email</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {subscribers.map((member) => (
+                                  <TableRow 
+                                    key={member.id} 
+                                    data-testid={`row-subscriber-${member.id}`}
+                                    className="cursor-pointer hover:bg-blue-50 transition-colors"
+                                    onClick={() => {
+                                      setShowSubscribersDialog(false);
+                                      navigate(`/AdminMemberEdit?id=${member.id}`);
+                                    }}
+                                  >
+                                    <TableCell className="font-medium text-blue-600 hover:text-blue-700">
+                                      {[member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A'}
+                                    </TableCell>
+                                    <TableCell>{member.organization_name || 'N/A'}</TableCell>
+                                    <TableCell>{member.job_title || 'N/A'}</TableCell>
+                                    <TableCell className="text-slate-600">{member.email || 'N/A'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                            
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                <div className="text-sm text-slate-600">
+                                  Showing {((subscribersPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(subscribersPage * SUBSCRIBERS_PER_PAGE, total)} of {total}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setSubscribersPage(p => Math.max(1, p - 1))}
+                                    disabled={subscribersPage === 1}
+                                    data-testid="button-prev-page"
+                                  >
+                                    <ChevronLeft className="w-4 h-4" />
+                                    Previous
+                                  </Button>
+                                  <span className="text-sm text-slate-600 px-2">
+                                    Page {subscribersPage} of {totalPages}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setSubscribersPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={subscribersPage === totalPages}
+                                    data-testid="button-next-page"
+                                  >
+                                    Next
+                                    <ChevronRight className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="external">
+                  {loadingExternalSubscribers ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
+                      <span className="text-slate-600">Loading external subscribers...</span>
+                    </div>
+                  ) : externalSubscribersTotal === 0 ? (
+                    <div className="text-center py-12">
+                      <Globe className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No external subscribers for this category</p>
+                      <p className="text-xs text-slate-400 mt-1">External subscribers are non-members who subscribed via public forms, event donations, or direct signup</p>
+                    </div>
+                  ) : (
+                    <>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Subscribed</TableHead>
+                            <TableHead className="w-[80px]"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {externalSubscribers.map((sub) => (
+                            <TableRow key={sub.id} data-testid={`row-external-subscriber-${sub.id}`}>
+                              <TableCell className="font-medium">
+                                {[sub.first_name, sub.last_name].filter(Boolean).join(' ') || 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-slate-600">{sub.email}</TableCell>
+                              <TableCell className="text-slate-500 text-sm">
+                                {sub.subscribed_at ? new Date(sub.subscribed_at).toLocaleDateString() : 'N/A'}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleRemoveExternalSubscriber(sub.id)}
+                                  disabled={removingSubscriberId === sub.id}
+                                  title="Remove subscriber"
+                                  data-testid={`button-remove-external-${sub.id}`}
+                                >
+                                  {removingSubscriberId === sub.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                  )}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+
+                      {(() => {
+                        const extTotalPages = Math.ceil(externalSubscribersTotal / SUBSCRIBERS_PER_PAGE);
+                        if (extTotalPages <= 1) return null;
+                        return (
                           <div className="flex items-center justify-between mt-4 pt-4 border-t">
                             <div className="text-sm text-slate-600">
-                              Showing {((subscribersPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(subscribersPage * SUBSCRIBERS_PER_PAGE, total)} of {total}
+                              Showing {((externalSubscribersPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(externalSubscribersPage * SUBSCRIBERS_PER_PAGE, externalSubscribersTotal)} of {externalSubscribersTotal}
                             </div>
                             <div className="flex items-center gap-2">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setSubscribersPage(p => Math.max(1, p - 1))}
-                                disabled={subscribersPage === 1}
-                                data-testid="button-prev-page"
+                                onClick={() => viewingCategory && fetchExternalSubscribers(viewingCategory.id, externalSubscribersPage - 1)}
+                                disabled={externalSubscribersPage === 1}
+                                data-testid="button-ext-prev-page"
                               >
                                 <ChevronLeft className="w-4 h-4" />
                                 Previous
                               </Button>
                               <span className="text-sm text-slate-600 px-2">
-                                Page {subscribersPage} of {totalPages}
+                                Page {externalSubscribersPage} of {extTotalPages}
                               </span>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setSubscribersPage(p => Math.min(totalPages, p + 1))}
-                                disabled={subscribersPage === totalPages}
-                                data-testid="button-next-page"
+                                onClick={() => viewingCategory && fetchExternalSubscribers(viewingCategory.id, externalSubscribersPage + 1)}
+                                disabled={externalSubscribersPage === extTotalPages}
+                                data-testid="button-ext-next-page"
                               >
                                 Next
                                 <ChevronRight className="w-4 h-4" />
                               </Button>
                             </div>
                           </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </>
-              )}
+                        );
+                      })()}
+                    </>
+                  )}
+                </TabsContent>
+              </Tabs>
             </div>
           </DialogContent>
         </Dialog>
