@@ -1471,7 +1471,8 @@ const functionHandlers = {
       isGuestBooking = false,
       guestInfo = null,
       discountCodeId = null,
-      discountCodeAmount = 0
+      discountCodeAmount = 0,
+      donationData = null
     } = params;
 
     console.log('[createOneOffEventBooking] Starting booking:', {
@@ -2564,6 +2565,50 @@ const functionHandlers = {
     
     if (emailResults.length > 0) {
       console.log(`[createOneOffEventBooking] Sent ${emailResults.filter(r => r.success).length}/${emailResults.length} confirmation emails`);
+    }
+
+    // Subscribe donor to email communication list if donation was made and email_list_key is configured
+    if (event.donation_config?.email_list_key && donationData && member?.id) {
+      const emailListCategoryId = event.donation_config.email_list_key;
+      console.log(`[createOneOffEventBooking] Subscribing member ${member.id} to donation email list: ${emailListCategoryId}`);
+      
+      try {
+        // Check if preference already exists
+        const { data: existingPref } = await supabase
+          .from('member_communication_preference')
+          .select('id, is_subscribed')
+          .eq('member_id', member.id)
+          .eq('category_id', emailListCategoryId)
+          .maybeSingle();
+
+        if (existingPref) {
+          if (!existingPref.is_subscribed) {
+            // Update existing preference to subscribed
+            await supabase
+              .from('member_communication_preference')
+              .update({ is_subscribed: true })
+              .eq('id', existingPref.id);
+            console.log(`[createOneOffEventBooking] Updated existing preference to subscribed for member ${member.id}`);
+          } else {
+            console.log(`[createOneOffEventBooking] Member ${member.id} already subscribed to list ${emailListCategoryId}`);
+          }
+        } else {
+          // Insert new preference
+          await supabase
+            .from('member_communication_preference')
+            .insert({
+              member_id: member.id,
+              category_id: emailListCategoryId,
+              is_subscribed: true
+            });
+          console.log(`[createOneOffEventBooking] Created new subscription for member ${member.id} to list ${emailListCategoryId}`);
+        }
+      } catch (commPrefError) {
+        console.error(`[createOneOffEventBooking] Failed to subscribe member to donation email list:`, commPrefError.message);
+        // Don't fail the booking, just log the error
+      }
+    } else if (event.donation_config?.email_list_key && donationData && !member?.id) {
+      console.log(`[createOneOffEventBooking] Skipping email list subscription - guest booking (no member_id)`);
     }
 
     const response = {
