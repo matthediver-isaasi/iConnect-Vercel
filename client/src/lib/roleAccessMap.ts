@@ -331,6 +331,17 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "fundraising",
+    label: "Fundraising",
+    icon: "CreditCard",
+    pages: [
+      {
+        id: "fundraising.fundraising-management",
+        label: "Fundraising Management"
+      }
+    ]
+  },
+  {
     id: "jobs",
     label: "Job Board",
     icon: "Briefcase",

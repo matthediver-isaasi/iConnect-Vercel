@@ -117,4 +117,5 @@ export const PAGE_NAMES = [
   "Forum",
   "ForumThread",
   "ForumManagement",
+  "FundraisingManagement",
 ];

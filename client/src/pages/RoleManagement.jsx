@@ -255,6 +255,7 @@ export default function RoleManagementPage() {
     TagManagement: "Tag Management",
     FileManagement: "File Management",
     AwardManagement: "Award Management",
+    FundraisingManagement: "Fundraising Management",
     JobPostingManagement: "Job Posting Management",
     JobBoardSettings: "Job Board Settings",
     IEditPageManagement: "Page Builder",
