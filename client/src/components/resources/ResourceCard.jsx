@@ -68,11 +68,18 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
   };
 
   const handleResourceClick = () => {
+    if (!resource.target_url) {
+      if (resource.login_redirect_url) {
+        window.location.href = resource.login_redirect_url;
+      }
+      return;
+    }
     window.open(resource.target_url, '_blank', 'noopener,noreferrer');
   };
 
   const handleShare = async (platform) => {
-    const url = encodeURIComponent(resource.target_url);
+    const shareUrl = resource.target_url || resource.login_redirect_url || '';
+    const url = encodeURIComponent(shareUrl);
     const title = encodeURIComponent(resource.title);
     const description = encodeURIComponent(resource.description || '');
 
@@ -88,7 +95,7 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
         break;
       case 'copy':
         try {
-          await navigator.clipboard.writeText(resource.target_url);
+          await navigator.clipboard.writeText(shareUrl);
           setCopied(true);
           toast.success('Link copied to clipboard');
           setTimeout(() => setCopied(false), 2000);

@@ -37,11 +37,16 @@ export default async function handler(req, res) {
         title,
         description,
         image_url,
+        target_url,
         resource_type,
         release_date,
+        published_date,
+        author_name,
         subcategories,
         tags,
-        is_public
+        is_public,
+        open_in_new_tab,
+        allowed_role_ids
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
@@ -52,7 +57,17 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch resources' });
     }
 
-    res.json(resources || []);
+    const tenant_domain = tenant.domain || `${tenant.slug}.iconn.app`;
+    const publicResources = (resources || []).map(r => ({
+      ...r,
+      target_url: r.is_public ? r.target_url : null,
+      is_locked: !r.is_public,
+      login_redirect_url: !r.is_public
+        ? `https://${tenant_domain}/login?returnTo=/resources&resourceId=${r.id}`
+        : null
+    }));
+
+    res.json(publicResources);
   } catch (error) {
     console.error('[Public Resources] Error:', error);
     res.status(500).json({ error: 'Failed to fetch resources' });
