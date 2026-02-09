@@ -2567,47 +2567,59 @@ const functionHandlers = {
       console.log(`[createOneOffEventBooking] Sent ${emailResults.filter(r => r.success).length}/${emailResults.length} confirmation emails`);
     }
 
-    // Subscribe donor to email communication list if donation was made and email_list_key is configured
-    if (event.donation_config?.email_list_key && donationData && member?.id) {
+    // Subscribe donor to email communication list if donation_config has email_list_key and registrant is a member
+    // Trigger on: event has donate mode enabled with a list configured, AND either a donation was made or event is in donate mode
+    const hasDonationListConfig = event.donation_config?.enabled && event.donation_config?.email_list_key;
+    if (hasDonationListConfig && member?.id) {
       const emailListCategoryId = event.donation_config.email_list_key;
-      console.log(`[createOneOffEventBooking] Subscribing member ${member.id} to donation email list: ${emailListCategoryId}`);
+      console.log(`[createOneOffEventBooking] Checking donation email list subscription for member ${member.id}, category: ${emailListCategoryId}`);
       
       try {
-        // Check if preference already exists
-        const { data: existingPref } = await supabase
-          .from('member_communication_preference')
-          .select('id, is_subscribed')
-          .eq('member_id', member.id)
-          .eq('category_id', emailListCategoryId)
+        // Validate that the communication category belongs to this event's tenant
+        const { data: category, error: catError } = await supabase
+          .from('communication_category')
+          .select('id')
+          .eq('id', emailListCategoryId)
+          .eq('tenant_id', event.tenant_id)
           .maybeSingle();
 
-        if (existingPref) {
-          if (!existingPref.is_subscribed) {
-            // Update existing preference to subscribed
+        if (!category || catError) {
+          console.warn(`[createOneOffEventBooking] Communication category ${emailListCategoryId} not found for tenant ${event.tenant_id} - skipping subscription`);
+        } else {
+          // Check if preference already exists
+          const { data: existingPref } = await supabase
+            .from('member_communication_preference')
+            .select('id, is_subscribed')
+            .eq('member_id', member.id)
+            .eq('category_id', emailListCategoryId)
+            .maybeSingle();
+
+          if (existingPref) {
+            if (!existingPref.is_subscribed) {
+              await supabase
+                .from('member_communication_preference')
+                .update({ is_subscribed: true })
+                .eq('id', existingPref.id);
+              console.log(`[createOneOffEventBooking] Updated existing preference to subscribed for member ${member.id}`);
+            } else {
+              console.log(`[createOneOffEventBooking] Member ${member.id} already subscribed to list ${emailListCategoryId}`);
+            }
+          } else {
             await supabase
               .from('member_communication_preference')
-              .update({ is_subscribed: true })
-              .eq('id', existingPref.id);
-            console.log(`[createOneOffEventBooking] Updated existing preference to subscribed for member ${member.id}`);
-          } else {
-            console.log(`[createOneOffEventBooking] Member ${member.id} already subscribed to list ${emailListCategoryId}`);
+              .insert({
+                member_id: member.id,
+                category_id: emailListCategoryId,
+                is_subscribed: true
+              });
+            console.log(`[createOneOffEventBooking] Created new subscription for member ${member.id} to list ${emailListCategoryId}`);
           }
-        } else {
-          // Insert new preference
-          await supabase
-            .from('member_communication_preference')
-            .insert({
-              member_id: member.id,
-              category_id: emailListCategoryId,
-              is_subscribed: true
-            });
-          console.log(`[createOneOffEventBooking] Created new subscription for member ${member.id} to list ${emailListCategoryId}`);
         }
       } catch (commPrefError) {
         console.error(`[createOneOffEventBooking] Failed to subscribe member to donation email list:`, commPrefError.message);
         // Don't fail the booking, just log the error
       }
-    } else if (event.donation_config?.email_list_key && donationData && !member?.id) {
+    } else if (hasDonationListConfig && !member?.id) {
       console.log(`[createOneOffEventBooking] Skipping email list subscription - guest booking (no member_id)`);
     }
 
