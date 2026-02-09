@@ -233,8 +233,10 @@ export default function ArticleViewPage() {
   const { data: viewCount = 0 } = useQuery({
     queryKey: ['article-view-count', article?.id],
     queryFn: async () => {
-      const views = await base44.entities.ArticleView.list();
-      return views.filter(v => v.article_id === article.id).length;
+      const views = await base44.entities.ArticleView.listAll({
+        filter: { article_id: article.id }
+      });
+      return views.length;
     },
     enabled: isAuthenticated && !!article?.id,
     staleTime: 10 * 1000,
@@ -497,10 +499,10 @@ export default function ArticleViewPage() {
       if (!isAuthenticated || !article || !userIdentifier || viewRecorded) return;
 
       // Check if this user has already viewed this article
-      const existingViews = await base44.entities.ArticleView.list();
-      const hasViewed = existingViews.some(
-        v => v.article_id === article.id && v.user_identifier === userIdentifier
-      );
+      const existingViews = await base44.entities.ArticleView.list({
+        filter: { article_id: article.id, user_identifier: userIdentifier }
+      });
+      const hasViewed = existingViews.length > 0;
 
       if (!hasViewed) {
         await base44.entities.ArticleView.create({
