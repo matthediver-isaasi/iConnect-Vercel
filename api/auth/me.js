@@ -1,4 +1,4 @@
-import { getSessionMember } from '../_lib/session.js';
+import { getSession, getSessionMember } from '../_lib/session.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { supabase } from '../_lib/database.js';
 
@@ -83,8 +83,11 @@ export default async function handler(req, res) {
     
     console.log('[Auth Me] Final hasTenantUserLink:', hasTenantUserLink, 'for member:', member.id);
 
-    // Return member with permission flags
-    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink });
+    const session = await getSession(req);
+    const isMasquerading = session?.data?.isMasquerading === true;
+    const masqueradeAdminName = isMasquerading ? session.data.masqueradeAdminName : null;
+
+    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName });
   } catch (error) {
     console.error('Auth me error:', error);
     return res.status(500).json({ error: 'Failed to get user' });

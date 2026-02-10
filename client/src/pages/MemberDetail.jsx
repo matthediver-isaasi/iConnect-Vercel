@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -112,6 +112,36 @@ export default function MemberDetail() {
     }
   };
   
+  const [isMasquerading, setIsMasquerading] = useState(false);
+
+  const handleMasquerade = async () => {
+    if (!member?.id) return;
+    
+    setIsMasquerading(true);
+    try {
+      const response = await fetch('/api/auth/masquerade', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId: member.id }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to start masquerade');
+      }
+      
+      toast.success(`Now viewing as ${member.first_name} ${member.last_name}`);
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Error starting masquerade:', error);
+      toast.error(error.message || 'Failed to masquerade as member');
+    } finally {
+      setIsMasquerading(false);
+    }
+  };
+
   // Handler for copying reset link to clipboard
   const handleCopyResetLink = async () => {
     if (!generatedResetLink) return;
@@ -771,6 +801,29 @@ export default function MemberDetail() {
                               </div>
                             </div>
                           )}
+                        </div>
+                      </>
+                    )}
+                    {/* Masquerade Section */}
+                    {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.masquerade') && (
+                      <>
+                        <Separator />
+                        <div className="pt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleMasquerade}
+                            disabled={isMasquerading}
+                            className="w-full"
+                            data-testid="button-masquerade"
+                          >
+                            {isMasquerading ? (
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                              <UserCheck className="w-4 h-4 mr-2" />
+                            )}
+                            Masquerade as Member
+                          </Button>
                         </div>
                       </>
                     )}

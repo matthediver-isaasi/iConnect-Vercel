@@ -2398,6 +2398,40 @@ useEffect(() => {
             </Sheet>
 
             {!isFeatureExcluded('element_NewsTickerBar') && <NewsTickerBar />}
+            {memberInfo?.isMasquerading && (
+              <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-between gap-4 flex-shrink-0 z-50" data-testid="banner-masquerade">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Eye className="w-4 h-4" />
+                  <span>You are viewing as <strong>{memberInfo.first_name} {memberInfo.last_name}</strong></span>
+                  {memberInfo.masqueradeAdminName && (
+                    <span className="opacity-80">— logged in by {memberInfo.masqueradeAdminName}</span>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-white/20 border-white/40 text-white"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch('/api/auth/end-masquerade', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                      });
+                      if (response.ok) {
+                        window.location.href = '/admin/dashboard';
+                      }
+                    } catch (error) {
+                      console.error('Failed to end masquerade:', error);
+                    }
+                  }}
+                  data-testid="button-end-masquerade"
+                >
+                  <LogOut className="w-4 h-4 mr-1" />
+                  Return to Admin
+                </Button>
+              </div>
+            )}
             <main ref={mainContentRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain">
               {/* Render ALL top banners with appropriate component based on banner_type */}
               {topBanners.length > 0 && (
