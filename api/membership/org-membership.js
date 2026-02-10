@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -235,11 +236,22 @@ async function handleGet(req, res, tenantId) {
   const currentYear = calculateMembershipYear(config);
   const nextYear = calculateNextMembershipYear(config);
 
-  const annualCost = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
+  const annualCostRaw = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
+  let annualCost = annualCostRaw;
   let freeDiscount = 0;
   let adjustedAnnual = annualCost;
+  let customDiscountTotal = 0;
+  let customDiscountDetails = [];
 
   if (annualCost !== null) {
+    const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
+    if (discountResult.discountDetails.length > 0) {
+      const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
+      customDiscountTotal = applied.totalDiscount;
+      customDiscountDetails = applied.appliedDiscounts;
+      annualCost = applied.discountedCost;
+    }
+
     freeDiscount = calculateFreePeriodDiscount(annualCost, config);
     adjustedAnnual = annualCost - freeDiscount;
   }
@@ -361,6 +373,9 @@ async function handleGet(req, res, tenantId) {
       minValue: parseFloat(matchedBand.min_value),
       maxValue: matchedBand.max_value !== null ? parseFloat(matchedBand.max_value) : null,
       annualCost,
+      annualCostBeforeDiscounts: annualCostRaw,
+      customDiscountTotal,
+      customDiscountDetails,
     } : null,
     fieldValue,
     fieldLabel,
@@ -486,7 +501,18 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Organisation does not match any tier band' });
   }
 
-  const annualCost = parseFloat(matchedBand.annual_cost);
+  let annualCost = parseFloat(matchedBand.annual_cost);
+  let customDiscountTotal = 0;
+  let customDiscountDetails = [];
+
+  const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
+  if (discountResult.discountDetails.length > 0) {
+    const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
+    customDiscountTotal = applied.totalDiscount;
+    customDiscountDetails = applied.appliedDiscounts;
+    annualCost = applied.discountedCost;
+  }
+
   const freeDiscount = calculateFreePeriodDiscount(annualCost, config);
   const adjustedAnnual = annualCost - freeDiscount;
 
@@ -536,6 +562,8 @@ async function handlePost(req, res, tenantId) {
       prorata_cost: prorataCost,
       free_period_discount: freeDiscount,
       rollover_discount: rolloverDiscount,
+      custom_discount_total: customDiscountTotal,
+      custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
       final_cost: finalCost,
       currency: config.currency || 'GBP',
       billing_period: config.billing_period || 'annual',

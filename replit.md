@@ -49,6 +49,15 @@ Events store times in UTC with a separate `timezone` field for display purposes.
 ## Membership Tier System
 The platform supports membership pricing based on organisation attributes with historical versioning. The `membership_tier_config` table stores tier configurations (field to base tiers on, currency, billing period, `effective_from`, `effective_to`) and `membership_tier_band` stores individual bands. Each tenant can have multiple configs over time, with the current config having `effective_to = null`. The system supports both core fields and custom numerical organisation fields from `preference_field`.
 
+### Custom Discount System
+Configurable discounts based on organisation custom field values (e.g., region, type). Discounts are tenant-scoped per tier configuration and stored in `membership_tier_discount` table. Multiple discounts stack (all matching rules are summed) and are applied to the annual cost BEFORE pro-rata, free period, and rollover calculations. Supports both `percentage` and `fixed` amount discount types. Exact text matching (case-insensitive) on custom field values, with dropdown support for select-type fields.
+-   **Shared Helper:** `api/_lib/discountHelper.js` provides `evaluateDiscountsForOrg(configId, tenantId, organizationId)` and `applyDiscountsToAnnualCost(annualCost, discountDetails)`.
+-   **Audit Trail:** `custom_discount_total` and `custom_discount_details` (JSONB) columns on `organisation_membership_history` store the discount breakdown for each membership record.
+-   **Integration Points:** Discounts are evaluated in `simulate-renewal.js`, `process-membership-renewals.js` (cron), `org-membership.js` (manual join/view), and `workflows.js` (`create_membership` action).
+-   **Override Behavior:** Price overrides bypass all discounts. Structure overrides recalculate discounts against the override config's discount rules.
+-   **Frontend:** Discounts section in `MembershipTierManagement.jsx` with collapsible card, field selector, match value input (dropdown for select fields), discount type (percentage/fixed), and amount. Saved alongside config and bands.
+-   **Init:** `api/admin/init-membership-discount-table.js`.
+
 ### Pro-rata Pricing Logic
 The membership tier system supports pro-rata pricing based on `membership_start_month`, `membership_start_day`, `prorata_enabled`, `free_period_amount`, `free_period_unit`, and `rollover_enabled`.
 -   **Pro-rata Calculation:** If enabled, the annual fee is prorated based on remaining days in the membership year.

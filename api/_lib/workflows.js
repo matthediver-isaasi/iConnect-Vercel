@@ -1,6 +1,7 @@
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
+import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
 
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {
@@ -834,7 +835,18 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     const yearNumber = determineMembershipYearNumber(goLiveDate, membershipYear);
     console.log(`[Workflows] Org ${organizationId} go_live=${goLiveDate}, membership year number=${yearNumber}`);
 
-    const annualCost = parseFloat(matchedBand.annual_cost);
+    let annualCost = parseFloat(matchedBand.annual_cost);
+    let customDiscountTotal = 0;
+    let customDiscountDetails = [];
+
+    const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
+    if (discountResult.discountDetails.length > 0) {
+      const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
+      customDiscountTotal = applied.totalDiscount;
+      customDiscountDetails = applied.appliedDiscounts;
+      annualCost = applied.discountedCost;
+    }
+
     let freeDiscount = 0;
     let rolloverDiscount = 0;
     let prorataCost = null;
@@ -888,6 +900,8 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       prorata_cost: prorataCost,
       free_period_discount: freeDiscount,
       rollover_discount: rolloverDiscount,
+      custom_discount_total: customDiscountTotal,
+      custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
       final_cost: parseFloat(Math.max(0, finalCost).toFixed(2)),
       currency: config.currency || 'GBP',
       billing_period: config.billing_period || 'annual',
@@ -925,6 +939,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       year_number: yearNumber,
       free_period_discount: freeDiscount,
       rollover_discount: rolloverDiscount,
+      custom_discount_total: customDiscountTotal,
       prorata_cost: prorataCost,
     };
   } catch (error) {

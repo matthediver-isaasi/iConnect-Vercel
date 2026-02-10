@@ -38,6 +38,10 @@ async function handleGet(req, res, tenantId) {
     return getAvailableFields(req, res, tenantId);
   }
 
+  if (action === 'discount_fields') {
+    return getDiscountFields(req, res, tenantId);
+  }
+
   if (action === 'preview') {
     return getPreview(req, res, tenantId, configId);
   }
@@ -53,8 +57,10 @@ async function handleGet(req, res, tenantId) {
   const config = await getCurrentConfig(tenantId);
 
   let bands = [];
+  let discounts = [];
   if (config) {
     bands = await getBandsForConfig(config.id, tenantId);
+    discounts = await getDiscountsForConfig(config.id, tenantId);
   }
 
   const { data: allConfigs } = await supabase
@@ -66,6 +72,7 @@ async function handleGet(req, res, tenantId) {
   return res.json({
     config: config || null,
     bands,
+    discounts,
     history: allConfigs || []
   });
 }
@@ -115,10 +122,12 @@ async function getConfigById(req, res, tenantId, configId) {
   }
 
   const bands = await getBandsForConfig(config.id, tenantId);
+  const discounts = await getDiscountsForConfig(config.id, tenantId);
 
   return res.json({
     config,
     bands,
+    discounts,
     isHistorical: config.effective_to !== null
   });
 }
@@ -138,9 +147,11 @@ async function getHistory(req, res, tenantId) {
   const results = [];
   for (const config of (configs || [])) {
     const bands = await getBandsForConfig(config.id, tenantId);
+    const discounts = await getDiscountsForConfig(config.id, tenantId);
     results.push({
       config,
       bands,
+      discounts,
       isHistorical: config.effective_to !== null
     });
   }
@@ -314,7 +325,7 @@ function validateBands(bands) {
 }
 
 async function handlePost(req, res, tenantId) {
-  let { config, bands } = req.body;
+  let { config, bands, discounts } = req.body;
 
   if (!config) {
     return res.status(400).json({ error: 'Configuration is required' });
@@ -389,8 +400,13 @@ async function handlePost(req, res, tenantId) {
       await saveBandsForConfig(data.id, tenantId, bands);
     }
 
+    if (discounts && Array.isArray(discounts)) {
+      await saveDiscountsForConfig(data.id, tenantId, discounts);
+    }
+
     const savedBands = await getBandsForConfig(data.id, tenantId);
-    return res.json({ config: data, bands: savedBands });
+    const savedDiscounts = await getDiscountsForConfig(data.id, tenantId);
+    return res.json({ config: data, bands: savedBands, discounts: savedDiscounts });
   }
 
   const currentConfig = await getCurrentConfig(tenantId);
@@ -464,7 +480,12 @@ async function handlePost(req, res, tenantId) {
     await saveBandsForConfig(newConfig.id, tenantId, bands);
   }
 
+  if (discounts && Array.isArray(discounts) && discounts.length > 0) {
+    await saveDiscountsForConfig(newConfig.id, tenantId, discounts);
+  }
+
   const savedBands = await getBandsForConfig(newConfig.id, tenantId);
+  const savedDiscounts = await getDiscountsForConfig(newConfig.id, tenantId);
 
   const { data: allConfigs } = await supabase
     .from('membership_tier_config')
@@ -475,6 +496,7 @@ async function handlePost(req, res, tenantId) {
   return res.json({
     config: newConfig,
     bands: savedBands,
+    discounts: savedDiscounts,
     history: allConfigs || []
   });
 }
@@ -576,6 +598,8 @@ async function handleDelete(req, res, tenantId) {
       .eq('config_id', config.id)
       .eq('tenant_id', tenantId);
 
+    await deleteDiscountsForConfig(config.id, tenantId);
+
     await supabase
       .from('membership_tier_config')
       .delete()
@@ -620,4 +644,81 @@ async function handleDelete(req, res, tenantId) {
   }
 
   return res.json({ success: true });
+}
+
+async function getDiscountsForConfig(configId, tenantId) {
+  try {
+    const { data, error } = await supabase
+      .from('membership_tier_discount')
+      .select('*')
+      .eq('config_id', configId)
+      .eq('tenant_id', tenantId)
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      if (error.code === '42P01') return [];
+      console.error('[Membership Tiers] Error fetching discounts:', error);
+      return [];
+    }
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveDiscountsForConfig(configId, tenantId, discounts) {
+  try {
+    await deleteDiscountsForConfig(configId, tenantId);
+
+    if (!discounts || discounts.length === 0) return;
+
+    const rows = discounts.map((d, index) => ({
+      config_id: configId,
+      tenant_id: tenantId,
+      field_id: d.field_id,
+      field_label: d.field_label || null,
+      match_value: d.match_value || '',
+      discount_type: d.discount_type || 'percentage',
+      discount_value: parseFloat(d.discount_value) || 0,
+      label: d.label || null,
+      sort_order: index,
+    }));
+
+    const { error } = await supabase
+      .from('membership_tier_discount')
+      .insert(rows);
+
+    if (error) {
+      console.error('[Membership Tiers] Error saving discounts:', error);
+    }
+  } catch (err) {
+    console.error('[Membership Tiers] Error saving discounts:', err);
+  }
+}
+
+async function deleteDiscountsForConfig(configId, tenantId) {
+  try {
+    await supabase
+      .from('membership_tier_discount')
+      .delete()
+      .eq('config_id', configId)
+      .eq('tenant_id', tenantId);
+  } catch {}
+}
+
+async function getDiscountFields(req, res, tenantId) {
+  const { data: fields, error } = await supabase
+    .from('preference_field')
+    .select('id, name, label, field_type, entity_scope, options')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', 'organization')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true });
+
+  if (error) {
+    console.error('[Membership Tiers] Error fetching discount fields:', error);
+    return res.status(500).json({ error: 'Failed to fetch fields' });
+  }
+
+  return res.json(fields || []);
 }

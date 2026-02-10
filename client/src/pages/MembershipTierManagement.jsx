@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
-  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle
+  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -86,6 +86,7 @@ export default function MembershipTierManagement() {
   });
 
   const [bands, setBands] = useState([]);
+  const [discounts, setDiscounts] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewSearch, setPreviewSearch] = useState('');
@@ -94,6 +95,7 @@ export default function MembershipTierManagement() {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [configOpen, setConfigOpen] = useState(true);
   const [bandsOpen, setBandsOpen] = useState(true);
+  const [discountsOpen, setDiscountsOpen] = useState(true);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -121,6 +123,15 @@ export default function MembershipTierManagement() {
     queryFn: async () => {
       const response = await fetch('/api/membership/tiers?action=fields', { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch available fields');
+      return response.json();
+    },
+  });
+
+  const { data: discountFields = [] } = useQuery({
+    queryKey: ['membership-discount-fields'],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/tiers?action=discount_fields', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch discount fields');
       return response.json();
     },
   });
@@ -193,6 +204,10 @@ export default function MembershipTierManagement() {
         max_value: b.max_value?.toString() || '',
         annual_cost: b.annual_cost?.toString() || '0',
       })));
+      setDiscounts((historicalData.discounts || []).map(d => ({
+        ...d,
+        discount_value: d.discount_value?.toString() || '0',
+      })));
       setHasChanges(false);
       setIsCreatingNew(false);
     }
@@ -230,6 +245,10 @@ export default function MembershipTierManagement() {
       } else if (!tierData.config) {
         setBands([]);
       }
+      setDiscounts((tierData.discounts || []).map(d => ({
+        ...d,
+        discount_value: d.discount_value?.toString() || '0',
+      })));
       setHasChanges(false);
     }
   }, [tierData, viewingHistorical, isCreatingNew]);
@@ -314,6 +333,29 @@ export default function MembershipTierManagement() {
     setHasChanges(true);
   };
 
+  const addDiscount = () => {
+    setDiscounts(prev => [...prev, {
+      id: `new-${Date.now()}`,
+      field_id: '',
+      field_label: '',
+      match_value: '',
+      discount_type: 'percentage',
+      discount_value: '0',
+      label: '',
+    }]);
+    setHasChanges(true);
+  };
+
+  const updateDiscount = (index, key, value) => {
+    setDiscounts(prev => prev.map((d, i) => i === index ? { ...d, [key]: value } : d));
+    setHasChanges(true);
+  };
+
+  const removeDiscount = (index) => {
+    setDiscounts(prev => prev.filter((_, i) => i !== index));
+    setHasChanges(true);
+  };
+
   const handleSave = () => {
     if (!config.field_source) {
       toast.error('Please select a field to base tiers on');
@@ -358,6 +400,14 @@ export default function MembershipTierManagement() {
         annual_cost: parseFloat(b.annual_cost) || 0,
         vat_rate: b.vat_rate || null,
       })),
+      discounts: discounts.map(d => ({
+        field_id: d.field_id,
+        field_label: d.field_label || null,
+        match_value: d.match_value || '',
+        discount_type: d.discount_type || 'percentage',
+        discount_value: parseFloat(d.discount_value) || 0,
+        label: d.label || null,
+      })),
     };
 
     saveMutation.mutate(payload);
@@ -394,6 +444,15 @@ export default function MembershipTierManagement() {
       })));
     } else {
       setBands([]);
+    }
+    if (tierData?.discounts?.length > 0) {
+      setDiscounts(tierData.discounts.map(d => ({
+        ...d,
+        id: `new-${Date.now()}-${Math.random()}`,
+        discount_value: d.discount_value?.toString() || '0',
+      })));
+    } else {
+      setDiscounts([]);
     }
     setHasChanges(true);
     setShowHistory(false);
@@ -990,6 +1049,176 @@ export default function MembershipTierManagement() {
                     {bands.some(b => !b.max_value && b.max_value !== 0) && (
                       <span> Tiers without a max value will match any value above their minimum.</span>
                     )}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+        </CollapsibleContent>
+      </Card>
+      </Collapsible>
+
+      <Collapsible open={discountsOpen} onOpenChange={setDiscountsOpen}>
+      <Card>
+        <CollapsibleTrigger asChild>
+        <CardHeader className="cursor-pointer select-none flex flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-lg">Discounts</CardTitle>
+            {discounts.length > 0 && (
+              <Badge variant="secondary">{discounts.length}</Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+          {isEditable && (
+            <Button size="sm" onClick={(e) => { e.stopPropagation(); addDiscount(); setDiscountsOpen(true); }} data-testid="button-add-discount">
+              <Plus className="w-4 h-4 mr-1" />
+              Add Discount
+            </Button>
+          )}
+          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${discountsOpen ? '' : '-rotate-90'}`} />
+          </div>
+        </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+        <CardContent>
+          {discounts.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground" data-testid="text-no-discounts">
+              <Tag className="w-10 h-10 mx-auto mb-2 opacity-50" />
+              <p>No discounts defined yet</p>
+              <p className="text-sm mt-1">Add discounts based on organisation custom fields to reduce the annual fee before pro-rata and rollover calculations</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="hidden md:grid md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+                <span>Label</span>
+                <span>Custom Field</span>
+                <span>Match Value</span>
+                <span>Type</span>
+                <span>Value</span>
+                <span></span>
+              </div>
+
+              {discounts.map((discount, index) => {
+                const selectedField = discountFields.find(f => f.id === discount.field_id);
+                const fieldOptions = selectedField?.options ? (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })() : [];
+                const isDropdown = ['select', 'dropdown', 'radio', 'checkbox'].includes(selectedField?.field_type?.toLowerCase());
+
+                return (
+                <div
+                  key={discount.id || index}
+                  className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 items-center p-2 rounded-md border"
+                  data-testid={`row-discount-${index}`}
+                >
+                  <Input
+                    value={discount.label || ''}
+                    onChange={(e) => updateDiscount(index, 'label', e.target.value)}
+                    placeholder="e.g. London Discount"
+                    disabled={!isEditable}
+                    data-testid={`input-discount-label-${index}`}
+                  />
+                  <Select
+                    value={discount.field_id || ''}
+                    onValueChange={(value) => {
+                      const field = discountFields.find(f => f.id === value);
+                      updateDiscount(index, 'field_id', value);
+                      updateDiscount(index, 'field_label', field?.label || field?.name || '');
+                      updateDiscount(index, 'match_value', '');
+                    }}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger data-testid={`select-discount-field-${index}`}>
+                      <SelectValue placeholder="Select field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {discountFields.map(f => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.label || f.name}
+                        </SelectItem>
+                      ))}
+                      {discountFields.length === 0 && (
+                        <SelectItem value="__none" disabled>No custom fields found</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {isDropdown && fieldOptions.length > 0 ? (
+                    <Select
+                      value={discount.match_value || ''}
+                      onValueChange={(value) => updateDiscount(index, 'match_value', value)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-discount-match-${index}`}>
+                        <SelectValue placeholder="Select value" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fieldOptions.map((opt, oi) => {
+                          const optValue = typeof opt === 'string' ? opt : (opt.value || opt.label || '');
+                          const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || '');
+                          return (
+                            <SelectItem key={oi} value={optValue}>{optLabel}</SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={discount.match_value || ''}
+                      onChange={(e) => updateDiscount(index, 'match_value', e.target.value)}
+                      placeholder="Value to match"
+                      disabled={!isEditable}
+                      data-testid={`input-discount-match-${index}`}
+                    />
+                  )}
+                  <Select
+                    value={discount.discount_type || 'percentage'}
+                    onValueChange={(value) => updateDiscount(index, 'discount_type', value)}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger data-testid={`select-discount-type-${index}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">Percentage</SelectItem>
+                      <SelectItem value="fixed">Fixed ({currencySymbol})</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                      {discount.discount_type === 'percentage' ? '%' : currencySymbol}
+                    </span>
+                    <Input
+                      type="number"
+                      value={discount.discount_value || ''}
+                      onChange={(e) => updateDiscount(index, 'discount_value', e.target.value)}
+                      placeholder="0"
+                      className="pl-7"
+                      step="0.01"
+                      disabled={!isEditable}
+                      data-testid={`input-discount-value-${index}`}
+                    />
+                  </div>
+                  {isEditable ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeDiscount(index)}
+                      className="text-destructive"
+                      data-testid={`button-remove-discount-${index}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+                </div>
+                );
+              })}
+
+              {discounts.length > 0 && (
+                <div className="mt-2 p-3 bg-muted/50 rounded-md">
+                  <p className="text-sm text-muted-foreground">
+                    {discounts.length} discount{discounts.length !== 1 ? 's' : ''} defined.
+                    All matching discounts are applied to the annual cost before any pro-rata, free period, or rollover calculations.
                   </p>
                 </div>
               )}

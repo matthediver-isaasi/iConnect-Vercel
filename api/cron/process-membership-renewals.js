@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { createXeroMembershipInvoice } from '../_lib/xero.js';
+import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -318,10 +319,21 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
   let finalCost = annualCost;
   let freeDiscount = 0;
   let rolloverDiscount = 0;
+  let customDiscountTotal = 0;
+  let customDiscountDetails = [];
   let usedConfigId = config.id;
   let usedBandId = matchedBand?.id || null;
 
   if (annualCost !== null) {
+    const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, orgId);
+    if (discountResult.discountDetails.length > 0) {
+      const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
+      customDiscountTotal = applied.totalDiscount;
+      customDiscountDetails = applied.appliedDiscounts;
+      annualCost = applied.discountedCost;
+      finalCost = annualCost;
+    }
+
     if (membershipYearNumber === 1) {
       freeDiscount = calculateFreePeriodDiscount(annualCost, config);
       finalCost = annualCost - freeDiscount;
@@ -348,6 +360,8 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
       finalCost = annualCost;
       freeDiscount = 0;
       rolloverDiscount = 0;
+      customDiscountTotal = 0;
+      customDiscountDetails = [];
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
@@ -360,11 +374,22 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
           annualCost = parseFloat(overrideBand.annual_cost);
           tierLabel = overrideBand.label;
           bandVatRate = overrideBand.vat_rate || null;
-          finalCost = annualCost;
           freeDiscount = 0;
           rolloverDiscount = 0;
           usedConfigId = overrideConfig.id;
           usedBandId = overrideBand.id;
+
+          const overrideDiscountResult = await evaluateDiscountsForOrg(overrideConfig.id, tenantId, orgId);
+          if (overrideDiscountResult.discountDetails.length > 0) {
+            const overrideApplied = applyDiscountsToAnnualCost(annualCost, overrideDiscountResult.discountDetails);
+            customDiscountTotal = overrideApplied.totalDiscount;
+            customDiscountDetails = overrideApplied.appliedDiscounts;
+            annualCost = overrideApplied.discountedCost;
+          } else {
+            customDiscountTotal = 0;
+            customDiscountDetails = [];
+          }
+          finalCost = annualCost;
         }
       }
     }
@@ -397,6 +422,8 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
       prorata_cost: null,
       free_period_discount: freeDiscount,
       rollover_discount: rolloverDiscount,
+      custom_discount_total: customDiscountTotal,
+      custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
       final_cost: finalCost,
       currency: config.currency || 'GBP',
       billing_period: config.billing_period || 'annual',

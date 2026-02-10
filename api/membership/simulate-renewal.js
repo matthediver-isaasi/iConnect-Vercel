@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -149,10 +150,27 @@ export default async function handler(req, res) {
     let tierLabel = matchedBand.label;
     let freeDiscount = 0;
     let rolloverDiscount = 0;
+    let customDiscountTotal = 0;
+    let customDiscountDetails = [];
     let finalCost = annualCost;
     let usedConfigId = config.id;
     let usedBandId = matchedBand.id;
     let overrideApplied = false;
+
+    const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
+    if (discountResult.discountDetails.length > 0) {
+      const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
+      customDiscountTotal = applied.totalDiscount;
+      customDiscountDetails = applied.appliedDiscounts;
+      annualCost = applied.discountedCost;
+      finalCost = annualCost;
+      const discountSummary = customDiscountDetails.map(d =>
+        `${d.label || d.field_label}: ${d.discount_type === 'percentage' ? d.discount_value + '%' : d.applied_amount.toFixed(2)} (${d.applied_amount.toFixed(2)})`
+      ).join(', ');
+      log('Custom Discounts', `${customDiscountDetails.length} discount(s) applied, total: ${customDiscountTotal.toFixed(2)}. Details: ${discountSummary}`);
+    } else {
+      log('Custom Discounts', 'No matching discount rules for this organisation');
+    }
 
     if (membershipYearNumber === 1) {
       freeDiscount = calculateFreePeriodDiscount(annualCost, config);
@@ -190,6 +208,8 @@ export default async function handler(req, res) {
         finalCost = annualCost;
         freeDiscount = 0;
         rolloverDiscount = 0;
+        customDiscountTotal = 0;
+        customDiscountDetails = [];
         log('Apply Override', `Price override: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
       } else if (override.override_type === 'structure' && override.config_id) {
         const overrideConfig = await getConfigById(override.config_id, tenantId);
@@ -203,11 +223,22 @@ export default async function handler(req, res) {
             annualCost = parseFloat(overrideBand.annual_cost);
             tierLabel = overrideBand.label;
             matchedBand = overrideBand;
-            finalCost = annualCost;
             freeDiscount = 0;
             rolloverDiscount = 0;
             usedConfigId = overrideConfig.id;
             usedBandId = overrideBand.id;
+
+            const overrideDiscountResult = await evaluateDiscountsForOrg(overrideConfig.id, tenantId, organizationId);
+            if (overrideDiscountResult.discountDetails.length > 0) {
+              const overrideApplied2 = applyDiscountsToAnnualCost(annualCost, overrideDiscountResult.discountDetails);
+              customDiscountTotal = overrideApplied2.totalDiscount;
+              customDiscountDetails = overrideApplied2.appliedDiscounts;
+              annualCost = overrideApplied2.discountedCost;
+            } else {
+              customDiscountTotal = 0;
+              customDiscountDetails = [];
+            }
+            finalCost = annualCost;
             log('Apply Override', `Structure override: config "${overrideConfig.name || overrideConfig.id}", band "${overrideBand.label}", cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
           } else {
             log('Apply Override', 'Structure override set but no matching band found', 'warning');
@@ -219,7 +250,7 @@ export default async function handler(req, res) {
       log('Check Override', 'No override configured for this organisation');
     }
 
-    log('Calculate Final Cost', `Annual: ${annualCost.toFixed(2)}, Free discount: ${freeDiscount.toFixed(2)}, Rollover: ${rolloverDiscount.toFixed(2)}, Final: ${finalCost.toFixed(2)} ${config.currency || 'GBP'}`);
+    log('Calculate Final Cost', `Annual: ${annualCost.toFixed(2)}${customDiscountTotal > 0 ? ` (after custom discounts: ${customDiscountTotal.toFixed(2)})` : ''}, Free discount: ${freeDiscount.toFixed(2)}, Rollover: ${rolloverDiscount.toFixed(2)}, Final: ${finalCost.toFixed(2)} ${config.currency || 'GBP'}`);
 
     const currency = config.currency || 'GBP';
     const scheduleStartDate = formatDate(nextYear.start) + ' at 00:00';
