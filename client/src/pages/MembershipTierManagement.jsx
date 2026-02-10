@@ -1101,8 +1101,12 @@ export default function MembershipTierManagement() {
 
               {discounts.map((discount, index) => {
                 const selectedField = discountFields.find(f => f.id === discount.field_id);
-                const fieldOptions = selectedField?.options ? (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })() : [];
-                const isDropdown = ['select', 'dropdown', 'radio', 'checkbox'].includes(selectedField?.field_type?.toLowerCase());
+                const fieldOptions = selectedField?.options
+                  ? (Array.isArray(selectedField.options)
+                    ? selectedField.options
+                    : (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })())
+                  : [];
+                const isDropdown = ['select', 'dropdown', 'radio', 'checkbox', 'picklist', 'multiselect'].includes(selectedField?.field_type?.toLowerCase()) && fieldOptions.length > 0;
 
                 return (
                 <div
@@ -1141,7 +1145,7 @@ export default function MembershipTierManagement() {
                       )}
                     </SelectContent>
                   </Select>
-                  {isDropdown && fieldOptions.length > 0 ? (
+                  {isDropdown ? (
                     <Select
                       value={discount.match_value || ''}
                       onValueChange={(value) => updateDiscount(index, 'match_value', value)}
