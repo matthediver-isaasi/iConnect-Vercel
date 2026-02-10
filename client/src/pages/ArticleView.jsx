@@ -715,7 +715,7 @@ export default function ArticleViewPage() {
                   )}
                 </>
               )}
-              {articleSettings?.showViewCount && (
+              {articleSettings?.showViewCount && !isFeatureExcluded('content.articles.show-count') && (
                 <div className="flex items-center gap-1">
                   <Eye className="w-4 h-4 text-purple-600" />
                   <span className="font-medium">{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>

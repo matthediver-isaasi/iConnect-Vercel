@@ -2,7 +2,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, User, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
+import { Calendar, User, ArrowUpRight, Pencil, Trash2, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { Link } from "react-router-dom";
@@ -20,7 +20,8 @@ export default function ArticleCard({
   currentMemberId = null,
   showImage = true,
   authorHandles = {}, // Map of author_id to handle
-  authorNames = {} // Map of author_id (or guest_gwId) to full name
+  authorNames = {}, // Map of author_id (or guest_gwId) to full name
+  viewCount = null
 }) {
   const { getArticleViewUrl } = useArticleUrl();
   
@@ -155,6 +156,13 @@ export default function ArticleCard({
             </div>
           ) : null;
         })()}
+
+        {viewCount !== null && viewCount !== undefined && (
+          <div className="flex items-center gap-1 text-xs text-slate-500 pb-2" data-testid={`text-article-views-${article.id}`}>
+            <Eye className="w-3 h-3" />
+            <span>{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>
+          </div>
+        )}
         
         {article.summary && (
           <p className="text-sm text-slate-600 line-clamp-3">

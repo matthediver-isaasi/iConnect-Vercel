@@ -245,7 +245,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "content.articles.delete", label: "Delete Articles" },
           { id: "content.articles.follow-author", label: "Follow Author" },
           { id: "content.articles.author-takeover", label: "Show Author As Controls" },
-          { id: "content.articles.comments", label: "Comments Section" }
+          { id: "content.articles.comments", label: "Comments Section" },
+          { id: "content.articles.show-count", label: "Show View Count" }
         ]
       },
       {
