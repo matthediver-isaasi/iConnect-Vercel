@@ -188,13 +188,13 @@ export default async function handler(req, res) {
 
     if (!existingRecord) {
       log('Would Create History', `Membership history record for ${nextYear.label}: tier "${tierLabel}", final cost ${finalCost.toFixed(2)} ${currency}${overrideApplied ? ' (with override)' : ''}`);
-      log('Would Create Note', `Organisation note documenting the ${mode} renewal`);
+      log('Would Create Note', `Organisation note documenting the ${mode} renewal with invoice details`);
       if (mode === 'scheduled' && scheduledInvoiceDate) {
-        log('Would Generate Invoice', `Invoice for ${finalCost.toFixed(2)} ${currency} via Xero on ${scheduledInvoiceDate}`, 'info');
+        log('Would Create Xero Invoice', `Xero invoice for ${finalCost.toFixed(2)} ${currency} to contact "${org.name}" on ${scheduledInvoiceDate}. Account code and status from tenant Xero settings.`);
       } else if (mode === 'scheduled') {
-        log('Would Generate Invoice', `Invoice date not yet set - invoice cannot be scheduled`, 'warning');
+        log('Would Create Xero Invoice', `Invoice date not yet set - invoice cannot be scheduled`, 'warning');
       } else {
-        log('Would Generate Invoice', `Invoice for ${finalCost.toFixed(2)} ${currency} via Xero`, 'info');
+        log('Would Create Xero Invoice', `Xero invoice for ${finalCost.toFixed(2)} ${currency} to contact "${org.name}". Account code and status from tenant Xero settings.`);
       }
     } else {
       log('Would Be Blocked', `A record for ${nextYear.label} already exists (final cost: ${existingRecord.final_cost}). Real renewal would be rejected.`, 'warning');

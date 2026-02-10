@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { createXeroMembershipInvoice } from '../_lib/xero.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -379,14 +380,48 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     return res.status(500).json({ error: 'Failed to create membership record' });
   }
 
+  let xeroInvoice = null;
+  try {
+    xeroInvoice = await createXeroMembershipInvoice({
+      appTenantId: tenantId,
+      organizationName: org.name,
+      membershipYear: nextYear.label,
+      tierLabel,
+      finalCost,
+      currency: config.currency || 'GBP',
+      reference: `Membership ${nextYear.label}`,
+    });
+
+    if (xeroInvoice) {
+      const { error: linkError } = await supabase
+        .from('organisation_membership_history')
+        .update({
+          xero_invoice_id: xeroInvoice.invoice_id,
+          xero_invoice_number: xeroInvoice.invoice_number,
+        })
+        .eq('id', record.id);
+
+      if (linkError) {
+        console.error(`[Invoicing] Failed to link Xero invoice to history record (non-fatal):`, linkError.message);
+      } else {
+        console.log(`[Invoicing] Xero invoice created: ${xeroInvoice.invoice_number} for ${org.name}`);
+      }
+    }
+  } catch (xeroErr) {
+    console.error('[Invoicing] Xero invoice creation failed (non-fatal):', xeroErr.message);
+  }
+
   try {
     const noteCreatorId = tenantContext.memberId || tenantContext.tenantUserId || null;
+    const invoiceNote = xeroInvoice
+      ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
+      : ' Xero invoice could not be created - check Xero connection.';
     await supabase
       .from('organization_note')
       .insert({
         organization_id: organizationId,
         member_id: noteCreatorId,
-        content: `[Membership Renewal - Manual] Membership renewed for ${nextYear.label}. Fee: ${config.currency || 'GBP'} ${finalCost.toFixed(2)}. Invoice generated.`,
+        content: `[Membership Renewal - Manual] Membership renewed for ${nextYear.label}. Fee: ${config.currency || 'GBP'} ${finalCost.toFixed(2)}.${invoiceNote}`,
         attachments: []
       });
   } catch (noteErr) {
@@ -395,8 +430,9 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
 
   return res.json({
     success: true,
-    record,
-    message: `Membership renewed for ${nextYear.label}. Fee: ${finalCost.toFixed(2)}.`
+    record: { ...record, xero_invoice_id: xeroInvoice?.invoice_id, xero_invoice_number: xeroInvoice?.invoice_number },
+    xeroInvoice: xeroInvoice || null,
+    message: `Membership renewed for ${nextYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` Invoice ${xeroInvoice.invoice_number} created.` : ''}`
   });
 }
 

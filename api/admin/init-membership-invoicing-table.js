@@ -32,6 +32,26 @@ export default async function handler(req, res) {
         ON organisation_membership_invoicing(tenant_id);
       CREATE INDEX IF NOT EXISTS idx_org_membership_invoicing_org 
         ON organisation_membership_invoicing(tenant_id, organization_id);
+
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'organisation_membership_history' 
+          AND column_name = 'xero_invoice_id'
+        ) THEN
+          ALTER TABLE organisation_membership_history ADD COLUMN xero_invoice_id TEXT;
+        END IF;
+      END $$;
+
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'organisation_membership_history' 
+          AND column_name = 'xero_invoice_number'
+        ) THEN
+          ALTER TABLE organisation_membership_history ADD COLUMN xero_invoice_number TEXT;
+        END IF;
+      END $$;
     `;
 
     const { error } = await supabase.rpc('exec_sql', { sql_text: createSQL });
@@ -46,12 +66,21 @@ export default async function handler(req, res) {
         if (checkError && checkError.code === '42P01') {
           return res.status(200).json({
             success: false,
-            message: 'Table does not exist yet. Please create the organisation_membership_invoicing table manually in Supabase SQL editor.',
+            message: 'Table does not exist yet. Please create the tables and columns manually in Supabase SQL editor.',
             sql: createSQL.trim()
           });
         }
 
-        return res.json({ success: true, message: 'Table already exists' });
+        const columnAddSQL = `
+          ALTER TABLE organisation_membership_history ADD COLUMN IF NOT EXISTS xero_invoice_id TEXT;
+          ALTER TABLE organisation_membership_history ADD COLUMN IF NOT EXISTS xero_invoice_number TEXT;
+        `.trim();
+
+        return res.json({
+          success: true,
+          message: 'Invoicing table already exists. Please also ensure xero_invoice_id and xero_invoice_number columns exist on organisation_membership_history.',
+          columnMigrationSQL: columnAddSQL
+        });
       }
 
       console.error('[Init Invoicing Table] Error:', error);

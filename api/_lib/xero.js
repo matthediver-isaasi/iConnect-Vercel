@@ -74,6 +74,129 @@ export async function getValidXeroAccessToken(appTenantId) {
   return { accessToken: tokenData.access_token, tenantId: token.tenant_id };
 }
 
+export async function findOrCreateXeroContact(accessToken, xeroTenantId, contactInfo) {
+  const info = typeof contactInfo === 'string'
+    ? { name: contactInfo, email: null, isOrganization: true }
+    : contactInfo;
+
+  console.log(`[Xero] Finding/creating contact: ${info.name}`);
+
+  const escapedName = info.name.replace(/"/g, '\\"');
+  const contactSearchResponse = await fetch(
+    `https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escapedName}"`)}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json'
+      }
+    }
+  );
+
+  const contactData = await contactSearchResponse.json();
+  if (contactData.Contacts && contactData.Contacts.length > 0) {
+    console.log(`[Xero] Found existing contact: ${contactData.Contacts[0].ContactID}`);
+    return contactData.Contacts[0].ContactID;
+  }
+
+  console.log(`[Xero] Creating new contact...`);
+  const newContact = { Name: info.name };
+  if (info.email) newContact.EmailAddress = info.email;
+
+  const createContactResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ Contacts: [newContact] })
+  });
+
+  const newContactData = await createContactResponse.json();
+  if (newContactData.Contacts && newContactData.Contacts.length > 0) {
+    console.log(`[Xero] Created new contact: ${newContactData.Contacts[0].ContactID}`);
+    return newContactData.Contacts[0].ContactID;
+  }
+
+  console.error(`[Xero] Failed to create contact:`, JSON.stringify(newContactData).substring(0, 500));
+  throw new Error('Failed to create Xero contact');
+}
+
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, membershipYear, tierLabel, finalCost, currency, reference }) {
+  if (!supabase) throw new Error('Supabase not configured');
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!organizationName) throw new Error('organizationName is required');
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+  const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, organizationName);
+
+  const { data: accountCodeSetting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'xero_sales_account_code')
+    .eq('tenant_id', appTenantId)
+    .maybeSingle();
+
+  const xeroAccountCode = accountCodeSetting?.setting_value || '200';
+
+  const { data: invoiceStatusSetting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'xero_invoice_status')
+    .eq('tenant_id', appTenantId)
+    .maybeSingle();
+
+  const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+
+  const description = `Membership subscription for ${membershipYear}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}`;
+
+  const invoicePayload = {
+    Invoices: [{
+      Type: 'ACCREC',
+      Contact: { ContactID: contactId },
+      Reference: reference || `Membership ${membershipYear}`,
+      Status: xeroInvoiceStatus,
+      DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      LineItems: [{
+        Description: description,
+        Quantity: 1,
+        UnitAmount: parseFloat(finalCost).toFixed(2),
+        AccountCode: xeroAccountCode
+      }]
+    }]
+  };
+
+  console.log(`[Xero] Creating membership invoice for ${organizationName}, ${membershipYear}, ${currency} ${finalCost}`);
+
+  const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(invoicePayload)
+  });
+
+  const invoiceData = await invoiceResponse.json();
+
+  if (!invoiceResponse.ok || !invoiceData.Invoices || invoiceData.Invoices.length === 0) {
+    console.error(`[Xero] Failed to create membership invoice:`, JSON.stringify(invoiceData).substring(0, 500));
+    throw new Error(`Failed to create Xero invoice: ${JSON.stringify(invoiceData)}`);
+  }
+
+  const invoice = invoiceData.Invoices[0];
+  console.log(`[Xero] Membership invoice created: ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
+
+  return {
+    invoice_id: invoice.InvoiceID,
+    invoice_number: invoice.InvoiceNumber,
+    total: invoice.Total,
+    status: invoice.Status
+  };
+}
+
 export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   
