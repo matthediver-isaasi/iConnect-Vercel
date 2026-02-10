@@ -61,7 +61,8 @@ function CardSlotEditor({ index, card, onUpdate }) {
   const { data: articleDisplayName = 'Articles' } = useQuery({
     queryKey: ['public-article-display-name'],
     queryFn: async () => {
-      const allSettings = await publicClient.listSystemSettings() || [];
+      const result = await publicClient.listSystemSettings();
+      const allSettings = Array.isArray(result) ? result : [];
       const setting = allSettings.find(s => s.setting_key === 'article_display_name');
       return setting?.setting_value || 'Articles';
     }
@@ -71,15 +72,20 @@ function CardSlotEditor({ index, card, onUpdate }) {
   const { data: items = [] } = useQuery({
     queryKey: ['public-showcase-items', card.contentType],
     queryFn: async () => {
+      let result;
       switch (card.contentType) {
         case 'news':
-          return await publicClient.listNews() || [];
+          result = await publicClient.listNews();
+          return Array.isArray(result) ? result : [];
         case 'resources':
-          return await publicClient.listResources() || [];
+          result = await publicClient.listResources();
+          return Array.isArray(result) ? result : [];
         case 'articles':
-          return await publicClient.listArticles() || [];
+          result = await publicClient.listArticles();
+          return Array.isArray(result?.articles) ? result.articles : (Array.isArray(result) ? result : []);
         case 'jobs':
-          return await publicClient.listJobPostings() || [];
+          result = await publicClient.listJobPostings();
+          return Array.isArray(result) ? result : [];
         default:
           return [];
       }
@@ -1112,26 +1118,37 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
   // Fetch all items for selected cards using public endpoints
   const { data: allNews = [] } = useQuery({
     queryKey: ['public-showcase-news'],
-    queryFn: async () => await publicClient.listNews() || [],
+    queryFn: async () => {
+      const result = await publicClient.listNews();
+      return Array.isArray(result) ? result : [];
+    },
     enabled: content.cards?.some(c => c.contentType === 'news' && c.itemId)
   });
 
   const { data: allResources = [] } = useQuery({
     queryKey: ['public-showcase-resources'],
-    queryFn: async () => await publicClient.listResources() || [],
+    queryFn: async () => {
+      const result = await publicClient.listResources();
+      return Array.isArray(result) ? result : [];
+    },
     enabled: content.cards?.some(c => c.contentType === 'resources' && c.itemId)
   });
 
-  const { data: articlesData = { articles: [] } } = useQuery({
+  const { data: allArticles = [] } = useQuery({
     queryKey: ['public-showcase-articles'],
-    queryFn: async () => await publicClient.listArticles() || { articles: [] },
+    queryFn: async () => {
+      const result = await publicClient.listArticles();
+      return Array.isArray(result?.articles) ? result.articles : (Array.isArray(result) ? result : []);
+    },
     enabled: content.cards?.some(c => c.contentType === 'articles' && c.itemId)
   });
-  const allArticles = articlesData?.articles || [];
 
   const { data: allJobs = [] } = useQuery({
     queryKey: ['public-showcase-jobs'],
-    queryFn: async () => await publicClient.listJobPostings() || [],
+    queryFn: async () => {
+      const result = await publicClient.listJobPostings();
+      return Array.isArray(result) ? result : [];
+    },
     enabled: content.cards?.some(c => c.contentType === 'jobs' && c.itemId)
   });
 
