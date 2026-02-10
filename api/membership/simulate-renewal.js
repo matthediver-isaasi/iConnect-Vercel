@@ -158,33 +158,44 @@ export default async function handler(req, res) {
 
     log('Calculate Final Cost', `Annual: ${annualCost.toFixed(2)}, Free discount: ${freeDiscount.toFixed(2)}, Rollover: ${rolloverDiscount.toFixed(2)}, Final: ${finalCost.toFixed(2)} ${config.currency || 'GBP'}`);
 
+    const currency = config.currency || 'GBP';
+    const scheduleStartDate = formatDate(nextYear.start) + ' at 00:00';
+    const scheduledInvoiceDate = invoicingSettings?.invoice_date ? formatDate(new Date(invoicingSettings.invoice_date)) + ' at 00:00' : null;
+    const nowFormatted = formatDate(new Date(), true);
+
     if (mode === 'automatic') {
-      log('Mode: Automatic', 'At the start of the membership schedule, the system would automatically:');
-      log('Step 1 - Renew', `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${config.currency || 'GBP'}`);
-      log('Step 2 - Invoice', `Generate and send invoice for ${finalCost.toFixed(2)} ${config.currency || 'GBP'} via Xero`);
-      log('Step 3 - Note', `Add organisation note documenting the renewal`);
+      log('Mode: Automatic', `Both renewal and invoicing happen together on the membership schedule start date`);
+      log(`Step 1 - Renew (${scheduleStartDate})`, `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${currency}`);
+      log(`Step 2 - Invoice (${scheduleStartDate})`, `Generate and send invoice for ${finalCost.toFixed(2)} ${currency} via Xero`);
+      log(`Step 3 - Note (${scheduleStartDate})`, `Add organisation note documenting the automatic renewal`);
     } else if (mode === 'scheduled') {
-      const scheduledDate = invoicingSettings?.invoice_date || 'Not set';
-      log('Mode: Scheduled', `Renewal and invoicing are split across two dates`);
-      log('Step 1 - Renew (at schedule start)', `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${config.currency || 'GBP'}`);
-      log('Step 2 - Invoice (on ${scheduledDate})', `Generate and send invoice for ${finalCost.toFixed(2)} ${config.currency || 'GBP'} via Xero on ${scheduledDate}`);
-      log('Step 3 - Note', `Add organisation note documenting the renewal and scheduled invoice date`);
-      if (scheduledDate === 'Not set') {
-        log('Warning', 'No invoice date has been saved for this organisation. Scheduled mode requires a date.', 'warning');
+      log('Mode: Scheduled', `Renewal happens at schedule start, invoicing on a separate scheduled date`);
+      log(`Step 1 - Renew (${scheduleStartDate})`, `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${currency}`);
+      if (scheduledInvoiceDate) {
+        log(`Step 2 - Invoice (${scheduledInvoiceDate})`, `Generate and send invoice for ${finalCost.toFixed(2)} ${currency} via Xero on ${scheduledInvoiceDate}`);
+      } else {
+        log('Step 2 - Invoice (date not set)', `No invoice date has been saved. Scheduled mode requires a date.`, 'warning');
       }
+      log(`Step 3 - Note (${scheduleStartDate})`, `Add organisation note documenting the renewal and scheduled invoice date`);
     } else if (mode === 'manual') {
-      log('Mode: Manual', 'Admin triggers renewal manually via the "Renew & Invoice Now" button');
-      log('Step 1 - Renew', `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${config.currency || 'GBP'}`);
-      log('Step 2 - Invoice', `Generate and send invoice for ${finalCost.toFixed(2)} ${config.currency || 'GBP'} via Xero immediately`);
-      log('Step 3 - Note', `Add organisation note documenting the manual renewal`);
+      log('Mode: Manual', `Admin triggers renewal manually via the "Renew & Invoice Now" button`);
+      log(`Step 1 - Renew (${nowFormatted} - when clicked)`, `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${currency}`);
+      log(`Step 2 - Invoice (${nowFormatted} - when clicked)`, `Generate and send invoice for ${finalCost.toFixed(2)} ${currency} via Xero immediately`);
+      log(`Step 3 - Note (${nowFormatted} - when clicked)`, `Add organisation note documenting the manual renewal`);
     }
 
     log('Dry Run Summary', 'This is a dry run - no records were created or modified', 'info');
 
     if (!existingRecord) {
-      log('Would Create History', `Membership history record for ${nextYear.label}: tier "${tierLabel}", final cost ${finalCost.toFixed(2)} ${config.currency || 'GBP'}${overrideApplied ? ' (with override)' : ''}`);
+      log('Would Create History', `Membership history record for ${nextYear.label}: tier "${tierLabel}", final cost ${finalCost.toFixed(2)} ${currency}${overrideApplied ? ' (with override)' : ''}`);
       log('Would Create Note', `Organisation note documenting the ${mode} renewal`);
-      log('Would Generate Invoice', `Invoice for ${finalCost.toFixed(2)} ${config.currency || 'GBP'} via Xero${mode === 'scheduled' ? ` on scheduled date` : ''}`, 'info');
+      if (mode === 'scheduled' && scheduledInvoiceDate) {
+        log('Would Generate Invoice', `Invoice for ${finalCost.toFixed(2)} ${currency} via Xero on ${scheduledInvoiceDate}`, 'info');
+      } else if (mode === 'scheduled') {
+        log('Would Generate Invoice', `Invoice date not yet set - invoice cannot be scheduled`, 'warning');
+      } else {
+        log('Would Generate Invoice', `Invoice for ${finalCost.toFixed(2)} ${currency} via Xero`, 'info');
+      }
     } else {
       log('Would Be Blocked', `A record for ${nextYear.label} already exists (final cost: ${existingRecord.final_cost}). Real renewal would be rejected.`, 'warning');
     }
@@ -206,6 +217,14 @@ export default async function handler(req, res) {
     console.error('[Simulate Renewal] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+function formatDate(date, includeTime = false) {
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) return 'Unknown';
+  const datePart = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  if (!includeTime) return datePart;
+  const timePart = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${datePart} at ${timePart}`;
 }
 
 async function getCurrentConfig(tenantId) {
