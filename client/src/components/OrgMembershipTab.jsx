@@ -26,7 +26,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
-  FileText, Send
+  FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +52,8 @@ export default function OrgMembershipTab({ organizationId }) {
   const [overrideNote, setOverrideNote] = useState('');
   const [invoicingMode, setInvoicingMode] = useState('manual');
   const [invoiceDate, setInvoiceDate] = useState('');
+  const [simulationResults, setSimulationResults] = useState(null);
+  const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
@@ -225,6 +227,29 @@ export default function OrgMembershipTab({ organizationId }) {
       queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
       queryClient.invalidateQueries({ queryKey: ['org-notes'] });
       toast.success(data.message || 'Membership renewed and invoice generated');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const simulateRenewalMutation = useMutation({
+    mutationFn: async (mode) => {
+      const response = await fetch('/api/membership/simulate-renewal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organizationId, mode }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to simulate renewal');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setSimulationResults(data);
+      setSimulationDialogOpen(true);
     },
     onError: (error) => {
       toast.error(error.message);
@@ -641,6 +666,16 @@ export default function OrgMembershipTab({ organizationId }) {
                         Renew &amp; Invoice Now
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => simulateRenewalMutation.mutate(invoicingMode)}
+                      disabled={simulateRenewalMutation.isPending}
+                      data-testid="button-simulate-renewal"
+                    >
+                      {simulateRenewalMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
+                      Simulate Renewal
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -857,6 +892,75 @@ export default function OrgMembershipTab({ organizationId }) {
             >
               {overrideMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
               Save Override
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PlayCircle className="w-4 h-4" />
+              Renewal Simulation Results
+            </DialogTitle>
+            <DialogDescription>
+              {simulationResults && (
+                <span>
+                  Mode: <span className="font-medium capitalize">{simulationResults.mode}</span>
+                  {' | '}Organisation: <span className="font-medium">{simulationResults.organization}</span>
+                  {' | '}Year: <span className="font-medium">{simulationResults.membershipYear}</span>
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {simulationResults?.steps && (
+            <div className="space-y-1">
+              {simulationResults.steps.map((step, idx) => {
+                const StatusIcon = step.status === 'error' ? XCircle
+                  : step.status === 'warning' ? AlertTriangle
+                  : step.status === 'info' ? Info
+                  : CheckCircle2;
+                const statusColor = step.status === 'error' ? 'text-destructive'
+                  : step.status === 'warning' ? 'text-yellow-600 dark:text-yellow-500'
+                  : step.status === 'info' ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-green-600 dark:text-green-500';
+
+                return (
+                  <div key={idx} className="flex items-start gap-2 py-1.5 border-b last:border-b-0" data-testid={`simulation-step-${idx}`}>
+                    <StatusIcon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${statusColor}`} />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium">{step.step}</span>
+                      <p className="text-xs text-muted-foreground break-words">{step.detail}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {simulationResults && (
+            <div className="mt-3 p-3 rounded-md bg-muted/50">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Final Cost</span>
+                <span className="font-semibold">
+                  {formatCost(simulationResults.finalCost, simulationResults.currency)}
+                </span>
+              </div>
+              {simulationResults.overrideApplied && (
+                <p className="text-xs text-muted-foreground mt-1">Override was applied to this calculation</p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSimulationDialogOpen(false)}
+              data-testid="button-close-simulation"
+            >
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
