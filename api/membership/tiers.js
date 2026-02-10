@@ -479,7 +479,45 @@ async function handlePost(req, res, tenantId) {
   });
 }
 
+async function checkVatRateColumnExists() {
+  const { data, error } = await supabase
+    .from('membership_tier_band')
+    .select('vat_rate')
+    .limit(0);
+  return !error;
+}
+
 async function saveBandsForConfig(configId, tenantId, bands) {
+  if (bands.length === 0) {
+    const { error: deleteError } = await supabase
+      .from('membership_tier_band')
+      .delete()
+      .eq('config_id', configId)
+      .eq('tenant_id', tenantId);
+    if (deleteError) {
+      console.error('[Membership Tiers] Error clearing bands:', deleteError);
+    }
+    return;
+  }
+
+  const hasVatColumn = await checkVatRateColumnExists();
+
+  const bandsToInsert = bands.map((band, index) => {
+    const row = {
+      config_id: configId,
+      tenant_id: tenantId,
+      label: band.label || `Tier ${index + 1}`,
+      min_value: band.min_value ?? 0,
+      max_value: band.max_value ?? null,
+      annual_cost: band.annual_cost ?? 0,
+      display_order: index,
+    };
+    if (hasVatColumn) {
+      row.vat_rate = band.vat_rate || null;
+    }
+    return row;
+  });
+
   const { error: deleteError } = await supabase
     .from('membership_tier_band')
     .delete()
@@ -490,25 +528,12 @@ async function saveBandsForConfig(configId, tenantId, bands) {
     console.error('[Membership Tiers] Error clearing bands:', deleteError);
   }
 
-  if (bands.length > 0) {
-    const bandsToInsert = bands.map((band, index) => ({
-      config_id: configId,
-      tenant_id: tenantId,
-      label: band.label || `Tier ${index + 1}`,
-      min_value: band.min_value ?? 0,
-      max_value: band.max_value ?? null,
-      annual_cost: band.annual_cost ?? 0,
-      display_order: index,
-      vat_rate: band.vat_rate || null,
-    }));
+  const { error: insertError } = await supabase
+    .from('membership_tier_band')
+    .insert(bandsToInsert);
 
-    const { error: insertError } = await supabase
-      .from('membership_tier_band')
-      .insert(bandsToInsert);
-
-    if (insertError) {
-      console.error('[Membership Tiers] Error inserting bands:', insertError);
-    }
+  if (insertError) {
+    console.error('[Membership Tiers] Error inserting bands:', insertError);
   }
 }
 
