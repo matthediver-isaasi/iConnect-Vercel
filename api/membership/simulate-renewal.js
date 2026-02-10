@@ -163,6 +163,43 @@ export default async function handler(req, res) {
     const scheduledInvoiceDate = invoicingSettings?.invoice_date ? formatDate(new Date(invoicingSettings.invoice_date)) + ' at 00:00' : null;
     const nowFormatted = formatDate(new Date(), true);
 
+    const { data: accountCodeSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_sales_account_code')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const xeroAccountCode = accountCodeSetting?.setting_value || '200';
+
+    const { data: invoiceStatusSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_invoice_status')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+
+    const { data: vatRateSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_membership_vat_rate')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    let taxType = null;
+    let taxLabel = null;
+    if (vatRateSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(vatRateSetting.setting_value);
+        taxType = parsed.taxType || null;
+        taxLabel = parsed.name || null;
+      } catch {
+        taxType = vatRateSetting.setting_value;
+        taxLabel = vatRateSetting.setting_value;
+      }
+    }
+
+    log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set (no VAT applied)'}`);
+
     if (mode === 'automatic') {
       log('Mode: Automatic', `Both renewal and invoicing happen together on the membership schedule start date`);
       log(`Step 1 - Renew (${scheduleStartDate})`, `Create membership history record for ${nextYear.label} with final cost ${finalCost.toFixed(2)} ${currency}`);
@@ -186,16 +223,41 @@ export default async function handler(req, res) {
 
     log('Dry Run Summary', 'This is a dry run - no records were created or modified', 'info');
 
+    const invoiceDescription = `Membership subscription for ${nextYear.label}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${finalCost.toFixed(2)}`;
+    const invoiceReference = `Membership ${nextYear.label}`;
+    const invoiceDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const lineItem = {
+      description: invoiceDescription,
+      quantity: 1,
+      unitAmount: finalCost.toFixed(2),
+      accountCode: xeroAccountCode,
+    };
+    if (taxType) {
+      lineItem.taxType = taxType;
+      lineItem.taxLabel = taxLabel;
+    }
+
+    const invoicePreview = {
+      contact: org.name,
+      reference: invoiceReference,
+      status: xeroInvoiceStatus,
+      dueDate: invoiceDueDate,
+      lineItems: [lineItem]
+    };
+
     if (!existingRecord) {
       log('Would Create History', `Membership history record for ${nextYear.label}: tier "${tierLabel}", final cost ${finalCost.toFixed(2)} ${currency}${overrideApplied ? ' (with override)' : ''}`);
       log('Would Create Note', `Organisation note documenting the ${mode} renewal with invoice details`);
-      if (mode === 'scheduled' && scheduledInvoiceDate) {
-        log('Would Create Xero Invoice', `Xero invoice for ${finalCost.toFixed(2)} ${currency} to contact "${org.name}" on ${scheduledInvoiceDate}. Account code and status from tenant Xero settings.`);
-      } else if (mode === 'scheduled') {
-        log('Would Create Xero Invoice', `Invoice date not yet set - invoice cannot be scheduled`, 'warning');
-      } else {
-        log('Would Create Xero Invoice', `Xero invoice for ${finalCost.toFixed(2)} ${currency} to contact "${org.name}". Account code and status from tenant Xero settings.`);
-      }
+      log('Invoice Preview - Contact', `${org.name}`);
+      log('Invoice Preview - Reference', invoiceReference);
+      log('Invoice Preview - Status', xeroInvoiceStatus);
+      log('Invoice Preview - Due Date', `${invoiceDueDate} (30 days from invoice creation date)`);
+      log('Invoice Preview - Line Description', invoiceDescription.replace(/\n/g, ' | '));
+      log('Invoice Preview - Quantity', '1');
+      log('Invoice Preview - Unit Amount', `${currency} ${finalCost.toFixed(2)}`);
+      log('Invoice Preview - Account Code', xeroAccountCode);
+      log('Invoice Preview - VAT / Tax Type', taxLabel ? `${taxLabel} (${taxType})` : 'Not set (no VAT will be applied)');
     } else {
       log('Would Be Blocked', `A record for ${nextYear.label} already exists (final cost: ${existingRecord.final_cost}). Real renewal would be rejected.`, 'warning');
     }
@@ -211,6 +273,7 @@ export default async function handler(req, res) {
       finalCost,
       currency: config.currency || 'GBP',
       overrideApplied,
+      invoicePreview: !existingRecord ? invoicePreview : null,
       steps,
     });
   } catch (error) {

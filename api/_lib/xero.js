@@ -149,7 +149,36 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
   const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
 
+  const { data: vatRateSetting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'xero_membership_vat_rate')
+    .eq('tenant_id', appTenantId)
+    .maybeSingle();
+
+  let taxType = null;
+  let taxLabel = null;
+  if (vatRateSetting?.setting_value) {
+    try {
+      const parsed = JSON.parse(vatRateSetting.setting_value);
+      taxType = parsed.taxType || null;
+      taxLabel = parsed.name || null;
+    } catch {
+      taxType = vatRateSetting.setting_value;
+    }
+  }
+
   const description = `Membership subscription for ${membershipYear}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}`;
+
+  const lineItem = {
+    Description: description,
+    Quantity: 1,
+    UnitAmount: parseFloat(finalCost).toFixed(2),
+    AccountCode: xeroAccountCode
+  };
+  if (taxType) {
+    lineItem.TaxType = taxType;
+  }
 
   const invoicePayload = {
     Invoices: [{
@@ -158,12 +187,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
       Reference: reference || `Membership ${membershipYear}`,
       Status: xeroInvoiceStatus,
       DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      LineItems: [{
-        Description: description,
-        Quantity: 1,
-        UnitAmount: parseFloat(finalCost).toFixed(2),
-        AccountCode: xeroAccountCode
-      }]
+      LineItems: [lineItem]
     }]
   };
 
