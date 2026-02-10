@@ -54,6 +54,11 @@ The membership tier system supports pro-rata pricing based on `membership_start_
 -   **Pro-rata Calculation:** If enabled, the annual fee is prorated based on remaining days in the membership year.
 -   **Free Period Logic:** A configured free period is deducted from the annual fee.
 -   **Rollover Logic:** If enabled, unused free months from the free period carry forward to reduce the *next* full year's fee, but do not cascade beyond one year. The free period is always deducted from the annual fee.
+-   **Go-Live Date:** Organisation custom field `go_live` (name: `go_live`) determines when an organisation became a member. Used by the renewal cron and simulation to determine the membership year number:
+    -   **Year 1 (first year):** Pro-rata and free period discounts apply.
+    -   **Year 2 (first renewal):** Rollover discount from unused first-year free period applies (if rollover_enabled).
+    -   **Year 3+ (established):** Full annual fee, no discounts.
+    -   If go_live is not set, org is treated as established (no discounts).
 
 ## UI/UX
 The frontend uses a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent and responsive user experience, including a collapsible sidebar.

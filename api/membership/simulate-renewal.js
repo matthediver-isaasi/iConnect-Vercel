@@ -96,6 +96,26 @@ export default async function handler(req, res) {
     const nextYear = calculateNextMembershipYear(config);
     log('Calculate Membership Year', `Current year: ${currentYear.label}, Next year: ${nextYear.label}`);
 
+    const goLiveFieldId = await getGoLiveFieldId(tenantId);
+    const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
+    const membershipYearNumber = determineMembershipYearNumber(goLiveDate, nextYear, config);
+
+    if (goLiveDate) {
+      let yearDesc;
+      if (membershipYearNumber === 1) {
+        yearDesc = 'First year - pro-rata and free period discounts WILL apply';
+      } else if (membershipYearNumber === 2) {
+        yearDesc = config.rollover_enabled
+          ? 'Second year - rollover discount from first year WILL apply (if applicable)'
+          : 'Second year - rollover is not enabled, full annual fee applies';
+      } else {
+        yearDesc = `Year ${membershipYearNumber} - established member, full annual fee applies (no discounts)`;
+      }
+      log('Go-Live Date', `${goLiveDate} → membership year ${membershipYearNumber}. ${yearDesc}`);
+    } else {
+      log('Go-Live Date', 'Not set - treating as established member (full annual fee, no discounts)', goLiveFieldId ? 'warning' : 'error');
+    }
+
     const { data: existingRecord } = await supabase
       .from('organisation_membership_history')
       .select('id, membership_year, final_cost')
@@ -127,15 +147,29 @@ export default async function handler(req, res) {
 
     let annualCost = parseFloat(matchedBand.annual_cost);
     let tierLabel = matchedBand.label;
-    let freeDiscount = calculateFreePeriodDiscount(annualCost, config);
+    let freeDiscount = 0;
     let rolloverDiscount = 0;
-    let finalCost = annualCost - freeDiscount;
+    let finalCost = annualCost;
     let usedConfigId = config.id;
     let usedBandId = matchedBand.id;
     let overrideApplied = false;
 
-    if (freeDiscount > 0) {
-      log('Free Period Discount', `Discount: ${freeDiscount.toFixed(2)} (${config.free_period_amount} ${config.free_period_unit})`);
+    if (membershipYearNumber === 1) {
+      freeDiscount = calculateFreePeriodDiscount(annualCost, config);
+      finalCost = annualCost - freeDiscount;
+      if (freeDiscount > 0) {
+        log('Free Period Discount', `First year discount: ${freeDiscount.toFixed(2)} (${config.free_period_amount} ${config.free_period_unit})`);
+      }
+    } else if (membershipYearNumber === 2 && config.rollover_enabled) {
+      rolloverDiscount = calculateRolloverDiscount(annualCost, config, goLiveDate);
+      finalCost = annualCost - rolloverDiscount;
+      if (rolloverDiscount > 0) {
+        log('Rollover Discount', `Second year rollover from first year: ${rolloverDiscount.toFixed(2)}`);
+      } else {
+        log('Rollover Discount', 'No rollover discount applicable (free period was fully used in first year)');
+      }
+    } else {
+      log('Discounts', `Year ${membershipYearNumber} - no pro-rata, free period, or rollover discounts apply`);
     }
 
     let override = null;
@@ -399,6 +433,108 @@ function calculateFreePeriodDiscount(annualCost, config) {
   else if (unit === 'weeks') freeMonths = amount / 4.33;
   else if (unit === 'days') freeMonths = amount / 30.44;
   return parseFloat((annualCost * freeMonths / 12).toFixed(2));
+}
+
+async function getGoLiveFieldId(tenantId) {
+  try {
+    const { data } = await supabase
+      .from('preference_field')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'organization')
+      .eq('is_active', true)
+      .eq('name', 'go_live')
+      .maybeSingle();
+    return data?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getOrgGoLiveDate(orgId, goLiveFieldId) {
+  if (!goLiveFieldId) return null;
+  try {
+    const { data } = await supabase
+      .from('organization_preference_value')
+      .select('value')
+      .eq('organization_id', orgId)
+      .eq('field_id', goLiveFieldId)
+      .maybeSingle();
+    if (!data?.value) return null;
+    const dateStr = String(data.value).trim();
+    if (!dateStr || dateStr === 'null') return null;
+    return dateStr.split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+function getMembershipYearStartForDate(date, config) {
+  const startMonth = config.membership_start_month || 1;
+  const startDay = config.membership_start_day || 1;
+  const year = date.getFullYear();
+  const yearStart = new Date(year, startMonth - 1, startDay);
+  if (date >= yearStart) {
+    return yearStart;
+  }
+  return new Date(year - 1, startMonth - 1, startDay);
+}
+
+function getNextMembershipYearStart(yearStart, config) {
+  const startMonth = config.membership_start_month || 1;
+  const startDay = config.membership_start_day || 1;
+  return new Date(yearStart.getFullYear() + 1, startMonth - 1, startDay);
+}
+
+function determineMembershipYearNumber(goLiveDate, targetYear, config) {
+  if (!goLiveDate) return 99;
+
+  const goLive = new Date(goLiveDate);
+  if (isNaN(goLive.getTime())) return 99;
+
+  const firstYearStart = getMembershipYearStartForDate(goLive, config);
+  const targetStart = new Date(targetYear.start);
+  targetStart.setHours(0, 0, 0, 0);
+
+  let yearNumber = 1;
+  let currentStart = new Date(firstYearStart);
+  while (currentStart < targetStart) {
+    currentStart = getNextMembershipYearStart(currentStart, config);
+    yearNumber++;
+    if (yearNumber > 100) break;
+  }
+
+  return yearNumber;
+}
+
+function calculateRolloverDiscount(annualCost, config, goLiveDate) {
+  if (!config.rollover_enabled || !config.free_period_amount || !goLiveDate) return 0;
+
+  const goLive = new Date(goLiveDate);
+  if (isNaN(goLive.getTime())) return 0;
+
+  const firstYearStart = getMembershipYearStartForDate(goLive, config);
+  const firstYearEnd = getNextMembershipYearStart(firstYearStart, config);
+
+  const totalDaysInFirstYear = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
+  const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - goLive) / (1000 * 60 * 60 * 24)));
+  const remainingMonths = (remainingDaysInFirstYear / totalDaysInFirstYear) * 12;
+
+  const freeMonths = getFreeMonths(config);
+  const unusedFreeMonths = Math.max(0, freeMonths - remainingMonths);
+
+  if (unusedFreeMonths <= 0) return 0;
+  return parseFloat((annualCost * unusedFreeMonths / 12).toFixed(2));
+}
+
+function getFreeMonths(config) {
+  if (!config.free_period_amount || !config.free_period_unit) return 0;
+  const amount = config.free_period_amount;
+  const unit = config.free_period_unit;
+  if (unit === 'months') return amount;
+  if (unit === 'weeks') return amount / 4.33;
+  if (unit === 'days') return amount / 30.44;
+  return 0;
 }
 
 async function getOrgFieldValue(orgId, tenantId, config) {

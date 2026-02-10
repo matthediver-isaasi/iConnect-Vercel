@@ -143,6 +143,7 @@ async function processTenantRenewals(tenantId, config, results) {
   if (!invoicingRows || invoicingRows.length === 0) return;
 
   const bands = await getBandsForConfig(config.id, tenantId);
+  const goLiveFieldId = await getGoLiveFieldId(tenantId);
 
   for (const invoicingSetting of invoicingRows) {
     const orgId = invoicingSetting.organization_id;
@@ -167,7 +168,7 @@ async function processTenantRenewals(tenantId, config, results) {
           results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${nextYear.label} already exists` });
           continue;
         }
-        await processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, true, results);
+        await processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, true, goLiveFieldId, results);
       } else if (mode === 'scheduled') {
         if (!renewalDue && !existing) {
           results.skipped++;
@@ -176,7 +177,7 @@ async function processTenantRenewals(tenantId, config, results) {
 
         if (!existing && renewalDue) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          await processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, invoiceDue, results);
+          await processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, invoiceDue, goLiveFieldId, results);
         } else if (existing && !existing.xero_invoice_id) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
           if (invoiceDue) {
@@ -286,7 +287,7 @@ async function invoiceExistingRecord(tenantId, orgId, recordId, config, bands, n
   console.log(`[cron/process-membership-renewals] Scheduled invoice: ${org.name} for ${record.membership_year}, cost: ${parseFloat(record.final_cost).toFixed(2)}, invoice: ${xeroInvoice?.invoice_number || 'none'}`);
 }
 
-async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, createInvoice, results) {
+async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, createInvoice, goLiveFieldId, results) {
   const { data: org } = await supabase
     .from('organization')
     .select('id, name, tenant_id')
@@ -306,6 +307,9 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
     return;
   }
 
+  const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(orgId, goLiveFieldId) : null;
+  const membershipYearNumber = determineMembershipYearNumber(goLiveDate, nextYear, config);
+
   const fieldValue = await getOrgFieldValue(orgId, tenantId, config);
   let matchedBand = matchBand(fieldValue, bands);
   let annualCost = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
@@ -318,8 +322,13 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
   let usedBandId = matchedBand?.id || null;
 
   if (annualCost !== null) {
-    freeDiscount = calculateFreePeriodDiscount(annualCost, config);
-    finalCost = annualCost - freeDiscount;
+    if (membershipYearNumber === 1) {
+      freeDiscount = calculateFreePeriodDiscount(annualCost, config);
+      finalCost = annualCost - freeDiscount;
+    } else if (membershipYearNumber === 2 && config.rollover_enabled) {
+      rolloverDiscount = calculateRolloverDiscount(annualCost, config, goLiveDate);
+      finalCost = annualCost - rolloverDiscount;
+    }
   }
 
   let override = null;
@@ -392,7 +401,7 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
       currency: config.currency || 'GBP',
       billing_period: config.billing_period || 'annual',
       status: 'active',
-      notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job`,
+      notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${membershipYearNumber}${goLiveDate ? ', go-live: ' + goLiveDate : ''})`,
     })
     .select()
     .single();
@@ -464,11 +473,15 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
     action: createInvoice ? 'renewed_and_invoiced' : 'renewed',
     status: 'processed',
     membershipYear: nextYear.label,
+    membershipYearNumber,
+    goLiveDate: goLiveDate || null,
     finalCost,
+    freeDiscount,
+    rolloverDiscount,
     xeroInvoice: xeroInvoice?.invoice_number || null,
   });
 
-  console.log(`[cron/process-membership-renewals] Renewed: ${org.name} for ${nextYear.label}, cost: ${finalCost.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
+  console.log(`[cron/process-membership-renewals] Renewed: ${org.name} for ${nextYear.label} (year ${membershipYearNumber}), cost: ${finalCost.toFixed(2)}, free: ${freeDiscount.toFixed(2)}, rollover: ${rolloverDiscount.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
 }
 
 function calculateMembershipYear(config) {
@@ -544,6 +557,108 @@ async function getConfigById(configId, tenantId) {
     .eq('tenant_id', tenantId)
     .maybeSingle();
   return data;
+}
+
+async function getGoLiveFieldId(tenantId) {
+  try {
+    const { data } = await supabase
+      .from('preference_field')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'organization')
+      .eq('is_active', true)
+      .eq('name', 'go_live')
+      .maybeSingle();
+    return data?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getOrgGoLiveDate(orgId, goLiveFieldId) {
+  if (!goLiveFieldId) return null;
+  try {
+    const { data } = await supabase
+      .from('organization_preference_value')
+      .select('value')
+      .eq('organization_id', orgId)
+      .eq('field_id', goLiveFieldId)
+      .maybeSingle();
+    if (!data?.value) return null;
+    const dateStr = String(data.value).trim();
+    if (!dateStr || dateStr === 'null') return null;
+    return dateStr.split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+function getMembershipYearStartForDate(date, config) {
+  const startMonth = config.membership_start_month || 1;
+  const startDay = config.membership_start_day || 1;
+  const year = date.getFullYear();
+  const yearStart = new Date(year, startMonth - 1, startDay);
+  if (date >= yearStart) {
+    return yearStart;
+  }
+  return new Date(year - 1, startMonth - 1, startDay);
+}
+
+function getNextMembershipYearStart(yearStart, config) {
+  const startMonth = config.membership_start_month || 1;
+  const startDay = config.membership_start_day || 1;
+  return new Date(yearStart.getFullYear() + 1, startMonth - 1, startDay);
+}
+
+function determineMembershipYearNumber(goLiveDate, targetYear, config) {
+  if (!goLiveDate) return 99;
+
+  const goLive = new Date(goLiveDate);
+  if (isNaN(goLive.getTime())) return 99;
+
+  const firstYearStart = getMembershipYearStartForDate(goLive, config);
+  const targetStart = new Date(targetYear.start);
+  targetStart.setHours(0, 0, 0, 0);
+
+  let yearNumber = 1;
+  let currentStart = new Date(firstYearStart);
+  while (currentStart < targetStart) {
+    currentStart = getNextMembershipYearStart(currentStart, config);
+    yearNumber++;
+    if (yearNumber > 100) break;
+  }
+
+  return yearNumber;
+}
+
+function calculateRolloverDiscount(annualCost, config, goLiveDate) {
+  if (!config.rollover_enabled || !config.free_period_amount || !goLiveDate) return 0;
+
+  const goLive = new Date(goLiveDate);
+  if (isNaN(goLive.getTime())) return 0;
+
+  const firstYearStart = getMembershipYearStartForDate(goLive, config);
+  const firstYearEnd = getNextMembershipYearStart(firstYearStart, config);
+
+  const totalDaysInFirstYear = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
+  const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - goLive) / (1000 * 60 * 60 * 24)));
+  const remainingMonths = (remainingDaysInFirstYear / totalDaysInFirstYear) * 12;
+
+  const freeMonths = getFreeMonths(config);
+  const unusedFreeMonths = Math.max(0, freeMonths - remainingMonths);
+
+  if (unusedFreeMonths <= 0) return 0;
+  return parseFloat((annualCost * unusedFreeMonths / 12).toFixed(2));
+}
+
+function getFreeMonths(config) {
+  if (!config.free_period_amount || !config.free_period_unit) return 0;
+  const amount = config.free_period_amount;
+  const unit = config.free_period_unit;
+  if (unit === 'months') return amount;
+  if (unit === 'weeks') return amount / 4.33;
+  if (unit === 'days') return amount / 30.44;
+  return 0;
 }
 
 async function getOrgFieldValue(orgId, tenantId, config) {
