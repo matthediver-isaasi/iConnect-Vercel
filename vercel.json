@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/send-event-reminders",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-membership-renewals",
+      "schedule": "0 6 * * *"
     }
   ],
   "rewrites": [

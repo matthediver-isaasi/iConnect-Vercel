@@ -1,5 +1,22 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+function checkCronConfiguration() {
+  try {
+    const vercelJsonPath = join(process.cwd(), 'vercel.json');
+    const vercelJson = JSON.parse(readFileSync(vercelJsonPath, 'utf-8'));
+    const crons = vercelJson?.crons || [];
+    const membershipCron = crons.find(c => c.path === '/api/cron/process-membership-renewals');
+    if (membershipCron) {
+      return { configured: true, schedule: membershipCron.schedule };
+    }
+    return { configured: false, schedule: null };
+  } catch {
+    return { configured: false, schedule: null, readError: true };
+  }
+}
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -33,6 +50,17 @@ export default async function handler(req, res) {
     };
 
     log('Start', `Simulating "${mode}" renewal for organisation ${organizationId}`);
+
+    if (mode !== 'manual') {
+      const cronCheck = checkCronConfiguration();
+      if (cronCheck.configured) {
+        log('Cron Job Check', `Membership renewal cron is configured (schedule: ${cronCheck.schedule} — daily at 06:00 UTC)`, 'ok');
+      } else if (cronCheck.readError) {
+        log('Cron Job Check', 'Could not read vercel.json to verify cron configuration. The cron may still be configured in production.', 'warning');
+      } else {
+        log('Cron Job Check', 'Membership renewal cron job is NOT configured in vercel.json. Automatic/scheduled renewals will not run until the cron entry is added.', 'error');
+      }
+    }
 
     const { data: org } = await supabase
       .from('organization')

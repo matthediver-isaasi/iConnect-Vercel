@@ -72,6 +72,13 @@ function getScheduleInfo() {
       description: 'Sends notifications to applicants when their contracts expire without signature',
       schedule: 'Every hour',
       schedule_cron: '0 * * * *'
+    },
+    {
+      task_name: 'membership_renewals',
+      display_name: 'Membership Renewals',
+      description: 'Processes automatic and scheduled membership renewals with Xero invoice creation',
+      schedule: 'Daily at 06:00 UTC',
+      schedule_cron: '0 6 * * *'
     }
   ];
 }
