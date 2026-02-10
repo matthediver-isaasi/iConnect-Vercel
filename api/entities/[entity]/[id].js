@@ -176,7 +176,8 @@ export default async function handler(req, res) {
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
             'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'IEditPage', 'IEditPageElement'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -232,7 +233,8 @@ export default async function handler(req, res) {
                 'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
                 'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
                 'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-                'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
+                'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+                'IEditPage', 'IEditPageElement'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -360,7 +362,8 @@ export default async function handler(req, res) {
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
             'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'IEditPage', 'IEditPageElement'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -467,7 +470,8 @@ export default async function handler(req, res) {
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
             'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
-            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
+            'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'IEditPage', 'IEditPageElement'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
