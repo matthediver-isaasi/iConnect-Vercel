@@ -1,4 +1,5 @@
-import { getSession, getSessionTenantUser, createSession } from '../_lib/session.js';
+import { getSession, createSession } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -25,32 +26,25 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const tenantUser = await getSessionTenantUser(req);
-    if (!tenantUser) {
+    const ctx = await getTenantContext(req);
+    if (!ctx.isAuthenticated || !ctx.tenantId) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const dbTenantId = tenantUser.tenant_id;
-    const sessionTenantId = tenantUser._sessionTenantId;
-    
-    if (sessionTenantId && dbTenantId && sessionTenantId !== dbTenantId) {
-      console.error('[Masquerade] Tenant mismatch: session says', sessionTenantId, 'but DB says', dbTenantId);
-      return res.status(403).json({ error: 'Session tenant mismatch' });
-    }
-    
-    const tenantId = dbTenantId || sessionTenantId;
+    const tenantId = ctx.tenantId;
+    const adminTenantUserId = ctx.tenantUserId || null;
 
     const { memberId } = req.body;
     if (!memberId) {
       return res.status(400).json({ error: 'memberId is required' });
     }
 
-    const adminRoleId = session.data?.roleId;
-    const adminMemberId = session.data?.memberId;
-
     let hasPermission = false;
 
-    if (adminMemberId && adminRoleId) {
+    const adminRoleId = ctx.roleId || session.data?.roleId;
+    const adminMemberId = ctx.memberId || session.data?.memberId;
+
+    if (adminRoleId) {
       const { data: role } = await supabase
         .from('role')
         .select('excluded_features')
@@ -61,7 +55,7 @@ export default async function handler(req, res) {
       hasPermission = !excludedFeatures.includes('crm.members.masquerade');
     }
 
-    if (!hasPermission && adminMemberId) {
+    if (!hasPermission && adminMemberId && !adminRoleId) {
       const { data: adminMember } = await supabase
         .from('member')
         .select('role_id')
@@ -80,8 +74,14 @@ export default async function handler(req, res) {
       }
     }
 
-    if (!hasPermission) {
-      if (tenantUser.role === 'owner' || tenantUser.role === 'admin') {
+    if (!hasPermission && adminTenantUserId) {
+      const { data: tenantUser } = await supabase
+        .from('tenant_user')
+        .select('role')
+        .eq('id', adminTenantUserId)
+        .single();
+
+      if (tenantUser?.role === 'owner' || tenantUser?.role === 'admin') {
         hasPermission = true;
       }
     }
@@ -121,9 +121,26 @@ export default async function handler(req, res) {
       }
     }
 
-    const adminName = tenantUser.first_name
-      ? `${tenantUser.first_name} ${tenantUser.last_name || ''}`.trim()
-      : tenantUser.email;
+    let adminName = 'Admin';
+    if (adminTenantUserId) {
+      const { data: tu } = await supabase
+        .from('tenant_user')
+        .select('first_name, last_name, email')
+        .eq('id', adminTenantUserId)
+        .single();
+      if (tu) {
+        adminName = tu.first_name ? `${tu.first_name} ${tu.last_name || ''}`.trim() : tu.email;
+      }
+    } else if (adminMemberId) {
+      const { data: am } = await supabase
+        .from('member')
+        .select('first_name, last_name, email')
+        .eq('id', adminMemberId)
+        .single();
+      if (am) {
+        adminName = am.first_name ? `${am.first_name} ${am.last_name || ''}`.trim() : am.email;
+      }
+    }
 
     const masqueradeSessionData = {
       memberId: targetMember.id,
@@ -136,9 +153,11 @@ export default async function handler(req, res) {
       isMasquerading: true,
       masqueradeAdminSessionId: session.id,
       masqueradeAdminName: adminName,
-      masqueradeAdminTenantUserId: tenantUser.id,
+      masqueradeAdminTenantUserId: adminTenantUserId,
+      masqueradeAdminMemberId: adminMemberId,
       masqueradeAdminTenantId: tenantId,
       masqueradeAdminIdentityId: session.data?.identityId || null,
+      masqueradeAdminUserType: session.data?.userType || 'member',
     };
 
     const newSession = await createSession(res, masqueradeSessionData, {
@@ -150,7 +169,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to create masquerade session' });
     }
 
-    console.log(`[Masquerade] Admin "${adminName}" (${tenantUser.id}) masquerading as member "${targetMember.first_name} ${targetMember.last_name}" (${targetMember.id})`);
+    console.log(`[Masquerade] Admin "${adminName}" masquerading as member "${targetMember.first_name} ${targetMember.last_name}" (${targetMember.id})`);
 
     return res.status(200).json({
       success: true,

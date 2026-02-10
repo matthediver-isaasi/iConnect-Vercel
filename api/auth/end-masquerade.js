@@ -30,55 +30,91 @@ export default async function handler(req, res) {
     }
 
     const adminTenantUserId = session.data.masqueradeAdminTenantUserId;
+    const adminMemberId = session.data.masqueradeAdminMemberId;
     const adminTenantId = session.data.masqueradeAdminTenantId;
     const adminIdentityId = session.data.masqueradeAdminIdentityId;
+    const adminUserType = session.data.masqueradeAdminUserType || 'tenant_user';
 
-    if (!adminTenantUserId) {
+    if (!adminTenantUserId && !adminMemberId) {
       return res.status(400).json({ error: 'Original admin session data not found' });
     }
 
-    const { data: tenantUser, error: tuError } = await supabase
-      .from('tenant_user')
-      .select('id, email, first_name, last_name, role, tenant_id, identity_id')
-      .eq('id', adminTenantUserId)
-      .single();
+    let adminSessionData;
+    let adminDisplayName = 'Admin';
 
-    if (tuError || !tenantUser) {
-      return res.status(404).json({ error: 'Original admin account not found' });
-    }
-
-    let adminMemberId = null;
-    let adminMemberEmail = null;
-    let adminOrganizationId = null;
-    let adminRoleId = null;
-
-    if (adminIdentityId) {
-      const { data: adminMember } = await supabase
+    if (adminUserType === 'member' || (!adminTenantUserId && adminMemberId)) {
+      const { data: adminMember, error: amError } = await supabase
         .from('member')
-        .select('id, email, organization_id, role_id')
-        .eq('identity_id', adminIdentityId)
-        .eq('tenant_id', adminTenantId)
+        .select('id, email, first_name, last_name, organization_id, tenant_id, role_id, identity_id')
+        .eq('id', adminMemberId)
         .single();
 
-      if (adminMember) {
-        adminMemberId = adminMember.id;
-        adminMemberEmail = adminMember.email;
-        adminOrganizationId = adminMember.organization_id;
-        adminRoleId = adminMember.role_id;
+      if (amError || !adminMember) {
+        return res.status(404).json({ error: 'Original admin member account not found' });
       }
-    }
 
-    const adminSessionData = {
-      tenantUserId: tenantUser.id,
-      tenantUserEmail: tenantUser.email,
-      tenantId: adminTenantId,
-      userType: 'tenant_user',
-      identityId: adminIdentityId || tenantUser.identity_id,
-      memberId: adminMemberId,
-      memberEmail: adminMemberEmail,
-      organizationId: adminOrganizationId,
-      roleId: adminRoleId,
-    };
+      adminDisplayName = adminMember.first_name
+        ? `${adminMember.first_name} ${adminMember.last_name || ''}`.trim()
+        : adminMember.email;
+
+      adminSessionData = {
+        memberId: adminMember.id,
+        memberEmail: adminMember.email,
+        organizationId: adminMember.organization_id,
+        tenantId: adminTenantId || adminMember.tenant_id,
+        roleId: adminMember.role_id,
+        identityId: adminIdentityId || adminMember.identity_id,
+        userType: 'member',
+      };
+    } else {
+      const { data: tenantUser, error: tuError } = await supabase
+        .from('tenant_user')
+        .select('id, email, first_name, last_name, role, tenant_id, identity_id')
+        .eq('id', adminTenantUserId)
+        .single();
+
+      if (tuError || !tenantUser) {
+        return res.status(404).json({ error: 'Original admin account not found' });
+      }
+
+      adminDisplayName = tenantUser.first_name
+        ? `${tenantUser.first_name} ${tenantUser.last_name || ''}`.trim()
+        : tenantUser.email;
+
+      let adminMemberIdForSession = null;
+      let adminMemberEmail = null;
+      let adminOrganizationId = null;
+      let adminRoleId = null;
+
+      const lookupIdentityId = adminIdentityId || tenantUser.identity_id;
+      if (lookupIdentityId) {
+        const { data: linkedMember } = await supabase
+          .from('member')
+          .select('id, email, organization_id, role_id')
+          .eq('identity_id', lookupIdentityId)
+          .eq('tenant_id', adminTenantId)
+          .single();
+
+        if (linkedMember) {
+          adminMemberIdForSession = linkedMember.id;
+          adminMemberEmail = linkedMember.email;
+          adminOrganizationId = linkedMember.organization_id;
+          adminRoleId = linkedMember.role_id;
+        }
+      }
+
+      adminSessionData = {
+        tenantUserId: tenantUser.id,
+        tenantUserEmail: tenantUser.email,
+        tenantId: adminTenantId,
+        userType: 'tenant_user',
+        identityId: lookupIdentityId,
+        memberId: adminMemberIdForSession,
+        memberEmail: adminMemberEmail,
+        organizationId: adminOrganizationId,
+        roleId: adminRoleId,
+      };
+    }
 
     const newSession = await createSession(res, adminSessionData, {
       req,
@@ -89,15 +125,12 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to restore admin session' });
     }
 
-    console.log(`[Masquerade] Admin "${tenantUser.first_name} ${tenantUser.last_name}" (${tenantUser.id}) ended masquerade session`);
+    console.log(`[Masquerade] Admin "${adminDisplayName}" ended masquerade session`);
 
     return res.status(200).json({
       success: true,
       admin: {
-        id: tenantUser.id,
-        email: tenantUser.email,
-        firstName: tenantUser.first_name,
-        lastName: tenantUser.last_name,
+        name: adminDisplayName,
       },
     });
 
