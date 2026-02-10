@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,8 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
-  History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert
+  History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
+  FileText, Send
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -49,6 +50,8 @@ export default function OrgMembershipTab({ organizationId }) {
   const [selectedConfigId, setSelectedConfigId] = useState('');
   const [manualPrice, setManualPrice] = useState('');
   const [overrideNote, setOverrideNote] = useState('');
+  const [invoicingMode, setInvoicingMode] = useState('manual');
+  const [invoiceDate, setInvoiceDate] = useState('');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
@@ -159,6 +162,69 @@ export default function OrgMembershipTab({ organizationId }) {
       queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
       queryClient.invalidateQueries({ queryKey: ['org-notes'] });
       toast.success('Override removed');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const { data: invoicingData } = useQuery({
+    queryKey: ['org-membership-invoicing', organizationId],
+    queryFn: async () => {
+      const response = await fetch(`/api/membership/org-membership-invoicing?organizationId=${organizationId}`, { credentials: 'include' });
+      if (!response.ok) return { invoicing_mode: 'manual', invoice_date: null };
+      return response.json();
+    },
+    enabled: !!organizationId,
+  });
+
+  useEffect(() => {
+    if (invoicingData?.invoicing_mode) setInvoicingMode(invoicingData.invoicing_mode);
+    if (invoicingData?.invoice_date) setInvoiceDate(invoicingData.invoice_date);
+  }, [invoicingData]);
+
+  const invoicingMutation = useMutation({
+    mutationFn: async (payload) => {
+      const response = await fetch('/api/membership/org-membership-invoicing', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to save invoicing settings');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
+      toast.success('Invoicing settings saved');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const manualRenewalMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/membership/org-membership-invoicing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organizationId }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to process renewal');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['org-membership', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-notes'] });
+      toast.success(data.message || 'Membership renewed and invoice generated');
     },
     onError: (error) => {
       toast.error(error.message);
@@ -493,6 +559,90 @@ export default function OrgMembershipTab({ organizationId }) {
                     Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
                   </p>
                 )}
+
+                <Separator className="my-4" />
+
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-1 mb-3">
+                    <FileText className="w-3 h-3" />
+                    Invoicing
+                  </p>
+                  <RadioGroup
+                    value={invoicingMode}
+                    onValueChange={(val) => {
+                      setInvoicingMode(val);
+                      if (val !== 'scheduled') setInvoiceDate('');
+                    }}
+                    className="space-y-2"
+                    data-testid="radio-invoicing-mode"
+                  >
+                    <div className="flex items-start gap-2">
+                      <RadioGroupItem value="automatic" id="invoicing-automatic" data-testid="radio-invoicing-automatic" className="mt-0.5" />
+                      <div>
+                        <Label htmlFor="invoicing-automatic" className="text-sm cursor-pointer">Automatic</Label>
+                        <p className="text-xs text-muted-foreground">Renew membership and generate invoice automatically at start of schedule</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <RadioGroupItem value="scheduled" id="invoicing-scheduled" data-testid="radio-invoicing-scheduled" className="mt-0.5" />
+                      <div className="flex-1">
+                        <Label htmlFor="invoicing-scheduled" className="text-sm cursor-pointer">Specify date</Label>
+                        <p className="text-xs text-muted-foreground">Renew membership at start of schedule but generate and send invoice on a specific date</p>
+                        {invoicingMode === 'scheduled' && (
+                          <Input
+                            type="date"
+                            value={invoiceDate}
+                            onChange={(e) => setInvoiceDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            className="mt-2 w-48"
+                            data-testid="input-invoice-date"
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <RadioGroupItem value="manual" id="invoicing-manual" data-testid="radio-invoicing-manual" className="mt-0.5" />
+                      <div>
+                        <Label htmlFor="invoicing-manual" className="text-sm cursor-pointer">Manual</Label>
+                        <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice generation when ready</p>
+                      </div>
+                    </div>
+                  </RadioGroup>
+
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (invoicingMode === 'scheduled' && !invoiceDate) {
+                          toast.error('Please select an invoice date');
+                          return;
+                        }
+                        invoicingMutation.mutate({
+                          organizationId,
+                          invoicingMode,
+                          invoiceDate: invoicingMode === 'scheduled' ? invoiceDate : null,
+                        });
+                      }}
+                      disabled={invoicingMutation.isPending}
+                      data-testid="button-save-invoicing"
+                    >
+                      {invoicingMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+                      Save
+                    </Button>
+                    {invoicingMode === 'manual' && (
+                      <Button
+                        size="sm"
+                        onClick={() => manualRenewalMutation.mutate()}
+                        disabled={manualRenewalMutation.isPending}
+                        data-testid="button-renew-now"
+                      >
+                        {manualRenewalMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                        Renew &amp; Invoice Now
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="text-center py-4 text-muted-foreground">

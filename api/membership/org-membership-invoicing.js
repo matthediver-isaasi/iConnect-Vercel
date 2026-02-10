@@ -73,6 +73,18 @@ async function handlePut(req, res, tenantId, tenantContext) {
     return res.status(400).json({ error: 'invoice_date is required when invoicing mode is "scheduled"' });
   }
 
+  if (invoicingMode === 'scheduled' && invoiceDate) {
+    const dateObj = new Date(invoiceDate);
+    if (isNaN(dateObj.getTime())) {
+      return res.status(400).json({ error: 'Invalid invoice date format' });
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (dateObj < today) {
+      return res.status(400).json({ error: 'Invoice date must not be in the past' });
+    }
+  }
+
   const { data: org } = await supabase
     .from('organization')
     .select('id, name, tenant_id')
