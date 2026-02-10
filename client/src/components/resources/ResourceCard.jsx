@@ -384,8 +384,8 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
           )}
           {viewCount !== null && viewCount !== undefined && (
             <div className="flex items-center gap-1 text-xs text-slate-500" data-testid={`text-resource-views-${resource.id}`}>
-              <Eye className="w-3 h-3" />
-              <span>{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>
+              {resource.resource_type === 'download' ? <Download className="w-3 h-3" /> : resource.resource_type === 'video' ? <PlayCircle className="w-3 h-3" /> : <ExternalLink className="w-3 h-3" />}
+              <span>{viewCount} {resource.resource_type === 'download' ? (viewCount === 1 ? 'Download' : 'Downloads') : resource.resource_type === 'video' ? (viewCount === 1 ? 'Video' : 'Videos') : (viewCount === 1 ? 'Visit' : 'Visits')}</span>
             </div>
           )}
         </div>
