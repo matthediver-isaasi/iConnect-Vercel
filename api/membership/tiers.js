@@ -499,6 +499,7 @@ async function saveBandsForConfig(configId, tenantId, bands) {
       max_value: band.max_value ?? null,
       annual_cost: band.annual_cost ?? 0,
       display_order: index,
+      vat_rate: band.vat_rate || null,
     }));
 
     const { error: insertError } = await supabase

@@ -298,6 +298,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   let matchedBand = matchBand(fieldValue, bands);
   let annualCost = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
   let tierLabel = matchedBand?.label || null;
+  let bandVatRate = matchedBand?.vat_rate || null;
   let finalCost = annualCost;
   let freeDiscount = 0;
   let rolloverDiscount = 0;
@@ -326,6 +327,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
         if (overrideBand) {
           annualCost = parseFloat(overrideBand.annual_cost);
           tierLabel = overrideBand.label;
+          bandVatRate = overrideBand.vat_rate || null;
           finalCost = annualCost;
           freeDiscount = 0;
           rolloverDiscount = 0;
@@ -390,6 +392,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       finalCost,
       currency: config.currency || 'GBP',
       reference: `Membership ${nextYear.label}`,
+      vatRate: bandVatRate,
     });
 
     if (xeroInvoice) {

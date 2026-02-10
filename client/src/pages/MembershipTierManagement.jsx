@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/component
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { base44 } from "@/api/base44Client";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -133,6 +134,24 @@ export default function MembershipTierManagement() {
     },
     enabled: !!viewingHistorical,
   });
+
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['/api/entities/SystemSettings'],
+    queryFn: () => base44.entities.SystemSettings.list()
+  });
+
+  const availableVatRates = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'xero_vat_rates');
+    if (setting?.setting_value) {
+      try {
+        const parsed = JSON.parse(setting.setting_value);
+        return parsed.rates || [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  }, [systemSettings]);
 
   const { data: previewData, isLoading: loadingPreview, refetch: refetchPreview } = useQuery({
     queryKey: ['membership-tier-preview', viewingHistorical],
@@ -337,6 +356,7 @@ export default function MembershipTierManagement() {
         min_value: parseFloat(b.min_value) || 0,
         max_value: b.max_value !== '' && b.max_value !== null && b.max_value !== undefined ? parseFloat(b.max_value) : null,
         annual_cost: parseFloat(b.annual_cost) || 0,
+        vat_rate: b.vat_rate || null,
       })),
     };
 
@@ -866,18 +886,22 @@ export default function MembershipTierManagement() {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="hidden md:grid md:grid-cols-[1fr_120px_120px_140px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+              <div className="hidden md:grid md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
                 <span>Label</span>
                 <span>Min Value</span>
                 <span>Max Value</span>
                 <span>{periodLabel} Cost ({currencySymbol})</span>
+                <span>VAT Rate</span>
                 <span></span>
               </div>
 
-              {bands.map((band, index) => (
+              {bands.map((band, index) => {
+                const parsedVat = band.vat_rate ? (() => { try { return JSON.parse(band.vat_rate); } catch { return null; } })() : null;
+                const vatSelectValue = parsedVat?.taxType || '';
+                return (
                 <div
                   key={band.id || index}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_120px_120px_140px_40px] gap-2 items-center p-2 rounded-md border"
+                  className="grid grid-cols-1 md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 items-center p-2 rounded-md border"
                   data-testid={`row-band-${index}`}
                 >
                   <Input
@@ -916,6 +940,32 @@ export default function MembershipTierManagement() {
                       data-testid={`input-band-cost-${index}`}
                     />
                   </div>
+                  <Select
+                    value={vatSelectValue}
+                    onValueChange={(value) => {
+                      if (value === '__none') {
+                        updateBand(index, 'vat_rate', null);
+                      } else {
+                        const selectedRate = availableVatRates.find(r => r.taxType === value);
+                        if (selectedRate) {
+                          updateBand(index, 'vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
+                        }
+                      }
+                    }}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger data-testid={`select-band-vat-${index}`}>
+                      <SelectValue placeholder="No VAT" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">No VAT</SelectItem>
+                      {availableVatRates.map(rate => (
+                        <SelectItem key={rate.taxType} value={rate.taxType}>
+                          {rate.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {isEditable ? (
                     <Button
                       size="icon"
@@ -930,7 +980,8 @@ export default function MembershipTierManagement() {
                     <div />
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {bands.length > 0 && (
                 <div className="mt-2 p-3 bg-muted/50 rounded-md">

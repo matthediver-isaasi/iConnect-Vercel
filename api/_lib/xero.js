@@ -123,7 +123,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, membershipYear, tierLabel, finalCost, currency, reference }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, membershipYear, tierLabel, finalCost, currency, reference, vatRate }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -149,22 +149,15 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
   const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
 
-  const { data: vatRateSetting } = await supabase
-    .from('system_settings')
-    .select('setting_value')
-    .eq('setting_key', 'xero_membership_vat_rate')
-    .eq('tenant_id', appTenantId)
-    .maybeSingle();
-
   let taxType = null;
   let taxLabel = null;
-  if (vatRateSetting?.setting_value) {
+  if (vatRate) {
     try {
-      const parsed = JSON.parse(vatRateSetting.setting_value);
+      const parsed = typeof vatRate === 'string' ? JSON.parse(vatRate) : vatRate;
       taxType = parsed.taxType || null;
       taxLabel = parsed.name || null;
     } catch {
-      taxType = vatRateSetting.setting_value;
+      taxType = vatRate;
     }
   }
 

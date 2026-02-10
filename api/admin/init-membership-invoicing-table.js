@@ -52,6 +52,16 @@ export default async function handler(req, res) {
           ALTER TABLE organisation_membership_history ADD COLUMN xero_invoice_number TEXT;
         END IF;
       END $$;
+
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'membership_tier_band' 
+          AND column_name = 'vat_rate'
+        ) THEN
+          ALTER TABLE membership_tier_band ADD COLUMN vat_rate TEXT;
+        END IF;
+      END $$;
     `;
 
     const { error } = await supabase.rpc('exec_sql', { sql_text: createSQL });
@@ -74,11 +84,12 @@ export default async function handler(req, res) {
         const columnAddSQL = `
           ALTER TABLE organisation_membership_history ADD COLUMN IF NOT EXISTS xero_invoice_id TEXT;
           ALTER TABLE organisation_membership_history ADD COLUMN IF NOT EXISTS xero_invoice_number TEXT;
+          ALTER TABLE membership_tier_band ADD COLUMN IF NOT EXISTS vat_rate TEXT;
         `.trim();
 
         return res.json({
           success: true,
-          message: 'Invoicing table already exists. Please also ensure xero_invoice_id and xero_invoice_number columns exist on organisation_membership_history.',
+          message: 'Invoicing table already exists. Please also ensure additional columns exist on organisation_membership_history and membership_tier_band.',
           columnMigrationSQL: columnAddSQL
         });
       }

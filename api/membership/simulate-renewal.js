@@ -140,6 +140,7 @@ export default async function handler(req, res) {
           if (overrideBand) {
             annualCost = parseFloat(overrideBand.annual_cost);
             tierLabel = overrideBand.label;
+            matchedBand = overrideBand;
             finalCost = annualCost;
             freeDiscount = 0;
             rolloverDiscount = 0;
@@ -179,26 +180,21 @@ export default async function handler(req, res) {
       .maybeSingle();
     const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
 
-    const { data: vatRateSetting } = await supabase
-      .from('system_settings')
-      .select('setting_value')
-      .eq('setting_key', 'xero_membership_vat_rate')
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
     let taxType = null;
     let taxLabel = null;
-    if (vatRateSetting?.setting_value) {
+    const bandVatRate = matchedBand?.vat_rate || null;
+    if (bandVatRate) {
       try {
-        const parsed = JSON.parse(vatRateSetting.setting_value);
+        const parsed = JSON.parse(bandVatRate);
         taxType = parsed.taxType || null;
         taxLabel = parsed.name || null;
       } catch {
-        taxType = vatRateSetting.setting_value;
-        taxLabel = vatRateSetting.setting_value;
+        taxType = bandVatRate;
+        taxLabel = bandVatRate;
       }
     }
 
-    log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set (no VAT applied)'}`);
+    log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set on tier band (no VAT applied)'}`);
 
     if (mode === 'automatic') {
       log('Mode: Automatic', `Both renewal and invoicing happen together on the membership schedule start date`);
