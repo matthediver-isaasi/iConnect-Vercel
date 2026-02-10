@@ -2420,6 +2420,8 @@ useEffect(() => {
                       });
                       if (response.ok) {
                         const data = await response.json();
+                        localStorage.removeItem('agcas_member');
+                        localStorage.removeItem('agcas_organization');
                         window.location.href = data.returnUrl || '/members';
                       }
                     } catch (error) {
