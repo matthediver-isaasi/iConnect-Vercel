@@ -732,7 +732,7 @@ export default function ArticlesPage() {
                       onDelete={handleDeleteArticle}
                       authorHandles={authorHandles}
                       authorNames={authorNames}
-                      viewCount={!isFeatureExcluded('content.articles.show-count') ? (articleStats[article.id]?.viewCount || 0) : null}
+                      viewCount={isAuthenticated && !isFeatureExcluded('content.articles.show-count') ? (articleStats[article.id]?.viewCount || 0) : null}
                     />
                   ))}
                 </div>
