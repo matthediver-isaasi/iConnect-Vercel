@@ -26,7 +26,11 @@ import {
   Activity,
   FileText,
   BookOpen,
-  Building2
+  Building2,
+  FolderOpen,
+  Download,
+  Video,
+  ExternalLink
 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -53,9 +57,10 @@ const DEFAULT_REPORT_CARDS = [
   { id: 'members', title: 'Members', visible: true, order: 0 },
   { id: 'activity', title: 'Activity', visible: true, order: 1 },
   { id: 'article-views', title: 'Article Views', visible: true, order: 2 },
-  { id: 'org-types', title: 'Organization Types', visible: true, order: 3 },
-  { id: 'new-orgs', title: 'New Organizations', visible: true, order: 4 },
-  { id: 'members-by-org-type', title: 'Members by Org Type', visible: true, order: 5 }
+  { id: 'resource-views', title: 'Resource Views', visible: true, order: 3 },
+  { id: 'org-types', title: 'Organization Types', visible: true, order: 4 },
+  { id: 'new-orgs', title: 'New Organizations', visible: true, order: 5 },
+  { id: 'members-by-org-type', title: 'Members by Org Type', visible: true, order: 6 }
 ];
 
 const ORG_TYPE_COLORS = [
@@ -175,6 +180,54 @@ const DEMO_ARTICLE_VIEWS_DATA = {
       { label: '2022', count: 3456 }, { label: '2023', count: 4567 }, { label: '2024', count: 4824 }
     ]
   }
+};
+
+const DEMO_RESOURCE_VIEWS_DATA = {
+  totalViews: 5432,
+  uniqueResources: 89,
+  uniqueViewers: 312,
+  viewsToday: 34,
+  viewsThisWeek: 198,
+  viewsThisMonth: 756,
+  periodStats: {
+    week: { current: 198, previous: 167, change: 18.6, changeDirection: 'up', isAllTime: false },
+    month: { current: 756, previous: 623, change: 21.3, changeDirection: 'up', isAllTime: false },
+    quarter: { current: 2134, previous: 1876, change: 13.8, changeDirection: 'up', isAllTime: false },
+    year: { current: 5432, previous: 4123, change: 31.7, changeDirection: 'up', isAllTime: false },
+    all: { current: 5432, previous: null, change: null, changeDirection: null, isAllTime: true }
+  },
+  viewsByPeriod: {
+    week: [
+      { label: 'Mon', count: 32 }, { label: 'Tue', count: 41 }, { label: 'Wed', count: 37 },
+      { label: 'Thu', count: 29 }, { label: 'Fri', count: 28 }, { label: 'Sat', count: 18 }, { label: 'Sun', count: 13 }
+    ],
+    month: [
+      { label: 'Week 1', count: 178 }, { label: 'Week 2', count: 201 },
+      { label: 'Week 3', count: 189 }, { label: 'Week 4', count: 188 }
+    ],
+    quarter: [
+      { label: 'Jan', count: 689 }, { label: 'Feb', count: 723 }, { label: 'Mar', count: 722 }
+    ],
+    year: [
+      { label: 'Q1', count: 1234 }, { label: 'Q2', count: 1389 },
+      { label: 'Q3', count: 1456 }, { label: 'Q4', count: 1353 }
+    ],
+    all: [
+      { label: '2023', count: 1876 }, { label: '2024', count: 2134 }, { label: '2025', count: 1422 }
+    ]
+  },
+  viewsByType: [
+    { type: 'download', count: 2345 },
+    { type: 'video', count: 1876 },
+    { type: 'url', count: 1211 }
+  ],
+  topResources: [
+    { id: '1', title: 'Getting Started Guide', resource_type: 'download', views: 234 },
+    { id: '2', title: 'Introduction Video', resource_type: 'video', views: 189 },
+    { id: '3', title: 'Policy Document 2024', resource_type: 'download', views: 156 },
+    { id: '4', title: 'External Training Portal', resource_type: 'url', views: 134 },
+    { id: '5', title: 'Annual Report Webinar', resource_type: 'video', views: 112 }
+  ]
 };
 
 const DEMO_ORG_TYPE_DATA = {
@@ -833,6 +886,249 @@ function ArticleViewsReportCard({ period, onPeriodChange, demoMode }) {
                   fillOpacity={1}
                   fill="url(#colorViews)"
                   name="Article Views"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const RESOURCE_TYPE_ICON_MAP = {
+  download: Download,
+  video: Video,
+  url: ExternalLink
+};
+
+const RESOURCE_TYPE_LABEL_MAP = {
+  download: 'Download',
+  video: 'Video',
+  url: 'URL Click'
+};
+
+const RESOURCE_TYPE_COLORS = {
+  download: 'hsl(var(--chart-1))',
+  video: 'hsl(var(--chart-2))',
+  url: 'hsl(var(--chart-3))'
+};
+
+function ResourceViewsReportCard({ period, onPeriodChange, demoMode }) {
+  const { data: apiStats, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['/api/reports/resource-views-stats'],
+    queryFn: () => apiRequest('GET', '/api/reports/resource-views-stats'),
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: !demoMode
+  });
+
+  const stats = demoMode ? DEMO_RESOURCE_VIEWS_DATA : apiStats;
+  const periodData = stats?.periodStats?.[period];
+  const changePercent = periodData?.change;
+  const hasValidComparison = changePercent !== null && changePercent !== undefined && !periodData?.isAllTime;
+  const isPositive = periodData?.changeDirection === 'up';
+
+  if (!demoMode && isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="container-resource-views-loading">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!demoMode && error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4" data-testid="container-resource-views-error">
+        <p className="text-muted-foreground" data-testid="text-resource-views-error-message">Failed to load resource view statistics</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-resource-views-retry">
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  const totalTypeViews = (stats?.viewsByType || []).reduce((sum, t) => sum + t.count, 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Select value={period} onValueChange={onPeriodChange}>
+          <SelectTrigger className="w-40" data-testid="select-resource-views-period">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map(opt => (
+              <SelectItem key={opt.value} value={opt.value} data-testid={`select-resource-views-period-${opt.value}`}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!demoMode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-resource-views"
+          >
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="container-resource-views-stats-grid">
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-resource-total-views">Total Views</p>
+          <p className="text-2xl font-bold" data-testid="text-resource-total-views">{stats?.totalViews?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-unique-resources">Unique Resources</p>
+          <p className="text-2xl font-bold" data-testid="text-unique-resources">{stats?.uniqueResources?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-resource-unique-viewers">Unique Viewers</p>
+          <p className="text-2xl font-bold" data-testid="text-resource-unique-viewers">{stats?.uniqueViewers?.toLocaleString() || 0}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground" data-testid="label-resource-views-today">Today</p>
+          <p className="text-2xl font-bold text-green-600" data-testid="text-resource-views-today">{stats?.viewsToday?.toLocaleString() || 0}</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-resource-views-summary">
+        <div className="p-2 rounded-full bg-primary/10">
+          <FolderOpen className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <p className="text-sm font-medium" data-testid="text-resource-views-summary">
+            <span className="text-primary text-lg font-bold">{stats?.viewsThisWeek?.toLocaleString() || 0}</span>
+            {' '}views this week
+          </p>
+          <p className="text-xs text-muted-foreground" data-testid="text-resource-views-month">
+            {stats?.viewsThisMonth?.toLocaleString() || 0} views this month
+          </p>
+        </div>
+      </div>
+
+      {hasValidComparison && periodData && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50" data-testid="container-resource-views-comparison">
+          <div className={`p-2 rounded-full ${isPositive ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+            {isPositive ? (
+              <TrendingUp className="w-5 h-5 text-green-600" />
+            ) : (
+              <TrendingDown className="w-5 h-5 text-red-600" />
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium" data-testid="text-resource-views-comparison">
+              <span className={isPositive ? 'text-green-600' : 'text-red-600'}>
+                {isPositive ? '+' : ''}{changePercent}%
+              </span>
+              {' '}vs previous {period}
+            </p>
+            <p className="text-xs text-muted-foreground" data-testid="text-resource-views-details">
+              {periodData.current} views (was {periodData.previous})
+            </p>
+          </div>
+        </div>
+      )}
+
+      {(stats?.viewsByType || []).length > 0 && (
+        <div className="space-y-3" data-testid="container-views-by-type">
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-views-by-type-title">Views by Resource Type</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {stats.viewsByType.map((typeData) => {
+              const TypeIcon = RESOURCE_TYPE_ICON_MAP[typeData.type] || ExternalLink;
+              const typeLabel = RESOURCE_TYPE_LABEL_MAP[typeData.type] || typeData.type;
+              const typeColor = RESOURCE_TYPE_COLORS[typeData.type] || 'hsl(var(--muted-foreground))';
+              const percentage = totalTypeViews > 0 ? Math.round((typeData.count / totalTypeViews) * 100) : 0;
+
+              return (
+                <div key={typeData.type} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30" data-testid={`container-type-${typeData.type}`}>
+                  <div className="p-2 rounded-full" style={{ backgroundColor: `${typeColor}20` }}>
+                    <TypeIcon className="w-4 h-4" style={{ color: typeColor }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium" data-testid={`text-type-label-${typeData.type}`}>{typeLabel}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-lg font-bold" data-testid={`text-type-count-${typeData.type}`}>{typeData.count.toLocaleString()}</p>
+                      <Badge variant="secondary" data-testid={`badge-type-pct-${typeData.type}`}>
+                        {percentage}%
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {stats?.topResources?.length > 0 && (
+        <div className="space-y-3" data-testid="container-top-resources">
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-top-resources-title">Most Viewed (Recent)</p>
+          <div className="space-y-2">
+            {stats.topResources.map((resource, idx) => {
+              const TypeIcon = RESOURCE_TYPE_ICON_MAP[resource.resource_type] || ExternalLink;
+              return (
+                <div key={resource.id} className="flex items-center justify-between p-2 rounded-lg bg-muted/30" data-testid={`row-top-resource-${idx}`}>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className="text-sm font-medium text-muted-foreground w-5">{idx + 1}.</span>
+                    <TypeIcon className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-sm truncate" data-testid={`text-resource-title-${idx}`}>{resource.title}</span>
+                  </div>
+                  <Badge variant="secondary" data-testid={`badge-resource-views-${idx}`}>
+                    {resource.views} views
+                  </Badge>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {stats?.viewsByPeriod?.[period]?.length > 0 && (
+        <div className="space-y-3" data-testid="container-resource-views-chart">
+          <p className="text-sm font-medium text-muted-foreground" data-testid="text-resource-views-chart-title">
+            Resource Views ({period === 'all' ? 'All Time' : `This ${period.charAt(0).toUpperCase() + period.slice(1)}`})
+          </p>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.viewsByPeriod[period]}>
+                <defs>
+                  <linearGradient id="colorResourceViews" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--chart-4))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--chart-4))" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis 
+                  dataKey="label" 
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                />
+                <YAxis 
+                  tick={{ fontSize: 11 }}
+                  className="text-muted-foreground"
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  stroke="hsl(var(--chart-4))"
+                  fillOpacity={1}
+                  fill="url(#colorResourceViews)"
+                  name="Resource Views"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1835,6 +2131,7 @@ export default function ReportsDashboard() {
   const [membersPeriod, setMembersPeriod] = useState('month');
   const [activityPeriod, setActivityPeriod] = useState('month');
   const [articleViewsPeriod, setArticleViewsPeriod] = useState('month');
+  const [resourceViewsPeriod, setResourceViewsPeriod] = useState('month');
   const [orgTypeField, setOrgTypeField] = useState('org_type');
   const [orgTypeViewMode, setOrgTypeViewMode] = useState('monthly');
   const [orgTypeChartType, setOrgTypeChartType] = useState('bar');
@@ -1894,6 +2191,7 @@ export default function ReportsDashboard() {
           if (parsed.membersPeriod) setMembersPeriod(parsed.membersPeriod);
           if (parsed.activityPeriod) setActivityPeriod(parsed.activityPeriod);
           if (parsed.articleViewsPeriod) setArticleViewsPeriod(parsed.articleViewsPeriod);
+          if (parsed.resourceViewsPeriod) setResourceViewsPeriod(parsed.resourceViewsPeriod);
           if (parsed.orgTypeField) setOrgTypeField(parsed.orgTypeField);
           if (parsed.orgTypeViewMode) setOrgTypeViewMode(parsed.orgTypeViewMode);
         }
@@ -1911,6 +2209,7 @@ export default function ReportsDashboard() {
           membersPeriod,
           activityPeriod,
           articleViewsPeriod,
+          resourceViewsPeriod,
           orgTypeField,
           orgTypeViewMode
         }));
@@ -1918,7 +2217,7 @@ export default function ReportsDashboard() {
         console.error('Error saving dashboard preferences:', e);
       }
     }
-  }, [reportCards, membersPeriod, activityPeriod, articleViewsPeriod, orgTypeField, orgTypeViewMode, storageKey, memberInfo?.id, tenantSlug]);
+  }, [reportCards, membersPeriod, activityPeriod, articleViewsPeriod, resourceViewsPeriod, orgTypeField, orgTypeViewMode, storageKey, memberInfo?.id, tenantSlug]);
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
@@ -1973,6 +2272,14 @@ export default function ReportsDashboard() {
           <ArticleViewsReportCard
             period={articleViewsPeriod}
             onPeriodChange={setArticleViewsPeriod}
+            demoMode={demoMode}
+          />
+        );
+      case 'resource-views':
+        return (
+          <ResourceViewsReportCard
+            period={resourceViewsPeriod}
+            onPeriodChange={setResourceViewsPeriod}
             demoMode={demoMode}
           />
         );
@@ -2037,6 +2344,8 @@ export default function ReportsDashboard() {
         return <Activity className="w-5 h-5" />;
       case 'article-views':
         return <FileText className="w-5 h-5" />;
+      case 'resource-views':
+        return <FolderOpen className="w-5 h-5" />;
       case 'org-types':
         return <Building2 className="w-5 h-5" />;
       case 'new-orgs':
