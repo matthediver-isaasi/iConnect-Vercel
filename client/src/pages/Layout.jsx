@@ -2419,7 +2419,7 @@ useEffect(() => {
                         headers: { 'Content-Type': 'application/json' },
                       });
                       if (response.ok) {
-                        window.location.href = '/admin/dashboard';
+                        window.location.href = '/members';
                       }
                     } catch (error) {
                       console.error('Failed to end masquerade:', error);
