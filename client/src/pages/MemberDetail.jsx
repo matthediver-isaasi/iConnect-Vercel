@@ -123,7 +123,7 @@ export default function MemberDetail() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: member.id }),
+        body: JSON.stringify({ memberId: member.id, returnUrl: window.location.pathname }),
       });
       
       const data = await response.json();

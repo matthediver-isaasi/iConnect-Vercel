@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     const tenantId = ctx.tenantId;
     const adminTenantUserId = ctx.tenantUserId || null;
 
-    const { memberId } = req.body;
+    const { memberId, returnUrl } = req.body;
     if (!memberId) {
       return res.status(400).json({ error: 'memberId is required' });
     }
@@ -158,6 +158,7 @@ export default async function handler(req, res) {
       masqueradeAdminTenantId: tenantId,
       masqueradeAdminIdentityId: session.data?.identityId || null,
       masqueradeAdminUserType: session.data?.userType || 'member',
+      masqueradeReturnUrl: returnUrl || '/members',
     };
 
     const newSession = await createSession(res, masqueradeSessionData, {

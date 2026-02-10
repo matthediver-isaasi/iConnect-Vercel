@@ -34,6 +34,7 @@ export default async function handler(req, res) {
     const adminTenantId = session.data.masqueradeAdminTenantId;
     const adminIdentityId = session.data.masqueradeAdminIdentityId;
     const adminUserType = session.data.masqueradeAdminUserType || 'tenant_user';
+    const returnUrl = session.data.masqueradeReturnUrl || '/members';
 
     if (!adminTenantUserId && !adminMemberId) {
       return res.status(400).json({ error: 'Original admin session data not found' });
@@ -129,6 +130,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
+      returnUrl,
       admin: {
         name: adminDisplayName,
       },
