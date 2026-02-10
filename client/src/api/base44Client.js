@@ -213,6 +213,7 @@ class EntitiesProxy {
   get CommentReaction() { return this._getEntity('CommentReaction'); }
   get ArticleReaction() { return this._getEntity('ArticleReaction'); }
   get ArticleView() { return this._getEntity('ArticleView'); }
+  get ResourceView() { return this._getEntity('ResourceView'); }
   get ButtonStyle() { return this._getEntity('ButtonStyle'); }
   get Award() { return this._getEntity('Award'); }
   get OfflineAward() { return this._getEntity('OfflineAward'); }

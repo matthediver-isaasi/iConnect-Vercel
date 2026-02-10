@@ -121,6 +121,7 @@ const entityToTable = {
   'CommentReaction': 'comment_reaction',
   'ArticleReaction': 'article_reaction',
   'ArticleView': 'article_view',
+  'ResourceView': 'resource_view',
   'ButtonStyle': 'button_style',
   'Award': 'award',
   'OfflineAward': 'offline_award',

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -244,6 +244,60 @@ export default function ResourcesPage() {
 
   // Get enabled social icons from settings, default to all enabled
   const enabledSocialIcons = resourceSettings?.enabled_social_icons || ['x', 'linkedin', 'email'];
+
+  // Fetch all resource views for view count display - only for authenticated users
+  const { data: allResourceViews = [] } = useQuery({
+    queryKey: ['all-resource-views'],
+    queryFn: async () => {
+      return await base44.entities.ResourceView.list();
+    },
+    enabled: isAuthenticated
+  });
+
+  // Calculate view counts per resource
+  const resourceViewCounts = useMemo(() => {
+    const counts = {};
+    allResourceViews.forEach(v => {
+      counts[v.resource_id] = (counts[v.resource_id] || 0) + 1;
+    });
+    return counts;
+  }, [allResourceViews]);
+
+  // Track which resources have been recorded as viewed in this session
+  const viewedResourcesRef = useRef(new Set());
+
+  // User identifier for view tracking
+  const userIdentifier = memberInfo?.email || memberInfo?.id;
+
+  // Record a resource view
+  const recordViewMutation = useMutation({
+    mutationFn: async (resourceId) => {
+      if (!isAuthenticated || !userIdentifier) return;
+      if (viewedResourcesRef.current.has(resourceId)) return;
+      viewedResourcesRef.current.add(resourceId);
+
+      try {
+        await base44.entities.ResourceView.create({
+          resource_id: resourceId,
+          user_identifier: userIdentifier,
+          is_member: true,
+          viewed_at: new Date().toISOString()
+        });
+      } catch (err) {
+        // Ignore duplicate constraint errors - user already viewed this resource
+        console.log('[Resources] View already recorded or error:', err?.message);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['all-resource-views'] });
+    }
+  });
+
+  const handleResourceView = (resourceId) => {
+    if (isAuthenticated && userIdentifier) {
+      recordViewMutation.mutate(resourceId);
+    }
+  };
   
   // Get hide empty subcategories setting
   const hideEmptySubcategories = resourceSettings?.hide_empty_subcategories === true;
@@ -616,6 +670,8 @@ export default function ResourcesPage() {
                       buttonStyles={buttonStyles}
                       enabledSocialIcons={enabledSocialIcons}
                       isAuthenticated={isAuthenticated}
+                      viewCount={isAuthenticated ? (resourceViewCounts[resource.id] || 0) : null}
+                      onResourceView={handleResourceView}
                     />
                   ))}
                 </div>

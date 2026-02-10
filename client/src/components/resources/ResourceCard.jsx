@@ -27,7 +27,7 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true }) {
+export default function ResourceCard({ resource, isLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView }) {
   const [copied, setCopied] = useState(false);
   
   // Get button style from props instead of fetching
@@ -73,6 +73,9 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
         window.location.href = resource.login_redirect_url;
       }
       return;
+    }
+    if (onResourceView) {
+      onResourceView(resource.id);
     }
     window.open(resource.target_url, '_blank', 'noopener,noreferrer');
   };
@@ -372,12 +375,20 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
           )}
         </div>
         
-        {(resource.published_date || resource.created_date) && (
-          <div className="flex items-center gap-1 text-xs text-slate-500 py-3">
-            <Calendar className="w-3 h-3" />
-            <span>{format(new Date(resource.published_date || resource.created_date), 'dd MMM yyyy')}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-3 py-3">
+          {(resource.published_date || resource.created_date) && (
+            <div className="flex items-center gap-1 text-xs text-slate-500">
+              <Calendar className="w-3 h-3" />
+              <span>{format(new Date(resource.published_date || resource.created_date), 'dd MMM yyyy')}</span>
+            </div>
+          )}
+          {viewCount !== null && viewCount !== undefined && (
+            <div className="flex items-center gap-1 text-xs text-slate-500" data-testid={`text-resource-views-${resource.id}`}>
+              <Eye className="w-3 h-3" />
+              <span>{viewCount} {viewCount === 1 ? 'view' : 'views'}</span>
+            </div>
+          )}
+        </div>
         
         {resource.author_name && (
           <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-2">
