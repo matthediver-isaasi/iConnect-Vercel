@@ -646,45 +646,6 @@ async function handleDelete(req, res, tenantId) {
   return res.json({ success: true });
 }
 
-async function ensureDiscountTable() {
-  const createSQL = `
-    CREATE TABLE IF NOT EXISTS membership_tier_discount (
-      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      tenant_id UUID NOT NULL,
-      config_id UUID NOT NULL,
-      field_id UUID NOT NULL,
-      field_label TEXT,
-      match_value TEXT NOT NULL,
-      discount_type TEXT NOT NULL DEFAULT 'percentage' CHECK (discount_type IN ('percentage', 'fixed')),
-      discount_value NUMERIC(12,2) NOT NULL DEFAULT 0,
-      label TEXT,
-      sort_order INTEGER DEFAULT 0,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_membership_tier_discount_tenant ON membership_tier_discount(tenant_id);
-    CREATE INDEX IF NOT EXISTS idx_membership_tier_discount_config ON membership_tier_discount(config_id);
-  `;
-  try {
-    const { error } = await supabase.rpc('exec_sql', { sql_text: createSQL });
-    if (error) {
-      console.error('[Membership Tiers] exec_sql failed for discount table:', error.message);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error('[Membership Tiers] Failed to auto-create discount table:', e?.message);
-    return false;
-  }
-}
-
-function isTableMissing(error) {
-  if (!error) return false;
-  if (error.code === '42P01' || error.code === 'PGRST205') return true;
-  if (error.message?.includes("Could not find the table") && error.message?.includes('membership_tier_discount')) return true;
-  return false;
-}
-
 async function getDiscountsForConfig(configId, tenantId) {
   try {
     const { data, error } = await supabase
@@ -695,7 +656,6 @@ async function getDiscountsForConfig(configId, tenantId) {
       .order('sort_order', { ascending: true });
 
     if (error) {
-      if (isTableMissing(error)) return [];
       console.error('[Membership Tiers] Error fetching discounts:', error);
       return [];
     }
@@ -723,22 +683,11 @@ async function saveDiscountsForConfig(configId, tenantId, discounts) {
       sort_order: index,
     }));
 
-    let { error } = await supabase
+    const { error } = await supabase
       .from('membership_tier_discount')
       .insert(rows);
 
-    if (error && isTableMissing(error)) {
-      console.log('[Membership Tiers] Discount table missing, auto-creating...');
-      const created = await ensureDiscountTable();
-      if (created) {
-        const retry = await supabase
-          .from('membership_tier_discount')
-          .insert(rows);
-        if (retry.error) {
-          console.error('[Membership Tiers] Error saving discounts after table creation:', retry.error);
-        }
-      }
-    } else if (error) {
+    if (error) {
       console.error('[Membership Tiers] Error saving discounts:', error);
     }
   } catch (err) {
@@ -748,14 +697,11 @@ async function saveDiscountsForConfig(configId, tenantId, discounts) {
 
 async function deleteDiscountsForConfig(configId, tenantId) {
   try {
-    const { error } = await supabase
+    await supabase
       .from('membership_tier_discount')
       .delete()
       .eq('config_id', configId)
       .eq('tenant_id', tenantId);
-    if (error && isTableMissing(error)) {
-      return;
-    }
   } catch {}
 }
 
