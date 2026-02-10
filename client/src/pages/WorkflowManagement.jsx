@@ -18,7 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { 
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
-  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase, FileSignature, Send, Copy
+  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase, FileSignature, Send, Copy, CreditCard
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -49,6 +49,7 @@ const ACTION_TYPES = [
   { value: 'send_email', label: 'Send Email', icon: Mail, description: 'Send an email notification' },
   { value: 'update_field', label: 'Update Field', icon: Settings, description: 'Update a field value on the record' },
   { value: 'create_contract', label: 'Create Contract', icon: FileSignature, description: 'Create a contract from a template and optionally send for signing' },
+  { value: 'create_membership', label: 'Create Membership', icon: CreditCard, description: 'Create a membership record for the organisation using the current tier configuration' },
 ];
 
 const ORGANIZATION_CORE_FIELDS = [
@@ -2013,6 +2014,32 @@ export default function WorkflowManagementPage() {
                                     </div>
                                   </div>
                                 </>
+                              )}
+                            </div>
+                          )}
+
+                          {action.type === 'create_membership' && (
+                            <div className="space-y-3">
+                              <div className="p-3 rounded-md border bg-muted/30">
+                                <p className="text-sm text-muted-foreground">
+                                  This action will automatically create a membership record for the organisation using the current tier configuration. 
+                                  The system will determine the correct tier band, calculate any applicable discounts (pro-rata, free period, rollover) 
+                                  based on the organisation's go-live date, and create the membership history record for the current membership year.
+                                </p>
+                                <ul className="mt-2 text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                                  <li>If a membership record already exists for the current year, it will be skipped</li>
+                                  <li>First-year discounts (pro-rata, free period) apply when go_live falls in the current year</li>
+                                  <li>Rollover discount applies in the second year if enabled</li>
+                                  <li>Ensure the "Update Field" action sets the go_live date before this action runs</li>
+                                </ul>
+                              </div>
+                              {(formData.entity_type !== 'organization' && formData.entity_type !== 'member') && (
+                                <div className="p-2 rounded border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800">
+                                  <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    This action works best with Organisation or Member entity types.
+                                  </p>
+                                </div>
                               )}
                             </div>
                           )}

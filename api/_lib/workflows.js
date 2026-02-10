@@ -451,6 +451,9 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
     } else if (action.type === 'create_contract') {
       const contractResult = await executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl);
       results.push(contractResult);
+    } else if (action.type === 'create_membership') {
+      const membershipResult = await executeCreateMembershipAction(action, workflow, entityType, entityId, entityData);
+      results.push(membershipResult);
     }
   }
   
@@ -648,6 +651,297 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
     console.error('[Workflows] create_contract action error:', error);
     return { action_type: 'create_contract', status: 'failed', error: error.message };
   }
+}
+
+async function executeCreateMembershipAction(action, workflow, entityType, entityId, entityData) {
+  const tenantId = workflow.tenant_id;
+  console.log(`[Workflows] Executing create_membership action for entity ${entityType}:${entityId}`);
+
+  try {
+    let organizationId = null;
+    if (entityType === 'organization') {
+      organizationId = entityId;
+    } else if (entityType === 'member') {
+      organizationId = entityData?.organization_id;
+      if (!organizationId) {
+        const { data: member } = await supabase
+          .from('member')
+          .select('organization_id, tenant_id')
+          .eq('id', entityId)
+          .eq('tenant_id', tenantId)
+          .single();
+        organizationId = member?.organization_id;
+      }
+    }
+
+    if (!organizationId) {
+      return { action_type: 'create_membership', status: 'failed', error: 'Could not resolve organisation ID' };
+    }
+
+    const { data: org } = await supabase
+      .from('organization')
+      .select('id, name, tenant_id')
+      .eq('id', organizationId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (!org) {
+      return { action_type: 'create_membership', status: 'failed', error: 'Organisation not found or does not belong to this tenant' };
+    }
+
+    const { data: config } = await supabase
+      .from('membership_tier_config')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .is('effective_to', null)
+      .order('effective_from', { ascending: false, nullsFirst: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (!config) {
+      return { action_type: 'create_membership', status: 'failed', error: 'No active membership tier configuration found' };
+    }
+
+    const { data: bands } = await supabase
+      .from('membership_tier_band')
+      .select('*')
+      .eq('config_id', config.id)
+      .eq('tenant_id', tenantId)
+      .order('min_value', { ascending: true });
+
+    if (!bands || bands.length === 0) {
+      return { action_type: 'create_membership', status: 'failed', error: 'No tier bands configured' };
+    }
+
+    let fieldValue = null;
+    if (config.field_source === 'core' && config.field_name === 'member_count') {
+      const { data: members } = await supabase
+        .from('member')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId);
+      fieldValue = members?.length || 0;
+    } else if (config.field_id) {
+      const { data: pv } = await supabase
+        .from('organization_preference_value')
+        .select('value')
+        .eq('organization_id', organizationId)
+        .eq('field_id', config.field_id)
+        .maybeSingle();
+      if (pv?.value) {
+        const num = parseFloat(pv.value);
+        fieldValue = isNaN(num) ? null : num;
+      }
+    }
+
+    let matchedBand = null;
+    if (fieldValue !== null && fieldValue !== undefined) {
+      for (const band of bands) {
+        const min = parseFloat(band.min_value);
+        const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
+        if (fieldValue >= min && fieldValue <= max) {
+          matchedBand = band;
+          break;
+        }
+      }
+    }
+
+    if (!matchedBand) {
+      return { action_type: 'create_membership', status: 'failed', error: `Organisation does not match any tier band (field value: ${fieldValue})` };
+    }
+
+    const startMonth = config.membership_start_month || 1;
+    const startDay = config.membership_start_day || 1;
+
+    function getMembershipYearStartForDate(date) {
+      const yr = date.getFullYear();
+      const ys = new Date(yr, startMonth - 1, startDay);
+      return date >= ys ? ys : new Date(yr - 1, startMonth - 1, startDay);
+    }
+
+    function getNextYearStart(ys) {
+      return new Date(ys.getFullYear() + 1, startMonth - 1, startDay);
+    }
+
+    const now = new Date();
+    const currentYearStart = getMembershipYearStartForDate(now);
+    const nextYearStart = getNextYearStart(currentYearStart);
+    const membershipYear = {
+      label: `${currentYearStart.getFullYear()}/${nextYearStart.getFullYear()}`,
+      start: currentYearStart,
+      end: new Date(nextYearStart.getTime() - 1),
+    };
+
+    const { data: existing } = await supabase
+      .from('organisation_membership_history')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .eq('membership_year', membershipYear.label)
+      .maybeSingle();
+
+    if (existing) {
+      console.log(`[Workflows] Membership record for ${membershipYear.label} already exists for org ${organizationId}`);
+      return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${membershipYear.label} already exists` };
+    }
+
+    let goLiveDate = null;
+    try {
+      const { data: goLiveField } = await supabase
+        .from('preference_field')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('entity_scope', 'organization')
+        .eq('is_active', true)
+        .eq('name', 'go_live')
+        .maybeSingle();
+
+      if (goLiveField?.id) {
+        const { data: goLiveValue } = await supabase
+          .from('organization_preference_value')
+          .select('value')
+          .eq('organization_id', organizationId)
+          .eq('field_id', goLiveField.id)
+          .maybeSingle();
+        if (goLiveValue?.value) {
+          const parsed = new Date(goLiveValue.value);
+          if (!isNaN(parsed.getTime())) {
+            goLiveDate = goLiveValue.value;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[Workflows] Error fetching go_live date:`, e.message);
+    }
+
+    function determineMembershipYearNumber(glDate, targetYear) {
+      if (!glDate) return 99;
+      const gl = new Date(glDate);
+      if (isNaN(gl.getTime())) return 99;
+      const firstYearStart = getMembershipYearStartForDate(gl);
+      const targetStart = new Date(targetYear.start);
+      targetStart.setHours(0, 0, 0, 0);
+      let yearNum = 1;
+      let cur = new Date(firstYearStart);
+      while (cur < targetStart) {
+        cur = getNextYearStart(cur);
+        yearNum++;
+        if (yearNum > 100) break;
+      }
+      return yearNum;
+    }
+
+    const yearNumber = determineMembershipYearNumber(goLiveDate, membershipYear);
+    console.log(`[Workflows] Org ${organizationId} go_live=${goLiveDate}, membership year number=${yearNumber}`);
+
+    const annualCost = parseFloat(matchedBand.annual_cost);
+    let freeDiscount = 0;
+    let rolloverDiscount = 0;
+    let prorataCost = null;
+
+    if (yearNumber === 1) {
+      freeDiscount = calculateFreePeriodDiscountLocal(annualCost, config);
+      const adjustedAnnual = annualCost - freeDiscount;
+      if (config.prorata_enabled) {
+        const totalDays = Math.ceil((nextYearStart - currentYearStart) / (1000 * 60 * 60 * 24));
+        const joinDate = goLiveDate ? new Date(goLiveDate) : now;
+        const clampedJoinDate = joinDate < currentYearStart ? currentYearStart : joinDate;
+        const remainingDays = Math.max(0, Math.ceil((nextYearStart - clampedJoinDate) / (1000 * 60 * 60 * 24)));
+        prorataCost = parseFloat((adjustedAnnual * remainingDays / totalDays).toFixed(2));
+      }
+    } else if (yearNumber === 2 && config.rollover_enabled && config.free_period_amount && goLiveDate) {
+      const gl = new Date(goLiveDate);
+      const firstYearStart = getMembershipYearStartForDate(gl);
+      const firstYearEnd = getNextYearStart(firstYearStart);
+      const totalDaysInFirstYear = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
+      const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - gl) / (1000 * 60 * 60 * 24)));
+      const remainingMonths = (remainingDaysInFirstYear / totalDaysInFirstYear) * 12;
+
+      let freeMonths = 0;
+      const amount = config.free_period_amount;
+      const unit = config.free_period_unit;
+      if (unit === 'months') freeMonths = amount;
+      else if (unit === 'weeks') freeMonths = amount / 4.33;
+      else if (unit === 'days') freeMonths = amount / 30.44;
+
+      const unusedFreeMonths = Math.max(0, freeMonths - remainingMonths);
+      if (unusedFreeMonths > 0) {
+        rolloverDiscount = parseFloat((annualCost * unusedFreeMonths / 12).toFixed(2));
+      }
+    }
+
+    const finalCost = prorataCost !== null ? prorataCost : (annualCost - freeDiscount - rolloverDiscount);
+
+    const vatRate = matchedBand.vat_rate !== null && matchedBand.vat_rate !== undefined
+      ? parseFloat(matchedBand.vat_rate)
+      : null;
+
+    const record = {
+      tenant_id: tenantId,
+      organization_id: organizationId,
+      membership_year: membershipYear.label,
+      config_id: config.id,
+      band_id: matchedBand.id,
+      tier_label: matchedBand.label,
+      field_value: fieldValue,
+      annual_cost: annualCost,
+      prorata_cost: prorataCost,
+      free_period_discount: freeDiscount,
+      rollover_discount: rolloverDiscount,
+      final_cost: parseFloat(Math.max(0, finalCost).toFixed(2)),
+      currency: config.currency || 'GBP',
+      billing_period: config.billing_period || 'annual',
+      status: 'active',
+      notes: `Created by workflow "${workflow.name}" (year ${yearNumber})`,
+    };
+
+    if (vatRate !== null) {
+      record.vat_rate = vatRate;
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('organisation_membership_history')
+      .insert(record)
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('[Workflows] Error creating membership record:', insertError);
+      return { action_type: 'create_membership', status: 'failed', error: insertError.message };
+    }
+
+    console.log(`[Workflows] Created membership record ${inserted.id} for org ${org.name} - tier: ${matchedBand.label}, final cost: ${record.final_cost}, year: ${membershipYear.label} (year number ${yearNumber})`);
+
+    return {
+      action_type: 'create_membership',
+      status: 'success',
+      membership_id: inserted.id,
+      organization_id: organizationId,
+      organization_name: org.name,
+      tier_label: matchedBand.label,
+      annual_cost: annualCost,
+      final_cost: record.final_cost,
+      membership_year: membershipYear.label,
+      year_number: yearNumber,
+      free_period_discount: freeDiscount,
+      rollover_discount: rolloverDiscount,
+      prorata_cost: prorataCost,
+    };
+  } catch (error) {
+    console.error('[Workflows] create_membership action error:', error);
+    return { action_type: 'create_membership', status: 'failed', error: error.message };
+  }
+}
+
+function calculateFreePeriodDiscountLocal(annualCost, config) {
+  if (!config.free_period_amount || !config.free_period_unit) return 0;
+  const amount = config.free_period_amount;
+  const unit = config.free_period_unit;
+  let freeMonths = 0;
+  if (unit === 'months') freeMonths = amount;
+  else if (unit === 'weeks') freeMonths = amount / 4.33;
+  else if (unit === 'days') freeMonths = amount / 30.44;
+  return parseFloat((annualCost * freeMonths / 12).toFixed(2));
 }
 
 // Execute role-based email: sends individual emails to all members with the specified role(s) in the organization
@@ -1155,7 +1449,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           // Don't include before_data/after_data for security - server will fetch fresh data when confirmed
           actions: workflow.actions?.map(a => ({
             type: a.type,
-            description: a.type === 'send_email' ? 'Send email notification' : 'Update field value'
+            description: a.type === 'send_email' ? 'Send email notification' : a.type === 'create_membership' ? 'Create membership record' : a.type === 'create_contract' ? 'Create contract' : 'Update field value'
           })) || []
         });
         continue;
@@ -1249,7 +1543,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           entity_id: entityId,
           actions: workflow.actions?.map(a => ({
             type: a.type,
-            description: a.type === 'send_email' ? 'Send email notification' : 'Update field value'
+            description: a.type === 'send_email' ? 'Send email notification' : a.type === 'create_membership' ? 'Create membership record' : a.type === 'create_contract' ? 'Create contract' : 'Update field value'
           })) || []
         });
         continue;

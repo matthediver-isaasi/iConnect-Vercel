@@ -27,7 +27,7 @@ The tenant resolver (`api/_lib/tenantResolver.js`) handles domain-to-tenant mapp
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
 -   **Content Management:** Event/booking management, general content management, dynamic page builder, custom forms with conditional logic, and blog posts.
 -   **Communication:** Email template placeholder system and communication preferences management.
--   **Workflow Automation:** Tenant-scoped workflows for automating actions, including a Due Diligence process.
+-   **Workflow Automation:** Tenant-scoped workflows for automating actions, including a Due Diligence process. Supported action types: `send_email`, `update_field`, `create_contract`, `create_membership`. The `create_membership` action creates an `organisation_membership_history` record using the current tier config, with go_live-aware discount logic (year 1: pro-rata + free period, year 2: rollover, year 3+: full fee). Executed in `api/_lib/workflows.js`.
 -   **Branding & Customization:** Per-tenant branding system for public-facing pages.
 -   **Form Embedding:** Forms can be embedded on external websites via iFrame with a public API.
 -   **Data Management:** Server-side pagination and a robust data migration system.
