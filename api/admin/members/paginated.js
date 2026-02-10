@@ -47,10 +47,11 @@ export default async function handler(req, res) {
         show_in_directory,
         created_on,
         profile_photo_url,
-        organization!inner (id, name, tenant_id)
+        tenant_id,
+        organization (id, name, tenant_id)
       `, { count: 'exact' });
 
-    query = query.eq('organization.tenant_id', tenantId);
+    query = query.eq('tenant_id', tenantId);
 
     if (search && search.trim()) {
       const searchTerm = `%${search.trim().toLowerCase()}%`;
@@ -85,7 +86,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
 
-    const filteredMembers = (members || []).filter(m => m.organization !== null).map(m => ({
+    const filteredMembers = (members || []).map(m => ({
       ...m,
       disabled: m.login_enabled === false,
       profile_photo: m.profile_photo_url
