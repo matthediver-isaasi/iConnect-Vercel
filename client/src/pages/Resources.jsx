@@ -14,7 +14,7 @@ import { useResourceRealtime } from "@/hooks/useResourceRealtime";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function ResourcesPage() {
-  const { memberInfo, memberRole, isAdmin } = useMemberAccess();
+  const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
   const { hasBanner, sessionValidated, authResolved } = useLayoutContext();
   
   // SECURITY: Only consider user authenticated when all conditions are true:
@@ -670,7 +670,7 @@ export default function ResourcesPage() {
                       buttonStyles={buttonStyles}
                       enabledSocialIcons={enabledSocialIcons}
                       isAuthenticated={isAuthenticated}
-                      viewCount={isAuthenticated ? (resourceViewCounts[resource.id] || 0) : null}
+                      viewCount={isAuthenticated && !isFeatureExcluded('content.resources.show-count') ? (resourceViewCounts[resource.id] || 0) : null}
                       onResourceView={handleResourceView}
                     />
                   ))}

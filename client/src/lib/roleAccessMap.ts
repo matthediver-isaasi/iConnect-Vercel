@@ -265,7 +265,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Resources",
         features: [
           { id: "content.resource-management", label: "Resource Management" },
-          { id: "content.resource-settings", label: "Resource Settings" }
+          { id: "content.resource-settings", label: "Resource Settings" },
+          { id: "content.resources.show-count", label: "Show View Count" }
         ]
       },
       {
