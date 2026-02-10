@@ -13,7 +13,8 @@ export default function ViewPage() {
   const { data: page, isLoading: pageLoading } = useQuery({
     queryKey: ['iedit-page-by-slug', pageSlug],
     queryFn: async () => {
-      const pages = await base44.entities.IEditPage.list();
+      const result = await base44.entities.IEditPage.list();
+      const pages = Array.isArray(result) ? result : [];
       return pages.find(p => p.slug === pageSlug && p.status === 'published');
     },
     enabled: !!pageSlug,
@@ -22,7 +23,8 @@ export default function ViewPage() {
   const { data: elements, isLoading: elementsLoading } = useQuery({
     queryKey: ['iedit-page-elements', page?.id],
     queryFn: async () => {
-      const allElements = await base44.entities.IEditPageElement.list();
+      const result = await base44.entities.IEditPageElement.list();
+      const allElements = Array.isArray(result) ? result : [];
       return allElements
         .filter(e => e.page_id === page.id)
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));

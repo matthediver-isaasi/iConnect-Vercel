@@ -62,8 +62,9 @@ export default function IEditPageEditorPage() {
   const { data: page, isLoading: pageLoading } = useQuery({
     queryKey: ['iedit-page', pageId],
     queryFn: async () => {
-      const allPages = await base44.entities.IEditPage.list();
-      return allPages.find(p => p.id === pageId);
+      const result = await base44.entities.IEditPage.list();
+      const pagesArr = Array.isArray(result) ? result : [];
+      return pagesArr.find(p => p.id === pageId);
     },
     enabled: !!pageId
   });
@@ -71,10 +72,13 @@ export default function IEditPageEditorPage() {
   // Fetch page elements
   const { data: pageElements = [], isLoading: elementsLoading } = useQuery({
     queryKey: ['iedit-page-elements', pageId],
-    queryFn: () => base44.entities.IEditPageElement.list({ 
-      filter: { page_id: pageId }, 
-      sort: { display_order: 'asc' } 
-    }),
+    queryFn: async () => {
+      const result = await base44.entities.IEditPageElement.list({ 
+        filter: { page_id: pageId }, 
+        sort: { display_order: 'asc' } 
+      });
+      return Array.isArray(result) ? result : [];
+    },
     staleTime: 0,
     enabled: !!pageId
   });
@@ -82,7 +86,10 @@ export default function IEditPageEditorPage() {
   // Fetch all pages for "Copy to Page" feature
   const { data: allPages = [] } = useQuery({
     queryKey: ['iedit-all-pages'],
-    queryFn: () => base44.entities.IEditPage.list()
+    queryFn: async () => {
+      const result = await base44.entities.IEditPage.list();
+      return Array.isArray(result) ? result : [];
+    }
   });
 
   // Update local state when elements are fetched

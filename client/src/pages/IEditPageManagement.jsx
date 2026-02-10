@@ -47,7 +47,10 @@ export default function IEditPageManagementPage() {
 
   const { data: pages = [], isLoading } = useQuery({
     queryKey: ['iedit-pages'],
-    queryFn: () => base44.entities.IEditPage.list(),
+    queryFn: async () => {
+      const result = await base44.entities.IEditPage.list();
+      return Array.isArray(result) ? result : [];
+    },
     staleTime: 0
   });
 
@@ -55,7 +58,8 @@ export default function IEditPageManagementPage() {
   const { data: homePageSlug } = useQuery({
     queryKey: ['home-page-setting'],
     queryFn: async () => {
-      const settings = await base44.entities.SystemSettings.list();
+      const result = await base44.entities.SystemSettings.list();
+      const settings = Array.isArray(result) ? result : [];
       const homeSetting = settings.find(s => s.setting_key === 'public_home_page_slug');
       return homeSetting?.setting_value || null;
     },
