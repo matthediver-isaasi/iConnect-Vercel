@@ -653,7 +653,7 @@ export default async function handler(req, res) {
               'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
               'CommunicationCategory', 'CommunicationCategoryRole',
               'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
-              'MemberBookmark', 'Role', 'Speaker',
+              'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
               'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
               'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
             ];
@@ -826,7 +826,7 @@ export default async function handler(req, res) {
             'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
             'CommunicationCategory', 'CommunicationCategoryRole',
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
-            'MemberBookmark', 'Role', 'Speaker',
+            'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel'
           ];
