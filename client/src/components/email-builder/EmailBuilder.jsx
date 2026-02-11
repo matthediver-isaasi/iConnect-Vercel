@@ -706,17 +706,15 @@ export default function EmailBuilder({
             <h3 className="font-medium text-sm">
               {isPageSelected ? 'Page Settings' : 'Properties'}
             </h3>
-            {layersOpen && (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setLayersOpen(false)}
-                title="Hide layers"
-                data-testid="button-toggle-layers"
-              >
-                <Layers className="h-4 w-4" />
-              </Button>
-            )}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setLayersOpen(prev => !prev)}
+              title={layersOpen ? 'Hide layers' : 'Show layers'}
+              data-testid="button-toggle-layers"
+            >
+              <Layers className="h-4 w-4" />
+            </Button>
           </div>
           <ScrollArea className="flex-1">
             {isPageSelected ? (
