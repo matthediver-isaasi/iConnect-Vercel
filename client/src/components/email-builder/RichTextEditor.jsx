@@ -3,11 +3,13 @@ import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyle } from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
+import { FontFamily } from '@tiptap/extension-font-family';
 import Link from '@tiptap/extension-link';
 import Underline from '@tiptap/extension-underline';
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Bold,
   Italic,
@@ -27,7 +29,22 @@ import {
   Redo,
   Type,
   Minus,
+  Palette,
 } from 'lucide-react';
+
+const TOOLBAR_FONTS = [
+  { value: '', label: 'Default' },
+  { value: 'Arial, sans-serif', label: 'Arial' },
+  { value: 'Roboto, sans-serif', label: 'Roboto' },
+  { value: 'Open Sans, sans-serif', label: 'Open Sans' },
+  { value: 'Lato, sans-serif', label: 'Lato' },
+  { value: 'Montserrat, sans-serif', label: 'Montserrat' },
+  { value: 'Poppins, sans-serif', label: 'Poppins' },
+  { value: 'Georgia, serif', label: 'Georgia' },
+  { value: 'Playfair Display, serif', label: 'Playfair Display' },
+  { value: 'Times New Roman, serif', label: 'Times New Roman' },
+  { value: 'Verdana, sans-serif', label: 'Verdana' },
+];
 
 function ToolbarButton({ onClick, isActive, children, title }) {
   return (
@@ -48,6 +65,7 @@ function ToolbarButton({ onClick, isActive, children, title }) {
 function MenuBar({ editor }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  const colorInputRef = useRef(null);
 
   if (!editor) return null;
 
@@ -59,9 +77,12 @@ function MenuBar({ editor }) {
     setLinkUrl('');
   };
 
+  const currentColor = editor.getAttributes('textStyle').color || '';
+  const currentFont = editor.getAttributes('textStyle').fontFamily || '';
+
   return (
     <div className="border-b p-1 space-y-1">
-      <div className="flex flex-wrap gap-0.5">
+      <div className="flex flex-wrap gap-0.5 items-center">
         <ToolbarButton
           onClick={() => editor.chain().focus().setParagraph().run()}
           isActive={editor.isActive('paragraph')}
@@ -195,6 +216,35 @@ function MenuBar({ editor }) {
 
         <div className="w-px bg-border mx-0.5 self-stretch" />
 
+        <div className="relative inline-flex" title="Text color">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 relative"
+            onClick={() => colorInputRef.current?.click()}
+            data-testid="rte-btn-text-color"
+          >
+            <Palette className="h-3.5 w-3.5" />
+            <span
+              className="absolute bottom-0.5 left-1.5 right-1.5 h-1 rounded-full pointer-events-none"
+              style={{ backgroundColor: currentColor || '#333333' }}
+            />
+          </Button>
+          <input
+            ref={colorInputRef}
+            type="color"
+            value={currentColor || '#333333'}
+            onChange={(e) => {
+              editor.chain().focus().setColor(e.target.value).run();
+            }}
+            className="absolute opacity-0 w-0 h-0 pointer-events-none"
+            data-testid="rte-color-input"
+          />
+        </div>
+
+        <div className="w-px bg-border mx-0.5 self-stretch" />
+
         <ToolbarButton
           onClick={() => editor.chain().focus().undo().run()}
           isActive={false}
@@ -209,6 +259,34 @@ function MenuBar({ editor }) {
         >
           <Redo className="h-3.5 w-3.5" />
         </ToolbarButton>
+      </div>
+
+      <div className="flex gap-1 items-center px-1">
+        <Select
+          value={currentFont || '__default__'}
+          onValueChange={(v) => {
+            if (v === '__default__') {
+              editor.chain().focus().unsetFontFamily().run();
+            } else {
+              editor.chain().focus().setFontFamily(v).run();
+            }
+          }}
+        >
+          <SelectTrigger className="h-7 text-xs w-[140px]" data-testid="rte-font-family">
+            <SelectValue placeholder="Font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {TOOLBAR_FONTS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {showLinkInput && (
@@ -253,6 +331,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color })
       }),
       TextStyle,
       Color,
+      FontFamily,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {

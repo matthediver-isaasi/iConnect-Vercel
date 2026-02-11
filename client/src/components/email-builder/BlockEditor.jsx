@@ -478,10 +478,11 @@ function ImageBlockEditor({ block, onChange }) {
         <Select
           value={block.styles.imageSize || '100%'}
           onValueChange={(v) => {
-            update('imageSize', v);
+            const newStyles = { ...block.styles, imageSize: v };
             if (v !== 'custom') {
-              update('imageSizeCustom', '');
+              newStyles.imageSizeCustom = '';
             }
+            onChange({ ...block, styles: newStyles });
           }}
         >
           <SelectTrigger data-testid="editor-image-size">
