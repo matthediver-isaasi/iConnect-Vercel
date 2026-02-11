@@ -23,6 +23,8 @@ import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
 import { BLOCK_TYPES, createBlock, defaultEmailDesign } from './types';
 import { designToHtml } from './mjmlConverter';
+import { PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 const GOOGLE_FONTS_LINK = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&family=Montserrat:wght@400;700&family=Poppins:wght@400;700&family=Raleway:wght@400;700&family=Oswald:wght@400;700&family=Playfair+Display:wght@400;700&family=Merriweather:wght@400;700&family=Source+Sans+Pro:wght@400;700&display=swap';
 
@@ -51,6 +53,7 @@ export default function EmailBuilder({
   const [selectedChildId, setSelectedChildId] = useState(null);
   const [isPageSelected, setIsPageSelected] = useState(true);
   const [activeId, setActiveId] = useState(null);
+  const [propertiesExpanded, setPropertiesExpanded] = useState(false);
   const debounceRef = useRef(null);
 
   const sensors = useSensors(
@@ -426,50 +429,72 @@ export default function EmailBuilder({
         </DragOverlay>
       </DndContext>
 
-      <div className="w-64 border-l bg-muted/20 flex flex-col flex-shrink-0" data-testid="layers-panel">
-        <LayersPanel
-          blocks={design.blocks}
-          selectedBlockId={selectedBlockId}
-          selectedChildId={selectedChildId}
-          isPageSelected={isPageSelected}
-          onSelectBlock={handleBlockSelect}
-          onSelectChild={handleChildSelect}
-          onSelectPage={handlePageSelect}
-          onDeleteBlock={handleBlockDelete}
-          onDuplicateBlock={handleBlockDuplicate}
-          onDeleteChild={handleChildDelete}
-          onDuplicateChild={handleChildDuplicate}
-          onToggleBlockVisibility={handleToggleBlockVisibility}
-          onToggleChildVisibility={handleToggleChildVisibility}
-          onReorderBlocks={handleReorderBlocks}
-          onReorderChildren={handleReorderChildren}
-        />
-      </div>
-
-      <div className="w-72 border-l bg-background flex flex-col flex-shrink-0">
-        <div className="p-3 border-b">
-          <h3 className="font-medium text-sm">
-            {isPageSelected ? 'Page Settings' : 'Properties'}
-          </h3>
+      <div className="relative flex flex-shrink-0" style={{ width: '544px' }}>
+        <div
+          className={`flex flex-col bg-muted/20 border-l flex-shrink-0 w-64 overflow-hidden`}
+          data-testid="layers-panel"
+        >
+          <LayersPanel
+            blocks={design.blocks}
+            selectedBlockId={selectedBlockId}
+            selectedChildId={selectedChildId}
+            isPageSelected={isPageSelected}
+            onSelectBlock={handleBlockSelect}
+            onSelectChild={handleChildSelect}
+            onSelectPage={handlePageSelect}
+            onDeleteBlock={handleBlockDelete}
+            onDuplicateBlock={handleBlockDuplicate}
+            onDeleteChild={handleChildDelete}
+            onDuplicateChild={handleChildDuplicate}
+            onToggleBlockVisibility={handleToggleBlockVisibility}
+            onToggleChildVisibility={handleToggleChildVisibility}
+            onReorderBlocks={handleReorderBlocks}
+            onReorderChildren={handleReorderChildren}
+          />
         </div>
-        <ScrollArea className="flex-1">
-          {isPageSelected ? (
-            <GlobalSettings 
-              settings={design.globalStyles} 
-              onChange={handleGlobalSettingsChange} 
-            />
-          ) : selectedChild ? (
-            <BlockEditor 
-              block={selectedChild.child} 
-              onChange={handleChildUpdate} 
-            />
-          ) : (
-            <BlockEditor 
-              block={selectedBlock} 
-              onChange={handleBlockUpdate} 
-            />
-          )}
-        </ScrollArea>
+
+        <div
+          className={`absolute top-0 bottom-0 right-0 border-l bg-background flex flex-col z-10 transition-all duration-200`}
+          style={{ left: propertiesExpanded ? '0' : '256px' }}
+          data-testid="properties-panel"
+        >
+          <div className="p-3 border-b flex items-center justify-between gap-1">
+            <h3 className="font-medium text-sm">
+              {isPageSelected ? 'Page Settings' : 'Properties'}
+            </h3>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setPropertiesExpanded(prev => !prev)}
+              title={propertiesExpanded ? 'Show layers' : 'Expand panel'}
+              data-testid="button-toggle-properties-expand"
+            >
+              {propertiesExpanded ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRightOpen className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <ScrollArea className="flex-1">
+            {isPageSelected ? (
+              <GlobalSettings 
+                settings={design.globalStyles} 
+                onChange={handleGlobalSettingsChange} 
+              />
+            ) : selectedChild ? (
+              <BlockEditor 
+                block={selectedChild.child} 
+                onChange={handleChildUpdate} 
+              />
+            ) : (
+              <BlockEditor 
+                block={selectedBlock} 
+                onChange={handleBlockUpdate} 
+              />
+            )}
+          </ScrollArea>
+        </div>
       </div>
     </div>
   );

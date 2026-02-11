@@ -100,12 +100,32 @@ function ImageBlockPreview({ block }) {
       </div>
     );
   }
+  const imgWidth = getImageWidth();
+  const align = block.styles.textAlign || 'center';
+
+  const imgStyle = {
+    display: 'block',
+    width: imgWidth,
+    maxWidth: '100%',
+  };
+
+  if (align === 'center') {
+    imgStyle.marginLeft = 'auto';
+    imgStyle.marginRight = 'auto';
+  } else if (align === 'right') {
+    imgStyle.marginLeft = 'auto';
+    imgStyle.marginRight = '0';
+  } else {
+    imgStyle.marginLeft = '0';
+    imgStyle.marginRight = 'auto';
+  }
+
   return (
-    <div style={{ padding: block.styles.padding, textAlign: block.styles.textAlign }}>
+    <div style={{ padding: block.styles.padding }}>
       <img
         src={block.src}
         alt={block.alt}
-        style={{ width: getImageWidth(), maxWidth: '100%' }}
+        style={imgStyle}
       />
     </div>
   );
