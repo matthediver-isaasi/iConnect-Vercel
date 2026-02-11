@@ -128,6 +128,7 @@ export default function MembershipTierManagement() {
     membership_start_month: 1,
     membership_start_day: 1,
     prorata_enabled: false,
+    free_period_enabled: false,
     free_period_amount: null,
     free_period_unit: null,
     rollover_enabled: false,
@@ -255,6 +256,7 @@ export default function MembershipTierManagement() {
         membership_start_month: c.membership_start_month ?? 1,
         membership_start_day: c.membership_start_day ?? 1,
         prorata_enabled: c.prorata_enabled ?? false,
+        free_period_enabled: !!(c.free_period_amount),
         free_period_amount: c.free_period_amount ?? null,
         free_period_unit: c.free_period_unit ?? null,
         rollover_enabled: c.rollover_enabled ?? false,
@@ -298,6 +300,7 @@ export default function MembershipTierManagement() {
       membership_start_month: c.membership_start_month ?? 1,
       membership_start_day: c.membership_start_day ?? 1,
       prorata_enabled: c.prorata_enabled ?? false,
+      free_period_enabled: !!(c.free_period_amount),
       free_period_amount: c.free_period_amount ?? null,
       free_period_unit: c.free_period_unit ?? null,
       rollover_enabled: c.rollover_enabled ?? false,
@@ -509,9 +512,10 @@ export default function MembershipTierManagement() {
     const isFlat = config.pricing_model === 'flat';
     const isImmediate = config.start_mode === 'immediate';
 
+    const { free_period_enabled: _fpe, ...configWithoutUiFlags } = config;
     const payload = {
       config: {
-        ...config,
+        ...configWithoutUiFlags,
         id: isCreatingNew ? undefined : config.id,
         prorata_enabled: isImmediate ? false : config.prorata_enabled,
         rollover_enabled: isImmediate ? false : config.rollover_enabled,
@@ -556,6 +560,7 @@ export default function MembershipTierManagement() {
       membership_start_month: currentConfig?.membership_start_month ?? 1,
       membership_start_day: currentConfig?.membership_start_day ?? 1,
       prorata_enabled: currentConfig?.prorata_enabled ?? false,
+      free_period_enabled: !!(currentConfig?.free_period_amount),
       free_period_amount: currentConfig?.free_period_amount ?? null,
       free_period_unit: currentConfig?.free_period_unit ?? null,
       rollover_enabled: currentConfig?.rollover_enabled ?? false,
@@ -999,64 +1004,83 @@ export default function MembershipTierManagement() {
         <p className="text-sm text-muted-foreground">Configure free periods, rollover discounts, and discount rules</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label>Free Period for New Members</Label>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                min="0"
-                value={config.free_period_amount ?? ''}
-                onChange={(e) => {
-                  const val = e.target.value === '' ? null : parseInt(e.target.value);
-                  handleConfigChange('free_period_amount', val);
-                  if (val && !config.free_period_unit) {
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label>Free Period for New Members</Label>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Deduct a free period from the annual fee for new members
+              </p>
+            </div>
+            <Switch
+              checked={config.free_period_enabled !== false && !!config.free_period_amount}
+              onCheckedChange={(enabled) => {
+                if (enabled) {
+                  handleConfigChange('free_period_enabled', true);
+                  if (!config.free_period_amount) {
+                    handleConfigChange('free_period_amount', 3);
                     handleConfigChange('free_period_unit', 'months');
                   }
-                  if (!val) {
-                    handleConfigChange('free_period_unit', null);
-                  }
-                }}
-                placeholder="0"
-                className="w-24"
-                disabled={!isEditable}
-                data-testid="input-free-period-amount"
-              />
-              <Select
-                value={config.free_period_unit || 'months'}
-                onValueChange={(v) => handleConfigChange('free_period_unit', v)}
-                disabled={!isEditable || !config.free_period_amount}
-              >
-                <SelectTrigger className="w-28" data-testid="select-free-period-unit">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FREE_PERIOD_UNITS.map(u => (
-                    <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Deducted from the annual fee for new members
-            </p>
+                } else {
+                  handleConfigChange('free_period_enabled', false);
+                  handleConfigChange('free_period_amount', null);
+                  handleConfigChange('free_period_unit', null);
+                  handleConfigChange('rollover_enabled', false);
+                }
+              }}
+              disabled={!isEditable}
+              data-testid="switch-free-period"
+            />
           </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label>Rollover Discount</Label>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  If free period extends beyond the current year, apply remaining discount to the next full year
-                </p>
+          {!!config.free_period_amount && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-4 border-l-2 border-muted">
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min="1"
+                    value={config.free_period_amount ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? 1 : Math.max(1, parseInt(e.target.value) || 1);
+                      handleConfigChange('free_period_amount', val);
+                    }}
+                    className="w-24"
+                    disabled={!isEditable}
+                    data-testid="input-free-period-amount"
+                  />
+                  <Select
+                    value={config.free_period_unit || 'months'}
+                    onValueChange={(v) => handleConfigChange('free_period_unit', v)}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger className="w-28" data-testid="select-free-period-unit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FREE_PERIOD_UNITS.map(u => (
+                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <Switch
-                checked={config.rollover_enabled}
-                onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
-                disabled={!isEditable || !config.free_period_amount || config.start_mode === 'immediate'}
-                data-testid="switch-rollover"
-              />
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Rollover Discount</Label>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    If free period extends beyond the current year, apply remaining discount to the next full year
+                  </p>
+                </div>
+                <Switch
+                  checked={config.rollover_enabled}
+                  onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
+                  disabled={!isEditable || config.start_mode === 'immediate'}
+                  data-testid="switch-rollover"
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="border-t pt-4">
