@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -15,10 +16,17 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
+    const tenant = await resolveTenantFromRequest(req);
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
     const { data, error } = await supabase
       .from('communication_category')
       .select('id, name, description')
       .eq('is_active', true)
+      .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 
     if (error) {

@@ -267,19 +267,19 @@ export default function AdminMemberEdit() {
     },
   });
 
+  // Communication categories (tenant-scoped via entity API)
   const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
     queryKey: ["communicationCategories"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("communication_category")
-        .select(`
-          *,
-          communication_category_role(role_id)
-        `)
-        .eq("is_active", true)
-        .order("display_order", { ascending: true });
-      if (error) throw error;
-      return data || [];
+      const categories = await base44.entities.CommunicationCategory.list({
+        filter: { is_active: true },
+        sort: { display_order: 'asc' }
+      });
+      const roleAssignments = await base44.entities.CommunicationCategoryRole.list();
+      return (categories || []).map(cat => ({
+        ...cat,
+        communication_category_role: (roleAssignments || []).filter(r => r.category_id === cat.id)
+      }));
     },
   });
 

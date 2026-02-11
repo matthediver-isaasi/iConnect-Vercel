@@ -518,10 +518,12 @@ export default function PreferencesPage() {
     },
   });
 
-  // --- Communication categories with role assignments ---
+  // --- Communication categories with role assignments (tenant-scoped) ---
   const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["communicationCategories"],
+    queryKey: ["communicationCategories", organizationInfo?.tenant_id],
+    enabled: !!organizationInfo?.tenant_id,
     queryFn: async () => {
+      if (!organizationInfo?.tenant_id) return [];
       const { data, error } = await supabase
         .from("communication_category")
         .select(`
@@ -529,6 +531,7 @@ export default function PreferencesPage() {
           communication_category_role(role_id)
         `)
         .eq("is_active", true)
+        .eq("tenant_id", organizationInfo.tenant_id)
         .order("display_order", { ascending: true });
       if (error) throw error;
       return data || [];
