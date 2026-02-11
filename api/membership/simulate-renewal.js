@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
-import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
+import { getConfigForOrganisation, getAllActiveConfigs } from '../_lib/membershipConfigResolver.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -89,10 +89,46 @@ export default async function handler(req, res) {
 
     const config = await getConfigForOrganisation(tenantId, organizationId);
     if (!config) {
-      log('Fetch Tier Config', 'No active tier configuration found', 'error');
+      const allActive = await getAllActiveConfigs(tenantId);
+      const scopedCount = allActive.filter(c => c.structure_field_id && c.structure_match_value).length;
+      if (scopedCount > 0) {
+        log('Fetch Tier Config', `No matching tier configuration found. There are ${allActive.length} active config(s), ${scopedCount} scoped — but none match this organisation's field values.`, 'error');
+      } else {
+        log('Fetch Tier Config', 'No active tier configuration found for this tenant', 'error');
+      }
       return res.json({ success: false, steps });
     }
     log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}`);
+
+    if (config.structure_field_id && config.structure_match_value) {
+      let structureFieldLabel = config.structure_field_id;
+      try {
+        const { data: fieldDef } = await supabase
+          .from('preference_field')
+          .select('label, name')
+          .eq('id', config.structure_field_id)
+          .maybeSingle();
+        if (fieldDef) structureFieldLabel = fieldDef.label || fieldDef.name || config.structure_field_id;
+      } catch {}
+
+      let orgFieldValueRaw = null;
+      try {
+        const { data: pv } = await supabase
+          .from('organization_preference_value')
+          .select('value')
+          .eq('organization_id', organizationId)
+          .eq('field_id', config.structure_field_id)
+          .maybeSingle();
+        orgFieldValueRaw = pv?.value || null;
+      } catch {}
+
+      const orgFieldValueNormalized = orgFieldValueRaw ? orgFieldValueRaw.toString().toLowerCase().trim() : null;
+      const matchValueNormalized = config.structure_match_value.toString().toLowerCase().trim();
+      const matched = orgFieldValueNormalized === matchValueNormalized;
+      log('Config Resolution', `Scoped config matched — field "${structureFieldLabel}" = "${config.structure_match_value}" (organisation value: "${orgFieldValueRaw || 'N/A'}"${!matched && orgFieldValueRaw ? ', matched via case-insensitive comparison' : ''})`);
+    } else {
+      log('Config Resolution', 'Using default (unscoped) tier configuration — no structure scope defined');
+    }
 
     const currentYear = calculateMembershipYear(config);
     const nextYear = calculateNextMembershipYear(config);
