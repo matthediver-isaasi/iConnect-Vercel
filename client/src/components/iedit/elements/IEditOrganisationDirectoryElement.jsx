@@ -733,17 +733,6 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     };
   };
 
-  const { data: organizations = [], isLoading } = useQuery({
-    queryKey: ['public-organizations-element'],
-    queryFn: async () => {
-      // Use public endpoint for unauthenticated access on public pages
-      const orgs = await publicClient.listOrganizations() || [];
-      return orgs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    },
-    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
-    refetchOnMount: true
-  });
-
   const { data: displaySettings } = useQuery({
     queryKey: ['public-org-directory-settings-element'],
     queryFn: async () => {
@@ -778,89 +767,23 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
         allowedApplicationStatuses
       };
     },
-    staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
+    staleTime: 5 * 60 * 1000
   });
 
-  // Fetch organization custom fields to find application_status
-  // Only runs for authenticated users - skipped on public pages
-  const { data: orgCustomFields = [] } = useQuery({
-    queryKey: ['org-custom-fields-for-directory-element'],
+  const { data: organizations = [], isLoading } = useQuery({
+    queryKey: ['public-organizations-element', displaySettings?.allowedApplicationStatuses],
     queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' }
-        });
-        return fields || [];
-      } catch {
-        return [];
+      const options = {};
+      if (displaySettings?.allowedApplicationStatuses?.length > 0) {
+        options.allowedStatuses = displaySettings.allowedApplicationStatuses;
       }
+      const orgs = await publicClient.listOrganizations(options) || [];
+      return orgs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
-    staleTime: 5 * 60 * 1000,
-    enabled: !!memberInfo, // Only fetch when authenticated
-    retry: false
+    enabled: !!displaySettings,
+    staleTime: 2 * 60 * 1000,
+    refetchOnMount: true
   });
-
-  // Find the application_status field
-  const applicationStatusField = useMemo(() => {
-    return orgCustomFields.find(f => f.name === 'application_status');
-  }, [orgCustomFields]);
-
-  // Fetch organization preference values for filtering
-  // Only runs for authenticated users - skipped on public pages
-  const { data: allOrgPreferenceValues = [] } = useQuery({
-    queryKey: ['all-org-preference-values-for-directory-element'],
-    enabled: !!memberInfo && !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0),
-    queryFn: async () => {
-      try {
-        const values = await base44.entities.OrganizationPreferenceValue.list() || [];
-        return values || [];
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 60 * 1000,
-    retry: false
-  });
-
-  // Build a lookup map: organization_id -> { field_id -> value }
-  const orgPreferenceMap = useMemo(() => {
-    const map = {};
-    
-    const extractPrimitiveValue = (val) => {
-      if (val === null || val === undefined) return val;
-      if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
-        return val.value;
-      }
-      if (Array.isArray(val)) {
-        return val.map(item => {
-          if (typeof item === 'object' && item !== null && item.value !== undefined) {
-            return item.value;
-          }
-          return item;
-        });
-      }
-      return val;
-    };
-    
-    allOrgPreferenceValues.forEach(pv => {
-      if (!map[pv.organization_id]) {
-        map[pv.organization_id] = {};
-      }
-      let normalizedValue = pv.value;
-      if (typeof pv.value === 'string') {
-        try {
-          const parsed = JSON.parse(pv.value);
-          normalizedValue = extractPrimitiveValue(parsed);
-        } catch {
-          normalizedValue = extractPrimitiveValue(pv.value);
-        }
-      } else {
-        normalizedValue = extractPrimitiveValue(pv.value);
-      }
-      map[pv.organization_id][pv.field_id] = normalizedValue;
-    });
-    return map;
-  }, [allOrgPreferenceValues]);
 
   // Use global settings as fallback for showNameTooltip and showTitle
   const effectiveShowNameTooltip = showNameTooltip || displaySettings?.globalShowNameTooltip;
@@ -893,29 +816,10 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
 
   const filteredOrganizations = useMemo(() => {
     const excludedIds = displaySettings?.excludedOrgIds || [];
-    const allowedStatuses = displaySettings?.allowedApplicationStatuses || [];
     
     let filtered = organizations.filter(org => 
       !excludedIds.includes(org.id)
     );
-
-    // Filter by application_status if allowedStatuses is configured
-    if (allowedStatuses.length > 0 && applicationStatusField?.id) {
-      filtered = filtered.filter(org => {
-        const orgValues = orgPreferenceMap[org.id] || {};
-        const statusValue = orgValues[applicationStatusField.id];
-        
-        if (!statusValue) return false;
-        
-        // Handle array values (picklist)
-        if (Array.isArray(statusValue)) {
-          return statusValue.some(v => allowedStatuses.includes(v));
-        }
-        
-        // Handle single value (dropdown)
-        return allowedStatuses.includes(statusValue);
-      });
-    }
     
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
@@ -936,7 +840,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     });
     
     return filtered;
-  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, displaySettings?.allowedApplicationStatuses, sortOrder, applicationStatusField, orgPreferenceMap]);
+  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, sortOrder]);
 
   const columnsNum = parseInt(columns) || 3;
   const rowsPerPageNum = parseInt(rowsPerPage) || 4;
