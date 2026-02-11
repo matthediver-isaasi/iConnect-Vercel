@@ -23,6 +23,7 @@ import {
   FileText
 } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
+import RichTextEditor from './RichTextEditor';
 
 const GOOGLE_FONT_OPTIONS = [
   { value: '', label: 'Default (inherit)' },
@@ -55,12 +56,11 @@ function TextBlockEditor({ block, onChange }) {
     <div className="space-y-4">
       <div className="space-y-2">
         <Label>Content</Label>
-        <Textarea
-          value={block.content}
-          onChange={(e) => update('content', e.target.value)}
-          rows={4}
-          placeholder="Enter text content..."
-          data-testid="editor-text-content"
+        <RichTextEditor
+          content={block.content}
+          onChange={(html) => update('content', html)}
+          fontFamily={block.styles.fontFamily}
+          color={block.styles.color}
         />
         <p className="text-xs text-muted-foreground">
           Supports: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}
@@ -92,47 +92,6 @@ function TextBlockEditor({ block, onChange }) {
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label>Font Size</Label>
-          <Select value={block.styles.fontSize} onValueChange={(v) => update('fontSize', v)}>
-            <SelectTrigger data-testid="editor-font-size">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="12px">Small (12px)</SelectItem>
-              <SelectItem value="14px">Normal (14px)</SelectItem>
-              <SelectItem value="16px">Medium (16px)</SelectItem>
-              <SelectItem value="18px">Large (18px)</SelectItem>
-              <SelectItem value="24px">XL (24px)</SelectItem>
-              <SelectItem value="32px">XXL (32px)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Font Weight</Label>
-          <Select value={block.styles.fontWeight} onValueChange={(v) => update('fontWeight', v)}>
-            <SelectTrigger data-testid="editor-font-weight">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="normal">Normal</SelectItem>
-              <SelectItem value="bold">Bold</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Text Align</Label>
-          <Select value={block.styles.textAlign} onValueChange={(v) => update('textAlign', v)}>
-            <SelectTrigger data-testid="editor-text-align">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="left">Left</SelectItem>
-              <SelectItem value="center">Center</SelectItem>
-              <SelectItem value="right">Right</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
         <div className="space-y-2">
           <Label>Text Color</Label>
           <Input

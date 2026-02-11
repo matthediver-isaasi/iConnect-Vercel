@@ -3,6 +3,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
+import { sanitizeHtml } from './sanitize';
 
 function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId }) {
   const children = block.children || [];
@@ -63,20 +64,19 @@ function ChildBlockRenderer({ block, isSelected, onSelect }) {
 }
 
 function TextBlockPreview({ block }) {
+  const isHtml = block.content && block.content.includes('<');
   return (
     <div
+      className="prose prose-sm max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-1.5 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:my-1 [&_p]:my-1 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline"
       style={{
-        fontSize: block.styles.fontSize,
-        fontWeight: block.styles.fontWeight,
         fontFamily: block.styles.fontFamily || 'inherit',
         color: block.styles.color,
-        textAlign: block.styles.textAlign,
         lineHeight: block.styles.lineHeight,
         padding: block.styles.padding,
-        whiteSpace: 'pre-wrap',
       }}
+      dangerouslySetInnerHTML={isHtml ? { __html: sanitizeHtml(block.content) } : undefined}
     >
-      {block.content}
+      {isHtml ? undefined : block.content}
     </div>
   );
 }

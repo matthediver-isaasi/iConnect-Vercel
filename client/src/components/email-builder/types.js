@@ -30,13 +30,10 @@ export const createBlock = (type, props = {}) => {
       return {
         id,
         type,
-        content: props.content || 'Click to edit text...',
+        content: props.content || '<p>Click to edit text...</p>',
         styles: {
-          fontSize: '14px',
-          fontWeight: 'normal',
           fontFamily: '',
           color: '#333333',
-          textAlign: 'left',
           padding: '10px 20px',
           lineHeight: '1.5',
           ...props.styles,

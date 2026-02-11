@@ -59,8 +59,12 @@ const BLOCK_LABELS = {
 function getBlockLabel(block) {
   const base = BLOCK_LABELS[block.type] || block.type;
   if (block.type === BLOCK_TYPES.TEXT && block.content) {
-    const preview = block.content.substring(0, 20);
-    return preview.length < block.content.length ? `${preview}...` : preview;
+    const plainText = block.content.replace(/<[^>]*>/g, '').trim();
+    if (plainText) {
+      const preview = plainText.substring(0, 20);
+      return preview.length < plainText.length ? `${preview}...` : preview;
+    }
+    return base;
   }
   if (block.type === BLOCK_TYPES.BUTTON && block.content) {
     return `Button: ${block.content.substring(0, 15)}`;

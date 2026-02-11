@@ -1,5 +1,6 @@
 import mjml2html from 'mjml-browser';
 import { BLOCK_TYPES } from './types';
+import { sanitizeHtml } from './sanitize';
 
 const escapeHtml = (text) => {
   if (!text) return '';
@@ -25,14 +26,11 @@ const childBlockToMjml = (block) => {
     case BLOCK_TYPES.TEXT:
       const childFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
       return `<mj-text 
-        font-size="${block.styles.fontSize || '14px'}"
-        font-weight="${block.styles.fontWeight || 'normal'}"
         ${childFontFamily}
         color="${block.styles.color || '#333333'}"
-        align="${block.styles.textAlign || 'left'}"
         line-height="${block.styles.lineHeight || '1.5'}"
         padding="${block.styles.padding || '10px 0'}"
-      >${block.content}</mj-text>`;
+      >${sanitizeHtml(block.content || '')}</mj-text>`;
     case BLOCK_TYPES.IMAGE:
       if (!block.src) return '';
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
@@ -91,13 +89,10 @@ const blockToMjml = (block) => {
         <mj-section padding="${block.styles.padding || '10px 20px'}">
           <mj-column>
             <mj-text 
-              font-size="${block.styles.fontSize || '14px'}"
-              font-weight="${block.styles.fontWeight || 'normal'}"
               ${textFontFamily}
               color="${block.styles.color || '#333333'}"
-              align="${block.styles.textAlign || 'left'}"
               line-height="${block.styles.lineHeight || '1.5'}"
-            >${block.content}</mj-text>
+            >${sanitizeHtml(block.content || '')}</mj-text>
           </mj-column>
         </mj-section>
       `;
@@ -174,11 +169,9 @@ const blockToMjml = (block) => {
           if (b.type === BLOCK_TYPES.TEXT) {
             const colFontFamily = b.styles.fontFamily ? `font-family="${b.styles.fontFamily}"` : '';
             return `<mj-text 
-              font-size="${b.styles.fontSize || '14px'}"
               ${colFontFamily}
               color="${b.styles.color || '#333333'}"
-              align="${b.styles.textAlign || 'left'}"
-            >${b.content}</mj-text>`;
+            >${sanitizeHtml(b.content || '')}</mj-text>`;
           }
           if (b.type === BLOCK_TYPES.IMAGE && b.src) {
             return `<mj-image src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt || '')}" />`;
