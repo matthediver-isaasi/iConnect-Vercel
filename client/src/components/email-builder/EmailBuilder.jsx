@@ -419,7 +419,7 @@ export default function EmailBuilder({
         </DragOverlay>
       </DndContext>
 
-      <div className="w-56 border-l bg-muted/20 flex flex-col flex-shrink-0" data-testid="layers-panel">
+      <div className="w-64 border-l bg-muted/20 flex flex-col flex-shrink-0" data-testid="layers-panel">
         <LayersPanel
           blocks={design.blocks}
           selectedBlockId={selectedBlockId}
