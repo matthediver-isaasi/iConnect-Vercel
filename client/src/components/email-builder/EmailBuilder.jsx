@@ -20,6 +20,7 @@ import BlockPalette from './BlockPalette';
 import BlockRenderer from './BlockRenderer';
 import BlockEditor from './BlockEditor';
 import GlobalSettings from './GlobalSettings';
+import LayersPanel from './LayersPanel';
 import { BLOCK_TYPES, createBlock, defaultEmailDesign } from './types';
 import { designToHtml } from './mjmlConverter';
 
@@ -298,6 +299,39 @@ export default function EmailBuilder({
     }));
   };
 
+  const handleToggleBlockVisibility = (blockId) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => 
+        b.id === blockId ? { ...b, hidden: !b.hidden } : b
+      ),
+    }));
+  };
+
+  const handleToggleChildVisibility = (childId) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.type === BLOCK_TYPES.SECTION && b.children) {
+          return {
+            ...b,
+            children: b.children.map(c => 
+              c.id === childId ? { ...c, hidden: !c.hidden } : c
+            ),
+          };
+        }
+        return b;
+      }),
+    }));
+  };
+
+  const handleReorderBlocks = (fromIndex, toIndex) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: arrayMove(prev.blocks, fromIndex, toIndex),
+    }));
+  };
+
   function CanvasDropZone({ children, isEmpty }) {
     const { isOver, setNodeRef } = useDroppable({
       id: 'canvas-drop-area',
@@ -333,8 +367,7 @@ export default function EmailBuilder({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        {/* Left Panel - Block Palette & Global Settings */}
-        <div className="w-64 border-r bg-muted/30 flex flex-col">
+        <div className="w-64 border-r bg-muted/30 flex flex-col flex-shrink-0">
           <ScrollArea className="flex-1">
             <BlockPalette />
             <GlobalSettings 
@@ -344,7 +377,6 @@ export default function EmailBuilder({
           </ScrollArea>
         </div>
 
-        {/* Center - Canvas */}
         <div className="flex-1 overflow-auto" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
           <div className="p-8 min-h-full flex justify-center">
             <div 
@@ -367,11 +399,6 @@ export default function EmailBuilder({
                       onSelect={handleBlockSelect}
                       onSelectChild={handleChildSelect}
                       selectedChildId={selectedChildId}
-                      onDeleteChild={handleChildDelete}
-                      onDuplicateChild={handleChildDuplicate}
-                      onReorderChildren={handleReorderChildren}
-                      onDelete={handleBlockDelete}
-                      onDuplicate={handleBlockDuplicate}
                     />
                   ))}
                 </CanvasDropZone>
@@ -390,27 +417,44 @@ export default function EmailBuilder({
             </div>
           )}
         </DragOverlay>
-
-        {/* Right Panel - Block Editor */}
-        <div className="w-72 border-l bg-background flex flex-col">
-          <div className="p-3 border-b">
-            <h3 className="font-medium text-sm">Properties</h3>
-          </div>
-          <ScrollArea className="flex-1">
-            {selectedChild ? (
-              <BlockEditor 
-                block={selectedChild.child} 
-                onChange={handleChildUpdate} 
-              />
-            ) : (
-              <BlockEditor 
-                block={selectedBlock} 
-                onChange={handleBlockUpdate} 
-              />
-            )}
-          </ScrollArea>
-        </div>
       </DndContext>
+
+      <div className="w-56 border-l bg-muted/20 flex flex-col flex-shrink-0" data-testid="layers-panel">
+        <LayersPanel
+          blocks={design.blocks}
+          selectedBlockId={selectedBlockId}
+          selectedChildId={selectedChildId}
+          onSelectBlock={handleBlockSelect}
+          onSelectChild={handleChildSelect}
+          onDeleteBlock={handleBlockDelete}
+          onDuplicateBlock={handleBlockDuplicate}
+          onDeleteChild={handleChildDelete}
+          onDuplicateChild={handleChildDuplicate}
+          onToggleBlockVisibility={handleToggleBlockVisibility}
+          onToggleChildVisibility={handleToggleChildVisibility}
+          onReorderBlocks={handleReorderBlocks}
+          onReorderChildren={handleReorderChildren}
+        />
+      </div>
+
+      <div className="w-72 border-l bg-background flex flex-col flex-shrink-0">
+        <div className="p-3 border-b">
+          <h3 className="font-medium text-sm">Properties</h3>
+        </div>
+        <ScrollArea className="flex-1">
+          {selectedChild ? (
+            <BlockEditor 
+              block={selectedChild.child} 
+              onChange={handleChildUpdate} 
+            />
+          ) : (
+            <BlockEditor 
+              block={selectedBlock} 
+              onChange={handleBlockUpdate} 
+            />
+          )}
+        </ScrollArea>
+      </div>
     </div>
   );
 }

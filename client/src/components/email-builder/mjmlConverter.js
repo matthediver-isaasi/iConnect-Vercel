@@ -64,7 +64,7 @@ const blockToMjml = (block) => {
   switch (block.type) {
     case BLOCK_TYPES.SECTION:
       const sectionPadding = `${block.styles.paddingTop || '20px'} ${block.styles.paddingRight || '20px'} ${block.styles.paddingBottom || '20px'} ${block.styles.paddingLeft || '20px'}`;
-      const childrenMjml = (block.children || []).map(childBlockToMjml).filter(Boolean).join('\n');
+      const childrenMjml = (block.children || []).filter(c => !c.hidden).map(childBlockToMjml).filter(Boolean).join('\n');
       return `
         <mj-section 
           background-color="${block.styles.backgroundColor || '#ffffff'}"
@@ -229,7 +229,7 @@ export const designToMjml = (design) => {
     .map(font => `<mj-font name="${font}" href="${GOOGLE_FONTS[font]}" />`)
     .join('\n        ');
   
-  const mjmlBlocks = blocks.map(blockToMjml).join('\n');
+  const mjmlBlocks = blocks.filter(b => !b.hidden).map(blockToMjml).join('\n');
   
   return `
     <mjml>
