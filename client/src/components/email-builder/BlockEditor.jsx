@@ -1020,6 +1020,26 @@ function ColumnsBlockEditor({ block, onChange }) {
       </div>
 
       <div className="space-y-2">
+        <Label>Column Gap</Label>
+        <Select
+          value={block.styles.columnGap || '10px'}
+          onValueChange={(v) => onChange({ ...block, styles: { ...block.styles, columnGap: v } })}
+        >
+          <SelectTrigger data-testid="editor-column-gap">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None (0px)</SelectItem>
+            <SelectItem value="5px">Extra Small (5px)</SelectItem>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="16px">Medium (16px)</SelectItem>
+            <SelectItem value="24px">Large (24px)</SelectItem>
+            <SelectItem value="32px">Extra Large (32px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
         <Label>Padding</Label>
         <Select
           value={block.styles.padding || '10px 0'}

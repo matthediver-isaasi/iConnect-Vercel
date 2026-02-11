@@ -170,29 +170,33 @@ function SpacerBlockPreview({ block }) {
   return <div style={{ height: block.styles.height }} />;
 }
 
-function ColumnDropZone({ columnId, blockId, colIndex, width, children }) {
+function ColumnDropZone({ columnId, blockId, colIndex, width, paddingLeft, paddingRight, children }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `column-drop-${blockId}-${columnId}`,
     data: { isColumn: true, columnId, blockId, colIndex },
   });
 
   return (
-    <div
-      ref={setNodeRef}
-      className={`min-h-[60px] border-2 border-dashed rounded p-2 transition-colors ${
-        isOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/30 bg-muted/20'
-      }`}
-      style={{ width }}
-    >
-      {children}
+    <div style={{ width, paddingLeft, paddingRight, boxSizing: 'border-box' }}>
+      <div
+        ref={setNodeRef}
+        className={`min-h-[60px] border-2 border-dashed rounded p-2 transition-colors h-full ${
+          isOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/30 bg-muted/20'
+        }`}
+      >
+        {children}
+      </div>
     </div>
   );
 }
 
 function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId }) {
+  const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
+  const halfGap = Math.round(colGapPx / 2);
+
   return (
     <div style={{ padding: block.styles.padding }}>
-      <div className="flex gap-2">
+      <div className="flex">
         {block.columns.map((col, idx) => (
           <ColumnDropZone
             key={col.id}
@@ -200,6 +204,8 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
             blockId={block.id}
             colIndex={idx}
             width={col.width}
+            paddingLeft={idx === 0 ? '0px' : `${halfGap}px`}
+            paddingRight={idx === block.columns.length - 1 ? '0px' : `${halfGap}px`}
           >
             <span className="text-xs text-muted-foreground">Col {idx + 1} ({col.width})</span>
             {col.blocks.length === 0 && (

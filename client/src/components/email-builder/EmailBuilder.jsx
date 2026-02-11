@@ -200,6 +200,30 @@ export default function EmailBuilder({
       return;
     }
 
+    if (overData?.isSection) {
+      const blockToMove = design.blocks.find(b => b.id === active.id);
+      const targetSection = design.blocks.find(b => b.id === overData.sectionId);
+      if (blockToMove && targetSection && blockToMove.type !== BLOCK_TYPES.SECTION && blockToMove.type !== BLOCK_TYPES.COLUMNS && blockToMove.id !== overData.sectionId) {
+        const sectionId = overData.sectionId;
+        updateDesign(prev => ({
+          ...prev,
+          blocks: prev.blocks
+            .filter(b => b.id !== blockToMove.id)
+            .map(b => {
+              if (b.id === sectionId) {
+                return { ...b, children: [...(b.children || []), blockToMove] };
+              }
+              return b;
+            }),
+        }));
+        setSelectedBlockId(sectionId);
+        setSelectedChildId(blockToMove.id);
+        setSelectedColumnChildId(null);
+        setSelectedColumnContext(null);
+        return;
+      }
+    }
+
     if (active.id !== over.id) {
       updateDesign(prev => {
         const oldIndex = prev.blocks.findIndex(b => b.id === active.id);

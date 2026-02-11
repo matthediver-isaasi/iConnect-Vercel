@@ -164,7 +164,9 @@ const blockToMjml = (block) => {
       `;
 
     case BLOCK_TYPES.COLUMNS:
-      const columnsContent = block.columns.map(col => {
+      const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
+      const halfGap = Math.round(colGapPx / 2);
+      const columnsContent = block.columns.map((col, colIdx) => {
         const colBlocks = col.blocks.map(b => {
           if (b.type === BLOCK_TYPES.TEXT) {
             const colFontFamily = b.styles.fontFamily ? `font-family="${b.styles.fontFamily}"` : '';
@@ -181,7 +183,9 @@ const blockToMjml = (block) => {
           }
           return '';
         }).join('');
-        return `<mj-column width="${col.width || '50%'}">${colBlocks || '<mj-text></mj-text>'}</mj-column>`;
+        const paddingLeft = colIdx === 0 ? '0px' : `${halfGap}px`;
+        const paddingRight = colIdx === block.columns.length - 1 ? '0px' : `${halfGap}px`;
+        return `<mj-column width="${col.width || '50%'}" padding-left="${paddingLeft}" padding-right="${paddingRight}">${colBlocks || '<mj-text></mj-text>'}</mj-column>`;
       }).join('');
       return `<mj-section padding="${block.styles.padding || '10px 0'}">${columnsContent}</mj-section>`;
 
