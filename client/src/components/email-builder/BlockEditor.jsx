@@ -514,6 +514,60 @@ function ImageBlockEditor({ block, onChange }) {
         </Select>
       </div>
 
+      <div className="space-y-2">
+        <Label>Size</Label>
+        <Select
+          value={block.styles.imageSize || '100%'}
+          onValueChange={(v) => {
+            update('imageSize', v);
+            if (v !== 'custom') {
+              update('imageSizeCustom', '');
+            }
+          }}
+        >
+          <SelectTrigger data-testid="editor-image-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="25%">Small (25%)</SelectItem>
+            <SelectItem value="50%">Medium (50%)</SelectItem>
+            <SelectItem value="75%">Large (75%)</SelectItem>
+            <SelectItem value="100%">Full Width (100%)</SelectItem>
+            <SelectItem value="custom">Custom (px)</SelectItem>
+          </SelectContent>
+        </Select>
+        {(block.styles.imageSize === 'custom') && (
+          <Input
+            type="number"
+            value={block.styles.imageSizeCustom || ''}
+            onChange={(e) => update('imageSizeCustom', e.target.value)}
+            placeholder="Width in px"
+            min="1"
+            data-testid="editor-image-size-custom"
+          />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Padding</Label>
+        <Select
+          value={block.styles.padding || '10px 20px'}
+          onValueChange={(v) => update('padding', v)}
+        >
+          <SelectTrigger data-testid="editor-image-padding">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None</SelectItem>
+            <SelectItem value="5px">Extra Small (5px)</SelectItem>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="10px 20px">Medium (10px 20px)</SelectItem>
+            <SelectItem value="20px">Large (20px)</SelectItem>
+            <SelectItem value="20px 40px">Extra Large (20px 40px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <Dialog open={showFileSelector} onOpenChange={() => {
         setShowFileSelector(false);
         setFileSelectorFolder(null);

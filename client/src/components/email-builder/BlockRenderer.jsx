@@ -82,6 +82,14 @@ function TextBlockPreview({ block }) {
 }
 
 function ImageBlockPreview({ block }) {
+  const getImageWidth = () => {
+    const size = block.styles.imageSize || '100%';
+    if (size === 'custom' && block.styles.imageSizeCustom) {
+      return `${block.styles.imageSizeCustom}px`;
+    }
+    return size;
+  };
+
   if (!block.src) {
     return (
       <div
@@ -97,7 +105,7 @@ function ImageBlockPreview({ block }) {
       <img
         src={block.src}
         alt={block.alt}
-        style={{ maxWidth: block.styles.maxWidth, width: '100%' }}
+        style={{ width: getImageWidth(), maxWidth: '100%' }}
       />
     </div>
   );

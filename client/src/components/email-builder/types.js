@@ -52,6 +52,8 @@ export const createBlock = (type, props = {}) => {
         styles: {
           width: '100%',
           maxWidth: '600px',
+          imageSize: '100%',
+          imageSizeCustom: '',
           padding: '10px 20px',
           textAlign: 'center',
           ...props.styles,

@@ -11,6 +11,15 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
+const getImageMjmlWidth = (block) => {
+  const size = block.styles?.imageSize || '100%';
+  if (size === 'custom' && block.styles?.imageSizeCustom) {
+    return `${block.styles.imageSizeCustom}px`;
+  }
+  if (size === '100%') return block.styles?.maxWidth || '600px';
+  return size;
+};
+
 const childBlockToMjml = (block) => {
   switch (block.type) {
     case BLOCK_TYPES.TEXT:
@@ -27,10 +36,11 @@ const childBlockToMjml = (block) => {
     case BLOCK_TYPES.IMAGE:
       if (!block.src) return '';
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
+      const imgWidth = getImageMjmlWidth(block);
       return `<mj-image 
         src="${escapeHtml(block.src)}"
         alt="${escapeHtml(block.alt || 'Image')}"
-        width="${block.styles.maxWidth || '100%'}"
+        width="${imgWidth}"
         align="${block.styles.textAlign || 'center'}"
         padding="${block.styles.padding || '10px 0'}"
         ${imgHref}
@@ -103,13 +113,14 @@ const blockToMjml = (block) => {
         `;
       }
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
+      const sectionImgWidth = getImageMjmlWidth(block);
       return `
         <mj-section padding="${block.styles.padding || '10px 20px'}">
           <mj-column>
             <mj-image 
               src="${escapeHtml(block.src)}"
               alt="${escapeHtml(block.alt || 'Image')}"
-              width="${block.styles.maxWidth || '600px'}"
+              width="${sectionImgWidth}"
               align="${block.styles.textAlign || 'center'}"
               ${imgHref}
             />
