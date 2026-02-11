@@ -390,6 +390,7 @@ export default function EmailBuilder({
               style={{ 
                 maxWidth: design.globalStyles.contentWidth,
                 backgroundColor: design.globalStyles.contentBackgroundColor,
+                padding: design.globalStyles.contentPadding || '0px',
               }}
             >
               <SortableContext

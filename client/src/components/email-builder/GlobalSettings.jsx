@@ -45,6 +45,24 @@ export default function GlobalSettings({ settings, onChange }) {
           </SelectContent>
         </Select>
       </div>
+      <div className="space-y-2">
+        <Label className="text-xs">Content Padding</Label>
+        <Select
+          value={settings.contentPadding || '0px'}
+          onValueChange={(v) => update('contentPadding', v)}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None</SelectItem>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="20px">Medium (20px)</SelectItem>
+            <SelectItem value="30px">Large (30px)</SelectItem>
+            <SelectItem value="40px">Extra Large (40px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }

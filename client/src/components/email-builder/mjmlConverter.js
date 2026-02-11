@@ -241,7 +241,7 @@ export const designToMjml = (design) => {
         </mj-attributes>
       </mj-head>
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}">
-        <mj-wrapper background-color="${globalStyles.contentBackgroundColor || '#ffffff'}" padding="0">
+        <mj-wrapper background-color="${globalStyles.contentBackgroundColor || '#ffffff'}" padding="${globalStyles.contentPadding || '0px'}">
           ${mjmlBlocks || '<mj-section><mj-column><mj-text></mj-text></mj-column></mj-section>'}
         </mj-wrapper>
       </mj-body>
