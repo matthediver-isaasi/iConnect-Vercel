@@ -348,7 +348,14 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       } else {
         table = 'member';
       }
-      await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
+      let resolvedValue = action.config.value;
+      if (resolvedValue === '{{current_date}}') {
+        const now = new Date();
+        resolvedValue = now.toISOString().split('T')[0];
+      } else if (resolvedValue === '{{current_datetime}}') {
+        resolvedValue = new Date().toISOString();
+      }
+      await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId);
       results.push({ action_type: 'update_field', status: 'success' });
     } else if (action.type === 'send_email') {
       console.log(`[Workflows] send_email action config:`, JSON.stringify(action.config, null, 2));

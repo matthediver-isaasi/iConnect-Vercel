@@ -312,7 +312,12 @@ export default function WorkflowManagementPage() {
     };
   };
 
-  const getSelectedField = (fieldType, fieldId) => {
+  const getSelectedField = (fieldType, fieldId, entityType) => {
+    if (fieldType === 'core' || fieldType === 'custom') {
+      const entityFields = getEntitySpecificFields(entityType || formData.entity_type);
+      const pool = fieldType === 'core' ? entityFields.core : entityFields.custom;
+      return pool.find(f => f.id === fieldId);
+    }
     const allFields = getAllFieldsFlat();
     return allFields.find(f => f.field_type === fieldType && f.id === fieldId);
   };
@@ -1713,7 +1718,7 @@ export default function WorkflowManagementPage() {
                                   onValueChange={(val) => {
                                     const [fieldType, fieldId] = val.split(':');
                                     updateAction(index, { 
-                                      config: { ...action.config, field_type: fieldType, field_id: fieldId } 
+                                      config: { ...action.config, field_type: fieldType, field_id: fieldId, value: '' } 
                                     });
                                   }}
                                 >
@@ -1742,17 +1747,157 @@ export default function WorkflowManagementPage() {
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <div className="space-y-2">
-                                <Label>New Value</Label>
-                                <Input
-                                  value={action.config?.value || ''}
-                                  onChange={(e) => updateAction(index, { 
-                                    config: { ...action.config, value: e.target.value } 
-                                  })}
-                                  placeholder="New value"
-                                  data-testid={`input-action-field-value-${index}`}
-                                />
-                              </div>
+                              {(() => {
+                                const selectedField = getSelectedField(action.config?.field_type, action.config?.field_id);
+                                const fieldType = selectedField?.type || 'text';
+                                const fieldOptions = selectedField?.options || null;
+
+                                if (fieldType === 'boolean') {
+                                  return (
+                                    <div className="space-y-2">
+                                      <Label>New Value</Label>
+                                      <Select
+                                        value={action.config?.value || ''}
+                                        onValueChange={(val) => updateAction(index, { 
+                                          config: { ...action.config, value: val } 
+                                        })}
+                                      >
+                                        <SelectTrigger data-testid={`input-action-field-value-${index}`}>
+                                          <SelectValue placeholder="Select value" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="true">Yes</SelectItem>
+                                          <SelectItem value="false">No</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  );
+                                }
+
+                                if (fieldType === 'date') {
+                                  return (
+                                    <div className="space-y-2">
+                                      <Label>New Value</Label>
+                                      <Select
+                                        value={action.config?.value === '{{current_date}}' ? '{{current_date}}' : 'custom'}
+                                        onValueChange={(val) => {
+                                          if (val === '{{current_date}}') {
+                                            updateAction(index, { config: { ...action.config, value: '{{current_date}}' } });
+                                          } else {
+                                            updateAction(index, { config: { ...action.config, value: '' } });
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger data-testid={`select-action-date-mode-${index}`}>
+                                          <SelectValue placeholder="Choose date option" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="{{current_date}}">Current Date (when workflow runs)</SelectItem>
+                                          <SelectItem value="custom">Specific Date</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      {action.config?.value !== '{{current_date}}' && (
+                                        <Input
+                                          type="date"
+                                          value={action.config?.value || ''}
+                                          onChange={(e) => updateAction(index, { 
+                                            config: { ...action.config, value: e.target.value } 
+                                          })}
+                                          data-testid={`input-action-field-value-${index}`}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                if ((fieldType === 'dropdown' || fieldType === 'text') && fieldOptions && fieldOptions.length > 0) {
+                                  return (
+                                    <div className="space-y-2">
+                                      <Label>New Value</Label>
+                                      <Select
+                                        value={action.config?.value || ''}
+                                        onValueChange={(val) => updateAction(index, { 
+                                          config: { ...action.config, value: val } 
+                                        })}
+                                      >
+                                        <SelectTrigger data-testid={`input-action-field-value-${index}`}>
+                                          <SelectValue placeholder="Select value" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {fieldOptions.map((opt) => (
+                                            <SelectItem key={opt.value} value={opt.value}>
+                                              {opt.label}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  );
+                                }
+
+                                if (fieldType === 'picklist' && fieldOptions && fieldOptions.length > 0) {
+                                  const currentValues = action.config?.value ? (Array.isArray(action.config.value) ? action.config.value : action.config.value.split(',').filter(Boolean)) : [];
+                                  return (
+                                    <div className="space-y-2">
+                                      <Label>New Value</Label>
+                                      <div className="border rounded-md p-3 space-y-2 max-h-[200px] overflow-y-auto">
+                                        {fieldOptions.map((opt) => (
+                                          <div key={opt.value} className="flex items-center gap-2">
+                                            <Checkbox
+                                              id={`picklist-${index}-${opt.value}`}
+                                              checked={currentValues.includes(opt.value)}
+                                              onCheckedChange={(checked) => {
+                                                const newValues = checked 
+                                                  ? [...currentValues, opt.value]
+                                                  : currentValues.filter(v => v !== opt.value);
+                                                updateAction(index, { 
+                                                  config: { ...action.config, value: newValues.join(',') } 
+                                                });
+                                              }}
+                                              data-testid={`checkbox-picklist-${index}-${opt.value}`}
+                                            />
+                                            <label htmlFor={`picklist-${index}-${opt.value}`} className="text-sm cursor-pointer">
+                                              {opt.label}
+                                            </label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                if (fieldType === 'number' || fieldType === 'decimal') {
+                                  return (
+                                    <div className="space-y-2">
+                                      <Label>New Value</Label>
+                                      <Input
+                                        type="number"
+                                        step={fieldType === 'decimal' ? '0.01' : '1'}
+                                        value={action.config?.value || ''}
+                                        onChange={(e) => updateAction(index, { 
+                                          config: { ...action.config, value: e.target.value } 
+                                        })}
+                                        placeholder={`Enter ${fieldType} value`}
+                                        data-testid={`input-action-field-value-${index}`}
+                                      />
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="space-y-2">
+                                    <Label>New Value</Label>
+                                    <Input
+                                      value={action.config?.value || ''}
+                                      onChange={(e) => updateAction(index, { 
+                                        config: { ...action.config, value: e.target.value } 
+                                      })}
+                                      placeholder="New value"
+                                      data-testid={`input-action-field-value-${index}`}
+                                    />
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
 
