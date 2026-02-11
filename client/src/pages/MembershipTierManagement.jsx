@@ -537,6 +537,24 @@ export default function MembershipTierManagement() {
     return all.filter(o => o.name.toLowerCase().includes(q));
   }, [previewData, previewSearch]);
 
+  const selectedStructureField = useMemo(() => {
+    if (!config.structure_field_id) return null;
+    return structureFields.find(f => f.id === config.structure_field_id);
+  }, [config.structure_field_id, structureFields]);
+
+  const structureFieldOptions = useMemo(() => {
+    if (!selectedStructureField) return [];
+    if (selectedStructureField.options) {
+      try {
+        const opts = typeof selectedStructureField.options === 'string'
+          ? JSON.parse(selectedStructureField.options)
+          : selectedStructureField.options;
+        if (Array.isArray(opts)) return opts.map(o => typeof o === 'string' ? o : o.label || o.value || '');
+      } catch {}
+    }
+    return [];
+  }, [selectedStructureField]);
+
   const handleExportCsv = () => {
     if (!previewData) return;
 
@@ -573,24 +591,6 @@ export default function MembershipTierManagement() {
   const currentConfigId = tierData?.config?.id;
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const activeConfigs = tierData?.activeConfigs || [];
-
-  const selectedStructureField = useMemo(() => {
-    if (!config.structure_field_id) return null;
-    return structureFields.find(f => f.id === config.structure_field_id);
-  }, [config.structure_field_id, structureFields]);
-
-  const structureFieldOptions = useMemo(() => {
-    if (!selectedStructureField) return [];
-    if (selectedStructureField.options) {
-      try {
-        const opts = typeof selectedStructureField.options === 'string'
-          ? JSON.parse(selectedStructureField.options)
-          : selectedStructureField.options;
-        if (Array.isArray(opts)) return opts.map(o => typeof o === 'string' ? o : o.label || o.value || '');
-      } catch {}
-    }
-    return [];
-  }, [selectedStructureField]);
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
