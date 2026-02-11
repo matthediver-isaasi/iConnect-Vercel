@@ -884,10 +884,14 @@ function SpacerBlockEditor({ block, onChange }) {
 }
 
 function ColumnsBlockEditor({ block, onChange }) {
+  const columns = block.columns || [];
+
+  const parseWidth = (w) => parseInt(String(w).replace('%', ''), 10) || Math.floor(100 / columns.length);
+
   const updateColumnCount = (count) => {
     const currentCols = block.columns || [];
     const newCols = [];
-    const width = `${100 / count}%`;
+    const width = `${Math.floor(100 / count)}%`;
     
     for (let i = 0; i < count; i++) {
       if (currentCols[i]) {
@@ -900,15 +904,58 @@ function ColumnsBlockEditor({ block, onChange }) {
     onChange({ ...block, columns: newCols });
   };
 
+  const updateColumnWidth = (colIndex, newPct) => {
+    if (columns.length < 2) return;
+    const minPct = 10;
+    const maxForTarget = 100 - (columns.length - 1) * minPct;
+    const clamped = Math.max(minPct, Math.min(newPct, maxForTarget));
+    const remaining = 100 - clamped;
+
+    const oldWidths = columns.map((c) => parseWidth(c.width));
+    const totalOthers = oldWidths.reduce((sum, w, i) => (i === colIndex ? sum : sum + w), 0);
+
+    let rawOthers = columns.map((col, i) => {
+      if (i === colIndex) return clamped;
+      if (totalOthers > 0) return Math.max(minPct, Math.round(oldWidths[i] / totalOthers * remaining));
+      return Math.floor(remaining / (columns.length - 1));
+    });
+
+    let currentTotal = rawOthers.reduce((s, v) => s + v, 0);
+    let diff = 100 - currentTotal;
+    let attempts = 0;
+    while (diff !== 0 && attempts < 10) {
+      for (let i = 0; i < rawOthers.length && diff !== 0; i++) {
+        if (i === colIndex) continue;
+        const adjust = diff > 0 ? 1 : -1;
+        if (rawOthers[i] + adjust >= minPct) {
+          rawOthers[i] += adjust;
+          diff -= adjust;
+        }
+      }
+      attempts++;
+    }
+
+    const newColumns = columns.map((col, i) => ({ ...col, width: `${rawOthers[i]}%` }));
+    onChange({ ...block, columns: newColumns });
+  };
+
+  const resetEqualWidths = () => {
+    const equalWidth = `${Math.floor(100 / columns.length)}%`;
+    onChange({
+      ...block,
+      columns: columns.map(col => ({ ...col, width: equalWidth })),
+    });
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <Label>Number of Columns</Label>
         <Select 
-          value={String(block.columns?.length || 2)} 
+          value={String(columns.length || 2)} 
           onValueChange={(v) => updateColumnCount(parseInt(v))}
         >
-          <SelectTrigger>
+          <SelectTrigger data-testid="editor-column-count">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -918,9 +965,77 @@ function ColumnsBlockEditor({ block, onChange }) {
           </SelectContent>
         </Select>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Column content editing coming soon. For now, columns provide layout structure.
-      </p>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-1">
+          <Label>Column Widths</Label>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetEqualWidths}
+            className="text-xs h-6 px-2"
+            data-testid="button-reset-column-widths"
+          >
+            Reset Equal
+          </Button>
+        </div>
+
+        <div className="flex gap-1 h-8 rounded-md overflow-hidden border">
+          {columns.map((col, idx) => {
+            const pct = parseWidth(col.width);
+            return (
+              <div
+                key={col.id}
+                className="flex items-center justify-center text-xs font-medium transition-all"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: `hsl(${210 + idx * 30}, 60%, ${85 - idx * 5}%)`,
+                  color: 'hsl(0, 0%, 25%)',
+                }}
+                data-testid={`column-width-display-${idx}`}
+              >
+                {pct}%
+              </div>
+            );
+          })}
+        </div>
+
+        {columns.map((col, idx) => (
+          <div key={col.id} className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">Column {idx + 1}</span>
+              <span className="text-xs font-medium">{parseWidth(col.width)}%</span>
+            </div>
+            <input
+              type="range"
+              min="10"
+              max={100 - (columns.length - 1) * 10}
+              value={parseWidth(col.width)}
+              onChange={(e) => updateColumnWidth(idx, parseInt(e.target.value))}
+              className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-primary"
+              data-testid={`slider-column-width-${idx}`}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Padding</Label>
+        <Select
+          value={block.styles.padding || '10px 0'}
+          onValueChange={(v) => onChange({ ...block, styles: { ...block.styles, padding: v } })}
+        >
+          <SelectTrigger data-testid="editor-columns-padding">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None</SelectItem>
+            <SelectItem value="5px">Extra Small (5px)</SelectItem>
+            <SelectItem value="10px 0">Medium (10px 0)</SelectItem>
+            <SelectItem value="20px 0">Large (20px 0)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }

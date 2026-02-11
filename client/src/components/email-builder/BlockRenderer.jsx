@@ -170,21 +170,66 @@ function SpacerBlockPreview({ block }) {
   return <div style={{ height: block.styles.height }} />;
 }
 
-function ColumnsBlockPreview({ block }) {
+function ColumnDropZone({ columnId, blockId, colIndex, width, children }) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `column-drop-${blockId}-${columnId}`,
+    data: { isColumn: true, columnId, blockId, colIndex },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-[60px] border-2 border-dashed rounded p-2 transition-colors ${
+        isOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/30 bg-muted/20'
+      }`}
+      style={{ width }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId }) {
   return (
     <div style={{ padding: block.styles.padding }}>
       <div className="flex gap-2">
         {block.columns.map((col, idx) => (
-          <div
+          <ColumnDropZone
             key={col.id}
-            className="flex-1 min-h-[60px] border-2 border-dashed border-muted-foreground/30 rounded p-2 bg-muted/20"
-            style={{ width: col.width }}
+            columnId={col.id}
+            blockId={block.id}
+            colIndex={idx}
+            width={col.width}
           >
-            <span className="text-xs text-muted-foreground">Column {idx + 1}</span>
+            <span className="text-xs text-muted-foreground">Col {idx + 1} ({col.width})</span>
             {col.blocks.length === 0 && (
-              <div className="text-xs text-muted-foreground/50 mt-2">Drop blocks here</div>
+              <div className="text-xs text-muted-foreground/50 mt-2">
+                Drop blocks here
+              </div>
             )}
-          </div>
+            {col.blocks.map((childBlock) => {
+              if (childBlock.hidden) return null;
+              const ChildPreview = contentBlockPreviewComponents[childBlock.type];
+              if (!ChildPreview) return null;
+              return (
+                <div
+                  key={childBlock.id}
+                  className={`relative cursor-pointer mt-1 ${
+                    childBlock.id === selectedColumnChildId
+                      ? 'ring-1 ring-primary/40'
+                      : 'hover:ring-1 hover:ring-muted-foreground/15'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onSelectColumnChild) onSelectColumnChild(childBlock.id, block.id, col.id);
+                  }}
+                  data-testid={`column-child-${childBlock.id}`}
+                >
+                  <ChildPreview block={childBlock} />
+                </div>
+              );
+            })}
+          </ColumnDropZone>
         ))}
       </div>
     </div>
@@ -215,6 +260,8 @@ export default function BlockRenderer({
   onSelect,
   onSelectChild,
   selectedChildId,
+  onSelectColumnChild,
+  selectedColumnChildId,
 }) {
   const {
     attributes,
@@ -250,6 +297,12 @@ export default function BlockRenderer({
             isSelected={isSelected}
             onSelectChild={onSelectChild}
             selectedChildId={selectedChildId}
+          />
+        ) : block.type === BLOCK_TYPES.COLUMNS ? (
+          <ColumnsBlockPreview
+            block={block}
+            onSelectColumnChild={onSelectColumnChild}
+            selectedColumnChildId={selectedColumnChildId}
           />
         ) : (
           PreviewComponent && <PreviewComponent block={block} />

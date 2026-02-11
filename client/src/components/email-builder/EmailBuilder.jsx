@@ -51,6 +51,8 @@ export default function EmailBuilder({
   });
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [selectedChildId, setSelectedChildId] = useState(null);
+  const [selectedColumnChildId, setSelectedColumnChildId] = useState(null);
+  const [selectedColumnContext, setSelectedColumnContext] = useState(null);
   const [isPageSelected, setIsPageSelected] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
@@ -77,6 +79,16 @@ export default function EmailBuilder({
       }
     }
     return null;
+  })() : null;
+
+  const selectedColChild = selectedColumnChildId && selectedColumnContext ? (() => {
+    const block = design.blocks.find(b => b.id === selectedColumnContext.blockId);
+    if (!block || block.type !== BLOCK_TYPES.COLUMNS) return null;
+    const col = block.columns.find(c => c.id === selectedColumnContext.columnId);
+    if (!col) return null;
+    const child = col.blocks.find(b => b.id === selectedColumnChildId);
+    if (!child) return null;
+    return { child, blockId: block.id, columnId: col.id };
   })() : null;
 
   const notifyChange = useCallback((newDesign) => {
@@ -126,7 +138,33 @@ export default function EmailBuilder({
       const newBlock = createBlock(activeData.type);
       
       setIsPageSelected(false);
-      if (overData?.isSection && activeData.type !== BLOCK_TYPES.SECTION && activeData.type !== BLOCK_TYPES.COLUMNS) {
+      setSelectedColumnChildId(null);
+      setSelectedColumnContext(null);
+
+      if (overData?.isColumn && activeData.type !== BLOCK_TYPES.SECTION && activeData.type !== BLOCK_TYPES.COLUMNS) {
+        const { blockId, columnId } = overData;
+        updateDesign(prev => ({
+          ...prev,
+          blocks: prev.blocks.map(b => {
+            if (b.id === blockId && b.type === BLOCK_TYPES.COLUMNS) {
+              return {
+                ...b,
+                columns: b.columns.map(col => {
+                  if (col.id === columnId) {
+                    return { ...col, blocks: [...col.blocks, newBlock] };
+                  }
+                  return col;
+                }),
+              };
+            }
+            return b;
+          }),
+        }));
+        setSelectedBlockId(blockId);
+        setSelectedChildId(null);
+        setSelectedColumnChildId(newBlock.id);
+        setSelectedColumnContext({ blockId, columnId });
+      } else if (overData?.isSection && activeData.type !== BLOCK_TYPES.SECTION && activeData.type !== BLOCK_TYPES.COLUMNS) {
         const sectionId = overData.sectionId;
         updateDesign(prev => ({
           ...prev,
@@ -181,17 +219,79 @@ export default function EmailBuilder({
     setIsPageSelected(true);
     setSelectedBlockId(null);
     setSelectedChildId(null);
+    setSelectedColumnChildId(null);
+    setSelectedColumnContext(null);
   };
 
   const handleBlockSelect = (blockId) => {
     setIsPageSelected(false);
     setSelectedBlockId(blockId);
     setSelectedChildId(null);
+    setSelectedColumnChildId(null);
+    setSelectedColumnContext(null);
   };
 
   const handleChildSelect = (childId) => {
     setIsPageSelected(false);
     setSelectedChildId(childId);
+    setSelectedColumnChildId(null);
+    setSelectedColumnContext(null);
+  };
+
+  const handleColumnChildSelect = (childId, blockId, columnId) => {
+    setIsPageSelected(false);
+    setSelectedBlockId(blockId);
+    setSelectedChildId(null);
+    setSelectedColumnChildId(childId);
+    setSelectedColumnContext({ blockId, columnId });
+  };
+
+  const handleColumnChildUpdate = (updatedChild) => {
+    if (!selectedColumnContext) return;
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.id === selectedColumnContext.blockId && b.type === BLOCK_TYPES.COLUMNS) {
+          return {
+            ...b,
+            columns: b.columns.map(col => {
+              if (col.id === selectedColumnContext.columnId) {
+                return {
+                  ...col,
+                  blocks: col.blocks.map(cb => cb.id === updatedChild.id ? updatedChild : cb),
+                };
+              }
+              return col;
+            }),
+          };
+        }
+        return b;
+      }),
+    }));
+  };
+
+  const handleColumnChildDelete = (childId, blockId, columnId) => {
+    updateDesign(prev => ({
+      ...prev,
+      blocks: prev.blocks.map(b => {
+        if (b.id === blockId && b.type === BLOCK_TYPES.COLUMNS) {
+          return {
+            ...b,
+            columns: b.columns.map(col => {
+              if (col.id === columnId) {
+                return { ...col, blocks: col.blocks.filter(cb => cb.id !== childId) };
+              }
+              return col;
+            }),
+          };
+        }
+        return b;
+      }),
+    }));
+    if (selectedColumnChildId === childId) {
+      setSelectedColumnChildId(null);
+      setSelectedColumnContext(null);
+    }
   };
 
   const handleChildDelete = (childId) => {
@@ -409,6 +509,8 @@ export default function EmailBuilder({
                       onSelect={handleBlockSelect}
                       onSelectChild={handleChildSelect}
                       selectedChildId={selectedChildId}
+                      onSelectColumnChild={handleColumnChildSelect}
+                      selectedColumnChildId={selectedColumnChildId}
                     />
                   ))}
                 </CanvasDropZone>
@@ -438,9 +540,12 @@ export default function EmailBuilder({
             blocks={design.blocks}
             selectedBlockId={selectedBlockId}
             selectedChildId={selectedChildId}
+            selectedColumnChildId={selectedColumnChildId}
             isPageSelected={isPageSelected}
             onSelectBlock={handleBlockSelect}
             onSelectChild={handleChildSelect}
+            onSelectColumnChild={handleColumnChildSelect}
+            onDeleteColumnChild={handleColumnChildDelete}
             onSelectPage={handlePageSelect}
             onDeleteBlock={handleBlockDelete}
             onDuplicateBlock={handleBlockDuplicate}
@@ -481,6 +586,11 @@ export default function EmailBuilder({
               <GlobalSettings 
                 settings={design.globalStyles} 
                 onChange={handleGlobalSettingsChange} 
+              />
+            ) : selectedColChild ? (
+              <BlockEditor 
+                block={selectedColChild.child} 
+                onChange={handleColumnChildUpdate} 
               />
             ) : selectedChild ? (
               <BlockEditor 

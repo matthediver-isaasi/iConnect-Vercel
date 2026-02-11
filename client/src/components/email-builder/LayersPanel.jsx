@@ -283,13 +283,52 @@ function SortableChildItem({
   );
 }
 
+function ColumnChildLayerItem({ child, blockId, columnId, isSelected, onSelect, onDelete }) {
+  const Icon = BLOCK_ICONS[child.type] || SquareDashed;
+
+  return (
+    <div
+      style={{ paddingLeft: '36px' }}
+      className={`flex items-center gap-1 px-1 py-0.5 rounded-md text-sm cursor-pointer select-none transition-colors ${
+        isSelected
+          ? 'bg-primary/15 text-foreground'
+          : 'hover:bg-muted/60 text-foreground'
+      } ${child.hidden ? 'opacity-50' : ''}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (onSelect) onSelect(child.id, blockId, columnId);
+      }}
+      data-testid={`layer-col-child-${child.id}`}
+    >
+      <div className="w-4 flex-shrink-0" />
+      <Icon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+      <span className="truncate flex-1 text-xs">{getBlockLabel(child)}</span>
+      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
+        <button
+          className="p-0.5 rounded hover:bg-muted hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onDelete) onDelete(child.id, blockId, columnId);
+          }}
+          data-testid={`layer-col-child-delete-${child.id}`}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function LayersPanel({
   blocks,
   selectedBlockId,
   selectedChildId,
+  selectedColumnChildId,
   isPageSelected,
   onSelectBlock,
   onSelectChild,
+  onSelectColumnChild,
+  onDeleteColumnChild,
   onSelectPage,
   onDeleteBlock,
   onDuplicateBlock,
@@ -303,7 +342,7 @@ export default function LayersPanel({
   const [expandedSections, setExpandedSections] = useState(() => {
     const initial = {};
     blocks.forEach((b) => {
-      if (b.type === BLOCK_TYPES.SECTION) initial[b.id] = true;
+      if (b.type === BLOCK_TYPES.SECTION || b.type === BLOCK_TYPES.COLUMNS) initial[b.id] = true;
     });
     return initial;
   });
@@ -393,9 +432,12 @@ export default function LayersPanel({
             >
               {blocks.map((block) => {
                 const hasChildren =
-                  block.type === BLOCK_TYPES.SECTION &&
+                  (block.type === BLOCK_TYPES.SECTION &&
                   block.children &&
-                  block.children.length > 0;
+                  block.children.length > 0) ||
+                  (block.type === BLOCK_TYPES.COLUMNS &&
+                  block.columns &&
+                  block.columns.some(col => col.blocks.length > 0));
                 const isExpanded = expandedSections[block.id] !== false;
 
                 return (
@@ -403,7 +445,7 @@ export default function LayersPanel({
                     <SortableLayerItem
                       block={block}
                       isSelected={
-                        block.id === selectedBlockId && !selectedChildId
+                        block.id === selectedBlockId && !selectedChildId && !selectedColumnChildId
                       }
                       isExpanded={isExpanded}
                       onSelect={handleBlockSelect}
@@ -411,10 +453,10 @@ export default function LayersPanel({
                       onDelete={onDeleteBlock}
                       onDuplicate={onDuplicateBlock}
                       onToggleVisibility={onToggleBlockVisibility}
-                      hasChildren={hasChildren}
+                      hasChildren={hasChildren || block.type === BLOCK_TYPES.COLUMNS}
                       depth={0}
                     />
-                    {hasChildren && isExpanded && (
+                    {block.type === BLOCK_TYPES.SECTION && hasChildren && isExpanded && (
                       <DndContext
                         sensors={sensors}
                         collisionDetection={closestCenter}
@@ -438,6 +480,32 @@ export default function LayersPanel({
                           ))}
                         </SortableContext>
                       </DndContext>
+                    )}
+                    {block.type === BLOCK_TYPES.COLUMNS && isExpanded && block.columns && (
+                      <div>
+                        {block.columns.map((col, colIdx) => (
+                          <div key={col.id}>
+                            <div
+                              style={{ paddingLeft: '20px' }}
+                              className="flex items-center gap-1 px-1 py-0.5 text-xs text-muted-foreground"
+                            >
+                              <Columns className="w-3 h-3" />
+                              <span>Col {colIdx + 1} ({col.width})</span>
+                            </div>
+                            {col.blocks.map((childBlock) => (
+                              <ColumnChildLayerItem
+                                key={childBlock.id}
+                                child={childBlock}
+                                blockId={block.id}
+                                columnId={col.id}
+                                isSelected={childBlock.id === selectedColumnChildId}
+                                onSelect={onSelectColumnChild}
+                                onDelete={onDeleteColumnChild}
+                              />
+                            ))}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 );
