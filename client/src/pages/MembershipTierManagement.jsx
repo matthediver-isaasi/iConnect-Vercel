@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
-  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag
+  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
+  CheckCircle2
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -62,6 +63,53 @@ function getTodayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
+const WIZARD_STEPS = [
+  { number: 1, label: 'Scope', subtitle: 'Define the structure name and scope' },
+  { number: 2, label: 'Tier Model', subtitle: 'Choose tiered or flat pricing' },
+  { number: 3, label: 'Period', subtitle: 'Set membership year settings' },
+  { number: 4, label: 'Discounts', subtitle: 'Configure discounts and free periods' },
+  { number: 5, label: 'Pricing', subtitle: 'Set currency and pricing details' },
+  { number: 6, label: 'Summary', subtitle: 'Review and save your configuration' },
+];
+
+function StepIndicator({ currentStep, onStepClick }) {
+  return (
+    <div className="flex items-center justify-between w-full mb-8">
+      {WIZARD_STEPS.map((step, idx) => {
+        const isCompleted = currentStep > step.number;
+        const isActive = currentStep === step.number;
+        const isFuture = currentStep < step.number;
+        return (
+          <div key={step.number} className="flex items-center flex-1 last:flex-none">
+            <button
+              type="button"
+              onClick={() => onStepClick(step.number)}
+              className="flex flex-col items-center gap-1 cursor-pointer group"
+              data-testid={`wizard-step-${step.number}`}
+            >
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors
+                  ${isActive ? 'bg-primary text-primary-foreground' : ''}
+                  ${isCompleted ? 'bg-primary/10 text-primary' : ''}
+                  ${isFuture ? 'bg-muted text-muted-foreground' : ''}
+                `}
+              >
+                {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : step.number}
+              </div>
+              <span className={`text-xs hidden sm:block ${isActive ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                {step.label}
+              </span>
+            </button>
+            {idx < WIZARD_STEPS.length - 1 && (
+              <div className={`flex-1 h-px mx-2 ${currentStep > step.number ? 'bg-primary/40' : 'bg-border'}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function MembershipTierManagement() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -85,10 +133,12 @@ export default function MembershipTierManagement() {
     rollover_enabled: false,
     structure_field_id: null,
     structure_match_value: null,
+    pricing_model: 'tiered',
+    start_mode: 'fixed_date',
+    flat_cost: null,
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
-
   const [bands, setBands] = useState([]);
   const [discounts, setDiscounts] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
@@ -97,9 +147,7 @@ export default function MembershipTierManagement() {
   const [showHistory, setShowHistory] = useState(false);
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [configOpen, setConfigOpen] = useState(true);
-  const [bandsOpen, setBandsOpen] = useState(true);
-  const [discountsOpen, setDiscountsOpen] = useState(true);
+  const [wizardStep, setWizardStep] = useState(6);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -212,6 +260,9 @@ export default function MembershipTierManagement() {
         rollover_enabled: c.rollover_enabled ?? false,
         structure_field_id: c.structure_field_id || null,
         structure_match_value: c.structure_match_value || null,
+        pricing_model: c.pricing_model || 'tiered',
+        start_mode: c.start_mode || 'fixed_date',
+        flat_cost: c.flat_cost ?? null,
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -225,10 +276,15 @@ export default function MembershipTierManagement() {
       })));
       setHasChanges(false);
       setIsCreatingNew(false);
+      setWizardStep(6);
     }
   }, [viewingHistorical, historicalData]);
 
   const loadConfigIntoState = (c, configBands, configDiscounts) => {
+    const inferredPricingModel = c.pricing_model || 'tiered';
+    const inferredStartMode = c.start_mode || 'fixed_date';
+    const inferredFlatCost = c.flat_cost ?? null;
+
     setConfig({
       id: c.id,
       name: c.name || 'Default',
@@ -247,6 +303,9 @@ export default function MembershipTierManagement() {
       rollover_enabled: c.rollover_enabled ?? false,
       structure_field_id: c.structure_field_id || null,
       structure_match_value: c.structure_match_value || null,
+      pricing_model: inferredPricingModel,
+      start_mode: inferredStartMode,
+      flat_cost: inferredFlatCost,
     });
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
@@ -270,6 +329,7 @@ export default function MembershipTierManagement() {
       if (tierData.config) {
         loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts);
         setSelectedActiveConfigId(tierData.config.id);
+        setWizardStep(6);
       } else {
         setBands([]);
         setDiscounts([]);
@@ -337,7 +397,6 @@ export default function MembershipTierManagement() {
   const addBand = () => {
     const lastBand = bands[bands.length - 1];
     const nextMin = lastBand ? (parseFloat(lastBand.max_value) + 1 || parseFloat(lastBand.min_value) + 100) : 0;
-
     setBands(prev => [...prev, {
       id: `new-${Date.now()}`,
       label: `Tier ${prev.length + 1}`,
@@ -381,49 +440,86 @@ export default function MembershipTierManagement() {
     setHasChanges(true);
   };
 
+  const validateStep = (step) => {
+    switch (step) {
+      case 1:
+        if (!config.name?.trim()) { toast.error('Please enter a structure name'); return false; }
+        if (!config.effective_from) { toast.error('Please set an effective from date'); return false; }
+        if (config.structure_field_id && !config.structure_match_value?.trim()) {
+          toast.error('Please enter a match value for the structure scope, or remove the scope');
+          return false;
+        }
+        return true;
+      case 2:
+        if (config.pricing_model === 'tiered' && !config.field_source) {
+          toast.error('Please select a field to base tiers on');
+          return false;
+        }
+        return true;
+      case 3:
+        return true;
+      case 4:
+        return true;
+      case 5:
+        if (config.pricing_model === 'tiered') {
+          if (bands.length === 0) { toast.error('Please add at least one tier band'); return false; }
+          for (let i = 0; i < bands.length; i++) {
+            const band = bands[i];
+            if (!band.label?.trim()) { toast.error(`Tier ${i + 1} needs a label`); return false; }
+            if (isNaN(parseFloat(band.min_value))) { toast.error(`Tier "${band.label}" has an invalid minimum value`); return false; }
+            if (isNaN(parseFloat(band.annual_cost))) { toast.error(`Tier "${band.label}" has an invalid cost`); return false; }
+          }
+        } else {
+          if (!config.flat_cost || parseFloat(config.flat_cost) <= 0) {
+            toast.error('Please enter a flat membership cost greater than 0');
+            return false;
+          }
+        }
+        return true;
+      case 6:
+        return true;
+      default:
+        return true;
+    }
+  };
+
+  const handleNext = () => {
+    if (validateStep(wizardStep)) {
+      setWizardStep(prev => Math.min(prev + 1, 6));
+    }
+  };
+
+  const handleBack = () => {
+    setWizardStep(prev => Math.max(prev - 1, 1));
+  };
+
+  const handleStepClick = (step) => {
+    if (step < wizardStep) {
+      setWizardStep(step);
+    } else if (step === wizardStep + 1) {
+      if (validateStep(wizardStep)) {
+        setWizardStep(step);
+      }
+    } else if (step <= wizardStep) {
+      setWizardStep(step);
+    }
+  };
+
   const handleSave = () => {
-    if (!config.field_source) {
-      toast.error('Please select a field to base tiers on');
-      return;
-    }
-
-    if (!config.effective_from) {
-      toast.error('Please set an effective from date');
-      return;
-    }
-
-    if (config.structure_field_id && !config.structure_match_value?.trim()) {
-      toast.error('Please enter a match value for the structure scope, or remove the scope');
-      return;
-    }
-
-    if (bands.length === 0) {
-      toast.error('Please add at least one tier band');
-      return;
-    }
-
-    for (let i = 0; i < bands.length; i++) {
-      const band = bands[i];
-      if (!band.label?.trim()) {
-        toast.error(`Tier ${i + 1} needs a label`);
-        return;
-      }
-      if (isNaN(parseFloat(band.min_value))) {
-        toast.error(`Tier "${band.label}" has an invalid minimum value`);
-        return;
-      }
-      if (isNaN(parseFloat(band.annual_cost))) {
-        toast.error(`Tier "${band.label}" has an invalid cost`);
-        return;
-      }
-    }
+    const isFlat = config.pricing_model === 'flat';
+    const isImmediate = config.start_mode === 'immediate';
 
     const payload = {
       config: {
         ...config,
         id: isCreatingNew ? undefined : config.id,
+        prorata_enabled: isImmediate ? false : config.prorata_enabled,
+        rollover_enabled: isImmediate ? false : config.rollover_enabled,
+        pricing_model: config.pricing_model,
+        start_mode: config.start_mode,
+        flat_cost: isFlat ? parseFloat(config.flat_cost) || 0 : undefined,
       },
-      bands: bands.map(b => ({
+      bands: isFlat ? [] : bands.map(b => ({
         label: b.label,
         min_value: parseFloat(b.min_value) || 0,
         max_value: b.max_value !== '' && b.max_value !== null && b.max_value !== undefined ? parseFloat(b.max_value) : null,
@@ -465,6 +561,9 @@ export default function MembershipTierManagement() {
       rollover_enabled: currentConfig?.rollover_enabled ?? false,
       structure_field_id: null,
       structure_match_value: null,
+      pricing_model: currentConfig?.pricing_model || 'tiered',
+      start_mode: currentConfig?.start_mode || 'fixed_date',
+      flat_cost: currentConfig?.flat_cost ?? null,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -488,6 +587,7 @@ export default function MembershipTierManagement() {
     }
     setHasChanges(true);
     setShowHistory(false);
+    setWizardStep(1);
   };
 
   const handleSwitchActiveConfig = async (configId) => {
@@ -501,6 +601,7 @@ export default function MembershipTierManagement() {
         setSelectedActiveConfigId(configId);
         setViewingHistorical(null);
         setIsCreatingNew(false);
+        setWizardStep(6);
       }
     } catch (err) {
       toast.error('Failed to load this tier structure');
@@ -512,12 +613,14 @@ export default function MembershipTierManagement() {
     setIsCreatingNew(false);
     setShowHistory(false);
     setShowPreview(false);
+    setWizardStep(6);
   };
 
   const handleBackToCurrent = () => {
     setViewingHistorical(null);
     setIsCreatingNew(false);
     setHasChanges(false);
+    setWizardStep(6);
   };
 
   const selectedFieldKey = config.field_source === 'core'
@@ -557,7 +660,6 @@ export default function MembershipTierManagement() {
 
   const handleExportCsv = () => {
     if (!previewData) return;
-
     const allOrgs = [...(previewData.organizations || []), ...(previewData.unmapped || [])];
     const symbol = getCurrencySymbol(config.currency);
     const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
@@ -569,7 +671,6 @@ export default function MembershipTierManagement() {
       org.tierLabel || 'Unmapped',
       org.annualCost != null ? org.annualCost.toFixed(2) : '',
     ]);
-
     const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -591,6 +692,896 @@ export default function MembershipTierManagement() {
   const currentConfigId = tierData?.config?.id;
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const activeConfigs = tierData?.activeConfigs || [];
+
+  const renderStep1 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Structure Scope</CardTitle>
+        <p className="text-sm text-muted-foreground">Define the name, start date, and scope of this tier structure</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Structure Name</Label>
+            <Input
+              value={config.name}
+              onChange={(e) => handleConfigChange('name', e.target.value)}
+              placeholder="e.g. 2025/26 Pricing"
+              disabled={!isEditable}
+              data-testid="input-config-name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Effective From</Label>
+            <Input
+              type="date"
+              value={config.effective_from}
+              onChange={(e) => handleConfigChange('effective_from', e.target.value)}
+              disabled={!isEditable}
+              data-testid="input-effective-from"
+            />
+          </div>
+        </div>
+
+        <div className="border-t pt-4 mt-2">
+          <h3 className="text-sm font-medium mb-3">Structure Scope</h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            Optionally scope this tier structure to organisations with a specific field value. This allows multiple active tier structures for different organisation types.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Scope by Organisation Field</Label>
+              <Select
+                value={config.structure_field_id || '__none'}
+                onValueChange={(v) => {
+                  if (v === '__none') {
+                    handleConfigChange('structure_field_id', null);
+                    handleConfigChange('structure_match_value', null);
+                  } else {
+                    handleConfigChange('structure_field_id', v);
+                    handleConfigChange('structure_match_value', null);
+                  }
+                }}
+                disabled={!isEditable}
+              >
+                <SelectTrigger data-testid="select-structure-field">
+                  <SelectValue placeholder="No scope (applies to all)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">No scope (applies to all)</SelectItem>
+                  {structureFields.map(field => (
+                    <SelectItem key={field.id} value={field.id} data-testid={`option-structure-field-${field.name}`}>
+                      {field.label || field.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {config.structure_field_id && (
+              <div className="space-y-2">
+                <Label>Match Value</Label>
+                {structureFieldOptions.length > 0 ? (
+                  <Select
+                    value={config.structure_match_value || ''}
+                    onValueChange={(v) => handleConfigChange('structure_match_value', v)}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger data-testid="select-structure-match-value">
+                      <SelectValue placeholder="Select a value" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {structureFieldOptions.map(opt => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={config.structure_match_value || ''}
+                    onChange={(e) => handleConfigChange('structure_match_value', e.target.value)}
+                    placeholder="Enter the value to match"
+                    disabled={!isEditable}
+                    data-testid="input-structure-match-value"
+                  />
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Only organisations whose "{selectedStructureField?.label || selectedStructureField?.name || 'field'}" matches this value will use this tier structure
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderStep2 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Tier Model</CardTitle>
+        <p className="text-sm text-muted-foreground">Choose how membership pricing is determined</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card
+            className={`cursor-pointer transition-colors ${config.pricing_model === 'tiered' ? 'border-primary ring-1 ring-primary' : ''}`}
+            onClick={() => { handleConfigChange('pricing_model', 'tiered'); }}
+            data-testid="radio-pricing-tiered"
+          >
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${config.pricing_model === 'tiered' ? 'border-primary' : 'border-muted-foreground'}`}>
+                {config.pricing_model === 'tiered' && <div className="w-2 h-2 rounded-full bg-primary" />}
+              </div>
+              <div>
+                <p className="font-medium">Tiered (based on field value)</p>
+                <p className="text-sm text-muted-foreground mt-1">Pricing varies based on an organisation attribute such as member count or revenue</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card
+            className={`cursor-pointer transition-colors ${config.pricing_model === 'flat' ? 'border-primary ring-1 ring-primary' : ''}`}
+            onClick={() => { handleConfigChange('pricing_model', 'flat'); }}
+            data-testid="radio-pricing-flat"
+          >
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${config.pricing_model === 'flat' ? 'border-primary' : 'border-muted-foreground'}`}>
+                {config.pricing_model === 'flat' && <div className="w-2 h-2 rounded-full bg-primary" />}
+              </div>
+              <div>
+                <p className="font-medium">Flat cost</p>
+                <p className="text-sm text-muted-foreground mt-1">All organisations pay the same fixed membership fee</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {config.pricing_model === 'tiered' && (
+          <div className="space-y-2 mt-4">
+            <Label data-testid="label-field-selector">Based On Field</Label>
+            <Select
+              value={selectedFieldKey}
+              onValueChange={handleFieldChange}
+              disabled={!isEditable}
+            >
+              <SelectTrigger data-testid="select-field">
+                <SelectValue placeholder={loadingFields ? "Loading fields..." : "Select a numerical field"} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableFields.map(field => (
+                  <SelectItem
+                    key={field.is_core ? `core:${field.name}` : field.id}
+                    value={field.is_core ? `core:${field.name}` : field.id}
+                    data-testid={`option-field-${field.name}`}
+                  >
+                    {field.label || field.name}
+                    {field.is_core && <span className="text-muted-foreground ml-1">(Core)</span>}
+                  </SelectItem>
+                ))}
+                {availableFields.length === 0 && !loadingFields && (
+                  <SelectItem value="__none" disabled>
+                    No numerical fields found
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            {selectedFieldLabel && (
+              <p className="text-sm text-muted-foreground">
+                Tiers will be based on each organisation's "{selectedFieldLabel}" value
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const renderStep3 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Membership Period</CardTitle>
+        <p className="text-sm text-muted-foreground">Configure when memberships start and how the year is calculated</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card
+            className={`cursor-pointer transition-colors ${config.start_mode === 'fixed_date' ? 'border-primary ring-1 ring-primary' : ''}`}
+            onClick={() => { handleConfigChange('start_mode', 'fixed_date'); }}
+            data-testid="radio-start-fixed"
+          >
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${config.start_mode === 'fixed_date' ? 'border-primary' : 'border-muted-foreground'}`}>
+                {config.start_mode === 'fixed_date' && <div className="w-2 h-2 rounded-full bg-primary" />}
+              </div>
+              <div>
+                <p className="font-medium">Fixed membership year</p>
+                <p className="text-sm text-muted-foreground mt-1">All memberships follow a set annual cycle starting on a specific date</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card
+            className={`cursor-pointer transition-colors ${config.start_mode === 'immediate' ? 'border-primary ring-1 ring-primary' : ''}`}
+            onClick={() => {
+              handleConfigChange('start_mode', 'immediate');
+              handleConfigChange('prorata_enabled', false);
+              handleConfigChange('rollover_enabled', false);
+            }}
+            data-testid="radio-start-immediate"
+          >
+            <CardContent className="p-4 flex items-start gap-3">
+              <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${config.start_mode === 'immediate' ? 'border-primary' : 'border-muted-foreground'}`}>
+                {config.start_mode === 'immediate' && <div className="w-2 h-2 rounded-full bg-primary" />}
+              </div>
+              <div>
+                <p className="font-medium">Start immediately</p>
+                <p className="text-sm text-muted-foreground mt-1">Membership starts immediately upon creation with no fixed cycle</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {config.start_mode === 'fixed_date' && (
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label>Membership Year Start</Label>
+              <div className="flex gap-2">
+                <Select
+                  value={String(config.membership_start_month)}
+                  onValueChange={(v) => {
+                    const newMonth = parseInt(v);
+                    const maxDay = getDaysInMonth(newMonth);
+                    handleConfigChange('membership_start_month', newMonth);
+                    if (config.membership_start_day > maxDay) {
+                      handleConfigChange('membership_start_day', maxDay);
+                    }
+                  }}
+                  disabled={!isEditable}
+                >
+                  <SelectTrigger className="flex-1" data-testid="select-start-month">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map(m => (
+                      <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={String(config.membership_start_day)}
+                  onValueChange={(v) => handleConfigChange('membership_start_day', parseInt(v))}
+                  disabled={!isEditable}
+                >
+                  <SelectTrigger className="w-20" data-testid="select-start-day">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: getDaysInMonth(config.membership_start_month) }, (_, i) => i + 1).map(d => (
+                      <SelectItem key={d} value={String(d)}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                The date each membership year begins (e.g. 1 April)
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Pro-rata Year</Label>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Calculate fee based on remaining days in the membership year
+                </p>
+              </div>
+              <Switch
+                checked={config.prorata_enabled}
+                onCheckedChange={(v) => handleConfigChange('prorata_enabled', v)}
+                disabled={!isEditable}
+                data-testid="switch-prorata"
+              />
+            </div>
+          </div>
+        )}
+
+        {config.start_mode === 'immediate' && (
+          <div className="mt-4 p-3 bg-muted/50 border rounded-md">
+            <p className="text-sm text-muted-foreground">
+              Membership starts immediately upon creation. Pro-rata and rollover discount are not applicable.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const renderStep4 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Discounts</CardTitle>
+        <p className="text-sm text-muted-foreground">Configure free periods, rollover discounts, and discount rules</p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Free Period for New Members</Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min="0"
+                value={config.free_period_amount ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? null : parseInt(e.target.value);
+                  handleConfigChange('free_period_amount', val);
+                  if (val && !config.free_period_unit) {
+                    handleConfigChange('free_period_unit', 'months');
+                  }
+                  if (!val) {
+                    handleConfigChange('free_period_unit', null);
+                  }
+                }}
+                placeholder="0"
+                className="w-24"
+                disabled={!isEditable}
+                data-testid="input-free-period-amount"
+              />
+              <Select
+                value={config.free_period_unit || 'months'}
+                onValueChange={(v) => handleConfigChange('free_period_unit', v)}
+                disabled={!isEditable || !config.free_period_amount}
+              >
+                <SelectTrigger className="w-28" data-testid="select-free-period-unit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FREE_PERIOD_UNITS.map(u => (
+                    <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Deducted from the annual fee for new members
+            </p>
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Rollover Discount</Label>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  If free period extends beyond the current year, apply remaining discount to the next full year
+                </p>
+              </div>
+              <Switch
+                checked={config.rollover_enabled}
+                onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
+                disabled={!isEditable || !config.free_period_amount || config.start_mode === 'immediate'}
+                data-testid="switch-rollover"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm font-medium">Discount Rules</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">Apply discounts based on organisation custom field values</p>
+            </div>
+            {isEditable && (
+              <Button size="sm" onClick={addDiscount} data-testid="button-add-discount">
+                <Plus className="w-4 h-4 mr-1" />
+                Add Discount
+              </Button>
+            )}
+          </div>
+
+          {discounts.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground" data-testid="text-no-discounts">
+              <Tag className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No discounts defined yet</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="hidden md:grid md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+                <span>Label</span>
+                <span>Custom Field</span>
+                <span>Match Value</span>
+                <span>Type</span>
+                <span>Value</span>
+                <span></span>
+              </div>
+              {discounts.map((discount, index) => {
+                const selectedField = discountFields.find(f => f.id === discount.field_id);
+                const fieldOptions = selectedField?.options
+                  ? (Array.isArray(selectedField.options)
+                    ? selectedField.options
+                    : (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })())
+                  : [];
+                const isDropdown = ['select', 'dropdown', 'radio', 'checkbox', 'picklist', 'multiselect'].includes(selectedField?.field_type?.toLowerCase()) && fieldOptions.length > 0;
+                return (
+                  <div
+                    key={discount.id || index}
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 items-center p-2 rounded-md border"
+                    data-testid={`row-discount-${index}`}
+                  >
+                    <Input
+                      value={discount.label || ''}
+                      onChange={(e) => updateDiscount(index, 'label', e.target.value)}
+                      placeholder="e.g. London Discount"
+                      disabled={!isEditable}
+                      data-testid={`input-discount-label-${index}`}
+                    />
+                    <Select
+                      value={discount.field_id || ''}
+                      onValueChange={(value) => {
+                        const field = discountFields.find(f => f.id === value);
+                        updateDiscount(index, 'field_id', value);
+                        updateDiscount(index, 'field_label', field?.label || field?.name || '');
+                        updateDiscount(index, 'match_value', '');
+                      }}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-discount-field-${index}`}>
+                        <SelectValue placeholder="Select field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {discountFields.map(f => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.label || f.name}
+                          </SelectItem>
+                        ))}
+                        {discountFields.length === 0 && (
+                          <SelectItem value="__none" disabled>No custom fields found</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {isDropdown ? (
+                      <Select
+                        value={discount.match_value || ''}
+                        onValueChange={(value) => updateDiscount(index, 'match_value', value)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid={`select-discount-match-${index}`}>
+                          <SelectValue placeholder="Select value" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fieldOptions.map((opt, oi) => {
+                            const optValue = typeof opt === 'string' ? opt : (opt.value || opt.label || '');
+                            const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || '');
+                            return (
+                              <SelectItem key={oi} value={optValue}>{optLabel}</SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={discount.match_value || ''}
+                        onChange={(e) => updateDiscount(index, 'match_value', e.target.value)}
+                        placeholder="Value to match"
+                        disabled={!isEditable}
+                        data-testid={`input-discount-match-${index}`}
+                      />
+                    )}
+                    <Select
+                      value={discount.discount_type || 'percentage'}
+                      onValueChange={(value) => updateDiscount(index, 'discount_type', value)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-discount-type-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percentage">Percentage</SelectItem>
+                        <SelectItem value="fixed">Fixed ({currencySymbol})</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                        {discount.discount_type === 'percentage' ? '%' : currencySymbol}
+                      </span>
+                      <Input
+                        type="number"
+                        value={discount.discount_value || ''}
+                        onChange={(e) => updateDiscount(index, 'discount_value', e.target.value)}
+                        placeholder="0"
+                        className="pl-7"
+                        step="0.01"
+                        disabled={!isEditable}
+                        data-testid={`input-discount-value-${index}`}
+                      />
+                    </div>
+                    {isEditable ? (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeDiscount(index)}
+                        className="text-destructive"
+                        data-testid={`button-remove-discount-${index}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    ) : (
+                      <div />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderStep5 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Pricing</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {config.pricing_model === 'tiered' ? 'Set currency, billing period, and define tier pricing bands' : 'Set currency, billing period, and the flat membership cost'}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Currency</Label>
+            <Select
+              value={config.currency}
+              onValueChange={(v) => handleConfigChange('currency', v)}
+              disabled={!isEditable}
+            >
+              <SelectTrigger data-testid="select-currency">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map(c => (
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Billing Period</Label>
+            <Select
+              value={config.billing_period}
+              onValueChange={(v) => handleConfigChange('billing_period', v)}
+              disabled={!isEditable}
+            >
+              <SelectTrigger data-testid="select-billing-period">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BILLING_PERIODS.map(p => (
+                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {config.pricing_model === 'flat' ? (
+          <div className="space-y-2 mt-4">
+            <Label>Flat Membership Cost</Label>
+            <div className="relative max-w-xs">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
+              <Input
+                type="number"
+                value={config.flat_cost ?? ''}
+                onChange={(e) => handleConfigChange('flat_cost', e.target.value === '' ? null : e.target.value)}
+                placeholder="0.00"
+                className="pl-7"
+                step="0.01"
+                disabled={!isEditable}
+                data-testid="input-flat-cost"
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">The {periodLabel.toLowerCase()} fee charged to all organisations</p>
+          </div>
+        ) : (
+          <div className="mt-4">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h3 className="text-sm font-medium">Tier Bands</h3>
+              {isEditable && (
+                <Button size="sm" onClick={addBand} data-testid="button-add-band">
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Tier
+                </Button>
+              )}
+            </div>
+            {bands.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground" data-testid="text-no-bands">
+                <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                <p>No tiers defined yet</p>
+                <p className="text-sm mt-1">Add tier bands to define your membership pricing structure</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="hidden md:grid md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+                  <span>Label</span>
+                  <span>Min Value</span>
+                  <span>Max Value</span>
+                  <span>{periodLabel} Cost ({currencySymbol})</span>
+                  <span>VAT Rate</span>
+                  <span></span>
+                </div>
+                {bands.map((band, index) => {
+                  const parsedVat = band.vat_rate ? (() => { try { return JSON.parse(band.vat_rate); } catch { return null; } })() : null;
+                  const vatSelectValue = parsedVat?.taxType || '';
+                  return (
+                    <div
+                      key={band.id || index}
+                      className="grid grid-cols-1 md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 items-center p-2 rounded-md border"
+                      data-testid={`row-band-${index}`}
+                    >
+                      <Input
+                        value={band.label || ''}
+                        onChange={(e) => updateBand(index, 'label', e.target.value)}
+                        placeholder="e.g. Small School"
+                        disabled={!isEditable}
+                        data-testid={`input-band-label-${index}`}
+                      />
+                      <Input
+                        type="number"
+                        value={band.min_value || ''}
+                        onChange={(e) => updateBand(index, 'min_value', e.target.value)}
+                        placeholder="0"
+                        disabled={!isEditable}
+                        data-testid={`input-band-min-${index}`}
+                      />
+                      <Input
+                        type="number"
+                        value={band.max_value || ''}
+                        onChange={(e) => updateBand(index, 'max_value', e.target.value)}
+                        placeholder="No limit"
+                        disabled={!isEditable}
+                        data-testid={`input-band-max-${index}`}
+                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
+                        <Input
+                          type="number"
+                          value={band.annual_cost || ''}
+                          onChange={(e) => updateBand(index, 'annual_cost', e.target.value)}
+                          placeholder="0.00"
+                          className="pl-7"
+                          step="0.01"
+                          disabled={!isEditable}
+                          data-testid={`input-band-cost-${index}`}
+                        />
+                      </div>
+                      <Select
+                        value={vatSelectValue}
+                        onValueChange={(value) => {
+                          if (value === '__none') {
+                            updateBand(index, 'vat_rate', null);
+                          } else {
+                            const selectedRate = availableVatRates.find(r => r.taxType === value);
+                            if (selectedRate) {
+                              updateBand(index, 'vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
+                            }
+                          }
+                        }}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid={`select-band-vat-${index}`}>
+                          <SelectValue placeholder="No VAT" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">No VAT</SelectItem>
+                          {availableVatRates.map(rate => (
+                            <SelectItem key={rate.taxType} value={rate.taxType}>
+                              {rate.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {isEditable ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => removeBand(index)}
+                          className="text-destructive"
+                          data-testid={`button-remove-band-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                  );
+                })}
+                {bands.length > 0 && (
+                  <div className="mt-2 p-3 bg-muted/50 rounded-md">
+                    <p className="text-sm text-muted-foreground">
+                      {bands.length} tier{bands.length !== 1 ? 's' : ''} defined.
+                      {bands.some(b => !b.max_value && b.max_value !== 0) && (
+                        <span> Tiers without a max value will match any value above their minimum.</span>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const renderSummarySection = (title, stepNumber, children) => (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {isEditable && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setWizardStep(stepNumber)}
+            className="text-xs text-muted-foreground"
+          >
+            Edit
+          </Button>
+        )}
+      </div>
+      <div className="text-sm space-y-1">{children}</div>
+    </div>
+  );
+
+  const renderStep6 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg" data-testid="text-config-title">
+          {isHistoricalView ? 'Historical Configuration' : 'Configuration Summary'}
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {isHistoricalView ? 'Read-only view of this historical tier structure' : 'Review your membership tier configuration before saving'}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6 divide-y">
+        {renderSummarySection('Structure Scope', 1, (
+          <>
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Name</span>
+              <span className="font-medium">{config.name || 'Untitled'}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Effective From</span>
+              <span className="font-medium">{formatDate(config.effective_from) || 'Not set'}</span>
+            </div>
+            {config.structure_field_id && (
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Scope</span>
+                <span className="font-medium">
+                  {selectedStructureField?.label || selectedStructureField?.name || 'Field'} = {config.structure_match_value || '(not set)'}
+                </span>
+              </div>
+            )}
+            {!config.structure_field_id && (
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Scope</span>
+                <span className="text-muted-foreground">Applies to all organisations</span>
+              </div>
+            )}
+          </>
+        ))}
+
+        <div className="pt-4">
+          {renderSummarySection('Tier Model', 2, (
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Pricing Model</span>
+              <span className="font-medium">
+                {config.pricing_model === 'tiered'
+                  ? `Tiered (based on ${selectedFieldLabel || 'field'})`
+                  : 'Flat cost'}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="pt-4">
+          {renderSummarySection('Period', 3, (
+            <>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Start Mode</span>
+                <span className="font-medium">
+                  {config.start_mode === 'fixed_date' ? 'Fixed membership year' : 'Start immediately'}
+                </span>
+              </div>
+              {config.start_mode === 'fixed_date' && (
+                <>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Year Start</span>
+                    <span className="font-medium">
+                      {config.membership_start_day} {MONTHS.find(m => m.value === config.membership_start_month)?.label}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Pro-rata</span>
+                    <span className="font-medium">{config.prorata_enabled ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                </>
+              )}
+            </>
+          ))}
+        </div>
+
+        <div className="pt-4">
+          {renderSummarySection('Discounts', 4, (
+            <>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Free Period</span>
+                <span className="font-medium">
+                  {config.free_period_amount
+                    ? `${config.free_period_amount} ${config.free_period_unit || 'months'}`
+                    : 'None'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Rollover Discount</span>
+                <span className="font-medium">{config.rollover_enabled ? 'Enabled' : 'Disabled'}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Discount Rules</span>
+                <span className="font-medium">{discounts.length} rule{discounts.length !== 1 ? 's' : ''}</span>
+              </div>
+            </>
+          ))}
+        </div>
+
+        <div className="pt-4">
+          {renderSummarySection('Pricing', 5, (
+            <>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Currency</span>
+                <span className="font-medium">{CURRENCIES.find(c => c.value === config.currency)?.label || config.currency}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Billing Period</span>
+                <span className="font-medium">{periodLabel}</span>
+              </div>
+              {config.pricing_model === 'tiered' ? (
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Tier Bands</span>
+                  <span className="font-medium">{bands.length} band{bands.length !== 1 ? 's' : ''}</span>
+                </div>
+              ) : (
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Flat Cost</span>
+                  <span className="font-medium">{currencySymbol}{parseFloat(config.flat_cost || 0).toFixed(2)}</span>
+                </div>
+              )}
+            </>
+          ))}
+        </div>
+
+        {isEditable && (
+          <div className="pt-6">
+            <Button
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="w-full"
+              data-testid="button-wizard-save"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {saveMutation.isPending ? 'Saving...' : isCreatingNew ? 'Create Structure' : 'Save Changes'}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  const renderWizardContent = () => {
+    switch (wizardStep) {
+      case 1: return renderStep1();
+      case 2: return renderStep2();
+      case 3: return renderStep3();
+      case 4: return renderStep4();
+      case 5: return renderStep5();
+      case 6: return renderStep6();
+      default: return null;
+    }
+  };
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -643,16 +1634,6 @@ export default function MembershipTierManagement() {
             >
               <Building2 className="w-4 h-4 mr-2" />
               {showPreview ? 'Hide Preview' : 'Preview'}
-            </Button>
-          )}
-          {isEditable && (
-            <Button
-              onClick={handleSave}
-              disabled={!hasChanges || saveMutation.isPending}
-              data-testid="button-save-tiers"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {saveMutation.isPending ? 'Saving...' : isCreatingNew ? 'Create' : 'Save'}
             </Button>
           )}
         </div>
@@ -761,645 +1742,73 @@ export default function MembershipTierManagement() {
         </Card>
       )}
 
-      <Collapsible open={configOpen} onOpenChange={setConfigOpen}>
-      <Card>
-        <CollapsibleTrigger asChild>
-        <CardHeader className="cursor-pointer select-none flex flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <CardTitle className="text-lg truncate" data-testid="text-config-title">
-              {config.name || 'Untitled Structure'}
-            </CardTitle>
-            {config.effective_from && (
-              <Badge variant="outline" className="shrink-0">
-                {isHistoricalView ? `${formatDate(config.effective_from)} - ${formatDate(historicalData?.config?.effective_to)}` : `From ${formatDate(config.effective_from)}`}
-              </Badge>
+      <div className="max-w-3xl mx-auto">
+        {(isEditable || isHistoricalView) && tierData?.config && (
+          <>
+            <StepIndicator currentStep={wizardStep} onStepClick={handleStepClick} />
+            {renderWizardContent()}
+            {wizardStep < 6 && isEditable && (
+              <div className="flex items-center justify-between gap-2 mt-6">
+                <Button
+                  variant="outline"
+                  onClick={handleBack}
+                  disabled={wizardStep === 1}
+                  data-testid="button-wizard-back"
+                >
+                  <ChevronRight className="w-4 h-4 mr-1 rotate-180" />
+                  Back
+                </Button>
+                <Button
+                  onClick={handleNext}
+                  data-testid="button-wizard-next"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
             )}
-          </div>
-          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${configOpen ? '' : '-rotate-90'}`} />
-        </CardHeader>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label data-testid="label-field-selector">Based On Field</Label>
-              <Select
-                value={selectedFieldKey}
-                onValueChange={handleFieldChange}
-                disabled={!isEditable}
-              >
-                <SelectTrigger data-testid="select-field">
-                  <SelectValue placeholder={loadingFields ? "Loading fields..." : "Select a numerical field"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableFields.map(field => (
-                    <SelectItem
-                      key={field.is_core ? `core:${field.name}` : field.id}
-                      value={field.is_core ? `core:${field.name}` : field.id}
-                      data-testid={`option-field-${field.name}`}
-                    >
-                      {field.label || field.name}
-                      {field.is_core && <span className="text-muted-foreground ml-1">(Core)</span>}
-                    </SelectItem>
-                  ))}
-                  {availableFields.length === 0 && !loadingFields && (
-                    <SelectItem value="__none" disabled>
-                      No numerical fields found
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              {selectedFieldLabel && (
-                <p className="text-sm text-muted-foreground">
-                  Tiers will be based on each organisation's "{selectedFieldLabel}" value
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Currency</Label>
-                <Select
-                  value={config.currency}
-                  onValueChange={(v) => handleConfigChange('currency', v)}
-                  disabled={!isEditable}
+            {wizardStep > 1 && wizardStep < 6 && !isEditable && (
+              <div className="flex items-center justify-between gap-2 mt-6">
+                <Button
+                  variant="outline"
+                  onClick={handleBack}
+                  data-testid="button-wizard-back"
                 >
-                  <SelectTrigger data-testid="select-currency">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CURRENCIES.map(c => (
-                      <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Billing Period</Label>
-                <Select
-                  value={config.billing_period}
-                  onValueChange={(v) => handleConfigChange('billing_period', v)}
-                  disabled={!isEditable}
+                  <ChevronRight className="w-4 h-4 mr-1 rotate-180" />
+                  Back
+                </Button>
+                <Button
+                  onClick={() => setWizardStep(prev => Math.min(prev + 1, 6))}
+                  data-testid="button-wizard-next"
                 >
-                  <SelectTrigger data-testid="select-billing-period">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BILLING_PERIODS.map(p => (
-                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
               </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Structure Name</Label>
-              <Input
-                value={config.name}
-                onChange={(e) => handleConfigChange('name', e.target.value)}
-                placeholder="e.g. 2025/26 Pricing"
-                disabled={!isEditable}
-                data-testid="input-config-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Effective From</Label>
-              <Input
-                type="date"
-                value={config.effective_from}
-                onChange={(e) => handleConfigChange('effective_from', e.target.value)}
-                disabled={!isEditable}
-                data-testid="input-effective-from"
-              />
-              {!isCreatingNew && tierData?.config?.effective_to === null && config.effective_from && (
-                <p className="text-sm text-muted-foreground">
-                  This structure has been active since {formatDate(config.effective_from)}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="border-t pt-4 mt-2">
-            <h3 className="text-sm font-medium mb-3">Structure Scope</h3>
-            <p className="text-sm text-muted-foreground mb-3">
-              Optionally scope this tier structure to organisations with a specific field value. This allows multiple active tier structures for different organisation types.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Scope by Organisation Field</Label>
-                <Select
-                  value={config.structure_field_id || '__none'}
-                  onValueChange={(v) => {
-                    if (v === '__none') {
-                      handleConfigChange('structure_field_id', null);
-                      handleConfigChange('structure_match_value', null);
-                    } else {
-                      handleConfigChange('structure_field_id', v);
-                      handleConfigChange('structure_match_value', null);
-                    }
-                  }}
-                  disabled={!isEditable}
-                >
-                  <SelectTrigger data-testid="select-structure-field">
-                    <SelectValue placeholder="No scope (applies to all)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">No scope (applies to all)</SelectItem>
-                    {structureFields.map(field => (
-                      <SelectItem key={field.id} value={field.id} data-testid={`option-structure-field-${field.name}`}>
-                        {field.label || field.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {config.structure_field_id && (
-                <div className="space-y-2">
-                  <Label>Match Value</Label>
-                  {structureFieldOptions.length > 0 ? (
-                    <Select
-                      value={config.structure_match_value || ''}
-                      onValueChange={(v) => handleConfigChange('structure_match_value', v)}
-                      disabled={!isEditable}
-                    >
-                      <SelectTrigger data-testid="select-structure-match-value">
-                        <SelectValue placeholder="Select a value" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {structureFieldOptions.map(opt => (
-                          <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      value={config.structure_match_value || ''}
-                      onChange={(e) => handleConfigChange('structure_match_value', e.target.value)}
-                      placeholder="Enter the value to match"
-                      disabled={!isEditable}
-                      data-testid="input-structure-match-value"
-                    />
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    Only organisations whose "{selectedStructureField?.label || selectedStructureField?.name || 'field'}" matches this value will use this tier structure
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="border-t pt-4 mt-2">
-            <h3 className="text-sm font-medium mb-3">Membership Year & Pro-rata Settings</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Membership Year Start</Label>
-                <div className="flex gap-2">
-                  <Select
-                    value={String(config.membership_start_month)}
-                    onValueChange={(v) => {
-                      const newMonth = parseInt(v);
-                      const maxDay = getDaysInMonth(newMonth);
-                      handleConfigChange('membership_start_month', newMonth);
-                      if (config.membership_start_day > maxDay) {
-                        handleConfigChange('membership_start_day', maxDay);
-                      }
-                    }}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger className="flex-1" data-testid="select-start-month">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTHS.map(m => (
-                        <SelectItem key={m.value} value={String(m.value)}>{m.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={String(config.membership_start_day)}
-                    onValueChange={(v) => handleConfigChange('membership_start_day', parseInt(v))}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger className="w-20" data-testid="select-start-day">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: getDaysInMonth(config.membership_start_month) }, (_, i) => i + 1).map(d => (
-                        <SelectItem key={d} value={String(d)}>{d}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  The date each membership year begins (e.g. 1 April)
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label>Pro-rata Year</Label>
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      Calculate fee based on remaining days in the membership year
-                    </p>
-                  </div>
-                  <Switch
-                    checked={config.prorata_enabled}
-                    onCheckedChange={(v) => handleConfigChange('prorata_enabled', v)}
-                    disabled={!isEditable}
-                    data-testid="switch-prorata"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <div className="space-y-2">
-                <Label>Free Period for New Members</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min="0"
-                    value={config.free_period_amount ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? null : parseInt(e.target.value);
-                      handleConfigChange('free_period_amount', val);
-                      if (val && !config.free_period_unit) {
-                        handleConfigChange('free_period_unit', 'months');
-                      }
-                      if (!val) {
-                        handleConfigChange('free_period_unit', null);
-                      }
-                    }}
-                    placeholder="0"
-                    className="w-24"
-                    disabled={!isEditable}
-                    data-testid="input-free-period-amount"
-                  />
-                  <Select
-                    value={config.free_period_unit || 'months'}
-                    onValueChange={(v) => handleConfigChange('free_period_unit', v)}
-                    disabled={!isEditable || !config.free_period_amount}
-                  >
-                    <SelectTrigger className="w-28" data-testid="select-free-period-unit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FREE_PERIOD_UNITS.map(u => (
-                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Deducted from the annual fee for new members
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label>Rollover Discount</Label>
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      If free period extends beyond the current year, apply remaining discount to the next full year
-                    </p>
-                  </div>
-                  <Switch
-                    checked={config.rollover_enabled}
-                    onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
-                    disabled={!isEditable || !config.free_period_amount}
-                    data-testid="switch-rollover"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-        </CollapsibleContent>
-      </Card>
-      </Collapsible>
-
-      <Collapsible open={bandsOpen} onOpenChange={setBandsOpen}>
-      <Card>
-        <CollapsibleTrigger asChild>
-        <CardHeader className="cursor-pointer select-none flex flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-lg">Tier Bands</CardTitle>
-            {bands.length > 0 && (
-              <Badge variant="secondary">{bands.length}</Badge>
             )}
+          </>
+        )}
+
+        {!tierData?.config && !isCreatingNew && !loadingConfig && (
+          <Card>
+            <CardContent className="text-center py-12">
+              <Layers className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+              <p className="text-lg font-medium mb-1">No tier structure configured</p>
+              <p className="text-sm text-muted-foreground mb-4">Create your first membership tier structure to get started</p>
+              <Button onClick={handleCreateNew} data-testid="button-create-first">
+                <PlusCircle className="w-4 h-4 mr-2" />
+                Create First Structure
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {loadingConfig && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
           </div>
-          <div className="flex items-center gap-2">
-          {isEditable && (
-            <Button size="sm" onClick={(e) => { e.stopPropagation(); addBand(); setBandsOpen(true); }} data-testid="button-add-band">
-              <Plus className="w-4 h-4 mr-1" />
-              Add Tier
-            </Button>
-          )}
-          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${bandsOpen ? '' : '-rotate-90'}`} />
-          </div>
-        </CardHeader>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-        <CardContent>
-          {bands.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground" data-testid="text-no-bands">
-              <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              <p>No tiers defined yet</p>
-              <p className="text-sm mt-1">Add tier bands to define your membership pricing structure</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="hidden md:grid md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
-                <span>Label</span>
-                <span>Min Value</span>
-                <span>Max Value</span>
-                <span>{periodLabel} Cost ({currencySymbol})</span>
-                <span>VAT Rate</span>
-                <span></span>
-              </div>
-
-              {bands.map((band, index) => {
-                const parsedVat = band.vat_rate ? (() => { try { return JSON.parse(band.vat_rate); } catch { return null; } })() : null;
-                const vatSelectValue = parsedVat?.taxType || '';
-                return (
-                <div
-                  key={band.id || index}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_100px_100px_130px_150px_40px] gap-2 items-center p-2 rounded-md border"
-                  data-testid={`row-band-${index}`}
-                >
-                  <Input
-                    value={band.label || ''}
-                    onChange={(e) => updateBand(index, 'label', e.target.value)}
-                    placeholder="e.g. Small School"
-                    disabled={!isEditable}
-                    data-testid={`input-band-label-${index}`}
-                  />
-                  <Input
-                    type="number"
-                    value={band.min_value || ''}
-                    onChange={(e) => updateBand(index, 'min_value', e.target.value)}
-                    placeholder="0"
-                    disabled={!isEditable}
-                    data-testid={`input-band-min-${index}`}
-                  />
-                  <Input
-                    type="number"
-                    value={band.max_value || ''}
-                    onChange={(e) => updateBand(index, 'max_value', e.target.value)}
-                    placeholder="No limit"
-                    disabled={!isEditable}
-                    data-testid={`input-band-max-${index}`}
-                  />
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
-                    <Input
-                      type="number"
-                      value={band.annual_cost || ''}
-                      onChange={(e) => updateBand(index, 'annual_cost', e.target.value)}
-                      placeholder="0.00"
-                      className="pl-7"
-                      step="0.01"
-                      disabled={!isEditable}
-                      data-testid={`input-band-cost-${index}`}
-                    />
-                  </div>
-                  <Select
-                    value={vatSelectValue}
-                    onValueChange={(value) => {
-                      if (value === '__none') {
-                        updateBand(index, 'vat_rate', null);
-                      } else {
-                        const selectedRate = availableVatRates.find(r => r.taxType === value);
-                        if (selectedRate) {
-                          updateBand(index, 'vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
-                        }
-                      }
-                    }}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger data-testid={`select-band-vat-${index}`}>
-                      <SelectValue placeholder="No VAT" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none">No VAT</SelectItem>
-                      {availableVatRates.map(rate => (
-                        <SelectItem key={rate.taxType} value={rate.taxType}>
-                          {rate.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {isEditable ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeBand(index)}
-                      className="text-destructive"
-                      data-testid={`button-remove-band-${index}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  ) : (
-                    <div />
-                  )}
-                </div>
-                );
-              })}
-
-              {bands.length > 0 && (
-                <div className="mt-2 p-3 bg-muted/50 rounded-md">
-                  <p className="text-sm text-muted-foreground">
-                    {bands.length} tier{bands.length !== 1 ? 's' : ''} defined.
-                    {bands.some(b => !b.max_value && b.max_value !== 0) && (
-                      <span> Tiers without a max value will match any value above their minimum.</span>
-                    )}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-        </CollapsibleContent>
-      </Card>
-      </Collapsible>
-
-      <Collapsible open={discountsOpen} onOpenChange={setDiscountsOpen}>
-      <Card>
-        <CollapsibleTrigger asChild>
-        <CardHeader className="cursor-pointer select-none flex flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <CardTitle className="text-lg">Discounts</CardTitle>
-            {discounts.length > 0 && (
-              <Badge variant="secondary">{discounts.length}</Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-          {isEditable && (
-            <Button size="sm" onClick={(e) => { e.stopPropagation(); addDiscount(); setDiscountsOpen(true); }} data-testid="button-add-discount">
-              <Plus className="w-4 h-4 mr-1" />
-              Add Discount
-            </Button>
-          )}
-          <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${discountsOpen ? '' : '-rotate-90'}`} />
-          </div>
-        </CardHeader>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-        <CardContent>
-          {discounts.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground" data-testid="text-no-discounts">
-              <Tag className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              <p>No discounts defined yet</p>
-              <p className="text-sm mt-1">Add discounts based on organisation custom fields to reduce the annual fee before pro-rata and rollover calculations</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="hidden md:grid md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
-                <span>Label</span>
-                <span>Custom Field</span>
-                <span>Match Value</span>
-                <span>Type</span>
-                <span>Value</span>
-                <span></span>
-              </div>
-
-              {discounts.map((discount, index) => {
-                const selectedField = discountFields.find(f => f.id === discount.field_id);
-                const fieldOptions = selectedField?.options
-                  ? (Array.isArray(selectedField.options)
-                    ? selectedField.options
-                    : (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })())
-                  : [];
-                const isDropdown = ['select', 'dropdown', 'radio', 'checkbox', 'picklist', 'multiselect'].includes(selectedField?.field_type?.toLowerCase()) && fieldOptions.length > 0;
-
-                return (
-                <div
-                  key={discount.id || index}
-                  className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 items-center p-2 rounded-md border"
-                  data-testid={`row-discount-${index}`}
-                >
-                  <Input
-                    value={discount.label || ''}
-                    onChange={(e) => updateDiscount(index, 'label', e.target.value)}
-                    placeholder="e.g. London Discount"
-                    disabled={!isEditable}
-                    data-testid={`input-discount-label-${index}`}
-                  />
-                  <Select
-                    value={discount.field_id || ''}
-                    onValueChange={(value) => {
-                      const field = discountFields.find(f => f.id === value);
-                      updateDiscount(index, 'field_id', value);
-                      updateDiscount(index, 'field_label', field?.label || field?.name || '');
-                      updateDiscount(index, 'match_value', '');
-                    }}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger data-testid={`select-discount-field-${index}`}>
-                      <SelectValue placeholder="Select field" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {discountFields.map(f => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.label || f.name}
-                        </SelectItem>
-                      ))}
-                      {discountFields.length === 0 && (
-                        <SelectItem value="__none" disabled>No custom fields found</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {isDropdown ? (
-                    <Select
-                      value={discount.match_value || ''}
-                      onValueChange={(value) => updateDiscount(index, 'match_value', value)}
-                      disabled={!isEditable}
-                    >
-                      <SelectTrigger data-testid={`select-discount-match-${index}`}>
-                        <SelectValue placeholder="Select value" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fieldOptions.map((opt, oi) => {
-                          const optValue = typeof opt === 'string' ? opt : (opt.value || opt.label || '');
-                          const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || '');
-                          return (
-                            <SelectItem key={oi} value={optValue}>{optLabel}</SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      value={discount.match_value || ''}
-                      onChange={(e) => updateDiscount(index, 'match_value', e.target.value)}
-                      placeholder="Value to match"
-                      disabled={!isEditable}
-                      data-testid={`input-discount-match-${index}`}
-                    />
-                  )}
-                  <Select
-                    value={discount.discount_type || 'percentage'}
-                    onValueChange={(value) => updateDiscount(index, 'discount_type', value)}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger data-testid={`select-discount-type-${index}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="percentage">Percentage</SelectItem>
-                      <SelectItem value="fixed">Fixed ({currencySymbol})</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                      {discount.discount_type === 'percentage' ? '%' : currencySymbol}
-                    </span>
-                    <Input
-                      type="number"
-                      value={discount.discount_value || ''}
-                      onChange={(e) => updateDiscount(index, 'discount_value', e.target.value)}
-                      placeholder="0"
-                      className="pl-7"
-                      step="0.01"
-                      disabled={!isEditable}
-                      data-testid={`input-discount-value-${index}`}
-                    />
-                  </div>
-                  {isEditable ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeDiscount(index)}
-                      className="text-destructive"
-                      data-testid={`button-remove-discount-${index}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  ) : (
-                    <div />
-                  )}
-                </div>
-                );
-              })}
-
-              {discounts.length > 0 && (
-                <div className="mt-2 p-3 bg-muted/50 rounded-md">
-                  <p className="text-sm text-muted-foreground">
-                    {discounts.length} discount{discounts.length !== 1 ? 's' : ''} defined.
-                    All matching discounts are applied to the annual cost before any pro-rata, free period, or rollover calculations.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-        </CollapsibleContent>
-      </Card>
-      </Collapsible>
+        )}
+      </div>
 
       {showPreview && (
         <Card>
@@ -1493,7 +1902,7 @@ export default function MembershipTierManagement() {
                             </td>
                             <td className="p-3 text-right">
                               {org.annualCost != null
-                                ? `${currencySymbol}${org.annualCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                ? <span className="font-medium">{currencySymbol}{org.annualCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 : <span className="text-muted-foreground">-</span>
                               }
                             </td>
