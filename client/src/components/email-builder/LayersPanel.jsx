@@ -279,6 +279,27 @@ function PageDropTarget({ isPageSelected, onSelectPage }) {
   );
 }
 
+function SectionDropZone({ sectionId }) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `section-dropzone-${sectionId}`,
+    data: { isSectionDropZone: true, sectionId },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ paddingLeft: '24px' }}
+      className={`text-xs px-2 py-1.5 italic transition-colors ${
+        isOver
+          ? 'text-primary bg-primary/10'
+          : 'text-muted-foreground/60'
+      }`}
+    >
+      Drop elements here
+    </div>
+  );
+}
+
 export default function LayersPanel({
   blocks,
   selectedBlockId,
@@ -359,12 +380,17 @@ export default function LayersPanel({
     const activeData = active.data?.current;
 
     if (
-      overData?.isSection === true &&
       activeData?.blockType !== BLOCK_TYPES.SECTION &&
       activeData?.blockType !== BLOCK_TYPES.COLUMNS &&
       active.id !== over.id
     ) {
-      setDragOverSectionId(overData.blockId);
+      if (overData?.isSection === true) {
+        setDragOverSectionId(overData.blockId);
+      } else if (overData?.isSectionDropZone === true) {
+        setDragOverSectionId(overData.sectionId);
+      } else {
+        setDragOverSectionId(null);
+      }
     } else {
       setDragOverSectionId(null);
     }
@@ -387,6 +413,22 @@ export default function LayersPanel({
     const overBlockId = overData?.blockId;
     const overParentSection = overData?.parentSectionId;
     const overIsSection = overData?.isSection === true;
+    const overIsSectionDropZone = overData?.isSectionDropZone === true;
+
+    if (overIsSectionDropZone) {
+      const targetSectionId = overData.sectionId;
+      if (activeBlockType === BLOCK_TYPES.SECTION || activeBlockType === BLOCK_TYPES.COLUMNS) return;
+
+      if (activeItemType === 'top-level' && onMoveBlockToSection) {
+        onMoveBlockToSection(activeBlockId, targetSectionId);
+      } else if (activeItemType === 'section-child') {
+        if (activeParentSection === targetSectionId) return;
+        if (onMoveChildToSection) {
+          onMoveChildToSection(activeBlockId, activeParentSection, targetSectionId);
+        }
+      }
+      return;
+    }
 
     if (activeBlockType === BLOCK_TYPES.SECTION || activeBlockType === BLOCK_TYPES.COLUMNS) {
       if (activeItemType === 'top-level' && overItemType === 'top-level') {
@@ -536,12 +578,7 @@ export default function LayersPanel({
                     })}
 
                     {isSection && isExpanded && (!block.children || block.children.length === 0) && (
-                      <div
-                        style={{ paddingLeft: '24px' }}
-                        className="text-xs text-muted-foreground/60 px-2 py-1 italic"
-                      >
-                        Drop elements here
-                      </div>
+                      <SectionDropZone sectionId={block.id} />
                     )}
 
                     {block.type === BLOCK_TYPES.COLUMNS && isExpanded && block.columns && (
