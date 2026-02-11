@@ -518,23 +518,19 @@ export default function PreferencesPage() {
     },
   });
 
-  // --- Communication categories with role assignments (tenant-scoped) ---
+  // --- Communication categories with role assignments (tenant-scoped via entity API) ---
   const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["communicationCategories", organizationInfo?.tenant_id],
-    enabled: !!organizationInfo?.tenant_id,
+    queryKey: ["communicationCategories"],
     queryFn: async () => {
-      if (!organizationInfo?.tenant_id) return [];
-      const { data, error } = await supabase
-        .from("communication_category")
-        .select(`
-          *,
-          communication_category_role(role_id)
-        `)
-        .eq("is_active", true)
-        .eq("tenant_id", organizationInfo.tenant_id)
-        .order("display_order", { ascending: true });
-      if (error) throw error;
-      return data || [];
+      const categories = await base44.entities.CommunicationCategory.list({
+        filter: { is_active: true },
+        sort: { display_order: 'asc' }
+      });
+      const roleAssignments = await base44.entities.CommunicationCategoryRole.list();
+      return (categories || []).map(cat => ({
+        ...cat,
+        communication_category_role: (roleAssignments || []).filter(r => r.category_id === cat.id)
+      }));
     },
   });
 
