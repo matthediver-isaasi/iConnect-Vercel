@@ -49,6 +49,7 @@ export default function EmailBuilder({
   });
   const [selectedBlockId, setSelectedBlockId] = useState(null);
   const [selectedChildId, setSelectedChildId] = useState(null);
+  const [isPageSelected, setIsPageSelected] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const debounceRef = useRef(null);
 
@@ -121,6 +122,7 @@ export default function EmailBuilder({
     if (activeData?.fromPalette) {
       const newBlock = createBlock(activeData.type);
       
+      setIsPageSelected(false);
       if (overData?.isSection && activeData.type !== BLOCK_TYPES.SECTION && activeData.type !== BLOCK_TYPES.COLUMNS) {
         const sectionId = overData.sectionId;
         updateDesign(prev => ({
@@ -172,12 +174,20 @@ export default function EmailBuilder({
     }
   };
 
+  const handlePageSelect = () => {
+    setIsPageSelected(true);
+    setSelectedBlockId(null);
+    setSelectedChildId(null);
+  };
+
   const handleBlockSelect = (blockId) => {
+    setIsPageSelected(false);
     setSelectedBlockId(blockId);
     setSelectedChildId(null);
   };
 
   const handleChildSelect = (childId) => {
+    setIsPageSelected(false);
     setSelectedChildId(childId);
   };
 
@@ -370,10 +380,6 @@ export default function EmailBuilder({
         <div className="w-64 border-r bg-muted/30 flex flex-col flex-shrink-0">
           <ScrollArea className="flex-1">
             <BlockPalette />
-            <GlobalSettings 
-              settings={design.globalStyles} 
-              onChange={handleGlobalSettingsChange} 
-            />
           </ScrollArea>
         </div>
 
@@ -424,8 +430,10 @@ export default function EmailBuilder({
           blocks={design.blocks}
           selectedBlockId={selectedBlockId}
           selectedChildId={selectedChildId}
+          isPageSelected={isPageSelected}
           onSelectBlock={handleBlockSelect}
           onSelectChild={handleChildSelect}
+          onSelectPage={handlePageSelect}
           onDeleteBlock={handleBlockDelete}
           onDuplicateBlock={handleBlockDuplicate}
           onDeleteChild={handleChildDelete}
@@ -439,10 +447,17 @@ export default function EmailBuilder({
 
       <div className="w-72 border-l bg-background flex flex-col flex-shrink-0">
         <div className="p-3 border-b">
-          <h3 className="font-medium text-sm">Properties</h3>
+          <h3 className="font-medium text-sm">
+            {isPageSelected ? 'Page Settings' : 'Properties'}
+          </h3>
         </div>
         <ScrollArea className="flex-1">
-          {selectedChild ? (
+          {isPageSelected ? (
+            <GlobalSettings 
+              settings={design.globalStyles} 
+              onChange={handleGlobalSettingsChange} 
+            />
+          ) : selectedChild ? (
             <BlockEditor 
               block={selectedChild.child} 
               onChange={handleChildUpdate} 

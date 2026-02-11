@@ -30,6 +30,7 @@ import {
   EyeOff,
   ChevronRight,
   ChevronDown,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -282,8 +283,10 @@ export default function LayersPanel({
   blocks,
   selectedBlockId,
   selectedChildId,
+  isPageSelected,
   onSelectBlock,
   onSelectChild,
+  onSelectPage,
   onDeleteBlock,
   onDuplicateBlock,
   onDeleteChild,
@@ -358,8 +361,20 @@ export default function LayersPanel({
       </div>
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-0.5">
+          <div
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ${
+              isPageSelected
+                ? 'bg-primary/15 text-foreground'
+                : 'hover:bg-muted/60 text-foreground'
+            }`}
+            onClick={() => onSelectPage()}
+            data-testid="layer-page"
+          >
+            <FileText className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
+            <span className="truncate font-medium">Page</span>
+          </div>
           {blocks.length === 0 && (
-            <p className="text-xs text-muted-foreground p-2">
+            <p className="text-xs text-muted-foreground p-2 pl-6">
               No elements yet. Drag blocks from the palette.
             </p>
           )}
