@@ -201,26 +201,35 @@ export default function EmailBuilder({
     }
 
     if (overData?.isSection) {
-      const blockToMove = design.blocks.find(b => b.id === active.id);
-      const targetSection = design.blocks.find(b => b.id === overData.sectionId);
-      if (blockToMove && targetSection && blockToMove.type !== BLOCK_TYPES.SECTION && blockToMove.type !== BLOCK_TYPES.COLUMNS && blockToMove.id !== overData.sectionId) {
-        const sectionId = overData.sectionId;
-        updateDesign(prev => ({
-          ...prev,
-          blocks: prev.blocks
-            .filter(b => b.id !== blockToMove.id)
-            .map(b => {
-              if (b.id === sectionId) {
-                return { ...b, children: [...(b.children || []), blockToMove] };
-              }
-              return b;
-            }),
-        }));
-        setSelectedBlockId(sectionId);
-        setSelectedChildId(blockToMove.id);
-        setSelectedColumnChildId(null);
-        setSelectedColumnContext(null);
-        return;
+      const sectionId = overData.sectionId;
+      const blockId = active.id;
+      if (blockId !== sectionId) {
+        let didMove = false;
+        updateDesign(prev => {
+          const blockToMove = prev.blocks.find(b => b.id === blockId);
+          const targetSection = prev.blocks.find(b => b.id === sectionId);
+          if (!blockToMove || !targetSection || targetSection.type !== BLOCK_TYPES.SECTION) return prev;
+          if (blockToMove.type === BLOCK_TYPES.SECTION || blockToMove.type === BLOCK_TYPES.COLUMNS) return prev;
+          didMove = true;
+          return {
+            ...prev,
+            blocks: prev.blocks
+              .filter(b => b.id !== blockId)
+              .map(b => {
+                if (b.id === sectionId) {
+                  return { ...b, children: [...(b.children || []), blockToMove] };
+                }
+                return b;
+              }),
+          };
+        });
+        if (didMove) {
+          setSelectedBlockId(sectionId);
+          setSelectedChildId(blockId);
+          setSelectedColumnChildId(null);
+          setSelectedColumnContext(null);
+          return;
+        }
       }
     }
 
@@ -374,6 +383,30 @@ export default function EmailBuilder({
         return b;
       }),
     }));
+  };
+
+  const handleMoveBlockToSection = (blockId, sectionId) => {
+    updateDesign(prev => {
+      const blockToMove = prev.blocks.find(b => b.id === blockId);
+      const targetSection = prev.blocks.find(b => b.id === sectionId);
+      if (!blockToMove || !targetSection || targetSection.type !== BLOCK_TYPES.SECTION) return prev;
+      if (blockToMove.type === BLOCK_TYPES.SECTION || blockToMove.type === BLOCK_TYPES.COLUMNS) return prev;
+      return {
+        ...prev,
+        blocks: prev.blocks
+          .filter(b => b.id !== blockId)
+          .map(b => {
+            if (b.id === sectionId) {
+              return { ...b, children: [...(b.children || []), blockToMove] };
+            }
+            return b;
+          }),
+      };
+    });
+    setSelectedBlockId(sectionId);
+    setSelectedChildId(blockId);
+    setSelectedColumnChildId(null);
+    setSelectedColumnContext(null);
   };
 
   const handleReorderChildren = (sectionId, fromIndex, toIndex) => {
@@ -579,6 +612,7 @@ export default function EmailBuilder({
             onToggleChildVisibility={handleToggleChildVisibility}
             onReorderBlocks={handleReorderBlocks}
             onReorderChildren={handleReorderChildren}
+            onMoveBlockToSection={handleMoveBlockToSection}
           />
         </div>
 

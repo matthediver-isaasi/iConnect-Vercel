@@ -6,6 +6,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  DragOverlay,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -76,6 +77,7 @@ function SortableLayerItem({
   block,
   isSelected,
   isExpanded,
+  isDragOver,
   onSelect,
   onToggleExpand,
   onDelete,
@@ -91,7 +93,14 @@ function SortableLayerItem({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: `layer-${block.id}` });
+  } = useSortable({
+    id: `layer-${block.id}`,
+    data: {
+      blockType: block.type,
+      isSection: block.type === BLOCK_TYPES.SECTION,
+      blockId: block.id,
+    },
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -101,16 +110,23 @@ function SortableLayerItem({
 
   const Icon = BLOCK_ICONS[block.type] || SquareDashed;
   const isHidden = block.hidden;
+  const isSection = block.type === BLOCK_TYPES.SECTION;
+
+  let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
+  if (isSelected) {
+    itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
+  } else if (isDragOver && isSection) {
+    itemClassName += 'bg-primary/15 ring-1 ring-primary/40 ring-dashed text-foreground ';
+  } else {
+    itemClassName += 'bg-muted/40 text-foreground hover-elevate ';
+  }
+  if (isHidden) itemClassName += 'opacity-50 ';
 
   return (
     <div
       ref={setNodeRef}
       style={{ ...style, paddingLeft: `${depth * 16 + 4}px` }}
-      className={`flex items-center gap-1 px-1 py-0.5 rounded-md text-sm cursor-pointer select-none transition-colors ${
-        isSelected
-          ? 'bg-primary/15 text-foreground'
-          : 'hover:bg-muted/60 text-foreground'
-      } ${isHidden ? 'opacity-50' : ''}`}
+      className={itemClassName}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(block.id);
@@ -124,7 +140,7 @@ function SortableLayerItem({
         onClick={(e) => e.stopPropagation()}
         data-testid={`layer-drag-${block.id}`}
       >
-        <GripVertical className="w-3 h-3 text-muted-foreground" />
+        <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
       </div>
 
       {hasChildren && (
@@ -137,18 +153,18 @@ function SortableLayerItem({
           data-testid={`layer-expand-${block.id}`}
         >
           {isExpanded ? (
-            <ChevronDown className="w-3 h-3 text-muted-foreground" />
+            <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
           ) : (
-            <ChevronRight className="w-3 h-3 text-muted-foreground" />
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
           )}
         </button>
       )}
-      {!hasChildren && <div className="w-4 flex-shrink-0" />}
+      {!hasChildren && <div className="w-5 flex-shrink-0" />}
 
-      <Icon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-xs">{getBlockLabel(block)}</span>
+      <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+      <span className="truncate flex-1 text-[13px]">{getBlockLabel(block)}</span>
 
-      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
+      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto" style={{ visibility: 'visible' }}>
         <button
           className="p-0.5 rounded hover:bg-muted"
           onClick={(e) => {
@@ -158,9 +174,9 @@ function SortableLayerItem({
           data-testid={`layer-visibility-${block.id}`}
         >
           {isHidden ? (
-            <EyeOff className="w-3 h-3 text-muted-foreground" />
+            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
           ) : (
-            <Eye className="w-3 h-3 text-muted-foreground" />
+            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
           )}
         </button>
         <button
@@ -171,7 +187,7 @@ function SortableLayerItem({
           }}
           data-testid={`layer-copy-${block.id}`}
         >
-          <Copy className="w-3 h-3 text-muted-foreground" />
+          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
         <button
           className="p-0.5 rounded hover:bg-muted hover:text-destructive"
@@ -181,7 +197,7 @@ function SortableLayerItem({
           }}
           data-testid={`layer-delete-${block.id}`}
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -210,21 +226,25 @@ function SortableChildItem({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    paddingLeft: '20px',
+    paddingLeft: '24px',
   };
 
   const Icon = BLOCK_ICONS[child.type] || SquareDashed;
   const isHidden = child.hidden;
 
+  let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
+  if (isSelected) {
+    itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
+  } else {
+    itemClassName += 'bg-muted/30 text-foreground hover-elevate ';
+  }
+  if (isHidden) itemClassName += 'opacity-50 ';
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-1 px-1 py-0.5 rounded-md text-sm cursor-pointer select-none transition-colors ${
-        isSelected
-          ? 'bg-primary/15 text-foreground'
-          : 'hover:bg-muted/60 text-foreground'
-      } ${isHidden ? 'opacity-50' : ''}`}
+      className={itemClassName}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(child.id, sectionId);
@@ -237,11 +257,11 @@ function SortableChildItem({
         className="cursor-grab p-0.5 rounded hover:bg-muted flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <GripVertical className="w-3 h-3 text-muted-foreground" />
+        <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
       </div>
-      <div className="w-4 flex-shrink-0" />
-      <Icon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-xs">{getBlockLabel(child)}</span>
+      <div className="w-5 flex-shrink-0" />
+      <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+      <span className="truncate flex-1 text-[13px]">{getBlockLabel(child)}</span>
 
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
         <button
@@ -253,9 +273,9 @@ function SortableChildItem({
           data-testid={`layer-child-visibility-${child.id}`}
         >
           {isHidden ? (
-            <EyeOff className="w-3 h-3 text-muted-foreground" />
+            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
           ) : (
-            <Eye className="w-3 h-3 text-muted-foreground" />
+            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
           )}
         </button>
         <button
@@ -266,7 +286,7 @@ function SortableChildItem({
           }}
           data-testid={`layer-child-copy-${child.id}`}
         >
-          <Copy className="w-3 h-3 text-muted-foreground" />
+          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
         <button
           className="p-0.5 rounded hover:bg-muted hover:text-destructive"
@@ -276,7 +296,7 @@ function SortableChildItem({
           }}
           data-testid={`layer-child-delete-${child.id}`}
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -286,23 +306,27 @@ function SortableChildItem({
 function ColumnChildLayerItem({ child, blockId, columnId, isSelected, onSelect, onDelete }) {
   const Icon = BLOCK_ICONS[child.type] || SquareDashed;
 
+  let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
+  if (isSelected) {
+    itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
+  } else {
+    itemClassName += 'bg-muted/30 text-foreground hover-elevate ';
+  }
+  if (child.hidden) itemClassName += 'opacity-50 ';
+
   return (
     <div
-      style={{ paddingLeft: '36px' }}
-      className={`flex items-center gap-1 px-1 py-0.5 rounded-md text-sm cursor-pointer select-none transition-colors ${
-        isSelected
-          ? 'bg-primary/15 text-foreground'
-          : 'hover:bg-muted/60 text-foreground'
-      } ${child.hidden ? 'opacity-50' : ''}`}
+      style={{ paddingLeft: '40px' }}
+      className={itemClassName}
       onClick={(e) => {
         e.stopPropagation();
         if (onSelect) onSelect(child.id, blockId, columnId);
       }}
       data-testid={`layer-col-child-${child.id}`}
     >
-      <div className="w-4 flex-shrink-0" />
-      <Icon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-xs">{getBlockLabel(child)}</span>
+      <div className="w-5 flex-shrink-0" />
+      <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+      <span className="truncate flex-1 text-[13px]">{getBlockLabel(child)}</span>
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
         <button
           className="p-0.5 rounded hover:bg-muted hover:text-destructive"
@@ -312,7 +336,7 @@ function ColumnChildLayerItem({ child, blockId, columnId, isSelected, onSelect, 
           }}
           data-testid={`layer-col-child-delete-${child.id}`}
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -338,6 +362,7 @@ export default function LayersPanel({
   onToggleChildVisibility,
   onReorderBlocks,
   onReorderChildren,
+  onMoveBlockToSection,
 }) {
   const [expandedSections, setExpandedSections] = useState(() => {
     const initial = {};
@@ -346,6 +371,9 @@ export default function LayersPanel({
     });
     return initial;
   });
+
+  const [dragOverSectionId, setDragOverSectionId] = useState(null);
+  const [activeDragId, setActiveDragId] = useState(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -371,11 +399,56 @@ export default function LayersPanel({
     [onSelectBlock, onSelectChild]
   );
 
+  const handleTopLevelDragStart = (event) => {
+    const activeRealId = String(event.active.id).replace('layer-', '');
+    setActiveDragId(activeRealId);
+  };
+
+  const handleTopLevelDragOver = (event) => {
+    const { active, over } = event;
+    if (!over) {
+      setDragOverSectionId(null);
+      return;
+    }
+    const activeData = active.data?.current;
+    const overData = over.data?.current;
+    const overIsSection = overData?.isSection === true;
+
+    if (
+      overIsSection &&
+      activeData?.blockType !== BLOCK_TYPES.SECTION &&
+      activeData?.blockType !== BLOCK_TYPES.COLUMNS &&
+      active.id !== over.id
+    ) {
+      const overRealId = String(over.id).replace('layer-', '');
+      setDragOverSectionId(overRealId);
+    } else {
+      setDragOverSectionId(null);
+    }
+  };
+
   const handleTopLevelDragEnd = (event) => {
     const { active, over } = event;
+    setDragOverSectionId(null);
+    setActiveDragId(null);
     if (!over || active.id === over.id) return;
+
     const activeRealId = String(active.id).replace('layer-', '');
     const overRealId = String(over.id).replace('layer-', '');
+
+    const activeData = active.data?.current;
+    const overData = over.data?.current;
+
+    if (
+      overData?.isSection === true &&
+      activeData?.blockType !== BLOCK_TYPES.SECTION &&
+      activeData?.blockType !== BLOCK_TYPES.COLUMNS &&
+      onMoveBlockToSection
+    ) {
+      onMoveBlockToSection(activeRealId, overRealId);
+      return;
+    }
+
     const oldIndex = blocks.findIndex((b) => b.id === activeRealId);
     const newIndex = blocks.findIndex((b) => b.id === overRealId);
     if (oldIndex !== -1 && newIndex !== -1) {
@@ -403,18 +476,18 @@ export default function LayersPanel({
         <h3 className="font-medium text-sm">Layers</h3>
       </div>
       <ScrollArea className="flex-1">
-        <div className="p-2 space-y-0.5">
+        <div className="p-2 space-y-1">
           <div
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ${
+            className={`flex items-center gap-1.5 px-2 py-2 rounded-md text-sm cursor-pointer select-none transition-colors ${
               isPageSelected
-                ? 'bg-primary/15 text-foreground'
-                : 'hover:bg-muted/60 text-foreground'
+                ? 'bg-primary/20 text-foreground ring-1 ring-primary/30'
+                : 'bg-muted/40 text-foreground hover-elevate'
             }`}
             onClick={() => onSelectPage()}
             data-testid="layer-page"
           >
-            <FileText className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
-            <span className="truncate font-medium">Page</span>
+            <FileText className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+            <span className="truncate font-medium text-[13px]">Page</span>
           </div>
           {blocks.length === 0 && (
             <p className="text-xs text-muted-foreground p-2 pl-6">
@@ -424,6 +497,8 @@ export default function LayersPanel({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragStart={handleTopLevelDragStart}
+            onDragOver={handleTopLevelDragOver}
             onDragEnd={handleTopLevelDragEnd}
           >
             <SortableContext
@@ -448,6 +523,7 @@ export default function LayersPanel({
                         block.id === selectedBlockId && !selectedChildId && !selectedColumnChildId
                       }
                       isExpanded={isExpanded}
+                      isDragOver={dragOverSectionId === block.id}
                       onSelect={handleBlockSelect}
                       onToggleExpand={toggleExpand}
                       onDelete={onDeleteBlock}
@@ -486,10 +562,10 @@ export default function LayersPanel({
                         {block.columns.map((col, colIdx) => (
                           <div key={col.id}>
                             <div
-                              style={{ paddingLeft: '20px' }}
-                              className="flex items-center gap-1 px-1 py-0.5 text-xs text-muted-foreground"
+                              style={{ paddingLeft: '24px' }}
+                              className="flex items-center gap-1.5 px-2 py-1 text-[13px] text-muted-foreground"
                             >
-                              <Columns className="w-3 h-3" />
+                              <Columns className="w-3.5 h-3.5" />
                               <span>Col {colIdx + 1} ({col.width})</span>
                             </div>
                             {col.blocks.map((childBlock) => (
