@@ -11,10 +11,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
-  Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2, X, Check
+  Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2, X, Check,
+  Monitor, Smartphone
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
+import { designToHtml } from '@/components/email-builder/mjmlConverter';
 
 const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
 
@@ -28,6 +30,8 @@ export default function EmailCampaignEdit() {
   const [testSending, setTestSending] = useState(false);
   const [editorTab, setEditorTab] = useState('html');
   const [showVisualEditor, setShowVisualEditor] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewMode, setPreviewMode] = useState('desktop');
   const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
   const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
@@ -1090,6 +1094,18 @@ export default function EmailCampaignEdit() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => {
+                    setPreviewMode('desktop');
+                    setShowPreview(true);
+                  }}
+                  data-testid="button-preview-email"
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  Preview
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setShowVisualEditor(false)}
                   data-testid="button-cancel-visual-editor"
                 >
@@ -1127,6 +1143,67 @@ export default function EmailCampaignEdit() {
                   height="100%"
                 />
               </Suspense>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh] p-0 gap-0 flex flex-col">
+          <DialogHeader className="flex flex-row items-center justify-between px-4 py-3 border-b bg-background flex-shrink-0 space-y-0">
+            <DialogTitle className="text-sm font-semibold" data-testid="text-preview-title">Email Preview</DialogTitle>
+            <DialogDescription className="sr-only">Preview how your email will look on desktop and mobile devices</DialogDescription>
+            <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
+              <Button
+                variant={previewMode === 'desktop' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setPreviewMode('desktop')}
+                data-testid="button-preview-desktop"
+              >
+                <Monitor className="w-4 h-4 mr-1" />
+                Desktop
+              </Button>
+              <Button
+                variant={previewMode === 'mobile' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setPreviewMode('mobile')}
+                data-testid="button-preview-mobile"
+              >
+                <Smartphone className="w-4 h-4 mr-1" />
+                Mobile
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto bg-muted/30 flex justify-center p-6" data-testid="preview-container">
+            <div
+              className="bg-white rounded-md shadow-sm overflow-hidden transition-all duration-300 h-fit"
+              style={{ width: previewMode === 'mobile' ? '375px' : '100%', maxWidth: '800px' }}
+            >
+              {formData.design_json ? (() => {
+                try {
+                  const html = designToHtml(formData.design_json);
+                  return (
+                    <iframe
+                      srcDoc={html}
+                      title="Email Preview"
+                      className="w-full border-0"
+                      style={{ minHeight: '600px', height: '100%' }}
+                      sandbox="allow-same-origin"
+                      data-testid="iframe-email-preview"
+                    />
+                  );
+                } catch {
+                  return (
+                    <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-preview-error">
+                      Unable to generate preview. Try adjusting your design.
+                    </div>
+                  );
+                }
+              })() : (
+                <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-no-design">
+                  No design to preview. Add some content blocks first.
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>
