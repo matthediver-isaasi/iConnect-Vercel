@@ -1766,7 +1766,7 @@ export default function MembershipTierManagement() {
         </Card>
       )}
 
-      <div className="max-w-3xl mx-auto">
+      <div>
         {(isEditable || isHistoricalView) && tierData?.config && (
           <>
             <StepIndicator currentStep={wizardStep} onStepClick={handleStepClick} />
