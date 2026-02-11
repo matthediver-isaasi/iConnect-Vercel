@@ -409,6 +409,55 @@ export default function EmailBuilder({
     setSelectedColumnContext(null);
   };
 
+  const handleMoveChildToTopLevel = (childId, fromSectionId, insertAtIndex) => {
+    updateDesign(prev => {
+      const section = prev.blocks.find(b => b.id === fromSectionId);
+      if (!section || !section.children) return prev;
+      const child = section.children.find(c => c.id === childId);
+      if (!child) return prev;
+      const blocksWithChildRemoved = prev.blocks.map(b => {
+        if (b.id === fromSectionId) {
+          return { ...b, children: b.children.filter(c => c.id !== childId) };
+        }
+        return b;
+      });
+      const idx = insertAtIndex != null ? insertAtIndex : blocksWithChildRemoved.length;
+      blocksWithChildRemoved.splice(idx, 0, child);
+      return { ...prev, blocks: blocksWithChildRemoved };
+    });
+    setSelectedBlockId(childId);
+    setSelectedChildId(null);
+    setSelectedColumnChildId(null);
+    setSelectedColumnContext(null);
+  };
+
+  const handleMoveChildToSection = (childId, fromSectionId, toSectionId) => {
+    if (fromSectionId === toSectionId) return;
+    updateDesign(prev => {
+      const fromSection = prev.blocks.find(b => b.id === fromSectionId);
+      const toSection = prev.blocks.find(b => b.id === toSectionId);
+      if (!fromSection?.children || !toSection || toSection.type !== BLOCK_TYPES.SECTION) return prev;
+      const child = fromSection.children.find(c => c.id === childId);
+      if (!child) return prev;
+      return {
+        ...prev,
+        blocks: prev.blocks.map(b => {
+          if (b.id === fromSectionId) {
+            return { ...b, children: b.children.filter(c => c.id !== childId) };
+          }
+          if (b.id === toSectionId) {
+            return { ...b, children: [...(b.children || []), child] };
+          }
+          return b;
+        }),
+      };
+    });
+    setSelectedBlockId(toSectionId);
+    setSelectedChildId(childId);
+    setSelectedColumnChildId(null);
+    setSelectedColumnContext(null);
+  };
+
   const handleReorderChildren = (sectionId, fromIndex, toIndex) => {
     updateDesign(prev => ({
       ...prev,
@@ -613,6 +662,8 @@ export default function EmailBuilder({
             onReorderBlocks={handleReorderBlocks}
             onReorderChildren={handleReorderChildren}
             onMoveBlockToSection={handleMoveBlockToSection}
+            onMoveChildToTopLevel={handleMoveChildToTopLevel}
+            onMoveChildToSection={handleMoveChildToSection}
           />
         </div>
 

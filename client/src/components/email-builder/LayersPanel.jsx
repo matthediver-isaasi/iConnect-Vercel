@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -6,7 +6,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragOverlay,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   arrayMove,
@@ -33,7 +33,6 @@ import {
   ChevronDown,
   FileText,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { BLOCK_TYPES } from './types';
 
@@ -73,8 +72,8 @@ function getBlockLabel(block) {
   return base;
 }
 
-function SortableLayerItem({
-  block,
+function FlatLayerItem({
+  item,
   isSelected,
   isExpanded,
   isDragOver,
@@ -84,7 +83,6 @@ function SortableLayerItem({
   onDuplicate,
   onToggleVisibility,
   hasChildren,
-  depth = 0,
 }) {
   const {
     attributes,
@@ -94,11 +92,13 @@ function SortableLayerItem({
     transition,
     isDragging,
   } = useSortable({
-    id: `layer-${block.id}`,
+    id: item.sortableId,
     data: {
-      blockType: block.type,
-      isSection: block.type === BLOCK_TYPES.SECTION,
-      blockId: block.id,
+      itemType: item.itemType,
+      blockType: item.block.type,
+      blockId: item.block.id,
+      parentSectionId: item.parentSectionId || null,
+      isSection: item.block.type === BLOCK_TYPES.SECTION && item.itemType === 'top-level',
     },
   });
 
@@ -108,14 +108,14 @@ function SortableLayerItem({
     opacity: isDragging ? 0.4 : 1,
   };
 
-  const Icon = BLOCK_ICONS[block.type] || SquareDashed;
-  const isHidden = block.hidden;
-  const isSection = block.type === BLOCK_TYPES.SECTION;
+  const Icon = BLOCK_ICONS[item.block.type] || SquareDashed;
+  const isHidden = item.block.hidden;
+  const depth = item.depth || 0;
 
   let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
   if (isSelected) {
     itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
-  } else if (isDragOver && isSection) {
+  } else if (isDragOver) {
     itemClassName += 'bg-primary/15 ring-1 ring-primary/40 ring-dashed text-foreground ';
   } else {
     itemClassName += 'bg-muted/40 text-foreground hover-elevate ';
@@ -129,28 +129,28 @@ function SortableLayerItem({
       className={itemClassName}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect(block.id);
+        onSelect();
       }}
-      data-testid={`layer-item-${block.id}`}
+      data-testid={`layer-item-${item.block.id}`}
     >
       <div
         {...attributes}
         {...listeners}
         className="cursor-grab p-0.5 rounded hover:bg-muted flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
-        data-testid={`layer-drag-${block.id}`}
+        data-testid={`layer-drag-${item.block.id}`}
       >
         <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
       </div>
 
-      {hasChildren && (
+      {hasChildren ? (
         <button
           className="p-0.5 rounded hover:bg-muted flex-shrink-0"
           onClick={(e) => {
             e.stopPropagation();
-            onToggleExpand(block.id);
+            if (onToggleExpand) onToggleExpand();
           }}
-          data-testid={`layer-expand-${block.id}`}
+          data-testid={`layer-expand-${item.block.id}`}
         >
           {isExpanded ? (
             <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
@@ -158,146 +158,54 @@ function SortableLayerItem({
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
           )}
         </button>
+      ) : (
+        <div className="w-5 flex-shrink-0" />
       )}
-      {!hasChildren && <div className="w-5 flex-shrink-0" />}
 
       <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-[13px]">{getBlockLabel(block)}</span>
+      <span className="truncate flex-1 text-[13px]">{getBlockLabel(item.block)}</span>
 
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto" style={{ visibility: 'visible' }}>
-        <button
-          className="p-0.5 rounded hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleVisibility(block.id);
-          }}
-          data-testid={`layer-visibility-${block.id}`}
-        >
-          {isHidden ? (
-            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-          ) : (
-            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-          )}
-        </button>
-        <button
-          className="p-0.5 rounded hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDuplicate(block.id);
-          }}
-          data-testid={`layer-copy-${block.id}`}
-        >
-          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
-        </button>
-        <button
-          className="p-0.5 rounded hover:bg-muted hover:text-destructive"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(block.id);
-          }}
-          data-testid={`layer-delete-${block.id}`}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function SortableChildItem({
-  child,
-  sectionId,
-  isSelected,
-  onSelect,
-  onDelete,
-  onDuplicate,
-  onToggleVisibility,
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: `child-${child.id}` });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    paddingLeft: '24px',
-  };
-
-  const Icon = BLOCK_ICONS[child.type] || SquareDashed;
-  const isHidden = child.hidden;
-
-  let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
-  if (isSelected) {
-    itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
-  } else {
-    itemClassName += 'bg-muted/30 text-foreground hover-elevate ';
-  }
-  if (isHidden) itemClassName += 'opacity-50 ';
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={itemClassName}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect(child.id, sectionId);
-      }}
-      data-testid={`layer-child-${child.id}`}
-    >
-      <div
-        {...attributes}
-        {...listeners}
-        className="cursor-grab p-0.5 rounded hover:bg-muted flex-shrink-0"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
-      </div>
-      <div className="w-5 flex-shrink-0" />
-      <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-[13px]">{getBlockLabel(child)}</span>
-
-      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
-        <button
-          className="p-0.5 rounded hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleVisibility(child.id, sectionId);
-          }}
-          data-testid={`layer-child-visibility-${child.id}`}
-        >
-          {isHidden ? (
-            <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-          ) : (
-            <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-          )}
-        </button>
-        <button
-          className="p-0.5 rounded hover:bg-muted"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDuplicate(child.id);
-          }}
-          data-testid={`layer-child-copy-${child.id}`}
-        >
-          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
-        </button>
-        <button
-          className="p-0.5 rounded hover:bg-muted hover:text-destructive"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(child.id);
-          }}
-          data-testid={`layer-child-delete-${child.id}`}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {onToggleVisibility && (
+          <button
+            className="p-0.5 rounded hover:bg-muted"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleVisibility();
+            }}
+            data-testid={`layer-visibility-${item.block.id}`}
+          >
+            {isHidden ? (
+              <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
+            ) : (
+              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+          </button>
+        )}
+        {onDuplicate && (
+          <button
+            className="p-0.5 rounded hover:bg-muted"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            data-testid={`layer-copy-${item.block.id}`}
+          >
+            <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+          </button>
+        )}
+        {onDelete && (
+          <button
+            className="p-0.5 rounded hover:bg-muted hover:text-destructive"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            data-testid={`layer-delete-${item.block.id}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -343,6 +251,34 @@ function ColumnChildLayerItem({ child, blockId, columnId, isSelected, onSelect, 
   );
 }
 
+function PageDropTarget({ isPageSelected, onSelectPage }) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: 'page-drop-target',
+    data: { isPageTarget: true },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex items-center gap-1.5 px-2 py-2 rounded-md text-sm cursor-pointer select-none transition-colors ${
+        isOver
+          ? 'bg-primary/15 ring-1 ring-primary/40 ring-dashed text-foreground'
+          : isPageSelected
+            ? 'bg-primary/20 text-foreground ring-1 ring-primary/30'
+            : 'bg-muted/40 text-foreground hover-elevate'
+      }`}
+      onClick={() => onSelectPage()}
+      data-testid="layer-page"
+    >
+      <FileText className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+      <span className="truncate font-medium text-[13px]">Page</span>
+      {isOver && (
+        <span className="text-[11px] text-primary ml-auto">Drop to move here</span>
+      )}
+    </div>
+  );
+}
+
 export default function LayersPanel({
   blocks,
   selectedBlockId,
@@ -363,6 +299,8 @@ export default function LayersPanel({
   onReorderBlocks,
   onReorderChildren,
   onMoveBlockToSection,
+  onMoveChildToTopLevel,
+  onMoveChildToSection,
 }) {
   const [expandedSections, setExpandedSections] = useState(() => {
     const initial = {};
@@ -373,7 +311,6 @@ export default function LayersPanel({
   });
 
   const [dragOverSectionId, setDragOverSectionId] = useState(null);
-  const [activeDragId, setActiveDragId] = useState(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -384,89 +321,142 @@ export default function LayersPanel({
     setExpandedSections((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
-  const handleBlockSelect = useCallback(
-    (blockId) => {
-      onSelectBlock(blockId);
-    },
-    [onSelectBlock]
-  );
+  const flatItems = useMemo(() => {
+    const items = [];
+    blocks.forEach((block, blockIndex) => {
+      items.push({
+        sortableId: `layer-${block.id}`,
+        itemType: 'top-level',
+        block,
+        blockIndex,
+        depth: 0,
+        parentSectionId: null,
+      });
+      if (block.type === BLOCK_TYPES.SECTION && expandedSections[block.id] !== false && block.children) {
+        block.children.forEach((child) => {
+          items.push({
+            sortableId: `child-${child.id}`,
+            itemType: 'section-child',
+            block: child,
+            depth: 1,
+            parentSectionId: block.id,
+          });
+        });
+      }
+    });
+    return items;
+  }, [blocks, expandedSections]);
 
-  const handleChildSelect = useCallback(
-    (childId, sectionId) => {
-      onSelectBlock(sectionId);
-      onSelectChild(childId);
-    },
-    [onSelectBlock, onSelectChild]
-  );
+  const sortableIds = useMemo(() => flatItems.map(i => i.sortableId), [flatItems]);
 
-  const handleTopLevelDragStart = (event) => {
-    const activeRealId = String(event.active.id).replace('layer-', '');
-    setActiveDragId(activeRealId);
-  };
-
-  const handleTopLevelDragOver = (event) => {
+  const handleDragOver = (event) => {
     const { active, over } = event;
     if (!over) {
       setDragOverSectionId(null);
       return;
     }
-    const activeData = active.data?.current;
     const overData = over.data?.current;
-    const overIsSection = overData?.isSection === true;
-
-    if (
-      overIsSection &&
-      activeData?.blockType !== BLOCK_TYPES.SECTION &&
-      activeData?.blockType !== BLOCK_TYPES.COLUMNS &&
-      active.id !== over.id
-    ) {
-      const overRealId = String(over.id).replace('layer-', '');
-      setDragOverSectionId(overRealId);
-    } else {
-      setDragOverSectionId(null);
-    }
-  };
-
-  const handleTopLevelDragEnd = (event) => {
-    const { active, over } = event;
-    setDragOverSectionId(null);
-    setActiveDragId(null);
-    if (!over || active.id === over.id) return;
-
-    const activeRealId = String(active.id).replace('layer-', '');
-    const overRealId = String(over.id).replace('layer-', '');
-
     const activeData = active.data?.current;
-    const overData = over.data?.current;
 
     if (
       overData?.isSection === true &&
       activeData?.blockType !== BLOCK_TYPES.SECTION &&
       activeData?.blockType !== BLOCK_TYPES.COLUMNS &&
-      onMoveBlockToSection
+      active.id !== over.id
     ) {
-      onMoveBlockToSection(activeRealId, overRealId);
-      return;
-    }
-
-    const oldIndex = blocks.findIndex((b) => b.id === activeRealId);
-    const newIndex = blocks.findIndex((b) => b.id === overRealId);
-    if (oldIndex !== -1 && newIndex !== -1) {
-      onReorderBlocks(oldIndex, newIndex);
+      setDragOverSectionId(overData.blockId);
+    } else {
+      setDragOverSectionId(null);
     }
   };
 
-  const handleChildDragEnd = (sectionId) => (event) => {
+  const handleDragEnd = (event) => {
     const { active, over } = event;
+    setDragOverSectionId(null);
     if (!over || active.id === over.id) return;
-    const activeRealId = String(active.id).replace('child-', '');
-    const overRealId = String(over.id).replace('child-', '');
-    const section = blocks.find((b) => b.id === sectionId);
-    if (!section?.children) return;
-    const oldIndex = section.children.findIndex((c) => c.id === activeRealId);
-    const newIndex = section.children.findIndex((c) => c.id === overRealId);
-    if (oldIndex !== -1 && newIndex !== -1) {
-      onReorderChildren(sectionId, oldIndex, newIndex);
+
+    const activeData = active.data?.current;
+    const overData = over.data?.current;
+
+    const activeItemType = activeData?.itemType;
+    const activeBlockType = activeData?.blockType;
+    const activeBlockId = activeData?.blockId;
+    const activeParentSection = activeData?.parentSectionId;
+
+    const overItemType = overData?.itemType;
+    const overBlockId = overData?.blockId;
+    const overParentSection = overData?.parentSectionId;
+    const overIsSection = overData?.isSection === true;
+
+    if (activeBlockType === BLOCK_TYPES.SECTION || activeBlockType === BLOCK_TYPES.COLUMNS) {
+      if (activeItemType === 'top-level' && overItemType === 'top-level') {
+        const oldIndex = blocks.findIndex(b => b.id === activeBlockId);
+        const newIndex = blocks.findIndex(b => b.id === overBlockId);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          onReorderBlocks(oldIndex, newIndex);
+        }
+      }
+      return;
+    }
+
+    if (activeItemType === 'top-level') {
+      if (overIsSection && onMoveBlockToSection) {
+        onMoveBlockToSection(activeBlockId, overBlockId);
+      } else if (overItemType === 'section-child' && overParentSection && onMoveBlockToSection) {
+        onMoveBlockToSection(activeBlockId, overParentSection);
+      } else if (overItemType === 'top-level') {
+        const oldIndex = blocks.findIndex(b => b.id === activeBlockId);
+        const newIndex = blocks.findIndex(b => b.id === overBlockId);
+        if (oldIndex !== -1 && newIndex !== -1) {
+          onReorderBlocks(oldIndex, newIndex);
+        }
+      }
+      return;
+    }
+
+    if (activeItemType === 'section-child') {
+      if (overIsSection) {
+        if (overBlockId === activeParentSection) {
+          return;
+        }
+        if (onMoveChildToSection) {
+          onMoveChildToSection(activeBlockId, activeParentSection, overBlockId);
+        }
+        return;
+      }
+
+      if (overItemType === 'section-child' && overParentSection) {
+        if (overParentSection === activeParentSection) {
+          const section = blocks.find(b => b.id === activeParentSection);
+          if (section?.children) {
+            const oldIndex = section.children.findIndex(c => c.id === activeBlockId);
+            const newIndex = section.children.findIndex(c => c.id === overBlockId);
+            if (oldIndex !== -1 && newIndex !== -1) {
+              onReorderChildren(activeParentSection, oldIndex, newIndex);
+            }
+          }
+        } else {
+          if (onMoveChildToSection) {
+            onMoveChildToSection(activeBlockId, activeParentSection, overParentSection);
+          }
+        }
+        return;
+      }
+
+      if (overItemType === 'top-level' && !overIsSection) {
+        if (onMoveChildToTopLevel) {
+          const overIndex = blocks.findIndex(b => b.id === overBlockId);
+          onMoveChildToTopLevel(activeBlockId, activeParentSection, overIndex);
+        }
+        return;
+      }
+
+      if (over.id === 'page-drop-target') {
+        if (onMoveChildToTopLevel) {
+          onMoveChildToTopLevel(activeBlockId, activeParentSection, null);
+        }
+        return;
+      }
     }
   };
 
@@ -477,32 +467,20 @@ export default function LayersPanel({
       </div>
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">
-          <div
-            className={`flex items-center gap-1.5 px-2 py-2 rounded-md text-sm cursor-pointer select-none transition-colors ${
-              isPageSelected
-                ? 'bg-primary/20 text-foreground ring-1 ring-primary/30'
-                : 'bg-muted/40 text-foreground hover-elevate'
-            }`}
-            onClick={() => onSelectPage()}
-            data-testid="layer-page"
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
           >
-            <FileText className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
-            <span className="truncate font-medium text-[13px]">Page</span>
-          </div>
+          <PageDropTarget isPageSelected={isPageSelected} onSelectPage={onSelectPage} />
           {blocks.length === 0 && (
             <p className="text-xs text-muted-foreground p-2 pl-6">
               No elements yet. Drag blocks from the palette.
             </p>
           )}
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleTopLevelDragStart}
-            onDragOver={handleTopLevelDragOver}
-            onDragEnd={handleTopLevelDragEnd}
-          >
             <SortableContext
-              items={blocks.map((b) => `layer-${b.id}`)}
+              items={sortableIds}
               strategy={verticalListSortingStrategy}
             >
               {blocks.map((block) => {
@@ -514,49 +492,58 @@ export default function LayersPanel({
                   block.columns &&
                   block.columns.some(col => col.blocks.length > 0));
                 const isExpanded = expandedSections[block.id] !== false;
+                const isSection = block.type === BLOCK_TYPES.SECTION;
+
+                const topItem = flatItems.find(i => i.sortableId === `layer-${block.id}`);
 
                 return (
                   <div key={block.id}>
-                    <SortableLayerItem
-                      block={block}
-                      isSelected={
-                        block.id === selectedBlockId && !selectedChildId && !selectedColumnChildId
-                      }
-                      isExpanded={isExpanded}
-                      isDragOver={dragOverSectionId === block.id}
-                      onSelect={handleBlockSelect}
-                      onToggleExpand={toggleExpand}
-                      onDelete={onDeleteBlock}
-                      onDuplicate={onDuplicateBlock}
-                      onToggleVisibility={onToggleBlockVisibility}
-                      hasChildren={hasChildren || block.type === BLOCK_TYPES.COLUMNS}
-                      depth={0}
-                    />
-                    {block.type === BLOCK_TYPES.SECTION && hasChildren && isExpanded && (
-                      <DndContext
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={handleChildDragEnd(block.id)}
-                      >
-                        <SortableContext
-                          items={block.children.map((c) => `child-${c.id}`)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          {block.children.map((child) => (
-                            <SortableChildItem
-                              key={child.id}
-                              child={child}
-                              sectionId={block.id}
-                              isSelected={child.id === selectedChildId}
-                              onSelect={handleChildSelect}
-                              onDelete={onDeleteChild}
-                              onDuplicate={onDuplicateChild}
-                              onToggleVisibility={onToggleChildVisibility}
-                            />
-                          ))}
-                        </SortableContext>
-                      </DndContext>
+                    {topItem && (
+                      <FlatLayerItem
+                        item={topItem}
+                        isSelected={block.id === selectedBlockId && !selectedChildId && !selectedColumnChildId}
+                        isExpanded={isExpanded}
+                        isDragOver={dragOverSectionId === block.id}
+                        onSelect={() => onSelectBlock(block.id)}
+                        onToggleExpand={() => toggleExpand(block.id)}
+                        onDelete={() => onDeleteBlock(block.id)}
+                        onDuplicate={() => onDuplicateBlock(block.id)}
+                        onToggleVisibility={() => onToggleBlockVisibility(block.id)}
+                        hasChildren={(hasChildren || isSection || block.type === BLOCK_TYPES.COLUMNS)}
+                      />
                     )}
+
+                    {isSection && isExpanded && block.children && block.children.map((child) => {
+                      const childItem = flatItems.find(i => i.sortableId === `child-${child.id}`);
+                      if (!childItem) return null;
+                      return (
+                        <FlatLayerItem
+                          key={child.id}
+                          item={childItem}
+                          isSelected={child.id === selectedChildId}
+                          isExpanded={false}
+                          isDragOver={false}
+                          onSelect={() => {
+                            onSelectBlock(block.id);
+                            onSelectChild(child.id);
+                          }}
+                          onDelete={() => onDeleteChild(child.id)}
+                          onDuplicate={() => onDuplicateChild(child.id)}
+                          onToggleVisibility={() => onToggleChildVisibility(child.id, block.id)}
+                          hasChildren={false}
+                        />
+                      );
+                    })}
+
+                    {isSection && isExpanded && (!block.children || block.children.length === 0) && (
+                      <div
+                        style={{ paddingLeft: '24px' }}
+                        className="text-xs text-muted-foreground/60 px-2 py-1 italic"
+                      >
+                        Drop elements here
+                      </div>
+                    )}
+
                     {block.type === BLOCK_TYPES.COLUMNS && isExpanded && block.columns && (
                       <div>
                         {block.columns.map((col, colIdx) => (
