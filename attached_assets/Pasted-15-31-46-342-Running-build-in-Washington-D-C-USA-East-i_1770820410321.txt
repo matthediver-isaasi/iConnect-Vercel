@@ -1,0 +1,68 @@
+15:31:46.342 Running build in Washington, D.C., USA (East) – iad1
+15:31:46.342 Build machine configuration: 4 cores, 8 GB
+15:31:46.486 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: beta8, Commit: cecad65)
+15:31:47.934 Cloning completed: 1.448s
+15:31:48.105 Restored build cache from previous deployment (AcaM7LrheKzt4dTo9irPKbw8eqxf)
+15:31:48.413 Running "vercel build"
+15:31:49.425 Vercel CLI 50.14.1
+15:31:50.688 Running "install" command: `npm install`...
+15:31:52.289 npm warn ERESOLVE overriding peer dependency
+15:31:52.290 npm warn While resolving: react-codemirror2@7.3.0
+15:31:52.290 npm warn Found: react@18.3.1
+15:31:52.290 npm warn node_modules/react
+15:31:52.290 npm warn   react@"^18.3.1" from the root project
+15:31:52.290 npm warn   111 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+15:31:52.290 npm warn
+15:31:52.290 npm warn Could not resolve dependency:
+15:31:52.290 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+15:31:52.290 npm warn node_modules/react-codemirror2
+15:31:52.290 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+15:31:52.291 npm warn   node_modules/easy-email-extensions
+15:31:52.291 npm warn
+15:31:52.291 npm warn Conflicting peer dependency: react@17.0.2
+15:31:52.291 npm warn node_modules/react
+15:31:52.291 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+15:31:52.291 npm warn   node_modules/react-codemirror2
+15:31:52.291 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+15:31:52.291 npm warn     node_modules/easy-email-extensions
+15:31:56.127 
+15:31:56.127 added 66 packages, changed 2 packages, and audited 829 packages in 5s
+15:31:56.127 
+15:31:56.127 182 packages are looking for funding
+15:31:56.127   run `npm fund` for details
+15:31:56.172 
+15:31:56.172 20 vulnerabilities (3 low, 10 moderate, 7 high)
+15:31:56.172 
+15:31:56.172 To address issues that do not require attention, run:
+15:31:56.172   npm audit fix
+15:31:56.172 
+15:31:56.172 To address all issues (including breaking changes), run:
+15:31:56.173   npm audit fix --force
+15:31:56.173 
+15:31:56.173 Run `npm audit` for details.
+15:31:56.988 [36mvite v5.4.20 [32mbuilding for production...[36m[39m
+15:31:57.048 transforming...
+15:32:09.531 [32m✓[39m 4191 modules transformed.
+15:32:09.533 [31mx[39m Build failed in 12.52s
+15:32:09.534 [31merror during build:
+15:32:09.534 [31mclient/src/components/email-builder/RichTextEditor.jsx (4:7): "default" is not exported by "node_modules/@tiptap/extension-text-style/dist/index.js", imported by "client/src/components/email-builder/RichTextEditor.jsx".[31m
+15:32:09.534 file: [36m/vercel/path0/client/src/components/email-builder/RichTextEditor.jsx:4:7[31m
+15:32:09.534 [33m
+15:32:09.534 2: import StarterKit from '@tiptap/starter-kit';
+15:32:09.534 3: import TextAlign from '@tiptap/extension-text-align';
+15:32:09.534 4: import TextStyle from '@tiptap/extension-text-style';
+15:32:09.534           ^
+15:32:09.534 5: import Color from '@tiptap/extension-color';
+15:32:09.534 6: import Link from '@tiptap/extension-link';
+15:32:09.534 [31m
+15:32:09.534     at getRollupError (file:///vercel/path0/node_modules/rollup/dist/es/shared/parseAst.js:396:41)
+15:32:09.534     at error (file:///vercel/path0/node_modules/rollup/dist/es/shared/parseAst.js:392:42)
+15:32:09.534     at Module.error (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:15588:16)
+15:32:09.535     at Module.traceVariable (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:16037:29)
+15:32:09.535     at ModuleScope.findVariable (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:13820:39)
+15:32:09.535     at FunctionScope.findVariable (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:5283:38)
+15:32:09.535     at FunctionBodyScope.findVariable (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:5283:38)
+15:32:09.535     at Identifier.bind (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:5066:40)
+15:32:09.535     at ArrayExpression.bind (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:2649:28)
+15:32:09.535     at Property.bind (file:///vercel/path0/node_modules/rollup/dist/es/shared/node-entry.js:2653:23)[39m
+15:32:09.617 Error: Command "npx vite build" exited with 1
