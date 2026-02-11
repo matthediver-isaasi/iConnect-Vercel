@@ -91,17 +91,24 @@ function TextBlockEditor({ block, onChange }) {
           Google Fonts work in Gmail, Apple Mail, iOS. Outlook uses fallback.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label>Text Color</Label>
-          <Input
-            type="color"
-            value={block.styles.color}
-            onChange={(e) => update('color', e.target.value)}
-            className="h-9 p-1"
-            data-testid="editor-text-color"
-          />
-        </div>
+      <div className="space-y-2">
+        <Label>Padding</Label>
+        <Select
+          value={block.styles.padding || '10px 20px'}
+          onValueChange={(v) => update('padding', v)}
+        >
+          <SelectTrigger data-testid="editor-text-padding">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None</SelectItem>
+            <SelectItem value="5px">Extra Small (5px)</SelectItem>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="10px 20px">Medium (10px 20px)</SelectItem>
+            <SelectItem value="20px">Large (20px)</SelectItem>
+            <SelectItem value="20px 40px">Extra Large (20px 40px)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );
