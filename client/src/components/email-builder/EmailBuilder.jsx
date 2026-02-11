@@ -637,59 +637,86 @@ export default function EmailBuilder({
         </DragOverlay>
       </DndContext>
 
-      <div className="relative flex-shrink-0 border-l" style={{ width: '320px' }}>
+      <div className="relative flex-shrink-0 overflow-visible" style={{ width: '320px' }}>
         <div
-          className={`absolute top-0 bottom-0 border-r bg-muted/20 flex flex-col z-20 transition-transform duration-200 ease-in-out`}
+          className="absolute top-0 bottom-0 overflow-hidden"
           style={{
-            width: '320px',
             right: '100%',
-            transform: layersOpen ? 'translateX(0)' : 'translateX(100%)',
+            width: layersOpen ? '320px' : '0px',
+            transition: 'width 200ms ease-in-out',
+            zIndex: 5,
           }}
-          data-testid="layers-panel"
         >
-          <LayersPanel
-            blocks={design.blocks}
-            selectedBlockId={selectedBlockId}
-            selectedChildId={selectedChildId}
-            selectedColumnChildId={selectedColumnChildId}
-            isPageSelected={isPageSelected}
-            onSelectBlock={handleBlockSelect}
-            onSelectChild={handleChildSelect}
-            onSelectColumnChild={handleColumnChildSelect}
-            onDeleteColumnChild={handleColumnChildDelete}
-            onSelectPage={handlePageSelect}
-            onDeleteBlock={handleBlockDelete}
-            onDuplicateBlock={handleBlockDuplicate}
-            onDeleteChild={handleChildDelete}
-            onDuplicateChild={handleChildDuplicate}
-            onToggleBlockVisibility={handleToggleBlockVisibility}
-            onToggleChildVisibility={handleToggleChildVisibility}
-            onReorderBlocks={handleReorderBlocks}
-            onReorderChildren={handleReorderChildren}
-            onMoveBlockToSection={handleMoveBlockToSection}
-            onMoveChildToTopLevel={handleMoveChildToTopLevel}
-            onMoveChildToSection={handleMoveChildToSection}
-            onClose={() => setLayersOpen(false)}
-          />
+          <div
+            className="h-full border-r bg-muted/20 flex flex-col"
+            style={{ width: '320px' }}
+            data-testid="layers-panel"
+          >
+            <LayersPanel
+              blocks={design.blocks}
+              selectedBlockId={selectedBlockId}
+              selectedChildId={selectedChildId}
+              selectedColumnChildId={selectedColumnChildId}
+              isPageSelected={isPageSelected}
+              onSelectBlock={handleBlockSelect}
+              onSelectChild={handleChildSelect}
+              onSelectColumnChild={handleColumnChildSelect}
+              onDeleteColumnChild={handleColumnChildDelete}
+              onSelectPage={handlePageSelect}
+              onDeleteBlock={handleBlockDelete}
+              onDuplicateBlock={handleBlockDuplicate}
+              onDeleteChild={handleChildDelete}
+              onDuplicateChild={handleChildDuplicate}
+              onToggleBlockVisibility={handleToggleBlockVisibility}
+              onToggleChildVisibility={handleToggleChildVisibility}
+              onReorderBlocks={handleReorderBlocks}
+              onReorderChildren={handleReorderChildren}
+              onMoveBlockToSection={handleMoveBlockToSection}
+              onMoveChildToTopLevel={handleMoveChildToTopLevel}
+              onMoveChildToSection={handleMoveChildToSection}
+              onClose={() => setLayersOpen(false)}
+            />
+          </div>
         </div>
 
+        {!layersOpen && (
+          <div
+            className="absolute top-1/2 -translate-y-1/2"
+            style={{ right: '100%', zIndex: 15 }}
+          >
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => setLayersOpen(true)}
+              title="Show layers"
+              className="rounded-r-none border-r-0"
+              data-testid="button-open-layers-tab"
+            >
+              <Layers className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         <div
-          className="flex flex-col h-full bg-background"
+          className="relative flex flex-col h-full bg-background border-l"
+          style={{ zIndex: 10 }}
           data-testid="properties-panel"
         >
           <div className="p-3 border-b flex items-center justify-between gap-1">
             <h3 className="font-medium text-sm">
               {isPageSelected ? 'Page Settings' : 'Properties'}
             </h3>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setLayersOpen(prev => !prev)}
-              title={layersOpen ? 'Hide layers' : 'Show layers'}
-              data-testid="button-toggle-layers"
-            >
-              <Layers className="h-4 w-4" />
-            </Button>
+            {layersOpen && (
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setLayersOpen(false)}
+                title="Hide layers"
+                data-testid="button-toggle-layers"
+              >
+                <Layers className="h-4 w-4" />
+              </Button>
+            )}
           </div>
           <ScrollArea className="flex-1">
             {isPageSelected ? (
