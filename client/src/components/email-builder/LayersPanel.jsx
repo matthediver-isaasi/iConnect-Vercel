@@ -32,8 +32,10 @@ import {
   ChevronRight,
   ChevronDown,
   FileText,
+  X,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
 import { BLOCK_TYPES } from './types';
 
 const BLOCK_ICONS = {
@@ -322,6 +324,7 @@ export default function LayersPanel({
   onMoveBlockToSection,
   onMoveChildToTopLevel,
   onMoveChildToSection,
+  onClose,
 }) {
   const [expandedSections, setExpandedSections] = useState(() => {
     const initial = {};
@@ -504,8 +507,19 @@ export default function LayersPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b flex-shrink-0">
+      <div className="p-3 border-b flex-shrink-0 flex items-center justify-between gap-1">
         <h3 className="font-medium text-sm">Layers</h3>
+        {onClose && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={onClose}
+            title="Close layers"
+            data-testid="button-close-layers"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </div>
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">

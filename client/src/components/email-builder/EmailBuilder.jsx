@@ -23,7 +23,7 @@ import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
 import { BLOCK_TYPES, createBlock, defaultEmailDesign } from './types';
 import { designToHtml } from './mjmlConverter';
-import { PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const GOOGLE_FONTS_LINK = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&family=Montserrat:wght@400;700&family=Poppins:wght@400;700&family=Raleway:wght@400;700&family=Oswald:wght@400;700&family=Playfair+Display:wght@400;700&family=Merriweather:wght@400;700&family=Source+Sans+Pro:wght@400;700&display=swap';
@@ -55,7 +55,7 @@ export default function EmailBuilder({
   const [selectedColumnContext, setSelectedColumnContext] = useState(null);
   const [isPageSelected, setIsPageSelected] = useState(true);
   const [activeId, setActiveId] = useState(null);
-  const [propertiesExpanded, setPropertiesExpanded] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(true);
   const debounceRef = useRef(null);
 
   const sensors = useSensors(
@@ -579,7 +579,7 @@ export default function EmailBuilder({
   }
 
   return (
-    <div className="flex h-full" style={{ height }}>
+    <div className="flex h-full overflow-hidden" style={{ height }}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -637,9 +637,14 @@ export default function EmailBuilder({
         </DragOverlay>
       </DndContext>
 
-      <div className="relative flex flex-shrink-0" style={{ width: '544px' }}>
+      <div className="relative flex-shrink-0 border-l" style={{ width: '320px' }}>
         <div
-          className={`flex flex-col bg-muted/20 border-l flex-shrink-0 w-64 overflow-hidden`}
+          className={`absolute top-0 bottom-0 border-r bg-muted/20 flex flex-col z-20 transition-transform duration-200 ease-in-out`}
+          style={{
+            width: '320px',
+            right: '100%',
+            transform: layersOpen ? 'translateX(0)' : 'translateX(100%)',
+          }}
           data-testid="layers-panel"
         >
           <LayersPanel
@@ -664,12 +669,12 @@ export default function EmailBuilder({
             onMoveBlockToSection={handleMoveBlockToSection}
             onMoveChildToTopLevel={handleMoveChildToTopLevel}
             onMoveChildToSection={handleMoveChildToSection}
+            onClose={() => setLayersOpen(false)}
           />
         </div>
 
         <div
-          className={`absolute top-0 bottom-0 right-0 border-l bg-background flex flex-col z-10 transition-all duration-200`}
-          style={{ left: propertiesExpanded ? '0' : '256px' }}
+          className="flex flex-col h-full bg-background"
           data-testid="properties-panel"
         >
           <div className="p-3 border-b flex items-center justify-between gap-1">
@@ -679,15 +684,11 @@ export default function EmailBuilder({
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setPropertiesExpanded(prev => !prev)}
-              title={propertiesExpanded ? 'Show layers' : 'Expand panel'}
-              data-testid="button-toggle-properties-expand"
+              onClick={() => setLayersOpen(prev => !prev)}
+              title={layersOpen ? 'Hide layers' : 'Show layers'}
+              data-testid="button-toggle-layers"
             >
-              {propertiesExpanded ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRightOpen className="h-4 w-4" />
-              )}
+              <Layers className="h-4 w-4" />
             </Button>
           </div>
           <ScrollArea className="flex-1">
