@@ -83,7 +83,11 @@ export default function MembershipTierManagement() {
     free_period_amount: null,
     free_period_unit: null,
     rollover_enabled: false,
+    structure_field_id: null,
+    structure_match_value: null,
   });
+
+  const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
 
   const [bands, setBands] = useState([]);
   const [discounts, setDiscounts] = useState([]);
@@ -132,6 +136,15 @@ export default function MembershipTierManagement() {
     queryFn: async () => {
       const response = await fetch('/api/membership/tiers?action=discount_fields', { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch discount fields');
+      return response.json();
+    },
+  });
+
+  const { data: structureFields = [] } = useQuery({
+    queryKey: ['membership-structure-fields'],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/tiers?action=structure_fields', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch structure fields');
       return response.json();
     },
   });
@@ -197,6 +210,8 @@ export default function MembershipTierManagement() {
         free_period_amount: c.free_period_amount ?? null,
         free_period_unit: c.free_period_unit ?? null,
         rollover_enabled: c.rollover_enabled ?? false,
+        structure_field_id: c.structure_field_id || null,
+        structure_match_value: c.structure_match_value || null,
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -213,43 +228,53 @@ export default function MembershipTierManagement() {
     }
   }, [viewingHistorical, historicalData]);
 
+  const loadConfigIntoState = (c, configBands, configDiscounts) => {
+    setConfig({
+      id: c.id,
+      name: c.name || 'Default',
+      field_source: c.field_source || '',
+      field_id: c.field_id || null,
+      field_name: c.field_name || null,
+      currency: c.currency || 'GBP',
+      billing_period: c.billing_period || 'annual',
+      is_active: c.is_active !== false,
+      effective_from: c.effective_from || '',
+      membership_start_month: c.membership_start_month ?? 1,
+      membership_start_day: c.membership_start_day ?? 1,
+      prorata_enabled: c.prorata_enabled ?? false,
+      free_period_amount: c.free_period_amount ?? null,
+      free_period_unit: c.free_period_unit ?? null,
+      rollover_enabled: c.rollover_enabled ?? false,
+      structure_field_id: c.structure_field_id || null,
+      structure_match_value: c.structure_match_value || null,
+    });
+    if (configBands?.length > 0) {
+      setBands(configBands.map(b => ({
+        ...b,
+        min_value: b.min_value?.toString() || '0',
+        max_value: b.max_value?.toString() || '',
+        annual_cost: b.annual_cost?.toString() || '0',
+      })));
+    } else {
+      setBands([]);
+    }
+    setDiscounts((configDiscounts || []).map(d => ({
+      ...d,
+      discount_value: d.discount_value?.toString() || '0',
+    })));
+    setHasChanges(false);
+  };
+
   useEffect(() => {
     if (tierData && !viewingHistorical && !isCreatingNew) {
       if (tierData.config) {
-        const c = tierData.config;
-        setConfig({
-          id: c.id,
-          name: c.name || 'Default',
-          field_source: c.field_source || '',
-          field_id: c.field_id || null,
-          field_name: c.field_name || null,
-          currency: c.currency || 'GBP',
-          billing_period: c.billing_period || 'annual',
-          is_active: c.is_active !== false,
-          effective_from: c.effective_from || '',
-          membership_start_month: c.membership_start_month ?? 1,
-          membership_start_day: c.membership_start_day ?? 1,
-          prorata_enabled: c.prorata_enabled ?? false,
-          free_period_amount: c.free_period_amount ?? null,
-          free_period_unit: c.free_period_unit ?? null,
-          rollover_enabled: c.rollover_enabled ?? false,
-        });
-      }
-      if (tierData.bands?.length > 0) {
-        setBands(tierData.bands.map(b => ({
-          ...b,
-          min_value: b.min_value?.toString() || '0',
-          max_value: b.max_value?.toString() || '',
-          annual_cost: b.annual_cost?.toString() || '0',
-        })));
-      } else if (!tierData.config) {
+        loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts);
+        setSelectedActiveConfigId(tierData.config.id);
+      } else {
         setBands([]);
+        setDiscounts([]);
+        setHasChanges(false);
       }
-      setDiscounts((tierData.discounts || []).map(d => ({
-        ...d,
-        discount_value: d.discount_value?.toString() || '0',
-      })));
-      setHasChanges(false);
     }
   }, [tierData, viewingHistorical, isCreatingNew]);
 
@@ -367,6 +392,11 @@ export default function MembershipTierManagement() {
       return;
     }
 
+    if (config.structure_field_id && !config.structure_match_value?.trim()) {
+      toast.error('Please enter a match value for the structure scope, or remove the scope');
+      return;
+    }
+
     if (bands.length === 0) {
       toast.error('Please add at least one tier band');
       return;
@@ -433,6 +463,8 @@ export default function MembershipTierManagement() {
       free_period_amount: currentConfig?.free_period_amount ?? null,
       free_period_unit: currentConfig?.free_period_unit ?? null,
       rollover_enabled: currentConfig?.rollover_enabled ?? false,
+      structure_field_id: null,
+      structure_match_value: null,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -456,6 +488,23 @@ export default function MembershipTierManagement() {
     }
     setHasChanges(true);
     setShowHistory(false);
+  };
+
+  const handleSwitchActiveConfig = async (configId) => {
+    if (configId === selectedActiveConfigId) return;
+    try {
+      const response = await fetch(`/api/membership/tiers?configId=${configId}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch config');
+      const data = await response.json();
+      if (data.config) {
+        loadConfigIntoState(data.config, data.bands, data.discounts);
+        setSelectedActiveConfigId(configId);
+        setViewingHistorical(null);
+        setIsCreatingNew(false);
+      }
+    } catch (err) {
+      toast.error('Failed to load this tier structure');
+    }
   };
 
   const handleViewHistorical = (configId) => {
@@ -523,6 +572,25 @@ export default function MembershipTierManagement() {
   const historyItems = tierData?.history || [];
   const currentConfigId = tierData?.config?.id;
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
+  const activeConfigs = tierData?.activeConfigs || [];
+
+  const selectedStructureField = useMemo(() => {
+    if (!config.structure_field_id) return null;
+    return structureFields.find(f => f.id === config.structure_field_id);
+  }, [config.structure_field_id, structureFields]);
+
+  const structureFieldOptions = useMemo(() => {
+    if (!selectedStructureField) return [];
+    if (selectedStructureField.options) {
+      try {
+        const opts = typeof selectedStructureField.options === 'string'
+          ? JSON.parse(selectedStructureField.options)
+          : selectedStructureField.options;
+        if (Array.isArray(opts)) return opts.map(o => typeof o === 'string' ? o : o.label || o.value || '');
+      } catch {}
+    }
+    return [];
+  }, [selectedStructureField]);
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -601,14 +669,40 @@ export default function MembershipTierManagement() {
         </div>
       )}
 
-      {isCreatingNew && tierData?.config && (
+      {isCreatingNew && (
         <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md flex items-center gap-2">
           <CalendarDays className="w-4 h-4 text-blue-600 dark:text-blue-400" />
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            Creating a new tier structure will automatically close the current one (effective since {formatDate(tierData.config.effective_from)}).
-            The current structure's end date will be set to the day before this new structure starts.
+            Creating a new tier structure. If this has the same structure scope (field and match value) as an existing active structure,
+            the existing one will be automatically closed when this new structure starts.
           </p>
         </div>
+      )}
+
+      {activeConfigs.length > 1 && !isCreatingNew && !viewingHistorical && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+            <CardTitle className="text-sm font-medium">Active Tier Structures ({activeConfigs.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex flex-wrap gap-2">
+              {activeConfigs.map((ac) => (
+                <Button
+                  key={ac.id}
+                  variant={selectedActiveConfigId === ac.id ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleSwitchActiveConfig(ac.id)}
+                  data-testid={`button-switch-config-${ac.id}`}
+                >
+                  {ac.name || 'Untitled'}
+                  {ac.structure_match_value && (
+                    <Badge variant="secondary" className="ml-1.5">{ac.structure_match_value}</Badge>
+                  )}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {showHistory && historyItems.length > 0 && (
@@ -630,7 +724,12 @@ export default function MembershipTierManagement() {
                     <div className="flex items-center gap-3 min-w-0">
                       <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{item.name || 'Tier Structure'}</p>
+                        <p className="font-medium truncate">
+                          {item.name || 'Tier Structure'}
+                          {item.structure_match_value && (
+                            <Badge variant="outline" className="ml-2">{item.structure_match_value}</Badge>
+                          )}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                           {formatDate(item.effective_from) || 'No start date'}
                           {item.effective_to ? ` - ${formatDate(item.effective_to)}` : ' - Present'}
@@ -638,7 +737,7 @@ export default function MembershipTierManagement() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {isCurrent && <Badge variant="secondary">Current</Badge>}
+                      {isCurrent && <Badge variant="secondary">Active</Badge>}
                       {!isViewing && (
                         <Button
                           size="sm"
@@ -779,6 +878,75 @@ export default function MembershipTierManagement() {
                 <p className="text-sm text-muted-foreground">
                   This structure has been active since {formatDate(config.effective_from)}
                 </p>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t pt-4 mt-2">
+            <h3 className="text-sm font-medium mb-3">Structure Scope</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Optionally scope this tier structure to organisations with a specific field value. This allows multiple active tier structures for different organisation types.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Scope by Organisation Field</Label>
+                <Select
+                  value={config.structure_field_id || '__none'}
+                  onValueChange={(v) => {
+                    if (v === '__none') {
+                      handleConfigChange('structure_field_id', null);
+                      handleConfigChange('structure_match_value', null);
+                    } else {
+                      handleConfigChange('structure_field_id', v);
+                      handleConfigChange('structure_match_value', null);
+                    }
+                  }}
+                  disabled={!isEditable}
+                >
+                  <SelectTrigger data-testid="select-structure-field">
+                    <SelectValue placeholder="No scope (applies to all)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">No scope (applies to all)</SelectItem>
+                    {structureFields.map(field => (
+                      <SelectItem key={field.id} value={field.id} data-testid={`option-structure-field-${field.name}`}>
+                        {field.label || field.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {config.structure_field_id && (
+                <div className="space-y-2">
+                  <Label>Match Value</Label>
+                  {structureFieldOptions.length > 0 ? (
+                    <Select
+                      value={config.structure_match_value || ''}
+                      onValueChange={(v) => handleConfigChange('structure_match_value', v)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid="select-structure-match-value">
+                        <SelectValue placeholder="Select a value" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {structureFieldOptions.map(opt => (
+                          <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={config.structure_match_value || ''}
+                      onChange={(e) => handleConfigChange('structure_match_value', e.target.value)}
+                      placeholder="Enter the value to match"
+                      disabled={!isEditable}
+                      data-testid="input-structure-match-value"
+                    />
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    Only organisations whose "{selectedStructureField?.label || selectedStructureField?.name || 'field'}" matches this value will use this tier structure
+                  </p>
+                </div>
               )}
             </div>
           </div>

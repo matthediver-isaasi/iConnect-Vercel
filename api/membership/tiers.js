@@ -42,6 +42,10 @@ async function handleGet(req, res, tenantId) {
     return getDiscountFields(req, res, tenantId);
   }
 
+  if (action === 'structure_fields') {
+    return getStructureFields(req, res, tenantId);
+  }
+
   if (action === 'preview') {
     return getPreview(req, res, tenantId, configId);
   }
@@ -54,25 +58,34 @@ async function handleGet(req, res, tenantId) {
     return getConfigById(req, res, tenantId, configId);
   }
 
-  const config = await getCurrentConfig(tenantId);
+  const { data: activeConfigs } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .is('effective_to', null)
+    .order('effective_from', { ascending: false, nullsFirst: true });
+
+  const configs = activeConfigs || [];
+  const firstConfig = configs[0] || null;
 
   let bands = [];
   let discounts = [];
-  if (config) {
-    bands = await getBandsForConfig(config.id, tenantId);
-    discounts = await getDiscountsForConfig(config.id, tenantId);
+  if (firstConfig) {
+    bands = await getBandsForConfig(firstConfig.id, tenantId);
+    discounts = await getDiscountsForConfig(firstConfig.id, tenantId);
   }
 
   const { data: allConfigs } = await supabase
     .from('membership_tier_config')
-    .select('id, name, effective_from, effective_to, created_at')
+    .select('id, name, effective_from, effective_to, created_at, structure_field_id, structure_match_value')
     .eq('tenant_id', tenantId)
     .order('effective_from', { ascending: false, nullsFirst: true });
 
   return res.json({
-    config: config || null,
+    config: firstConfig,
     bands,
     discounts,
+    activeConfigs: configs,
     history: allConfigs || []
   });
 }
@@ -335,6 +348,10 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Effective from date is required' });
   }
 
+  if (config.structure_field_id && !config.structure_match_value?.trim()) {
+    return res.status(400).json({ error: 'Match value is required when a structure scope field is selected' });
+  }
+
   const today = new Date().toISOString().split('T')[0];
   const configId_check = config.id || req.query.configId;
   if (!configId_check && config.effective_from > today) {
@@ -384,6 +401,8 @@ async function handlePost(req, res, tenantId) {
         free_period_amount: config.free_period_amount || null,
         free_period_unit: config.free_period_amount ? (config.free_period_unit || 'months') : null,
         rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
+        structure_field_id: config.structure_field_id || null,
+        structure_match_value: config.structure_match_value || null,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -409,7 +428,24 @@ async function handlePost(req, res, tenantId) {
     return res.json({ config: data, bands: savedBands, discounts: savedDiscounts });
   }
 
-  const currentConfig = await getCurrentConfig(tenantId);
+  const structureFieldId = config.structure_field_id || null;
+  const structureMatchValue = config.structure_match_value || null;
+
+  let matchQuery = supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .is('effective_to', null);
+
+  if (structureFieldId) {
+    matchQuery = matchQuery.eq('structure_field_id', structureFieldId).eq('structure_match_value', structureMatchValue);
+  } else {
+    matchQuery = matchQuery.is('structure_field_id', null);
+  }
+
+  const { data: matchingConfigs } = await matchQuery.order('effective_from', { ascending: false, nullsFirst: true });
+  const currentConfig = matchingConfigs?.[0] || null;
+
   if (currentConfig) {
     const newEffectiveFrom = new Date(config.effective_from);
 
@@ -460,6 +496,8 @@ async function handlePost(req, res, tenantId) {
       free_period_amount: config.free_period_amount || null,
       free_period_unit: config.free_period_amount ? (config.free_period_unit || 'months') : null,
       rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
+      structure_field_id: structureFieldId,
+      structure_match_value: structureMatchValue,
     })
     .select()
     .single();
@@ -703,6 +741,23 @@ async function deleteDiscountsForConfig(configId, tenantId) {
       .eq('config_id', configId)
       .eq('tenant_id', tenantId);
   } catch {}
+}
+
+async function getStructureFields(req, res, tenantId) {
+  const { data: fields, error } = await supabase
+    .from('preference_field')
+    .select('id, name, label, field_type, entity_scope, options')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', 'organization')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true });
+
+  if (error) {
+    console.error('[Membership Tiers] Error fetching structure fields:', error);
+    return res.status(500).json({ error: 'Failed to fetch fields' });
+  }
+
+  return res.json(fields || []);
 }
 
 async function getDiscountFields(req, res, tenantId) {

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
+import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -28,23 +29,6 @@ export default async function handler(req, res) {
     console.error('[Org Membership] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
-}
-
-async function getCurrentConfig(tenantId) {
-  const { data, error } = await supabase
-    .from('membership_tier_config')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .is('effective_to', null)
-    .order('effective_from', { ascending: false, nullsFirst: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error('[Org Membership] Error fetching config:', error);
-    return null;
-  }
-  return data;
 }
 
 async function getConfigById(configId, tenantId) {
@@ -210,7 +194,7 @@ async function handleGet(req, res, tenantId) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
-  const config = await getCurrentConfig(tenantId);
+  const config = await getConfigForOrganisation(tenantId, organizationId);
 
   if (action === 'history') {
     return getHistory(req, res, tenantId, organizationId);
@@ -430,7 +414,7 @@ async function handlePut(req, res, tenantId) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
-  const config = await getCurrentConfig(tenantId);
+  const config = await getConfigForOrganisation(tenantId, organizationId);
   if (!config) {
     return res.status(400).json({ error: 'No active tier configuration found' });
   }
@@ -488,7 +472,7 @@ async function handlePost(req, res, tenantId) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
-  const config = await getCurrentConfig(tenantId);
+  const config = await getConfigForOrganisation(tenantId, organizationId);
   if (!config) {
     return res.status(400).json({ error: 'No active tier configuration found' });
   }

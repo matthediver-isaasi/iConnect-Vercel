@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
+import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -86,7 +87,7 @@ export default async function handler(req, res) {
     const currentMode = invoicingSettings?.invoicing_mode || 'manual';
     log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}`);
 
-    const config = await getCurrentConfig(tenantId);
+    const config = await getConfigForOrganisation(tenantId, organizationId);
     if (!config) {
       log('Fetch Tier Config', 'No active tier configuration found', 'error');
       return res.json({ success: false, steps });
@@ -377,18 +378,6 @@ function formatDate(date, includeTime = false) {
   if (!includeTime) return datePart;
   const timePart = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
   return `${datePart} at ${timePart}`;
-}
-
-async function getCurrentConfig(tenantId) {
-  const { data } = await supabase
-    .from('membership_tier_config')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .is('effective_to', null)
-    .order('effective_from', { ascending: false, nullsFirst: true })
-    .limit(1)
-    .maybeSingle();
-  return data;
 }
 
 async function getConfigById(configId, tenantId) {

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { createXeroMembershipInvoice } from '../_lib/xero.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
+import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -37,11 +38,8 @@ export default async function handler(req, res) {
       tenantIds.push(...new Set(configs.map(c => c.tenant_id)));
 
       for (const tenantId of tenantIds) {
-        const tenantConfig = configs.find(c => c.tenant_id === tenantId);
-        if (!tenantConfig) continue;
-
         try {
-          await processTenantRenewals(tenantId, tenantConfig, results);
+          await processTenantRenewals(tenantId, results);
         } catch (tenantErr) {
           console.error(`[cron/process-membership-renewals] Error processing tenant ${tenantId}:`, tenantErr);
           results.errors++;
@@ -121,14 +119,9 @@ export default async function handler(req, res) {
   }
 }
 
-async function processTenantRenewals(tenantId, config, results) {
-  const nextYear = calculateNextMembershipYear(config);
+async function processTenantRenewals(tenantId, results) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
-  const yearStart = new Date(nextYear.start);
-  yearStart.setHours(0, 0, 0, 0);
-  const renewalDue = today >= yearStart;
 
   const { data: invoicingRows, error: invError } = await supabase
     .from('organisation_membership_invoicing')
@@ -143,14 +136,31 @@ async function processTenantRenewals(tenantId, config, results) {
 
   if (!invoicingRows || invoicingRows.length === 0) return;
 
-  const bands = await getBandsForConfig(config.id, tenantId);
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
+  const configBandsCache = {};
 
   for (const invoicingSetting of invoicingRows) {
     const orgId = invoicingSetting.organization_id;
     const mode = invoicingSetting.invoicing_mode;
 
     try {
+      const config = await getConfigForOrganisation(tenantId, orgId);
+      if (!config) {
+        results.skipped++;
+        results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: 'No matching tier config for this organisation' });
+        continue;
+      }
+
+      if (!configBandsCache[config.id]) {
+        configBandsCache[config.id] = await getBandsForConfig(config.id, tenantId);
+      }
+      const bands = configBandsCache[config.id];
+
+      const nextYear = calculateNextMembershipYear(config);
+      const yearStart = new Date(nextYear.start);
+      yearStart.setHours(0, 0, 0, 0);
+      const renewalDue = today >= yearStart;
+
       const { data: existing } = await supabase
         .from('organisation_membership_history')
         .select('id, xero_invoice_id')

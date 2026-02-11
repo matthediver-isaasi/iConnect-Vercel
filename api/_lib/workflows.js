@@ -2,6 +2,7 @@ import { sendEmail, replacePlaceholders } from './emailService.js';
 import crypto from 'crypto';
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
+import { getConfigForOrganisation } from './membershipConfigResolver.js';
 
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {
@@ -690,14 +691,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       return { action_type: 'create_membership', status: 'failed', error: 'Organisation not found or does not belong to this tenant' };
     }
 
-    const { data: config } = await supabase
-      .from('membership_tier_config')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .is('effective_to', null)
-      .order('effective_from', { ascending: false, nullsFirst: true })
-      .limit(1)
-      .maybeSingle();
+    const config = await getConfigForOrganisation(tenantId, organizationId);
 
     if (!config) {
       return { action_type: 'create_membership', status: 'failed', error: 'No active membership tier configuration found' };
