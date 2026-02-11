@@ -51,11 +51,11 @@ function ChildBlockRenderer({ block, isSelected, onSelect }) {
 
   return (
     <div
-      className={`relative cursor-pointer ${isSelected ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted-foreground/30'}`}
+      className={`relative cursor-pointer ${isSelected ? 'ring-1 ring-primary/40' : 'hover:ring-1 hover:ring-muted-foreground/15'}`}
       onClick={(e) => { e.stopPropagation(); onSelect(block.id); }}
       data-testid={`child-block-${block.id}`}
     >
-      <div className={`border ${isSelected ? 'border-primary' : 'border-transparent'} rounded transition-colors`}>
+      <div className={`border ${isSelected ? 'border-primary/30' : 'border-transparent'} rounded transition-colors`}>
         {PreviewComponent && <PreviewComponent block={block} />}
       </div>
     </div>
@@ -211,11 +211,11 @@ export default function BlockRenderer({
     <div
       ref={setNodeRef}
       style={style}
-      className={`relative cursor-pointer ${isSelected ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-muted-foreground/30'}`}
+      className={`relative cursor-pointer ${isSelected ? 'ring-1 ring-primary/40' : 'hover:ring-1 hover:ring-muted-foreground/15'}`}
       onClick={() => onSelect(block.id)}
       data-testid={`block-${block.id}`}
     >
-      <div className={`border ${isSelected ? 'border-primary' : 'border-transparent'} rounded transition-colors`}>
+      <div className={`border ${isSelected ? 'border-primary/30' : 'border-transparent'} rounded transition-colors`}>
         {block.type === BLOCK_TYPES.SECTION ? (
           <SectionBlockPreview
             block={block}
