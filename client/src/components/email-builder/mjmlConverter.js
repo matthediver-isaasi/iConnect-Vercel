@@ -457,9 +457,10 @@ export const designToMjml = (design, { footerHtml } = {}) => {
   const mjmlBlocks = blocks.filter(b => !b.hidden).map(blockToMjml).join('\n');
 
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
-  const footerSection = shouldIncludeFooter
-    ? `<mj-section padding="12px 16px 12px 16px"><mj-column><mj-text font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`
-    : '';
+  let footerSection = '';
+  if (shouldIncludeFooter) {
+    footerSection = `<mj-section padding="12px 16px 12px 16px" css-class="tenant-email-footer"><mj-column><mj-text font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
+  }
   
   return `
     <mjml>
@@ -473,6 +474,8 @@ export const designToMjml = (design, { footerHtml } = {}) => {
           h1, h2, h3, h4, h5, h6 { margin: 0; }
           p { margin: 0 0 1em 0; }
           p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
         </mj-style>
       </mj-head>
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}">
