@@ -1,6 +1,6 @@
 import mjml2html from 'mjml-browser';
 import { BLOCK_TYPES } from './types';
-import { sanitizeHtml } from './sanitize';
+import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues, spacingToMjml } from './SpacingControl';
 
 const escapeHtml = (text) => {
@@ -47,7 +47,7 @@ const childBlockToMjml = (block) => {
         color="${block.styles.color || '#333333'}"
         line-height="${block.styles.lineHeight || '1.5'}"
         padding="${getPaddingAttr(block.styles)}"
-      >${sanitizeHtml(block.content || '')}</mj-text>`;
+      >${sanitizeHtml(stripTrailingEmptyParagraphs(block.content || ''))}</mj-text>`;
     case BLOCK_TYPES.IMAGE:
       if (!block.src) return '';
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
@@ -113,7 +113,7 @@ const blockToMjml = (block) => {
               color="${block.styles.color || '#333333'}"
               line-height="${block.styles.lineHeight || '1.5'}"
               padding="${getPaddingAttr(block.styles)}"
-            >${sanitizeHtml(block.content || '')}</mj-text>
+            >${sanitizeHtml(stripTrailingEmptyParagraphs(block.content || ''))}</mj-text>
           </mj-column>
         </mj-section>
       `;
@@ -206,7 +206,7 @@ const blockToMjml = (block) => {
               color="${b.styles.color || '#333333'}"
               line-height="${b.styles.lineHeight || '1.5'}"
               padding="${getPaddingAttr(b.styles)}"
-            >${sanitizeHtml(b.content || '')}</mj-text>`;
+            >${sanitizeHtml(stripTrailingEmptyParagraphs(b.content || ''))}</mj-text>`;
           }
           if (b.type === BLOCK_TYPES.IMAGE && b.src) {
             return `<mj-image src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt || '')}" padding="${getPaddingAttr(b.styles)}" />`;

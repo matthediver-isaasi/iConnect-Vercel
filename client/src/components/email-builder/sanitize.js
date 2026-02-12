@@ -20,3 +20,8 @@ export function sanitizeHtml(html) {
     ALLOW_DATA_ATTR: false,
   });
 }
+
+export function stripTrailingEmptyParagraphs(html) {
+  if (!html) return '';
+  return html.replace(/(<p[^>]*>\s*(<br[^>]*\/?>)?\s*(&nbsp;|\u00A0)?\s*<\/p>\s*)+$/i, '');
+}

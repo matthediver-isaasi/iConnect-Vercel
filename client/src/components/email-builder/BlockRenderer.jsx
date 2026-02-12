@@ -3,7 +3,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
-import { sanitizeHtml } from './sanitize';
+import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues } from './SpacingControl';
 
 function getSpacingStyle(styles, prefix, cssPrefix) {
@@ -88,7 +88,7 @@ function TextBlockPreview({ block, isChild, globalFontFamily }) {
         lineHeight: block.styles.lineHeight || '1.5',
         ...paddingStyle,
       }}
-      dangerouslySetInnerHTML={isHtml ? { __html: sanitizeHtml(block.content) } : undefined}
+      dangerouslySetInnerHTML={isHtml ? { __html: sanitizeHtml(stripTrailingEmptyParagraphs(block.content)) } : undefined}
     >
       {isHtml ? undefined : block.content}
     </div>
