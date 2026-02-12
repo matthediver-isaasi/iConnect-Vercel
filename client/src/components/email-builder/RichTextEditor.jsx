@@ -1,4 +1,5 @@
 import { useEditor, EditorContent } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyle } from '@tiptap/extension-text-style';
@@ -30,7 +31,72 @@ import {
   Type,
   Minus,
   Palette,
+  Highlighter,
 } from 'lucide-react';
+
+const FontSize = Extension.create({
+  name: 'fontSize',
+  addOptions() {
+    return { types: ['textStyle'] };
+  },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        fontSize: {
+          default: null,
+          parseHTML: element => element.style.fontSize?.replace(/['"]+/g, '') || null,
+          renderHTML: attributes => {
+            if (!attributes.fontSize) return {};
+            return { style: `font-size: ${attributes.fontSize}` };
+          },
+        },
+      },
+    }];
+  },
+  addCommands() {
+    return {
+      setFontSize: (fontSize) => ({ chain }) => {
+        return chain().setMark('textStyle', { fontSize }).run();
+      },
+      unsetFontSize: () => ({ chain }) => {
+        return chain().setMark('textStyle', { fontSize: null }).removeEmptyTextStyle().run();
+      },
+    };
+  },
+});
+
+const BackgroundColor = Extension.create({
+  name: 'backgroundColor',
+  addOptions() {
+    return { types: ['textStyle'] };
+  },
+  addGlobalAttributes() {
+    return [{
+      types: this.options.types,
+      attributes: {
+        backgroundColor: {
+          default: null,
+          parseHTML: element => element.style.backgroundColor || null,
+          renderHTML: attributes => {
+            if (!attributes.backgroundColor) return {};
+            return { style: `background-color: ${attributes.backgroundColor}` };
+          },
+        },
+      },
+    }];
+  },
+  addCommands() {
+    return {
+      setBackgroundColor: (color) => ({ chain }) => {
+        return chain().setMark('textStyle', { backgroundColor: color }).run();
+      },
+      unsetBackgroundColor: () => ({ chain }) => {
+        return chain().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run();
+      },
+    };
+  },
+});
 
 const TOOLBAR_FONTS = [
   { value: '', label: 'Default' },
@@ -62,10 +128,27 @@ function ToolbarButton({ onClick, isActive, children, title }) {
   );
 }
 
+const FONT_SIZES = [
+  { value: '', label: 'Size' },
+  { value: '10px', label: '10' },
+  { value: '12px', label: '12' },
+  { value: '14px', label: '14' },
+  { value: '16px', label: '16' },
+  { value: '18px', label: '18' },
+  { value: '20px', label: '20' },
+  { value: '24px', label: '24' },
+  { value: '28px', label: '28' },
+  { value: '32px', label: '32' },
+  { value: '36px', label: '36' },
+  { value: '48px', label: '48' },
+  { value: '64px', label: '64' },
+];
+
 function MenuBar({ editor }) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const colorInputRef = useRef(null);
+  const bgColorInputRef = useRef(null);
 
   if (!editor) return null;
 
@@ -79,6 +162,8 @@ function MenuBar({ editor }) {
 
   const currentColor = editor.getAttributes('textStyle').color || '';
   const currentFont = editor.getAttributes('textStyle').fontFamily || '';
+  const currentFontSize = editor.getAttributes('textStyle').fontSize || '';
+  const currentBgColor = editor.getAttributes('textStyle').backgroundColor || '';
 
   return (
     <div className="border-b p-1 space-y-1">
@@ -243,6 +328,33 @@ function MenuBar({ editor }) {
           />
         </div>
 
+        <div className="relative inline-flex" title="Background color">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 relative"
+            onClick={() => bgColorInputRef.current?.click()}
+            data-testid="rte-btn-bg-color"
+          >
+            <Highlighter className="h-3.5 w-3.5" />
+            <span
+              className="absolute bottom-0.5 left-1.5 right-1.5 h-1 rounded-full pointer-events-none border border-border/50"
+              style={{ backgroundColor: currentBgColor || 'transparent' }}
+            />
+          </Button>
+          <input
+            ref={bgColorInputRef}
+            type="color"
+            value={currentBgColor || '#ffff00'}
+            onChange={(e) => {
+              editor.chain().focus().setBackgroundColor(e.target.value).run();
+            }}
+            className="absolute opacity-0 w-0 h-0 pointer-events-none"
+            data-testid="rte-bg-color-input"
+          />
+        </div>
+
         <div className="w-px bg-border mx-0.5 self-stretch" />
 
         <ToolbarButton
@@ -261,7 +373,7 @@ function MenuBar({ editor }) {
         </ToolbarButton>
       </div>
 
-      <div className="flex gap-1 items-center px-1">
+      <div className="flex gap-1 items-center px-1 flex-wrap">
         <Select
           value={currentFont || '__default__'}
           onValueChange={(v) => {
@@ -283,6 +395,30 @@ function MenuBar({ editor }) {
                 style={{ fontFamily: font.value || 'inherit' }}
               >
                 {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={currentFontSize || '__default__'}
+          onValueChange={(v) => {
+            if (v === '__default__') {
+              editor.chain().focus().unsetFontSize().run();
+            } else {
+              editor.chain().focus().setFontSize(v).run();
+            }
+          }}
+        >
+          <SelectTrigger className="h-7 text-xs w-[72px]" data-testid="rte-font-size">
+            <SelectValue placeholder="Size" />
+          </SelectTrigger>
+          <SelectContent>
+            {FONT_SIZES.map(size => (
+              <SelectItem
+                key={size.value || '__default__'}
+                value={size.value || '__default__'}
+              >
+                {size.label}
               </SelectItem>
             ))}
           </SelectContent>
@@ -332,6 +468,8 @@ export default function RichTextEditor({ content, onChange, fontFamily, color })
       TextStyle,
       Color,
       FontFamily,
+      FontSize,
+      BackgroundColor,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
