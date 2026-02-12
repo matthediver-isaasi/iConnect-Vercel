@@ -125,9 +125,11 @@ const buildSocialIconHtml = (block) => {
 
     const iconImg = `<a href="${escapeHtml(href)}" target="_blank" style="text-decoration:none;display:inline-block;"><span style="display:inline-block;width:${iconSize}px;height:${iconSize}px;${getIconBgStyle()}text-align:center;line-height:${iconSize}px;vertical-align:middle;"><img src="${dataUri}" width="${innerSvgSize}" height="${innerSvgSize}" alt="${escapeHtml(label)}" style="display:inline-block;vertical-align:middle;border:0;outline:none;" /></span></a>`;
 
+    const labelStyle = `font-size:${labelFontSize}px;color:${iconColor};font-family:${escapeHtml(labelFontFamily)};line-height:1.2;white-space:nowrap;`;
     const labelHtml = displayMode === 'icon-label'
-      ? `<span style="font-size:${labelFontSize}px;color:${iconColor};font-family:${escapeHtml(labelFontFamily)};line-height:1.2;white-space:nowrap;">${escapeHtml(label)}</span>`
+      ? `<span style="${labelStyle}">${escapeHtml(label)}</span>`
       : '';
+    const labelTdStyle = displayMode === 'icon-label' ? `color:${iconColor};font-family:${escapeHtml(labelFontFamily)};font-size:${labelFontSize}px;` : '';
 
     if (displayMode === 'icon-only') {
       return `<td style="${spacing}vertical-align:middle;">${iconImg}</td>`;
@@ -137,18 +139,18 @@ const buildSocialIconHtml = (block) => {
       const topPart = isLabelBefore ? labelHtml : iconImg;
       const bottomPart = isLabelBefore ? iconImg : labelHtml;
       return `<td style="${spacing}vertical-align:middle;text-align:center;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="text-align:center;">${topPart}</td></tr><tr><td style="text-align:center;padding-top:2px;">${bottomPart}</td></tr></table>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="text-align:center;${isLabelBefore ? labelTdStyle : ''}">${topPart}</td></tr><tr><td style="text-align:center;padding-top:2px;${!isLabelBefore ? labelTdStyle : ''}">${bottomPart}</td></tr></table>
       </td>`;
     }
 
     if (isLabelBefore) {
       return `<td style="${spacing}vertical-align:middle;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="vertical-align:middle;padding-right:4px;">${labelHtml}</td><td style="vertical-align:middle;">${iconImg}</td></tr></table>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="vertical-align:middle;padding-right:4px;${labelTdStyle}">${labelHtml}</td><td style="vertical-align:middle;">${iconImg}</td></tr></table>
       </td>`;
     }
 
     return `<td style="${spacing}vertical-align:middle;">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="vertical-align:middle;">${iconImg}</td><td style="vertical-align:middle;padding-left:4px;">${labelHtml}</td></tr></table>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="vertical-align:middle;">${iconImg}</td><td style="vertical-align:middle;padding-left:4px;${labelTdStyle}">${labelHtml}</td></tr></table>
     </td>`;
   }).join('');
 

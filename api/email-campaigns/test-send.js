@@ -107,6 +107,32 @@ export default async function handler(req, res) {
     const firstName = recipientMember?.first_name || member?.first_name || 'Test';
     const lastName = recipientMember?.last_name || member?.last_name || 'User';
 
+    let campaignSkipFooter = false;
+    let designHasUnsubscribeBlock = false;
+    if (campaign.design_json) {
+      try {
+        const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
+        if (designData?.globalStyles?.useDefaultFooter === false) {
+          campaignSkipFooter = true;
+        }
+        const checkForUnsubscribe = (blocks) => {
+          if (!Array.isArray(blocks)) return false;
+          for (const block of blocks) {
+            if (block.type === 'unsubscribe') return true;
+            if (block.columns) {
+              for (const col of block.columns) {
+                if (checkForUnsubscribe(col.blocks)) return true;
+              }
+            }
+          }
+          return false;
+        };
+        if (designData?.blocks) {
+          designHasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
+        }
+      } catch (e) {}
+    }
+
     let html = campaign.html_content || '';
     let subject = `[TEST] ${campaign.subject || 'No Subject'}`;
 
@@ -126,7 +152,7 @@ export default async function handler(req, res) {
     html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
     html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
     
-    if (!hasUnsubscribePlaceholder) {
+    if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
       html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
         <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
       </p>`;
@@ -137,7 +163,8 @@ export default async function handler(req, res) {
       subject: subject,
       html: html,
       from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
-      tenantId: tenantId
+      tenantId: tenantId,
+      skipFooter: campaignSkipFooter
     });
 
     if (result.success) {
