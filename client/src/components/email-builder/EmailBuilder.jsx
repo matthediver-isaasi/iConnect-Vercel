@@ -697,7 +697,7 @@ export default function EmailBuilder({
             </Tooltip>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-8">
-            <div className="flex justify-center">
+            <div className="flex justify-start">
             <div 
               className="w-full shadow-lg"
               style={{ 
