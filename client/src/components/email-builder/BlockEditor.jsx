@@ -22,7 +22,7 @@ import {
   X,
   FileText
 } from 'lucide-react';
-import { BLOCK_TYPES } from './types';
+import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
 import RichTextEditor from './RichTextEditor';
 import SpacingControl from './SpacingControl';
 
@@ -1137,6 +1137,173 @@ function SectionBlockEditor({ block, onChange }) {
   );
 }
 
+function SocialIconsBlockEditor({ block, onChange, isChild }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  const updatePlatform = (key, field, value) => {
+    const updated = block.platforms.map(p =>
+      p.key === key ? { ...p, [field]: value } : p
+    );
+    onChange({ ...block, platforms: updated });
+  };
+
+  const enabledPlatforms = block.platforms.filter(p => p.enabled);
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Platforms</Label>
+        <div className="space-y-2">
+          {SOCIAL_PLATFORMS.map(platform => {
+            const current = block.platforms.find(p => p.key === platform.key);
+            const isEnabled = current?.enabled || false;
+            return (
+              <div key={platform.key} className="space-y-1">
+                <label className="flex items-center gap-2 cursor-pointer" data-testid={`social-toggle-${platform.key}`}>
+                  <input
+                    type="checkbox"
+                    checked={isEnabled}
+                    onChange={(e) => updatePlatform(platform.key, 'enabled', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm">{platform.label}</span>
+                </label>
+                {isEnabled && (
+                  <Input
+                    value={current?.url || platform.defaultUrl}
+                    onChange={(e) => updatePlatform(platform.key, 'url', e.target.value)}
+                    placeholder={`${platform.label} URL`}
+                    className="text-xs"
+                    data-testid={`social-url-${platform.key}`}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Display Mode</Label>
+        <Select value={block.styles.displayMode || 'icon-only'} onValueChange={(v) => updateStyle('displayMode', v)}>
+          <SelectTrigger data-testid="social-display-mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="icon-only">Icon Only</SelectItem>
+            <SelectItem value="icon-label">Icon + Name</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Icon Style</Label>
+        <Select value={block.styles.iconStyle || 'filled'} onValueChange={(v) => updateStyle('iconStyle', v)}>
+          <SelectTrigger data-testid="social-icon-style">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="filled">Filled</SelectItem>
+            <SelectItem value="outline">Outline</SelectItem>
+            <SelectItem value="monochrome">Monochrome</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Shape</Label>
+        <Select value={block.styles.shape || 'circle'} onValueChange={(v) => updateStyle('shape', v)}>
+          <SelectTrigger data-testid="social-shape">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="circle">Circle</SelectItem>
+            <SelectItem value="square">Square</SelectItem>
+            <SelectItem value="rounded">Rounded Square</SelectItem>
+            <SelectItem value="none">No Background</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Icon / Background Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.iconColor || '#333333'}
+            onChange={(e) => updateStyle('iconColor', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="social-icon-color"
+          />
+          <span className="text-xs text-muted-foreground">Icon/bg color</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Icon Size</Label>
+        <Select value={block.styles.iconSize || '30'} onValueChange={(v) => updateStyle('iconSize', v)}>
+          <SelectTrigger data-testid="social-icon-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="20">Small (20px)</SelectItem>
+            <SelectItem value="30">Medium (30px)</SelectItem>
+            <SelectItem value="40">Large (40px)</SelectItem>
+            <SelectItem value="50">Extra Large (50px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Spacing Between Icons</Label>
+        <Select value={block.styles.gap || '8'} onValueChange={(v) => updateStyle('gap', v)}>
+          <SelectTrigger data-testid="social-gap">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="4">Tight (4px)</SelectItem>
+            <SelectItem value="8">Normal (8px)</SelectItem>
+            <SelectItem value="12">Wide (12px)</SelectItem>
+            <SelectItem value="16">Extra Wide (16px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="social-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1145,6 +1312,7 @@ const blockEditors = {
   [BLOCK_TYPES.DIVIDER]: DividerBlockEditor,
   [BLOCK_TYPES.SPACER]: SpacerBlockEditor,
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
+  [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {

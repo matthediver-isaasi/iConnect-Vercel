@@ -38,6 +38,55 @@ const getCombinedSectionPadding = (styles) => {
 };
 
 
+const SOCIAL_NAME_MAP = {
+  facebook: 'facebook-noshare',
+  twitter: 'x-noshare',
+  instagram: 'instagram',
+  linkedin: 'linkedin-noshare',
+  youtube: 'youtube',
+  tiktok: 'web',
+  pinterest: 'pinterest-noshare',
+  github: 'github',
+  website: 'web',
+};
+
+const SOCIAL_BRAND_COLORS = {
+  facebook: '#1877F2',
+  twitter: '#000000',
+  instagram: '#E4405F',
+  linkedin: '#0A66C2',
+  youtube: '#FF0000',
+  tiktok: '#000000',
+  pinterest: '#BD081C',
+  github: '#181717',
+  website: '#4CAF50',
+};
+
+const getSocialBorderRadius = (shape, iconSize) => {
+  const size = parseInt(iconSize || '30', 10);
+  if (shape === 'circle') return `${Math.round(size / 2)}px`;
+  if (shape === 'rounded') return '4px';
+  if (shape === 'none') return '0px';
+  return '0px';
+};
+
+const getSocialElementAttrs = (platform, block) => {
+  const iconStyle = block.styles.iconStyle || 'filled';
+  const iconColor = block.styles.iconColor || '#333333';
+  const brandColor = SOCIAL_BRAND_COLORS[platform.key] || '#333333';
+
+  let bgColor;
+  if (iconStyle === 'filled') {
+    bgColor = iconColor;
+  } else if (iconStyle === 'outline') {
+    bgColor = 'transparent';
+  } else {
+    bgColor = iconColor;
+  }
+
+  return `background-color="${bgColor}"`;
+};
+
 const childBlockToMjml = (block) => {
   switch (block.type) {
     case BLOCK_TYPES.TEXT:
@@ -81,6 +130,24 @@ const childBlockToMjml = (block) => {
       />`;
     case BLOCK_TYPES.SPACER:
       return `<mj-spacer height="${block.styles.height || '20px'}" />`;
+    case BLOCK_TYPES.SOCIAL_ICONS: {
+      const socialElements = (block.platforms || [])
+        .filter(p => p.enabled)
+        .map(p => {
+          const name = SOCIAL_NAME_MAP[p.key] || p.key;
+          return `<mj-social-element name="${name}" href="${escapeHtml(p.url || '#')}" />`;
+        })
+        .join('\n            ');
+      return `<mj-social
+            mode="${block.styles.displayMode === 'icon-label' ? 'horizontal' : 'horizontal'}"
+            icon-size="${block.styles.iconSize || '30'}px"
+            icon-padding="${block.styles.gap ? Math.round(parseInt(block.styles.gap) / 2) : 4}px"
+            padding="${getPaddingAttr(block.styles)}"
+            align="${block.styles.textAlign || 'center'}"
+            color="${block.styles.iconColor || '#333333'}"
+            border-radius="${getSocialBorderRadius(block.styles.shape, block.styles.iconSize)}"
+          >${socialElements}</mj-social>`;
+    }
     default:
       return '';
   }
@@ -194,6 +261,35 @@ const blockToMjml = (block) => {
         </mj-section>
       `;
 
+    case BLOCK_TYPES.SOCIAL_ICONS: {
+      const socialSectionPad = getCombinedSectionPadding(block.styles);
+      const enabledPlatforms = (block.platforms || []).filter(p => p.enabled);
+      const displayMode = block.styles.displayMode || 'icon-only';
+      const socialEls = enabledPlatforms.map(p => {
+        const name = SOCIAL_NAME_MAP[p.key] || 'web';
+        const labelAttr = displayMode === 'icon-label' ? '' : ' text-padding="0px"';
+        const contentText = displayMode === 'icon-label' ? (p.key === 'twitter' ? 'X' : (p.key.charAt(0).toUpperCase() + p.key.slice(1))) : '';
+        return `<mj-social-element name="${name}" href="${escapeHtml(p.url || '#')}"${labelAttr}>${contentText}</mj-social-element>`;
+      }).join('\n              ');
+      return `
+        <mj-section padding="${socialSectionPad}">
+          <mj-column>
+            <mj-social
+              mode="horizontal"
+              icon-size="${block.styles.iconSize || '30'}px"
+              icon-padding="${block.styles.gap ? Math.round(parseInt(block.styles.gap) / 2) : 4}px"
+              padding="${getPaddingAttr(block.styles)}"
+              align="${block.styles.textAlign || 'center'}"
+              color="${block.styles.iconColor || '#333333'}"
+              border-radius="${getSocialBorderRadius(block.styles.shape, block.styles.iconSize)}"
+            >
+              ${socialEls}
+            </mj-social>
+          </mj-column>
+        </mj-section>
+      `;
+    }
+
     case BLOCK_TYPES.COLUMNS: {
       const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
       const halfGap = Math.round(colGapPx / 2);
@@ -216,6 +312,9 @@ const blockToMjml = (block) => {
           }
           if (b.type === BLOCK_TYPES.DIVIDER) {
             return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${getPaddingAttr(b.styles)}" />`;
+          }
+          if (b.type === BLOCK_TYPES.SOCIAL_ICONS) {
+            return childBlockToMjml(b);
           }
           return '';
         }).join('');
