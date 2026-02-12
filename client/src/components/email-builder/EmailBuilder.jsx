@@ -122,24 +122,6 @@ export default function EmailBuilder({
     };
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const isRichTextEditor = e.target.closest?.('.ProseMirror');
-      if (isRichTextEditor) return;
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        handleUndo();
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-        e.preventDefault();
-        handleRedo();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
-
   const isUndoRedoRef = useRef(false);
 
   const updateDesign = useCallback((updater) => {
@@ -182,6 +164,24 @@ export default function EmailBuilder({
       return nextState;
     });
   }, [notifyChange]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isRichTextEditor = e.target.closest?.('.ProseMirror');
+      if (isRichTextEditor) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
 
   const handleDragStart = (event) => {
     setActiveId(event.active.id);
