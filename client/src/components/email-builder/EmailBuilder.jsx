@@ -56,6 +56,7 @@ export default function EmailBuilder({
   const [isPageSelected, setIsPageSelected] = useState(true);
   const [activeId, setActiveId] = useState(null);
   const [layersOpen, setLayersOpen] = useState(true);
+  const [propertiesExpanded, setPropertiesExpanded] = useState(false);
   const debounceRef = useRef(null);
 
   const sensors = useSensors(
@@ -679,7 +680,7 @@ export default function EmailBuilder({
           </div>
         </div>
 
-        {!layersOpen && (
+        {!layersOpen && !propertiesExpanded && (
           <div
             className="absolute top-1/2 -translate-y-1/2"
             style={{ right: '100%', zIndex: 15 }}
@@ -698,23 +699,47 @@ export default function EmailBuilder({
         )}
 
         <div
-          className="relative flex flex-col h-full bg-background border-l"
-          style={{ zIndex: 10 }}
+          className="absolute top-0 bottom-0 right-0 flex flex-col bg-background border-l transition-all duration-200 ease-in-out"
+          style={{
+            zIndex: 10,
+            width: '320px',
+            ...(propertiesExpanded ? { left: '-320px', width: '640px' } : {}),
+          }}
           data-testid="properties-panel"
         >
           <div className="p-3 border-b flex items-center justify-between gap-1">
             <h3 className="font-medium text-sm">
               {isPageSelected ? 'Page Settings' : 'Properties'}
             </h3>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setLayersOpen(prev => !prev)}
-              title={layersOpen ? 'Hide layers' : 'Show layers'}
-              data-testid="button-toggle-layers"
-            >
-              <Layers className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setLayersOpen(prev => !prev)}
+                title={layersOpen ? 'Hide layers' : 'Show layers'}
+                data-testid="button-toggle-layers"
+              >
+                <Layers className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => {
+                  setPropertiesExpanded(prev => {
+                    if (!prev) setLayersOpen(false);
+                    return !prev;
+                  });
+                }}
+                title={propertiesExpanded ? 'Collapse panel' : 'Expand panel'}
+                data-testid="button-toggle-properties-expand"
+              >
+                {propertiesExpanded ? (
+                  <PanelRightClose className="h-4 w-4" />
+                ) : (
+                  <PanelRightOpen className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
           <ScrollArea className="flex-1">
             {isPageSelected ? (
