@@ -48,6 +48,7 @@ const SOCIAL_NAME_MAP = {
   pinterest: 'pinterest-noshare',
   github: 'github',
   website: 'web',
+  email: 'mail',
 };
 
 const SOCIAL_BRAND_COLORS = {
@@ -60,6 +61,7 @@ const SOCIAL_BRAND_COLORS = {
   pinterest: '#BD081C',
   github: '#181717',
   website: '#4CAF50',
+  email: '#EA4335',
 };
 
 const getSocialBorderRadius = (shape, iconSize) => {

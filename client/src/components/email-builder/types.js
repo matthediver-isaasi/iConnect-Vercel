@@ -20,6 +20,7 @@ export const SOCIAL_PLATFORMS = [
   { key: 'pinterest', label: 'Pinterest', defaultUrl: 'https://pinterest.com/' },
   { key: 'github', label: 'GitHub', defaultUrl: 'https://github.com/' },
   { key: 'website', label: 'Website', defaultUrl: 'https://' },
+  { key: 'email', label: 'Email', defaultUrl: 'mailto:' },
 ];
 
 export const createBlock = (type, props = {}) => {
@@ -178,6 +179,7 @@ export const createBlock = (type, props = {}) => {
           { key: 'pinterest', enabled: false, url: 'https://pinterest.com/' },
           { key: 'github', enabled: false, url: 'https://github.com/' },
           { key: 'website', enabled: false, url: 'https://' },
+          { key: 'email', enabled: false, url: 'mailto:' },
         ],
         styles: {
           displayMode: 'icon-only',
