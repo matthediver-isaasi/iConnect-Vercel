@@ -123,6 +123,7 @@ export default async function handler(req, res) {
           if (!Array.isArray(blocks)) return false;
           for (const block of blocks) {
             if (block.type === 'unsubscribe') return true;
+            if (block.children && checkForUnsubscribe(block.children)) return true;
             if (block.columns) {
               for (const col of block.columns) {
                 if (checkForUnsubscribe(col.blocks)) return true;

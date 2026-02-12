@@ -311,6 +311,19 @@ export default function EmailCampaignEdit() {
 
     setSaving(true);
     try {
+      let saveData = { ...formData };
+      if (saveData.design_json && typeof saveData.design_json === 'object' && saveData.design_json.blocks) {
+        try {
+          const fHtml = footerData?.hasFooter ? footerData.footer : null;
+          const freshHtml = designToHtml(saveData.design_json, { footerHtml: fHtml });
+          if (freshHtml) {
+            saveData.html_content = freshHtml;
+          }
+        } catch (e) {
+          console.warn('[Save] Failed to regenerate HTML from design, using existing html_content');
+        }
+      }
+
       const url = isEditing 
         ? `/api/email-campaigns/${id}`
         : '/api/email-campaigns';
@@ -319,7 +332,7 @@ export default function EmailCampaignEdit() {
         method: isEditing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(saveData)
       });
 
       if (!response.ok) {
