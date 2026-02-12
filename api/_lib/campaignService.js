@@ -598,11 +598,15 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
 
     let campaignSkipFooter = false;
     let designHasUnsubscribeBlock = false;
+    let campaignContentWidth = null;
     if (campaign.design_json) {
       try {
         const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
         if (designData?.globalStyles?.useDefaultFooter === false) {
           campaignSkipFooter = true;
+        }
+        if (designData?.globalStyles?.contentWidth) {
+          campaignContentWidth = designData.globalStyles.contentWidth;
         }
         const checkForUnsubscribe = (blocks) => {
           if (!Array.isArray(blocks)) return false;
@@ -655,7 +659,8 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
           html: html,
           from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
           tenantId: tenantId,
-          skipFooter: campaignSkipFooter
+          skipFooter: campaignSkipFooter,
+          contentWidth: campaignContentWidth
         });
 
         if (result.success) {

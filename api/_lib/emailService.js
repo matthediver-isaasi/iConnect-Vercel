@@ -204,7 +204,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -246,7 +246,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       if (footer) {
         const processedFooter = await replaceSocialPlaceholdersInFooter(footer, tenantId);
         const constrainedFooter = constrainFooterForEmail(processedFooter);
-        const wrappedFooter = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:600px;margin:0 auto;"><tr><td style="padding:12px 0;">${constrainedFooter}</td></tr></table>`;
+        const footerMaxWidth = contentWidth || '600px';
+        const wrappedFooter = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:${footerMaxWidth};margin:0 auto;"><tr><td style="padding:12px 0;">${constrainedFooter}</td></tr></table>`;
         finalHtml = finalHtml + wrappedFooter;
         console.log(`[Email Service] Email footer appended for tenant: ${tenantId || 'global'}`);
       }
