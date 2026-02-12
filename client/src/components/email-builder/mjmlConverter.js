@@ -51,7 +51,8 @@ const childBlockToMjml = (block) => {
         font-size="${block.styles.fontSize || '16px'}"
         font-weight="${block.styles.fontWeight || 'bold'}"
         border-radius="${block.styles.borderRadius || '4px'}"
-        padding="${block.styles.padding || '12px 24px'}"
+        inner-padding="${block.styles.padding || '12px 24px'}"
+        padding="${block.styles.containerPadding || '10px 0'}"
         align="${block.styles.textAlign || 'center'}"
       >${escapeHtml(block.content)}</mj-button>`;
     case BLOCK_TYPES.DIVIDER:
@@ -86,12 +87,13 @@ const blockToMjml = (block) => {
     case BLOCK_TYPES.TEXT:
       const textFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
       return `
-        <mj-section padding="${block.styles.padding || '10px 20px'}">
+        <mj-section padding="0">
           <mj-column>
             <mj-text 
               ${textFontFamily}
               color="${block.styles.color || '#333333'}"
               line-height="${block.styles.lineHeight || '1.5'}"
+              padding="${block.styles.padding || '10px 20px'}"
             >${sanitizeHtml(block.content || '')}</mj-text>
           </mj-column>
         </mj-section>
@@ -100,9 +102,9 @@ const blockToMjml = (block) => {
     case BLOCK_TYPES.IMAGE:
       if (!block.src) {
         return `
-          <mj-section padding="${block.styles.padding || '10px 20px'}">
+          <mj-section padding="0">
             <mj-column>
-              <mj-text align="center" color="#999999">[ Image placeholder ]</mj-text>
+              <mj-text align="center" color="#999999" padding="${block.styles.padding || '10px 20px'}">[ Image placeholder ]</mj-text>
             </mj-column>
           </mj-section>
         `;
@@ -110,13 +112,14 @@ const blockToMjml = (block) => {
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
       const sectionImgWidth = getImageMjmlWidth(block);
       return `
-        <mj-section padding="${block.styles.padding || '10px 20px'}">
+        <mj-section padding="0">
           <mj-column>
             <mj-image 
               src="${escapeHtml(block.src)}"
               alt="${escapeHtml(block.alt || 'Image')}"
               width="${sectionImgWidth}"
               align="${block.styles.textAlign || 'center'}"
+              padding="${block.styles.padding || '10px 20px'}"
               ${imgHref}
             />
           </mj-column>
@@ -125,7 +128,7 @@ const blockToMjml = (block) => {
 
     case BLOCK_TYPES.BUTTON:
       return `
-        <mj-section padding="${block.styles.containerPadding || '10px 20px'}">
+        <mj-section padding="0">
           <mj-column>
             <mj-button 
               href="${escapeHtml(block.href || '#')}"
@@ -134,7 +137,8 @@ const blockToMjml = (block) => {
               font-size="${block.styles.fontSize || '16px'}"
               font-weight="${block.styles.fontWeight || 'bold'}"
               border-radius="${block.styles.borderRadius || '4px'}"
-              padding="${block.styles.padding || '12px 24px'}"
+              inner-padding="${block.styles.padding || '12px 24px'}"
+              padding="${block.styles.containerPadding || '10px 20px'}"
               align="${block.styles.textAlign || 'center'}"
             >${escapeHtml(block.content)}</mj-button>
           </mj-column>
@@ -143,12 +147,13 @@ const blockToMjml = (block) => {
 
     case BLOCK_TYPES.DIVIDER:
       return `
-        <mj-section padding="${block.styles.padding || '10px 20px'}">
+        <mj-section padding="0">
           <mj-column>
             <mj-divider 
               border-color="${block.styles.borderColor || '#e0e0e0'}"
               border-width="${block.styles.borderWidth || '1px'}"
               border-style="${block.styles.borderStyle || 'solid'}"
+              padding="${block.styles.padding || '10px 20px'}"
             />
           </mj-column>
         </mj-section>
@@ -173,13 +178,18 @@ const blockToMjml = (block) => {
             return `<mj-text 
               ${colFontFamily}
               color="${b.styles.color || '#333333'}"
+              line-height="${b.styles.lineHeight || '1.5'}"
+              padding="${b.styles.padding || '10px 0'}"
             >${sanitizeHtml(b.content || '')}</mj-text>`;
           }
           if (b.type === BLOCK_TYPES.IMAGE && b.src) {
-            return `<mj-image src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt || '')}" />`;
+            return `<mj-image src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt || '')}" padding="${b.styles.padding || '10px 0'}" />`;
           }
           if (b.type === BLOCK_TYPES.BUTTON) {
-            return `<mj-button href="${escapeHtml(b.href || '#')}" background-color="${b.styles.backgroundColor || '#007bff'}">${escapeHtml(b.content)}</mj-button>`;
+            return `<mj-button href="${escapeHtml(b.href || '#')}" background-color="${b.styles.backgroundColor || '#007bff'}" inner-padding="${b.styles.padding || '12px 24px'}" padding="${b.styles.containerPadding || '10px 0'}">${escapeHtml(b.content)}</mj-button>`;
+          }
+          if (b.type === BLOCK_TYPES.DIVIDER) {
+            return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${b.styles.padding || '10px 0'}" />`;
           }
           return '';
         }).join('');
