@@ -473,6 +473,99 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
 };
 
+function ReadOnlySectionPreview({ block, globalFontFamily }) {
+  const children = block.children || [];
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+
+  return (
+    <div
+      style={{
+        backgroundColor: block.styles.backgroundColor,
+        ...paddingStyle,
+      }}
+    >
+      {children.map((child) => {
+        if (child.hidden) return null;
+        const ChildPreview = contentBlockPreviewComponents[child.type];
+        if (!ChildPreview) return null;
+        return <ChildPreview key={child.id} block={child} isChild={true} globalFontFamily={globalFontFamily} />;
+      })}
+    </div>
+  );
+}
+
+function ReadOnlyColumnsPreview({ block, globalFontFamily }) {
+  const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
+  const halfGap = Math.round(colGapPx / 2);
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+
+  return (
+    <div style={{ ...paddingStyle, backgroundColor: block.styles.backgroundColor }}>
+      <div className="flex">
+        {block.columns.map((col, idx) => (
+          <div
+            key={col.id}
+            style={{
+              width: col.width,
+              paddingLeft: idx === 0 ? '0px' : `${halfGap}px`,
+              paddingRight: idx === block.columns.length - 1 ? '0px' : `${halfGap}px`,
+              boxSizing: 'border-box',
+            }}
+          >
+            {col.blocks.map((childBlock) => {
+              if (childBlock.hidden) return null;
+              const ChildPreview = contentBlockPreviewComponents[childBlock.type];
+              if (!ChildPreview) return null;
+              return <ChildPreview key={childBlock.id} block={childBlock} isChild={true} globalFontFamily={globalFontFamily} />;
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ReadOnlyBlockPreview({ blocks, globalStyles, footerHtml }) {
+  const globalFontFamily = globalStyles?.fontFamily || 'Arial, sans-serif';
+
+  return (
+    <div
+      style={{
+        backgroundColor: globalStyles?.contentBackgroundColor || '#ffffff',
+        padding: globalStyles?.contentPadding || '0px',
+        width: '100%',
+        maxWidth: globalStyles?.contentWidth || '600px',
+        margin: '0 auto',
+      }}
+      data-testid="readonly-preview-canvas"
+    >
+      {(blocks || []).filter(b => !b.hidden).map((block) => {
+        if (block.type === BLOCK_TYPES.SECTION) {
+          return <ReadOnlySectionPreview key={block.id} block={block} globalFontFamily={globalFontFamily} />;
+        }
+        if (block.type === BLOCK_TYPES.COLUMNS) {
+          return <ReadOnlyColumnsPreview key={block.id} block={block} globalFontFamily={globalFontFamily} />;
+        }
+        const PreviewComponent = contentBlockPreviewComponents[block.type];
+        if (!PreviewComponent) return null;
+        return <PreviewComponent key={block.id} block={block} globalFontFamily={globalFontFamily} />;
+      })}
+      {globalStyles?.useDefaultFooter !== false && footerHtml && (
+        <div
+          style={{ padding: '12px 16px', borderTop: '1px solid #e0e0e0' }}
+        >
+          <div
+            className="text-xs [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
+            style={{ pointerEvents: 'none' }}
+            dangerouslySetInnerHTML={{ __html: footerHtml }}
+            data-testid="readonly-footer-preview"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BlockRenderer({
   block,
   isSelected,

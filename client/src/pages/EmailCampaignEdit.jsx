@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
+import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign } from '@/components/email-builder/types';
 
 const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
@@ -1293,29 +1294,14 @@ export default function EmailCampaignEdit() {
                 </div>
               </div>
 
-              <div data-testid="preview-email-body">
-                {formData.design_json ? (() => {
-                  try {
-                    const fHtml = footerData?.hasFooter ? footerData.footer : null;
-                    const html = designToHtml(formData.design_json, { footerHtml: fHtml });
-                    return (
-                      <iframe
-                        srcDoc={html}
-                        title="Email Preview"
-                        className="w-full border-0"
-                        style={{ minHeight: '600px', height: '100%' }}
-                        sandbox="allow-same-origin"
-                        data-testid="iframe-email-preview"
-                      />
-                    );
-                  } catch {
-                    return (
-                      <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-preview-error">
-                        Unable to generate preview. Try adjusting your design.
-                      </div>
-                    );
-                  }
-                })() : (
+              <div data-testid="preview-email-body" style={{ backgroundColor: formData.design_json?.globalStyles?.backgroundColor || '#f4f4f4' }}>
+                {formData.design_json ? (
+                  <ReadOnlyBlockPreview
+                    blocks={formData.design_json.blocks}
+                    globalStyles={formData.design_json.globalStyles}
+                    footerHtml={footerData?.hasFooter ? footerData.footer : null}
+                  />
+                ) : (
                   <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-no-design">
                     No design to preview. Add some content blocks first.
                   </div>

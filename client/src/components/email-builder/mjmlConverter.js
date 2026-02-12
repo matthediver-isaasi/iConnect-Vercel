@@ -13,12 +13,12 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
-const getImageMjmlWidth = (block) => {
+const getImageMjmlWidth = (block, contentWidth) => {
   const size = block.styles?.imageSize || '100%';
   if (size === 'custom' && block.styles?.imageSizeCustom) {
     return `${block.styles.imageSizeCustom}px`;
   }
-  if (size === '100%') return block.styles?.maxWidth || '600px';
+  if (size === '100%') return block.styles?.maxWidth || contentWidth;
   return size;
 };
 
@@ -157,7 +157,7 @@ const buildSocialIconHtml = (block) => {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${textAlign}" style="margin:0${textAlign === 'center' ? ' auto' : textAlign === 'right' ? ' 0 0 auto' : ''};"><tr>${platformCells}</tr></table>`;
 };
 
-const childBlockToMjml = (block) => {
+const childBlockToMjml = (block, contentWidth) => {
   switch (block.type) {
     case BLOCK_TYPES.TEXT:
       const childFontFamily = block.styles.fontFamily ? `font-family="${block.styles.fontFamily}"` : '';
@@ -170,7 +170,7 @@ const childBlockToMjml = (block) => {
     case BLOCK_TYPES.IMAGE:
       if (!block.src) return '';
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
-      const imgWidth = getImageMjmlWidth(block);
+      const imgWidth = getImageMjmlWidth(block, contentWidth);
       return `<mj-image 
         src="${escapeHtml(block.src)}"
         alt="${escapeHtml(block.alt || 'Image')}"
@@ -222,11 +222,11 @@ const childBlockToMjml = (block) => {
   }
 };
 
-const blockToMjml = (block) => {
+const blockToMjml = (block, contentWidth) => {
   switch (block.type) {
     case BLOCK_TYPES.SECTION: {
       const paddingVal = getPaddingAttr(block.styles);
-      const childrenMjml = (block.children || []).filter(c => !c.hidden).map(childBlockToMjml).filter(Boolean).join('\n');
+      const childrenMjml = (block.children || []).filter(c => !c.hidden).map(c => childBlockToMjml(c, contentWidth)).filter(Boolean).join('\n');
       return `
         <mj-section 
           background-color="${block.styles.backgroundColor || '#ffffff'}"
@@ -267,7 +267,7 @@ const blockToMjml = (block) => {
         `;
       }
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
-      const sectionImgWidth = getImageMjmlWidth(block);
+      const sectionImgWidth = getImageMjmlWidth(block, contentWidth);
       return `
         <mj-section padding="${imgSectionPad}">
           <mj-column>
@@ -387,10 +387,10 @@ const blockToMjml = (block) => {
             return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${getPaddingAttr(b.styles)}" />`;
           }
           if (b.type === BLOCK_TYPES.SOCIAL_ICONS) {
-            return childBlockToMjml(b);
+            return childBlockToMjml(b, contentWidth);
           }
           if (b.type === BLOCK_TYPES.UNSUBSCRIBE) {
-            return childBlockToMjml(b);
+            return childBlockToMjml(b, contentWidth);
           }
           return '';
         }).join('');
@@ -456,7 +456,8 @@ export const designToMjml = (design, { footerHtml } = {}) => {
     .map(font => `<mj-font name="${font}" href="${GOOGLE_FONTS[font]}" />`)
     .join('\n        ');
   
-  const mjmlBlocks = blocks.filter(b => !b.hidden).map(blockToMjml).join('\n');
+  const contentWidth = globalStyles.contentWidth || '600px';
+  const mjmlBlocks = blocks.filter(b => !b.hidden).map(b => blockToMjml(b, contentWidth)).join('\n');
 
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
   let footerSection = '';
