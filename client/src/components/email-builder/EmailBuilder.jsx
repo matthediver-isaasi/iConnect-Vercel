@@ -823,12 +823,14 @@ export default function EmailBuilder({
             ) : selectedColChild ? (
               <BlockEditor 
                 block={selectedColChild.child} 
-                onChange={handleColumnChildUpdate} 
+                onChange={handleColumnChildUpdate}
+                isChild={true}
               />
             ) : selectedChild ? (
               <BlockEditor 
                 block={selectedChild.child} 
-                onChange={handleChildUpdate} 
+                onChange={handleChildUpdate}
+                isChild={true}
               />
             ) : (
               <BlockEditor 

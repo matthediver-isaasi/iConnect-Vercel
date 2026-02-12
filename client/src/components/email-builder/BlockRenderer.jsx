@@ -25,7 +25,6 @@ function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId
   });
 
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const marginStyle = getSpacingStyle(block.styles, 'margin');
 
   return (
     <div
@@ -33,7 +32,6 @@ function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId
       style={{
         backgroundColor: block.styles.backgroundColor,
         ...paddingStyle,
-        ...marginStyle,
       }}
       className={`min-h-[60px] transition-colors ${isOver ? 'ring-2 ring-primary ring-inset' : ''}`}
     >
@@ -70,17 +68,17 @@ function ChildBlockRenderer({ block, isSelected, onSelect }) {
       data-testid={`child-block-${block.id}`}
     >
       <div className={`border ${isSelected ? 'border-primary/30' : 'border-transparent'} rounded transition-colors`}>
-        {PreviewComponent && <PreviewComponent block={block} />}
+        {PreviewComponent && <PreviewComponent block={block} isChild={true} />}
       </div>
     </div>
   );
 }
 
-function TextBlockPreview({ block }) {
+function TextBlockPreview({ block, isChild }) {
   const isHtml = block.content && block.content.includes('<');
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const marginStyle = getSpacingStyle(block.styles, 'margin');
-  return (
+
+  const textEl = (
     <div
       className="prose prose-sm max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mt-0 [&_h1]:mb-[0.5em] [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-0 [&_h2]:mb-[0.5em] [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-0 [&_h3]:mb-[0.5em] [&_p]:mt-0 [&_p]:mb-[1em] [&_p:last-child]:mb-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit"
       style={{
@@ -88,16 +86,20 @@ function TextBlockPreview({ block }) {
         color: block.styles.color,
         lineHeight: block.styles.lineHeight || '1.5',
         ...paddingStyle,
-        ...marginStyle,
       }}
       dangerouslySetInnerHTML={isHtml ? { __html: sanitizeHtml(block.content) } : undefined}
     >
       {isHtml ? undefined : block.content}
     </div>
   );
+
+  if (isChild) return textEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{textEl}</div>;
 }
 
-function ImageBlockPreview({ block }) {
+function ImageBlockPreview({ block, isChild }) {
   const getImageWidth = () => {
     const size = block.styles.imageSize || '100%';
     if (size === 'custom' && block.styles.imageSizeCustom) {
@@ -107,17 +109,21 @@ function ImageBlockPreview({ block }) {
   };
 
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const marginStyle = getSpacingStyle(block.styles, 'margin');
 
   if (!block.src) {
-    return (
-      <div
-        className="flex items-center justify-center bg-muted/50 text-muted-foreground border-2 border-dashed rounded"
-        style={{ ...paddingStyle, ...marginStyle, minHeight: '100px' }}
-      >
-        Click to add image URL
+    const placeholderEl = (
+      <div style={paddingStyle}>
+        <div
+          className="flex items-center justify-center bg-muted/50 text-muted-foreground border-2 border-dashed rounded"
+          style={{ minHeight: '100px' }}
+        >
+          Click to add image URL
+        </div>
       </div>
     );
+    if (isChild) return placeholderEl;
+    const placeholderMargin = getSpacingStyle(block.styles, 'margin', 'padding');
+    return <div style={placeholderMargin}>{placeholderEl}</div>;
   }
   const imgWidth = getImageWidth();
   const align = block.styles.textAlign || 'center';
@@ -139,8 +145,8 @@ function ImageBlockPreview({ block }) {
     imgStyle.marginRight = 'auto';
   }
 
-  return (
-    <div style={{ ...paddingStyle, ...marginStyle }}>
+  const imgEl = (
+    <div style={paddingStyle}>
       <img
         src={block.src}
         alt={block.alt}
@@ -148,15 +154,19 @@ function ImageBlockPreview({ block }) {
       />
     </div>
   );
+
+  if (isChild) return imgEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{imgEl}</div>;
 }
 
-function ButtonBlockPreview({ block }) {
+function ButtonBlockPreview({ block, isChild }) {
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const marginStyle = getSpacingStyle(block.styles, 'margin');
   const innerPaddingStyle = getSpacingStyle(block.styles, 'innerPadding', 'padding');
 
-  return (
-    <div style={{ ...paddingStyle, ...marginStyle, textAlign: block.styles.textAlign }}>
+  const btnEl = (
+    <div style={{ ...paddingStyle, textAlign: block.styles.textAlign }}>
       <span
         style={{
           display: 'inline-block',
@@ -173,13 +183,18 @@ function ButtonBlockPreview({ block }) {
       </span>
     </div>
   );
+
+  if (isChild) return btnEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{btnEl}</div>;
 }
 
-function DividerBlockPreview({ block }) {
+function DividerBlockPreview({ block, isChild }) {
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const marginStyle = getSpacingStyle(block.styles, 'margin');
-  return (
-    <div style={{ ...paddingStyle, ...marginStyle }}>
+
+  const divEl = (
+    <div style={paddingStyle}>
       <hr
         style={{
           borderColor: block.styles.borderColor,
@@ -189,6 +204,11 @@ function DividerBlockPreview({ block }) {
       />
     </div>
   );
+
+  if (isChild) return divEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{divEl}</div>;
 }
 
 function SpacerBlockPreview({ block }) {
@@ -219,10 +239,9 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
   const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
   const halfGap = Math.round(colGapPx / 2);
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const marginStyle = getSpacingStyle(block.styles, 'margin');
 
   return (
-    <div style={{ ...paddingStyle, ...marginStyle }}>
+    <div style={paddingStyle}>
       <div className="flex">
         {block.columns.map((col, idx) => (
           <ColumnDropZone
@@ -258,7 +277,7 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
                   }}
                   data-testid={`column-child-${childBlock.id}`}
                 >
-                  <ChildPreview block={childBlock} />
+                  <ChildPreview block={childBlock} isChild={true} />
                 </div>
               );
             })}

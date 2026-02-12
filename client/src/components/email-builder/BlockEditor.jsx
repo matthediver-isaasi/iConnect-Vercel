@@ -44,7 +44,7 @@ const GOOGLE_FONT_OPTIONS = [
   { value: "Verdana, sans-serif", label: 'Verdana' },
 ];
 
-function TextBlockEditor({ block, onChange }) {
+function TextBlockEditor({ block, onChange, isChild }) {
   const update = (key, value) => {
     if (key === 'content') {
       onChange({ ...block, content: value });
@@ -99,18 +99,20 @@ function TextBlockEditor({ block, onChange }) {
         styles={block.styles}
         onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
       />
-      <SpacingControl
-        label="Margin"
-        prefix="margin"
-        styles={block.styles}
-        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
-        hint="Outer spacing around this element"
-      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
     </div>
   );
 }
 
-function ImageBlockEditor({ block, onChange }) {
+function ImageBlockEditor({ block, onChange, isChild }) {
   const [isUploading, setIsUploading] = useState(false);
   const [showFileSelector, setShowFileSelector] = useState(false);
   const [fileSelectorFolder, setFileSelectorFolder] = useState(null);
@@ -517,13 +519,15 @@ function ImageBlockEditor({ block, onChange }) {
         styles={block.styles}
         onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
       />
-      <SpacingControl
-        label="Margin"
-        prefix="margin"
-        styles={block.styles}
-        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
-        hint="Outer spacing around this element"
-      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
 
       <Dialog open={showFileSelector} onOpenChange={() => {
         setShowFileSelector(false);
@@ -709,7 +713,7 @@ function ImageBlockEditor({ block, onChange }) {
   );
 }
 
-function ButtonBlockEditor({ block, onChange }) {
+function ButtonBlockEditor({ block, onChange, isChild }) {
   const update = (key, value) => {
     if (key === 'content' || key === 'href') {
       onChange({ ...block, [key]: value });
@@ -810,18 +814,20 @@ function ButtonBlockEditor({ block, onChange }) {
         styles={block.styles}
         onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
       />
-      <SpacingControl
-        label="Margin"
-        prefix="margin"
-        styles={block.styles}
-        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
-        hint="Outer spacing around this element"
-      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
     </div>
   );
 }
 
-function DividerBlockEditor({ block, onChange }) {
+function DividerBlockEditor({ block, onChange, isChild }) {
   const update = (key, value) => {
     onChange({ ...block, styles: { ...block.styles, [key]: value } });
   };
@@ -869,13 +875,15 @@ function DividerBlockEditor({ block, onChange }) {
         styles={block.styles}
         onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
       />
-      <SpacingControl
-        label="Margin"
-        prefix="margin"
-        styles={block.styles}
-        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
-        hint="Outer spacing around this element"
-      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
     </div>
   );
 }
@@ -1107,7 +1115,7 @@ const blockEditors = {
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
 };
 
-export default function BlockEditor({ block, onChange }) {
+export default function BlockEditor({ block, onChange, isChild }) {
   if (!block) {
     return (
       <div className="p-4 text-center text-muted-foreground">
@@ -1122,7 +1130,7 @@ export default function BlockEditor({ block, onChange }) {
   return (
     <div className="p-4">
       <h3 className="text-sm font-medium mb-4">{blockTypeLabel} Settings</h3>
-      {EditorComponent && <EditorComponent block={block} onChange={onChange} />}
+      {EditorComponent && <EditorComponent block={block} onChange={onChange} isChild={isChild} />}
     </div>
   );
 }
