@@ -491,7 +491,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3 [&_p]:my-0 [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit',
+        class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3 [&_p]:mt-0 [&_p]:mb-[1em] [&_p:last-child]:mb-0 [&_h1]:mt-0 [&_h1]:mb-[0.5em] [&_h2]:mt-0 [&_h2]:mb-[0.5em] [&_h3]:mt-0 [&_h3]:mb-[0.5em] [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit',
         style: buildStyle(fontFamily, color, lineHeight),
       },
     },
@@ -508,7 +508,7 @@ export default function RichTextEditor({ content, onChange, fontFamily, color, l
       editor.setOptions({
         editorProps: {
           attributes: {
-            class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3 [&_p]:my-0 [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit',
+            class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3 [&_p]:mt-0 [&_p]:mb-[1em] [&_p:last-child]:mb-0 [&_h1]:mt-0 [&_h1]:mb-[0.5em] [&_h2]:mt-0 [&_h2]:mb-[0.5em] [&_h3]:mt-0 [&_h3]:mb-[0.5em] [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit',
             style: buildStyle(fontFamily, color, lineHeight),
           },
         },
