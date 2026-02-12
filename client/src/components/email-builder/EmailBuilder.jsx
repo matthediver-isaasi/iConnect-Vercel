@@ -640,7 +640,7 @@ export default function EmailBuilder({
 
       <div className="relative flex-shrink-0 overflow-visible" style={{ width: '320px' }}>
         <div
-          className="absolute top-0 bottom-0 border-r bg-muted/20 flex flex-col transition-transform duration-200 ease-in-out"
+          className="absolute top-0 bottom-0 border-l border-r bg-background flex flex-col transition-transform duration-200 ease-in-out"
           style={{
             width: '320px',
             right: '100%',
@@ -677,8 +677,8 @@ export default function EmailBuilder({
 
         {!layersOpen && !propertiesExpanded && (
           <div
-            className="absolute top-1/2 -translate-y-1/2"
-            style={{ right: '100%', zIndex: 15 }}
+            className="absolute"
+            style={{ right: '100%', top: '6px', zIndex: 15 }}
           >
             <Button
               size="icon"
@@ -710,21 +710,7 @@ export default function EmailBuilder({
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setLayersOpen(prev => !prev)}
-                title={layersOpen ? 'Hide layers' : 'Show layers'}
-                data-testid="button-toggle-layers"
-              >
-                <Layers className="h-4 w-4" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => {
-                  setPropertiesExpanded(prev => {
-                    if (!prev) setLayersOpen(false);
-                    return !prev;
-                  });
-                }}
+                onClick={() => setPropertiesExpanded(prev => !prev)}
                 title={propertiesExpanded ? 'Collapse panel' : 'Expand panel'}
                 data-testid="button-toggle-properties-expand"
               >

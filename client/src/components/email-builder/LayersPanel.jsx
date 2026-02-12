@@ -32,7 +32,7 @@ import {
   ChevronRight,
   ChevronDown,
   FileText,
-  X,
+  Layers,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -517,7 +517,7 @@ export default function LayersPanel({
             title="Close layers"
             data-testid="button-close-layers"
           >
-            <X className="h-4 w-4" />
+            <Layers className="h-4 w-4" />
           </Button>
         )}
       </div>
