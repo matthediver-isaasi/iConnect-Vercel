@@ -847,14 +847,37 @@ export default function EmailCampaignEdit() {
                     </Button>
                   </div>
                   
-                  {formData.html_content && (
+                  {(formData.design_json || formData.html_content) && (
                     <div className="space-y-2">
                       <Label className="text-sm">Preview</Label>
                       <div 
-                        className="border rounded-md p-4 max-h-[300px] overflow-auto bg-white prose prose-sm max-w-none"
+                        className="border rounded-md overflow-hidden bg-white"
                         data-testid="visual-preview"
                       >
-                        <div dangerouslySetInnerHTML={{ __html: formData.html_content }} />
+                        {(() => {
+                          try {
+                            const html = formData.design_json 
+                              ? designToHtml(formData.design_json) 
+                              : formData.html_content;
+                            if (!html) return null;
+                            return (
+                              <iframe
+                                srcDoc={html}
+                                title="Email Preview"
+                                className="w-full border-0"
+                                style={{ minHeight: '300px' }}
+                                sandbox="allow-same-origin"
+                                data-testid="iframe-visual-preview"
+                              />
+                            );
+                          } catch {
+                            return (
+                              <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                                Unable to generate preview.
+                              </div>
+                            );
+                          }
+                        })()}
                       </div>
                     </div>
                   )}
