@@ -45,7 +45,13 @@ export default function EmailBuilder({
 }) {
   const [design, setDesign] = useState(() => {
     if (initialDesign && initialDesign.blocks) {
-      return initialDesign;
+      return {
+        ...initialDesign,
+        globalStyles: {
+          ...defaultEmailDesign.globalStyles,
+          ...initialDesign.globalStyles,
+        },
+      };
     }
     return { ...defaultEmailDesign };
   });
@@ -701,7 +707,7 @@ export default function EmailBuilder({
             <div 
               className="w-full shadow-lg"
               style={{ 
-                maxWidth: design.globalStyles.contentWidth,
+                maxWidth: design.globalStyles.contentWidth || '600px',
                 backgroundColor: design.globalStyles.contentBackgroundColor,
                 padding: design.globalStyles.contentPadding || '0px',
               }}

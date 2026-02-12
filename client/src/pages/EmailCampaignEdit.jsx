@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
 import { designToHtml } from '@/components/email-builder/mjmlConverter';
+import { defaultEmailDesign } from '@/components/email-builder/types';
 
 const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
 
@@ -82,6 +83,15 @@ export default function EmailCampaignEdit() {
       }
       const hasDesign = parsedDesign && typeof parsedDesign === 'object' && 
         (parsedDesign.type === 'custom-email-builder' || Array.isArray(parsedDesign.blocks));
+      if (hasDesign) {
+        parsedDesign = {
+          ...parsedDesign,
+          globalStyles: {
+            ...defaultEmailDesign.globalStyles,
+            ...(parsedDesign.globalStyles || {}),
+          },
+        };
+      }
       setEditorMode(hasDesign ? 'visual' : (campaign.html_content ? 'html' : 'visual'));
       setFormData({
         name: campaign.name || '',
