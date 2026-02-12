@@ -855,6 +855,25 @@ function DividerBlockEditor({ block, onChange }) {
           </SelectContent>
         </Select>
       </div>
+      <div className="space-y-2">
+        <Label>Padding</Label>
+        <Select
+          value={block.styles.padding || '10px 20px'}
+          onValueChange={(v) => update('padding', v)}
+        >
+          <SelectTrigger data-testid="editor-divider-padding">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0px">None</SelectItem>
+            <SelectItem value="5px">Extra Small (5px)</SelectItem>
+            <SelectItem value="10px">Small (10px)</SelectItem>
+            <SelectItem value="10px 20px">Medium (10px 20px)</SelectItem>
+            <SelectItem value="20px">Large (20px)</SelectItem>
+            <SelectItem value="20px 40px">Extra Large (20px 40px)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
