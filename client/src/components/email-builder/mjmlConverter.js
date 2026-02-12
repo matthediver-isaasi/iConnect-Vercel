@@ -1,7 +1,8 @@
 import mjml2html from 'mjml-browser';
-import { BLOCK_TYPES } from './types';
+import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues, spacingToMjml } from './SpacingControl';
+import { getSocialIconDataUri } from './socialIcons';
 
 const escapeHtml = (text) => {
   if (!text) return '';
@@ -81,9 +82,57 @@ const childBlockToMjml = (block) => {
       />`;
     case BLOCK_TYPES.SPACER:
       return `<mj-spacer height="${block.styles.height || '20px'}" />`;
+    case BLOCK_TYPES.SOCIAL_ICONS:
+      return socialIconsToMjmlContent(block);
     default:
       return '';
   }
+};
+
+const socialIconsToMjmlContent = (block) => {
+  const platforms = (block.platforms || []).filter(p => p.enabled);
+  if (platforms.length === 0) return '';
+  const iconSize = block.styles.iconSize || '32';
+  const iconColor = block.styles.iconColor || '#333333';
+  const bgColor = block.styles.iconBgColor || '#f4f4f4';
+  const shape = block.styles.shape || 'circle';
+  const iconStyle = block.styles.iconStyle || 'filled';
+  const displayMode = block.styles.displayMode || 'icon-only';
+  const borderRadius = shape === 'circle' ? `${Math.round(parseInt(iconSize) / 2 + 6)}px` : shape === 'rounded' ? '6px' : '0px';
+  const mode = displayMode === 'icon-text' ? 'horizontal' : 'horizontal';
+  const containerSize = parseInt(iconSize, 10) + 12;
+
+  const elements = platforms.map(p => {
+    const def = SOCIAL_PLATFORMS.find(sp => sp.key === p.key);
+    const label = def?.label || p.key;
+    const iconSvgSize = Math.round(parseInt(iconSize, 10) * 0.6);
+    const srcUri = getSocialIconDataUri(p.key, iconStyle === 'outline' && shape === 'none' ? iconColor : (shape === 'none' ? iconColor : iconColor), iconSvgSize);
+    const textContent = displayMode === 'icon-text' ? label : '';
+    return `<mj-social-element 
+      name="${p.key}-noshare" 
+      href="${escapeHtml(p.url || '#')}"
+      src="${srcUri}"
+      background-color="${shape !== 'none' ? (iconStyle === 'outline' ? 'transparent' : bgColor) : 'transparent'}"
+      icon-size="${containerSize}px"
+      border-radius="${borderRadius}"
+      color="${iconColor}"
+      font-size="13px"
+      ${iconStyle === 'outline' && shape !== 'none' ? `css-class="social-outline"` : ''}
+    >${textContent}</mj-social-element>`;
+  }).join('\n');
+
+  const align = block.styles?.textAlign || 'center';
+  const padding = block.styles ? getPaddingAttr(block.styles) : '10px 20px';
+
+  return `<mj-social 
+    mode="${mode}" 
+    icon-size="${containerSize}px"
+    border-radius="${borderRadius}"
+    font-size="13px"
+    color="${iconColor}"
+    align="${align}"
+    padding="${padding}"
+  >${elements}</mj-social>`;
 };
 
 const blockToMjml = (block) => {
@@ -194,6 +243,19 @@ const blockToMjml = (block) => {
         </mj-section>
       `;
 
+    case BLOCK_TYPES.SOCIAL_ICONS: {
+      const socialSectionPad = getCombinedSectionPadding(block.styles);
+      const socialContent = socialIconsToMjmlContent(block);
+      if (!socialContent) return '';
+      return `
+        <mj-section padding="${socialSectionPad}">
+          <mj-column>
+            ${socialContent}
+          </mj-column>
+        </mj-section>
+      `;
+    }
+
     case BLOCK_TYPES.COLUMNS: {
       const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
       const halfGap = Math.round(colGapPx / 2);
@@ -216,6 +278,9 @@ const blockToMjml = (block) => {
           }
           if (b.type === BLOCK_TYPES.DIVIDER) {
             return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${getPaddingAttr(b.styles)}" />`;
+          }
+          if (b.type === BLOCK_TYPES.SOCIAL_ICONS) {
+            return socialIconsToMjmlContent(b);
           }
           return '';
         }).join('');
@@ -289,6 +354,7 @@ export const designToMjml = (design) => {
           h1, h2, h3, h4, h5, h6 { margin: 0; }
           p { margin: 0 0 1em 0; }
           p:last-child { margin-bottom: 0; }
+          .social-outline td { border: 2px solid currentColor; }
         </mj-style>
       </mj-head>
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}">
