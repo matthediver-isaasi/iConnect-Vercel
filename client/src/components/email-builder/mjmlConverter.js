@@ -286,7 +286,9 @@ export const designToMjml = (design) => {
           <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}" />
         </mj-attributes>
         <mj-style>
-          h1, h2, h3, h4, h5, h6, p { margin: 0; }
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
         </mj-style>
       </mj-head>
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}">
