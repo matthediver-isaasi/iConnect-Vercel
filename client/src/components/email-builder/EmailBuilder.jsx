@@ -63,6 +63,18 @@ export default function EmailBuilder({
   const [historyVersion, setHistoryVersion] = useState(0);
   const MAX_HISTORY = 50;
 
+  const [footerHtml, setFooterHtml] = useState(null);
+  const [footerLoading, setFooterLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/email-campaigns/preview-footer', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { footer: null })
+      .then(data => { if (!cancelled) { setFooterHtml(data.footer || null); setFooterLoading(false); } })
+      .catch(() => { if (!cancelled) setFooterLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   const canUndo = undoStackRef.current.length > 0;
   const canRedo = redoStackRef.current.length > 0;
 
@@ -714,6 +726,20 @@ export default function EmailBuilder({
                   ))}
                 </CanvasDropZone>
               </SortableContext>
+              {design.globalStyles.useDefaultFooter !== false && footerHtml && (
+                <div
+                  className="border-t border-dashed border-muted-foreground/30"
+                  style={{ padding: '12px 16px' }}
+                >
+                  <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider font-medium">Default Footer</p>
+                  <div
+                    className="text-xs [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
+                    style={{ pointerEvents: 'none' }}
+                    dangerouslySetInnerHTML={{ __html: footerHtml }}
+                    data-testid="canvas-footer-preview"
+                  />
+                </div>
+              )}
             </div>
             </div>
           </div>
@@ -819,7 +845,9 @@ export default function EmailBuilder({
             {isPageSelected ? (
               <GlobalSettings 
                 settings={design.globalStyles} 
-                onChange={handleGlobalSettingsChange} 
+                onChange={handleGlobalSettingsChange}
+                footerHtml={footerHtml}
+                footerLoading={footerLoading}
               />
             ) : selectedColChild ? (
               <BlockEditor 

@@ -240,5 +240,6 @@ export const defaultEmailDesign = {
     contentBackgroundColor: '#ffffff',
     contentWidth: '600px',
     fontFamily: 'Arial, sans-serif',
+    useDefaultFooter: true,
   },
 };

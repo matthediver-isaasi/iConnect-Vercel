@@ -1,11 +1,14 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 
-export default function GlobalSettings({ settings, onChange }) {
+export default function GlobalSettings({ settings, onChange, footerHtml, footerLoading }) {
   const update = (key, value) => {
     onChange({ ...settings, [key]: value });
   };
+
+  const useDefaultFooter = settings.useDefaultFooter !== false;
 
   return (
     <div className="p-4 space-y-4">
@@ -62,6 +65,36 @@ export default function GlobalSettings({ settings, onChange }) {
             <SelectItem value="40px">Extra Large (40px)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label className="text-xs">Use default email footer</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Appends your tenant's email footer when sent
+            </p>
+          </div>
+          <Switch
+            checked={useDefaultFooter}
+            onCheckedChange={(checked) => update('useDefaultFooter', checked)}
+            data-testid="toggle-default-footer"
+          />
+        </div>
+        {useDefaultFooter && (
+          <div className="mt-3 rounded border bg-muted/30 p-3">
+            {footerLoading ? (
+              <p className="text-xs text-muted-foreground italic">Loading footer preview...</p>
+            ) : footerHtml ? (
+              <div
+                className="text-xs [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
+                dangerouslySetInnerHTML={{ __html: footerHtml }}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No email footer configured for this tenant.</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

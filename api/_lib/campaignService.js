@@ -596,6 +596,16 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     let sentCount = 0;
     let failedCount = 0;
 
+    let campaignSkipFooter = false;
+    if (campaign.design_json) {
+      try {
+        const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
+        if (designData?.globalStyles?.useDefaultFooter === false) {
+          campaignSkipFooter = true;
+        }
+      } catch (e) {}
+    }
+
     for (const recipient of insertedRecipients || []) {
       try {
         let html = campaign.html_content || '';
@@ -628,7 +638,8 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
           subject: subject,
           html: html,
           from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
-          tenantId: tenantId
+          tenantId: tenantId,
+          skipFooter: campaignSkipFooter
         });
 
         if (result.success) {
