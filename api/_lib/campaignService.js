@@ -597,11 +597,27 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     let failedCount = 0;
 
     let campaignSkipFooter = false;
+    let designHasUnsubscribeBlock = false;
     if (campaign.design_json) {
       try {
         const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
         if (designData?.globalStyles?.useDefaultFooter === false) {
           campaignSkipFooter = true;
+        }
+        const checkForUnsubscribe = (blocks) => {
+          if (!Array.isArray(blocks)) return false;
+          for (const block of blocks) {
+            if (block.type === 'unsubscribe') return true;
+            if (block.columns) {
+              for (const col of block.columns) {
+                if (checkForUnsubscribe(col.blocks)) return true;
+              }
+            }
+          }
+          return false;
+        };
+        if (designData?.blocks) {
+          designHasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
         }
       } catch (e) {}
     }
@@ -627,7 +643,7 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
         html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
         html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
         
-        if (!hasUnsubscribePlaceholder) {
+        if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
           html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
             <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
           </p>`;

@@ -104,6 +104,26 @@ async function getEmailFooter(tenantId = null) {
   }
 }
 
+function constrainFooterForEmail(footerHtml) {
+  if (!footerHtml) return footerHtml;
+  let result = footerHtml;
+  result = result.replace(/<img\b([^>]*?)>/gi, (match, attrs) => {
+    if (/max-width/i.test(attrs)) return match;
+    if (/style\s*=/i.test(attrs)) {
+      return match.replace(/style\s*=\s*"([^"]*)"/i, 'style="$1; max-width: 100%; height: auto;"');
+    }
+    return `<img style="max-width: 100%; height: auto;"${attrs}>`;
+  });
+  result = result.replace(/<table\b([^>]*?)>/gi, (match, attrs) => {
+    if (/max-width/i.test(attrs)) return match;
+    if (/style\s*=/i.test(attrs)) {
+      return match.replace(/style\s*=\s*"([^"]*)"/i, 'style="$1; max-width: 100%; width: 100%;"');
+    }
+    return `<table style="max-width: 100%; width: 100%;"${attrs}>`;
+  });
+  return result;
+}
+
 async function replaceSocialPlaceholdersInFooter(footer, tenantId = null) {
   if (!footer) return footer;
   
@@ -225,7 +245,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       const footer = await getEmailFooter(tenantId);
       if (footer) {
         const processedFooter = await replaceSocialPlaceholdersInFooter(footer, tenantId);
-        finalHtml = finalHtml + processedFooter;
+        finalHtml = finalHtml + constrainFooterForEmail(processedFooter);
         console.log(`[Email Service] Email footer appended for tenant: ${tenantId || 'global'}`);
       }
     }
