@@ -243,7 +243,7 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
 
   return (
-    <div style={paddingStyle}>
+    <div style={{ ...paddingStyle, backgroundColor: block.styles.backgroundColor }}>
       <div className="flex">
         {block.columns.map((col, idx) => (
           <ColumnDropZone

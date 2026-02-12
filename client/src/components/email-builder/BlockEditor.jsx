@@ -1069,6 +1069,17 @@ function ColumnsBlockEditor({ block, onChange }) {
         </Select>
       </div>
 
+      <div className="space-y-2">
+        <Label>Background Color</Label>
+        <Input
+          type="color"
+          value={block.styles.backgroundColor || '#ffffff'}
+          onChange={(e) => onChange({ ...block, styles: { ...block.styles, backgroundColor: e.target.value } })}
+          className="h-9 p-1"
+          data-testid="editor-columns-bg-color"
+        />
+      </div>
+
       <SpacingControl
         label="Padding"
         prefix="padding"
