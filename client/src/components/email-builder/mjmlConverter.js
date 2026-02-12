@@ -285,6 +285,9 @@ export const designToMjml = (design) => {
           <mj-all font-family="${globalStyles.fontFamily || 'Arial, sans-serif'}" />
           <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}" />
         </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6, p { margin: 0; }
+        </mj-style>
       </mj-head>
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}">
         <mj-wrapper background-color="${globalStyles.contentBackgroundColor || '#ffffff'}" padding="${globalStyles.contentPadding || '0px'}">

@@ -93,6 +93,27 @@ function TextBlockEditor({ block, onChange, isChild, globalFontFamily }) {
           Google Fonts work in Gmail, Apple Mail, iOS. Outlook uses fallback.
         </p>
       </div>
+      <div className="space-y-2">
+        <Label>Line Height</Label>
+        <Select
+          value={block.styles.lineHeight || '1.5'}
+          onValueChange={(v) => update('lineHeight', v)}
+        >
+          <SelectTrigger data-testid="editor-line-height">
+            <SelectValue placeholder="Line height..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="1">1.0 — Tight</SelectItem>
+            <SelectItem value="1.15">1.15</SelectItem>
+            <SelectItem value="1.25">1.25</SelectItem>
+            <SelectItem value="1.4">1.4</SelectItem>
+            <SelectItem value="1.5">1.5 — Default</SelectItem>
+            <SelectItem value="1.6">1.6</SelectItem>
+            <SelectItem value="1.75">1.75</SelectItem>
+            <SelectItem value="2">2.0 — Loose</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <SpacingControl
         label="Padding"
         prefix="padding"
