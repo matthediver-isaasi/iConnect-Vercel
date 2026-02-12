@@ -133,6 +133,8 @@ const childBlockToMjml = (block) => {
     case BLOCK_TYPES.SOCIAL_ICONS: {
       const enabledChild = (block.platforms || []).filter(p => p.enabled);
       const displayMode = block.styles.displayMode || 'icon-only';
+      const labelFontFamily = block.styles.labelFontFamily || '';
+      const labelFontSize = block.styles.labelFontSize || '12';
       const socialElements = enabledChild
         .map(p => {
           const name = SOCIAL_NAME_MAP[p.key] || 'web';
@@ -142,12 +144,14 @@ const childBlockToMjml = (block) => {
           return `<mj-social-element name="${name}" href="${escapeHtml(p.url || '#')}" ${attrs}${labelAttr}>${labelText}</mj-social-element>`;
         })
         .join('\n            ');
+      const fontFamilyAttr = labelFontFamily ? ` font-family="${labelFontFamily}"` : '';
       return `<mj-social
             mode="horizontal"
             icon-size="${block.styles.iconSize || '30'}px"
             icon-padding="${block.styles.gap ? Math.round(parseInt(block.styles.gap) / 2) : 4}px"
             padding="${getPaddingAttr(block.styles)}"
             align="${block.styles.textAlign || 'center'}"
+            font-size="${labelFontSize}px"${fontFamilyAttr}
             border-radius="${getSocialBorderRadius(block.styles.shape, block.styles.iconSize)}"
           >${socialElements}</mj-social>`;
     }
@@ -268,6 +272,8 @@ const blockToMjml = (block) => {
       const socialSectionPad = getCombinedSectionPadding(block.styles);
       const enabledPlatforms = (block.platforms || []).filter(p => p.enabled);
       const displayMode = block.styles.displayMode || 'icon-only';
+      const topLabelFontFamily = block.styles.labelFontFamily || '';
+      const topLabelFontSize = block.styles.labelFontSize || '12';
       const socialEls = enabledPlatforms.map(p => {
         const name = SOCIAL_NAME_MAP[p.key] || 'web';
         const attrs = getSocialElementAttrs(p, block);
@@ -275,6 +281,7 @@ const blockToMjml = (block) => {
         const contentText = displayMode === 'icon-label' ? (p.key === 'twitter' ? 'X' : (p.key.charAt(0).toUpperCase() + p.key.slice(1))) : '';
         return `<mj-social-element name="${name}" href="${escapeHtml(p.url || '#')}" ${attrs}${labelAttr}>${contentText}</mj-social-element>`;
       }).join('\n              ');
+      const topFontFamilyAttr = topLabelFontFamily ? `\n              font-family="${topLabelFontFamily}"` : '';
       return `
         <mj-section padding="${socialSectionPad}">
           <mj-column>
@@ -284,6 +291,7 @@ const blockToMjml = (block) => {
               icon-padding="${block.styles.gap ? Math.round(parseInt(block.styles.gap) / 2) : 4}px"
               padding="${getPaddingAttr(block.styles)}"
               align="${block.styles.textAlign || 'center'}"
+              font-size="${topLabelFontSize}px"${topFontFamilyAttr}
               border-radius="${getSocialBorderRadius(block.styles.shape, block.styles.iconSize)}"
             >
               ${socialEls}

@@ -314,7 +314,7 @@ const SOCIAL_LABELS = {
   website: 'Website',
 };
 
-function SocialIconsBlockPreview({ block, isChild }) {
+function SocialIconsBlockPreview({ block, isChild, globalFontFamily }) {
   const enabledPlatforms = (block.platforms || []).filter(p => p.enabled);
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
   const iconSize = parseInt(block.styles.iconSize || '30', 10);
@@ -323,6 +323,9 @@ function SocialIconsBlockPreview({ block, isChild }) {
   const iconStyle = block.styles.iconStyle || 'filled';
   const iconColor = block.styles.iconColor || '#333333';
   const displayMode = block.styles.displayMode || 'icon-only';
+  const labelPosition = block.styles.labelPosition || 'right';
+  const labelFontFamily = block.styles.labelFontFamily || globalFontFamily || 'Arial, sans-serif';
+  const labelFontSize = parseInt(block.styles.labelFontSize || '12', 10);
   const align = block.styles.textAlign || 'center';
 
   const getShapeStyle = () => {
@@ -367,6 +370,35 @@ function SocialIconsBlockPreview({ block, isChild }) {
 
   const svgPad = Math.round(iconSize * 0.22);
 
+  const isVerticalLabel = labelPosition === 'top' || labelPosition === 'bottom';
+  const isLabelBefore = labelPosition === 'left' || labelPosition === 'top';
+
+  const getItemStyle = () => {
+    const base = { display: 'inline-flex', alignItems: 'center', gap: '4px' };
+    if (isVerticalLabel && displayMode === 'icon-label') {
+      return { ...base, flexDirection: 'column', textAlign: 'center' };
+    }
+    return base;
+  };
+
+  const labelEl = (p) => (
+    <span style={{ fontSize: `${labelFontSize}px`, color: iconColor, fontFamily: labelFontFamily, lineHeight: 1.2 }}>
+      {SOCIAL_LABELS[p.key] || p.key}
+    </span>
+  );
+
+  const iconEl = (p) => (
+    <div style={getShapeStyle()}>
+      <svg
+        viewBox="0 0 24 24"
+        fill={getSvgColor()}
+        style={{ width: `${iconSize - svgPad * 2}px`, height: `${iconSize - svgPad * 2}px` }}
+      >
+        <path d={SOCIAL_SVG_PATHS[p.key] || SOCIAL_SVG_PATHS.website} />
+      </svg>
+    </div>
+  );
+
   const socialEl = (
     <div style={{ ...paddingStyle, textAlign: align }}>
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: `${gap}px`, flexWrap: 'wrap', justifyContent: align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start' }}>
@@ -374,19 +406,10 @@ function SocialIconsBlockPreview({ block, isChild }) {
           <span className="text-muted-foreground text-sm">No platforms selected</span>
         )}
         {enabledPlatforms.map(p => (
-          <div key={p.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <div style={getShapeStyle()}>
-              <svg
-                viewBox="0 0 24 24"
-                fill={getSvgColor()}
-                style={{ width: `${iconSize - svgPad * 2}px`, height: `${iconSize - svgPad * 2}px` }}
-              >
-                <path d={SOCIAL_SVG_PATHS[p.key] || SOCIAL_SVG_PATHS.website} />
-              </svg>
-            </div>
-            {displayMode === 'icon-label' && (
-              <span style={{ fontSize: '12px', color: iconColor }}>{SOCIAL_LABELS[p.key] || p.key}</span>
-            )}
+          <div key={p.key} style={getItemStyle()}>
+            {displayMode === 'icon-label' && isLabelBefore && labelEl(p)}
+            {iconEl(p)}
+            {displayMode === 'icon-label' && !isLabelBefore && labelEl(p)}
           </div>
         ))}
       </div>

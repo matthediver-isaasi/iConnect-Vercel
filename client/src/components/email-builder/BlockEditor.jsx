@@ -20,7 +20,10 @@ import {
   ChevronLeft,
   Search,
   X,
-  FileText
+  FileText,
+  ArrowUp,
+  ArrowDown,
+  GripVertical
 } from 'lucide-react';
 import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
 import RichTextEditor from './RichTextEditor';
@@ -1149,34 +1152,68 @@ function SocialIconsBlockEditor({ block, onChange, isChild }) {
     onChange({ ...block, platforms: updated });
   };
 
+  const movePlatform = (index, direction) => {
+    const platforms = [...block.platforms];
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= platforms.length) return;
+    const temp = platforms[index];
+    platforms[index] = platforms[newIndex];
+    platforms[newIndex] = temp;
+    onChange({ ...block, platforms });
+  };
+
   const enabledPlatforms = block.platforms.filter(p => p.enabled);
+  const displayMode = block.styles.displayMode || 'icon-only';
+  const showLabelOptions = displayMode === 'icon-label';
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label>Platforms</Label>
-        <div className="space-y-2">
-          {SOCIAL_PLATFORMS.map(platform => {
-            const current = block.platforms.find(p => p.key === platform.key);
-            const isEnabled = current?.enabled || false;
+        <Label>Platforms & Order</Label>
+        <p className="text-xs text-muted-foreground">Use arrows to reorder. Order here matches email output.</p>
+        <div className="space-y-1">
+          {block.platforms.map((platformData, idx) => {
+            const platformMeta = SOCIAL_PLATFORMS.find(p => p.key === platformData.key);
+            const isEnabled = platformData.enabled;
             return (
-              <div key={platform.key} className="space-y-1">
-                <label className="flex items-center gap-2 cursor-pointer" data-testid={`social-toggle-${platform.key}`}>
-                  <input
-                    type="checkbox"
-                    checked={isEnabled}
-                    onChange={(e) => updatePlatform(platform.key, 'enabled', e.target.checked)}
-                    className="rounded"
-                  />
-                  <span className="text-sm">{platform.label}</span>
-                </label>
+              <div key={platformData.key} className={`rounded border p-2 space-y-1 ${isEnabled ? 'border-primary/30 bg-primary/5' : 'border-transparent'}`}>
+                <div className="flex items-center gap-1">
+                  <div className="flex flex-col">
+                    <button
+                      onClick={() => movePlatform(idx, -1)}
+                      disabled={idx === 0}
+                      className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                      data-testid={`social-move-up-${platformData.key}`}
+                    >
+                      <ArrowUp className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => movePlatform(idx, 1)}
+                      disabled={idx === block.platforms.length - 1}
+                      className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                      data-testid={`social-move-down-${platformData.key}`}
+                    >
+                      <ArrowDown className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                  <label className="flex items-center gap-2 cursor-pointer flex-1" data-testid={`social-toggle-${platformData.key}`}>
+                    <input
+                      type="checkbox"
+                      checked={isEnabled}
+                      onChange={(e) => updatePlatform(platformData.key, 'enabled', e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm">{platformMeta?.label || platformData.key}</span>
+                  </label>
+                </div>
                 {isEnabled && (
                   <Input
-                    value={current?.url || platform.defaultUrl}
-                    onChange={(e) => updatePlatform(platform.key, 'url', e.target.value)}
-                    placeholder={`${platform.label} URL`}
-                    className="text-xs"
-                    data-testid={`social-url-${platform.key}`}
+                    value={platformData.url || platformMeta?.defaultUrl || ''}
+                    onChange={(e) => updatePlatform(platformData.key, 'url', e.target.value)}
+                    placeholder={`${platformMeta?.label || platformData.key} URL`}
+                    className="text-xs ml-7"
+                    data-testid={`social-url-${platformData.key}`}
                   />
                 )}
               </div>
@@ -1187,7 +1224,7 @@ function SocialIconsBlockEditor({ block, onChange, isChild }) {
 
       <div className="space-y-2">
         <Label>Display Mode</Label>
-        <Select value={block.styles.displayMode || 'icon-only'} onValueChange={(v) => updateStyle('displayMode', v)}>
+        <Select value={displayMode} onValueChange={(v) => updateStyle('displayMode', v)}>
           <SelectTrigger data-testid="social-display-mode">
             <SelectValue />
           </SelectTrigger>
@@ -1197,6 +1234,65 @@ function SocialIconsBlockEditor({ block, onChange, isChild }) {
           </SelectContent>
         </Select>
       </div>
+
+      {showLabelOptions && (
+        <>
+          <div className="space-y-2">
+            <Label>Name Position</Label>
+            <Select value={block.styles.labelPosition || 'right'} onValueChange={(v) => updateStyle('labelPosition', v)}>
+              <SelectTrigger data-testid="social-label-position">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="right">Right of icon</SelectItem>
+                <SelectItem value="left">Left of icon</SelectItem>
+                <SelectItem value="bottom">Below icon</SelectItem>
+                <SelectItem value="top">Above icon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Name Font</Label>
+            <Select 
+              value={block.styles.labelFontFamily || '__default__'} 
+              onValueChange={(v) => updateStyle('labelFontFamily', v === '__default__' ? '' : v)}
+            >
+              <SelectTrigger data-testid="social-label-font">
+                <SelectValue placeholder="Select font..." />
+              </SelectTrigger>
+              <SelectContent>
+                {GOOGLE_FONT_OPTIONS.map(font => (
+                  <SelectItem 
+                    key={font.value || '__default__'} 
+                    value={font.value || '__default__'}
+                    style={{ fontFamily: font.value || 'inherit' }}
+                  >
+                    {font.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Name Font Size</Label>
+            <Select value={block.styles.labelFontSize || '12'} onValueChange={(v) => updateStyle('labelFontSize', v)}>
+              <SelectTrigger data-testid="social-label-font-size">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10px</SelectItem>
+                <SelectItem value="11">11px</SelectItem>
+                <SelectItem value="12">12px</SelectItem>
+                <SelectItem value="13">13px</SelectItem>
+                <SelectItem value="14">14px</SelectItem>
+                <SelectItem value="16">16px</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
 
       <div className="space-y-2">
         <Label>Icon Style</Label>
