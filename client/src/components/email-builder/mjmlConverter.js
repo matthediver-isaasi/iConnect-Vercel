@@ -18,6 +18,7 @@ const getImageMjmlWidth = (block) => {
   if (size === 'custom' && block.styles?.imageSizeCustom) {
     return `${block.styles.imageSizeCustom}px`;
   }
+  if (size === '100%') return null;
   return size;
 };
 
@@ -170,10 +171,11 @@ const childBlockToMjml = (block) => {
       if (!block.src) return '';
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
       const imgWidth = getImageMjmlWidth(block);
+      const imgWidthAttr = imgWidth ? `width="${imgWidth}"` : '';
       return `<mj-image 
         src="${escapeHtml(block.src)}"
         alt="${escapeHtml(block.alt || 'Image')}"
-        width="${imgWidth}"
+        ${imgWidthAttr}
         align="${block.styles.textAlign || 'center'}"
         padding="${getPaddingAttr(block.styles)}"
         ${imgHref}
@@ -267,13 +269,14 @@ const blockToMjml = (block) => {
       }
       const imgHref = block.href ? `href="${escapeHtml(block.href)}"` : '';
       const sectionImgWidth = getImageMjmlWidth(block);
+      const sectionImgWidthAttr = sectionImgWidth ? `width="${sectionImgWidth}"` : '';
       return `
         <mj-section padding="${imgSectionPad}">
           <mj-column>
             <mj-image 
               src="${escapeHtml(block.src)}"
               alt="${escapeHtml(block.alt || 'Image')}"
-              width="${sectionImgWidth}"
+              ${sectionImgWidthAttr}
               align="${block.styles.textAlign || 'center'}"
               padding="${getPaddingAttr(block.styles)}"
               ${imgHref}
