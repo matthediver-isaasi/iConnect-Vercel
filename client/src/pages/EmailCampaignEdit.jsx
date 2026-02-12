@@ -856,10 +856,20 @@ export default function EmailCampaignEdit() {
                       >
                         {(() => {
                           try {
-                            const html = formData.design_json 
+                            let html = formData.design_json 
                               ? designToHtml(formData.design_json) 
                               : formData.html_content;
                             if (!html) return null;
+                            const designData = formData.design_json && typeof formData.design_json === 'object' ? formData.design_json : null;
+                            const shouldShowFooter = designData?.globalStyles?.useDefaultFooter !== false;
+                            if (shouldShowFooter && footerData?.hasFooter && footerData?.footer) {
+                              const footerBlock = `<div style="max-width:600px;margin:0 auto;padding:16px;font-size:12px;color:#666;">${footerData.footer}</div>`;
+                              if (html.includes('</body>')) {
+                                html = html.replace('</body>', `${footerBlock}</body>`);
+                              } else {
+                                html = html + footerBlock;
+                              }
+                            }
                             return (
                               <iframe
                                 srcDoc={html}
