@@ -7,6 +7,7 @@ export const BLOCK_TYPES = {
   SPACER: 'spacer',
   COLUMNS: 'columns',
   SOCIAL_ICONS: 'social_icons',
+  UNSUBSCRIBE: 'unsubscribe',
 };
 
 export const SOCIAL_PLATFORMS = [
@@ -193,6 +194,27 @@ export const createBlock = (type, props = {}) => {
           paddingTop: '10',
           paddingRight: '20',
           paddingBottom: '10',
+          paddingLeft: '20',
+          marginTop: '0',
+          marginRight: '0',
+          marginBottom: '0',
+          marginLeft: '0',
+          ...props.styles,
+        },
+      };
+    case BLOCK_TYPES.UNSUBSCRIBE:
+      return {
+        id,
+        type,
+        linkText: props.linkText || 'Unsubscribe from these emails',
+        styles: {
+          fontFamily: '',
+          fontSize: '12px',
+          color: '#999999',
+          textAlign: 'center',
+          paddingTop: '20',
+          paddingRight: '20',
+          paddingBottom: '20',
           paddingLeft: '20',
           marginTop: '0',
           marginRight: '0',

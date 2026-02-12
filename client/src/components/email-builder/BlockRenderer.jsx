@@ -422,6 +422,33 @@ function SocialIconsBlockPreview({ block, isChild, globalFontFamily }) {
   return <div style={marginAsPadding}>{socialEl}</div>;
 }
 
+function UnsubscribeBlockPreview({ block, isChild, globalFontFamily }) {
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const linkText = block.linkText || 'Unsubscribe from these emails';
+  const fontFamily = block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif';
+  const fontSize = block.styles.fontSize || '12px';
+  const color = block.styles.color || '#999999';
+  const textAlign = block.styles.textAlign || 'center';
+
+  const unsubEl = (
+    <div style={{ ...paddingStyle, textAlign, fontFamily, fontSize, color }}>
+      <a
+        href="#"
+        onClick={(e) => e.preventDefault()}
+        style={{ color, textDecoration: 'underline', fontFamily, fontSize }}
+        data-testid="unsub-preview-link"
+      >
+        {linkText}
+      </a>
+    </div>
+  );
+
+  if (isChild) return unsubEl;
+
+  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
+  return <div style={marginAsPadding}>{unsubEl}</div>;
+}
+
 const contentBlockPreviewComponents = {
   [BLOCK_TYPES.TEXT]: TextBlockPreview,
   [BLOCK_TYPES.IMAGE]: ImageBlockPreview,
@@ -429,6 +456,7 @@ const contentBlockPreviewComponents = {
   [BLOCK_TYPES.DIVIDER]: DividerBlockPreview,
   [BLOCK_TYPES.SPACER]: SpacerBlockPreview,
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
+  [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
 };
 
 const blockPreviewComponents = {
@@ -440,6 +468,7 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.SPACER]: SpacerBlockPreview,
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockPreview,
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
+  [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockPreview,
 };
 
 export default function BlockRenderer({

@@ -155,6 +155,18 @@ const childBlockToMjml = (block) => {
             border-radius="${getSocialBorderRadius(block.styles.shape, block.styles.iconSize)}"
           >${socialElements}</mj-social>`;
     }
+    case BLOCK_TYPES.UNSUBSCRIBE: {
+      const uFontFamily = block.styles.fontFamily ? ` font-family="${block.styles.fontFamily}"` : '';
+      const uColor = block.styles.color || '#999999';
+      const uFontSize = block.styles.fontSize || '12px';
+      const uLinkText = escapeHtml(block.linkText || 'Unsubscribe from these emails');
+      return `<mj-text
+        align="${block.styles.textAlign || 'center'}"${uFontFamily}
+        font-size="${uFontSize}"
+        color="${uColor}"
+        padding="${getPaddingAttr(block.styles)}"
+      ><a href="{{unsubscribe_url}}" style="color: ${uColor}; text-decoration: underline;">${uLinkText}</a></mj-text>`;
+    }
     default:
       return '';
   }
@@ -301,6 +313,26 @@ const blockToMjml = (block) => {
       `;
     }
 
+    case BLOCK_TYPES.UNSUBSCRIBE: {
+      const uSectionPad = getCombinedSectionPadding(block.styles);
+      const uTopFontFamily = block.styles.fontFamily ? ` font-family="${block.styles.fontFamily}"` : '';
+      const uTopColor = block.styles.color || '#999999';
+      const uTopFontSize = block.styles.fontSize || '12px';
+      const uTopLinkText = escapeHtml(block.linkText || 'Unsubscribe from these emails');
+      return `
+        <mj-section padding="${uSectionPad}">
+          <mj-column>
+            <mj-text
+              align="${block.styles.textAlign || 'center'}"${uTopFontFamily}
+              font-size="${uTopFontSize}"
+              color="${uTopColor}"
+              padding="${getPaddingAttr(block.styles)}"
+            ><a href="{{unsubscribe_url}}" style="color: ${uTopColor}; text-decoration: underline;">${uTopLinkText}</a></mj-text>
+          </mj-column>
+        </mj-section>
+      `;
+    }
+
     case BLOCK_TYPES.COLUMNS: {
       const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
       const halfGap = Math.round(colGapPx / 2);
@@ -325,6 +357,9 @@ const blockToMjml = (block) => {
             return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${getPaddingAttr(b.styles)}" />`;
           }
           if (b.type === BLOCK_TYPES.SOCIAL_ICONS) {
+            return childBlockToMjml(b);
+          }
+          if (b.type === BLOCK_TYPES.UNSUBSCRIBE) {
             return childBlockToMjml(b);
           }
           return '';
@@ -359,7 +394,7 @@ const collectUsedFonts = (blocks) => {
   const usedFonts = new Set();
   
   const checkBlock = (block) => {
-    if (block.type === BLOCK_TYPES.TEXT && block.styles?.fontFamily) {
+    if ((block.type === BLOCK_TYPES.TEXT || block.type === BLOCK_TYPES.UNSUBSCRIBE) && block.styles?.fontFamily) {
       const fontName = block.styles.fontFamily.split(',')[0].replace(/['"]/g, '').trim();
       if (GOOGLE_FONTS[fontName]) {
         usedFonts.add(fontName);

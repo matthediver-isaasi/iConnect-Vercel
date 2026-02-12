@@ -1400,6 +1400,116 @@ function SocialIconsBlockEditor({ block, onChange, isChild }) {
   );
 }
 
+function UnsubscribeBlockEditor({ block, onChange, isChild }) {
+  const updateStyle = (key, value) => {
+    onChange({ ...block, styles: { ...block.styles, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Link Text</Label>
+        <Input
+          value={block.linkText || 'Unsubscribe from these emails'}
+          onChange={(e) => onChange({ ...block, linkText: e.target.value })}
+          placeholder="Unsubscribe text..."
+          data-testid="unsub-link-text"
+        />
+        <p className="text-xs text-muted-foreground">The link URL is generated automatically at send time.</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font</Label>
+        <Select
+          value={block.styles.fontFamily || '__default__'}
+          onValueChange={(v) => updateStyle('fontFamily', v === '__default__' ? '' : v)}
+        >
+          <SelectTrigger data-testid="unsub-font-family">
+            <SelectValue placeholder="Select font..." />
+          </SelectTrigger>
+          <SelectContent>
+            {GOOGLE_FONT_OPTIONS.map(font => (
+              <SelectItem
+                key={font.value || '__default__'}
+                value={font.value || '__default__'}
+                style={{ fontFamily: font.value || 'inherit' }}
+              >
+                {font.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Font Size</Label>
+        <Select value={block.styles.fontSize || '12px'} onValueChange={(v) => updateStyle('fontSize', v)}>
+          <SelectTrigger data-testid="unsub-font-size">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="10px">10px</SelectItem>
+            <SelectItem value="11px">11px</SelectItem>
+            <SelectItem value="12px">12px</SelectItem>
+            <SelectItem value="13px">13px</SelectItem>
+            <SelectItem value="14px">14px</SelectItem>
+            <SelectItem value="16px">16px</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Text Color</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="color"
+            value={block.styles.color || '#999999'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="h-9 w-14 p-1"
+            data-testid="unsub-color"
+          />
+          <Input
+            value={block.styles.color || '#999999'}
+            onChange={(e) => updateStyle('color', e.target.value)}
+            className="flex-1 text-xs"
+            data-testid="unsub-color-hex"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Alignment</Label>
+        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
+          <SelectTrigger data-testid="unsub-alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">Left</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="right">Right</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      {!isChild && (
+        <SpacingControl
+          label="Margin"
+          prefix="margin"
+          styles={block.styles}
+          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+          hint="Outer spacing around this element"
+        />
+      )}
+    </div>
+  );
+}
+
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1409,6 +1519,7 @@ const blockEditors = {
   [BLOCK_TYPES.SPACER]: SpacerBlockEditor,
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
   [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockEditor,
+  [BLOCK_TYPES.UNSUBSCRIBE]: UnsubscribeBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {
