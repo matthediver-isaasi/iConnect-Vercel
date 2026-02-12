@@ -446,7 +446,7 @@ const collectUsedFonts = (blocks) => {
   return usedFonts;
 };
 
-export const designToMjml = (design) => {
+export const designToMjml = (design, { footerHtml } = {}) => {
   const { blocks = [], globalStyles = {} } = design;
   
   const usedFonts = collectUsedFonts(blocks);
@@ -455,6 +455,11 @@ export const designToMjml = (design) => {
     .join('\n        ');
   
   const mjmlBlocks = blocks.filter(b => !b.hidden).map(blockToMjml).join('\n');
+
+  const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
+  const footerSection = shouldIncludeFooter
+    ? `<mj-section padding="12px 16px 12px 16px"><mj-column><mj-text font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`
+    : '';
   
   return `
     <mjml>
@@ -473,15 +478,16 @@ export const designToMjml = (design) => {
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}">
         <mj-wrapper background-color="${globalStyles.contentBackgroundColor || '#ffffff'}" padding="${globalStyles.contentPadding || '0px'}">
           ${mjmlBlocks || '<mj-section><mj-column><mj-text></mj-text></mj-column></mj-section>'}
+          ${footerSection}
         </mj-wrapper>
       </mj-body>
     </mjml>
   `;
 };
 
-export const designToHtml = (design) => {
+export const designToHtml = (design, { footerHtml } = {}) => {
   try {
-    const mjmlString = designToMjml(design);
+    const mjmlString = designToMjml(design, { footerHtml });
     const { html, errors } = mjml2html(mjmlString, {
       validationLevel: 'soft',
     });

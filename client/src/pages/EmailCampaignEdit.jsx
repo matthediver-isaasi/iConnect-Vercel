@@ -856,21 +856,11 @@ export default function EmailCampaignEdit() {
                       >
                         {(() => {
                           try {
-                            let html = formData.design_json 
-                              ? designToHtml(formData.design_json) 
+                            const fHtml = footerData?.hasFooter ? footerData.footer : null;
+                            const html = formData.design_json 
+                              ? designToHtml(formData.design_json, { footerHtml: fHtml }) 
                               : formData.html_content;
                             if (!html) return null;
-                            const designData = formData.design_json && typeof formData.design_json === 'object' ? formData.design_json : null;
-                            const shouldShowFooter = designData?.globalStyles?.useDefaultFooter !== false;
-                            if (shouldShowFooter && footerData?.hasFooter && footerData?.footer) {
-                              const cw = designData?.globalStyles?.contentWidth || '600px';
-                              const footerBlock = `<div style="max-width:${cw};margin:0 auto;padding:16px;font-size:12px;color:#666;">${footerData.footer}</div>`;
-                              if (html.includes('</body>')) {
-                                html = html.replace('</body>', `${footerBlock}</body>`);
-                              } else {
-                                html = html + footerBlock;
-                              }
-                            }
                             return (
                               <iframe
                                 srcDoc={html}
@@ -1283,18 +1273,8 @@ export default function EmailCampaignEdit() {
               <div data-testid="preview-email-body">
                 {formData.design_json ? (() => {
                   try {
-                    let html = designToHtml(formData.design_json);
-                    const designData = formData.design_json && typeof formData.design_json === 'object' ? formData.design_json : null;
-                    const shouldShowFooter = designData?.globalStyles?.useDefaultFooter !== false;
-                    if (shouldShowFooter && footerData?.hasFooter && footerData?.footer) {
-                      const cw = designData?.globalStyles?.contentWidth || '600px';
-                      const footerBlock = `<div style="max-width:${cw};margin:0 auto;padding:16px;font-size:12px;color:#666;">${footerData.footer}</div>`;
-                      if (html.includes('</body>')) {
-                        html = html.replace('</body>', `${footerBlock}</body>`);
-                      } else {
-                        html = html + footerBlock;
-                      }
-                    }
+                    const fHtml = footerData?.hasFooter ? footerData.footer : null;
+                    const html = designToHtml(formData.design_json, { footerHtml: fHtml });
                     return (
                       <iframe
                         srcDoc={html}
