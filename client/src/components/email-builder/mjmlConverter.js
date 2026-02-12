@@ -459,7 +459,7 @@ export const designToMjml = (design, { footerHtml } = {}) => {
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
   let footerSection = '';
   if (shouldIncludeFooter) {
-    footerSection = `<mj-section padding="12px 16px 12px 16px" css-class="tenant-email-footer"><mj-column><mj-text font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
+    footerSection = `<mj-section padding="12px 0 12px 0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
   }
   
   return `
