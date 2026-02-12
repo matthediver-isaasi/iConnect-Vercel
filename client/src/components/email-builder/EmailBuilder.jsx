@@ -654,7 +654,7 @@ export default function EmailBuilder({
           </ScrollArea>
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
+        <div className="flex-1 flex flex-col min-h-0 min-w-0" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
           <div className="flex items-center gap-1 px-3 py-1.5 border-b bg-background/80 flex-shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -685,7 +685,8 @@ export default function EmailBuilder({
               <TooltipContent side="bottom">Redo (Ctrl+Shift+Z)</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex-1 overflow-auto p-8 min-h-0 flex justify-center">
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-8">
+            <div className="flex justify-center">
             <div 
               className="w-full shadow-lg"
               style={{ 
@@ -713,6 +714,7 @@ export default function EmailBuilder({
                   ))}
                 </CanvasDropZone>
               </SortableContext>
+            </div>
             </div>
           </div>
         </div>
