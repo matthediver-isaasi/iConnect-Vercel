@@ -654,7 +654,7 @@ export default function EmailBuilder({
           </ScrollArea>
         </div>
 
-        <div className="flex-1 flex flex-col min-h-0 min-w-0" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
           <div className="flex items-center gap-1 px-3 py-1.5 border-b bg-background/80 flex-shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>

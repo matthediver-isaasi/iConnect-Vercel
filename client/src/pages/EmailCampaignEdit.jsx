@@ -1138,7 +1138,7 @@ export default function EmailCampaignEdit() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <Suspense fallback={
                 <div className="flex items-center justify-center h-full bg-muted/10">
                   <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
