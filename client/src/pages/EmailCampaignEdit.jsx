@@ -1083,8 +1083,8 @@ export default function EmailCampaignEdit() {
 
       {/* Full-screen Visual Email Editor Modal */}
       <Dialog open={showVisualEditor} onOpenChange={setShowVisualEditor}>
-        <DialogContent className="max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 gap-0">
-          <div className="flex flex-col h-full">
+        <DialogContent className="max-w-[100vw] w-[100vw] h-[100vh] max-h-[100vh] p-0 gap-0 flex flex-col">
+          <div className="flex flex-col flex-1 min-h-0">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-background">
               <div className="flex items-center gap-3">
                 <Wand2 className="w-5 h-5 text-primary" />
@@ -1138,7 +1138,7 @@ export default function EmailCampaignEdit() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               <Suspense fallback={
                 <div className="flex items-center justify-center h-full bg-muted/10">
                   <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -1153,7 +1153,6 @@ export default function EmailCampaignEdit() {
                       html_content: html || prev.html_content,
                     }));
                   }}
-                  height="100%"
                 />
               </Suspense>
             </div>

@@ -42,7 +42,6 @@ const loadGoogleFonts = () => {
 export default function EmailBuilder({ 
   initialDesign, 
   onChange, 
-  height = '100%' 
 }) {
   const [design, setDesign] = useState(() => {
     if (initialDesign && initialDesign.blocks) {
@@ -641,7 +640,7 @@ export default function EmailBuilder({
   }
 
   return (
-    <div className="flex h-full overflow-hidden" style={{ height }}>
+    <div className="flex flex-1 min-h-0 overflow-hidden">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
