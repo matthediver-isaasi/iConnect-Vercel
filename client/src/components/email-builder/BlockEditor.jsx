@@ -44,7 +44,7 @@ const GOOGLE_FONT_OPTIONS = [
   { value: "Verdana, sans-serif", label: 'Verdana' },
 ];
 
-function TextBlockEditor({ block, onChange, isChild }) {
+function TextBlockEditor({ block, onChange, isChild, globalFontFamily }) {
   const update = (key, value) => {
     if (key === 'content') {
       onChange({ ...block, content: value });
@@ -60,7 +60,7 @@ function TextBlockEditor({ block, onChange, isChild }) {
         <RichTextEditor
           content={block.content}
           onChange={(html) => update('content', html)}
-          fontFamily={block.styles.fontFamily}
+          fontFamily={block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif'}
           color={block.styles.color}
           lineHeight={block.styles.lineHeight}
         />
@@ -1115,7 +1115,7 @@ const blockEditors = {
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
 };
 
-export default function BlockEditor({ block, onChange, isChild }) {
+export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {
   if (!block) {
     return (
       <div className="p-4 text-center text-muted-foreground">
@@ -1130,7 +1130,7 @@ export default function BlockEditor({ block, onChange, isChild }) {
   return (
     <div className="p-4">
       <h3 className="text-sm font-medium mb-4">{blockTypeLabel} Settings</h3>
-      {EditorComponent && <EditorComponent block={block} onChange={onChange} isChild={isChild} />}
+      {EditorComponent && <EditorComponent block={block} onChange={onChange} isChild={isChild} globalFontFamily={globalFontFamily} />}
     </div>
   );
 }

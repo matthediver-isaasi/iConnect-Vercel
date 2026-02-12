@@ -709,6 +709,7 @@ export default function EmailBuilder({
                       selectedChildId={selectedChildId}
                       onSelectColumnChild={handleColumnChildSelect}
                       selectedColumnChildId={selectedColumnChildId}
+                      globalFontFamily={design.globalStyles.fontFamily}
                     />
                   ))}
                 </CanvasDropZone>
@@ -825,17 +826,20 @@ export default function EmailBuilder({
                 block={selectedColChild.child} 
                 onChange={handleColumnChildUpdate}
                 isChild={true}
+                globalFontFamily={design.globalStyles.fontFamily}
               />
             ) : selectedChild ? (
               <BlockEditor 
                 block={selectedChild.child} 
                 onChange={handleChildUpdate}
                 isChild={true}
+                globalFontFamily={design.globalStyles.fontFamily}
               />
             ) : (
               <BlockEditor 
                 block={selectedBlock} 
-                onChange={handleBlockUpdate} 
+                onChange={handleBlockUpdate}
+                globalFontFamily={design.globalStyles.fontFamily}
               />
             )}
           </ScrollArea>

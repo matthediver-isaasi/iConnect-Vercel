@@ -17,7 +17,7 @@ function getSpacingStyle(styles, prefix, cssPrefix) {
   };
 }
 
-function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId }) {
+function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId, globalFontFamily }) {
   const children = block.children || [];
   const { isOver, setNodeRef } = useDroppable({
     id: `section-drop-${block.id}`,
@@ -51,6 +51,7 @@ function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId
             block={child}
             isSelected={child.id === selectedChildId}
             onSelect={onSelectChild}
+            globalFontFamily={globalFontFamily}
           />
         );
       })}
@@ -58,7 +59,7 @@ function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId
   );
 }
 
-function ChildBlockRenderer({ block, isSelected, onSelect }) {
+function ChildBlockRenderer({ block, isSelected, onSelect, globalFontFamily }) {
   const PreviewComponent = contentBlockPreviewComponents[block.type];
 
   return (
@@ -68,13 +69,13 @@ function ChildBlockRenderer({ block, isSelected, onSelect }) {
       data-testid={`child-block-${block.id}`}
     >
       <div className={`border ${isSelected ? 'border-primary/30' : 'border-transparent'} rounded transition-colors`}>
-        {PreviewComponent && <PreviewComponent block={block} isChild={true} />}
+        {PreviewComponent && <PreviewComponent block={block} isChild={true} globalFontFamily={globalFontFamily} />}
       </div>
     </div>
   );
 }
 
-function TextBlockPreview({ block, isChild }) {
+function TextBlockPreview({ block, isChild, globalFontFamily }) {
   const isHtml = block.content && block.content.includes('<');
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
 
@@ -82,7 +83,7 @@ function TextBlockPreview({ block, isChild }) {
     <div
       className="prose prose-sm max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mt-0 [&_h1]:mb-[0.5em] [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-0 [&_h2]:mb-[0.5em] [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-0 [&_h3]:mb-[0.5em] [&_p]:mt-0 [&_p]:mb-[1em] [&_p:last-child]:mb-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit"
       style={{
-        fontFamily: block.styles.fontFamily || 'inherit',
+        fontFamily: block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif',
         color: block.styles.color,
         lineHeight: block.styles.lineHeight || '1.5',
         ...paddingStyle,
@@ -161,7 +162,7 @@ function ImageBlockPreview({ block, isChild }) {
   return <div style={marginAsPadding}>{imgEl}</div>;
 }
 
-function ButtonBlockPreview({ block, isChild }) {
+function ButtonBlockPreview({ block, isChild, globalFontFamily }) {
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
   const innerPaddingStyle = getSpacingStyle(block.styles, 'innerPadding', 'padding');
 
@@ -172,6 +173,7 @@ function ButtonBlockPreview({ block, isChild }) {
           display: 'inline-block',
           backgroundColor: block.styles.backgroundColor,
           color: block.styles.color,
+          fontFamily: block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif',
           fontSize: block.styles.fontSize,
           fontWeight: block.styles.fontWeight,
           ...innerPaddingStyle,
@@ -235,7 +237,7 @@ function ColumnDropZone({ columnId, blockId, colIndex, width, paddingLeft, paddi
   );
 }
 
-function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId }) {
+function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId, globalFontFamily }) {
   const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
   const halfGap = Math.round(colGapPx / 2);
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
@@ -277,7 +279,7 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
                   }}
                   data-testid={`column-child-${childBlock.id}`}
                 >
-                  <ChildPreview block={childBlock} isChild={true} />
+                  <ChildPreview block={childBlock} isChild={true} globalFontFamily={globalFontFamily} />
                 </div>
               );
             })}
@@ -314,6 +316,7 @@ export default function BlockRenderer({
   selectedChildId,
   onSelectColumnChild,
   selectedColumnChildId,
+  globalFontFamily,
 }) {
   const {
     attributes,
@@ -349,15 +352,17 @@ export default function BlockRenderer({
             isSelected={isSelected}
             onSelectChild={onSelectChild}
             selectedChildId={selectedChildId}
+            globalFontFamily={globalFontFamily}
           />
         ) : block.type === BLOCK_TYPES.COLUMNS ? (
           <ColumnsBlockPreview
             block={block}
             onSelectColumnChild={onSelectColumnChild}
             selectedColumnChildId={selectedColumnChildId}
+            globalFontFamily={globalFontFamily}
           />
         ) : (
-          PreviewComponent && <PreviewComponent block={block} />
+          PreviewComponent && <PreviewComponent block={block} globalFontFamily={globalFontFamily} />
         )}
       </div>
     </div>
