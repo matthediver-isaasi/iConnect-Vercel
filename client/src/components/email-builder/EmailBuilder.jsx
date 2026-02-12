@@ -640,19 +640,15 @@ export default function EmailBuilder({
 
       <div className="relative flex-shrink-0 overflow-visible" style={{ width: '320px' }}>
         <div
-          className="absolute top-0 bottom-0 overflow-hidden"
+          className="absolute top-0 bottom-0 border-r bg-muted/20 flex flex-col transition-transform duration-200 ease-in-out"
           style={{
+            width: '320px',
             right: '100%',
-            width: layersOpen ? '320px' : '0px',
-            transition: 'width 200ms ease-in-out',
+            transform: layersOpen ? 'translateX(0)' : 'translateX(100%)',
             zIndex: 5,
           }}
+          data-testid="layers-panel"
         >
-          <div
-            className="h-full border-r bg-muted/20 flex flex-col"
-            style={{ width: '320px' }}
-            data-testid="layers-panel"
-          >
             <LayersPanel
               blocks={design.blocks}
               selectedBlockId={selectedBlockId}
@@ -677,7 +673,6 @@ export default function EmailBuilder({
               onMoveChildToSection={handleMoveChildToSection}
               onClose={() => setLayersOpen(false)}
             />
-          </div>
         </div>
 
         {!layersOpen && !propertiesExpanded && (
