@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 import RichTextEditor from './RichTextEditor';
+import SpacingControl from './SpacingControl';
 
 const GOOGLE_FONT_OPTIONS = [
   { value: '', label: 'Default (inherit)' },
@@ -92,25 +93,19 @@ function TextBlockEditor({ block, onChange }) {
           Google Fonts work in Gmail, Apple Mail, iOS. Outlook uses fallback.
         </p>
       </div>
-      <div className="space-y-2">
-        <Label>Padding</Label>
-        <Select
-          value={block.styles.padding || '10px 20px'}
-          onValueChange={(v) => update('padding', v)}
-        >
-          <SelectTrigger data-testid="editor-text-padding">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0px">None</SelectItem>
-            <SelectItem value="5px">Extra Small (5px)</SelectItem>
-            <SelectItem value="10px">Small (10px)</SelectItem>
-            <SelectItem value="10px 20px">Medium (10px 20px)</SelectItem>
-            <SelectItem value="20px">Large (20px)</SelectItem>
-            <SelectItem value="20px 40px">Extra Large (20px 40px)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <SpacingControl
+        label="Margin"
+        prefix="margin"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+        hint="Outer spacing around this element"
+      />
     </div>
   );
 }
@@ -516,25 +511,19 @@ function ImageBlockEditor({ block, onChange }) {
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label>Padding</Label>
-        <Select
-          value={block.styles.padding || '10px 20px'}
-          onValueChange={(v) => update('padding', v)}
-        >
-          <SelectTrigger data-testid="editor-image-padding">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0px">None</SelectItem>
-            <SelectItem value="5px">Extra Small (5px)</SelectItem>
-            <SelectItem value="10px">Small (10px)</SelectItem>
-            <SelectItem value="10px 20px">Medium (10px 20px)</SelectItem>
-            <SelectItem value="20px">Large (20px)</SelectItem>
-            <SelectItem value="20px 40px">Extra Large (20px 40px)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <SpacingControl
+        label="Margin"
+        prefix="margin"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+        hint="Outer spacing around this element"
+      />
 
       <Dialog open={showFileSelector} onOpenChange={() => {
         setShowFileSelector(false);
@@ -809,6 +798,25 @@ function ButtonBlockEditor({ block, onChange }) {
           </SelectContent>
         </Select>
       </div>
+      <SpacingControl
+        label="Button Inner Padding"
+        prefix="innerPadding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <SpacingControl
+        label="Container Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <SpacingControl
+        label="Margin"
+        prefix="margin"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+        hint="Outer spacing around this element"
+      />
     </div>
   );
 }
@@ -855,25 +863,19 @@ function DividerBlockEditor({ block, onChange }) {
           </SelectContent>
         </Select>
       </div>
-      <div className="space-y-2">
-        <Label>Padding</Label>
-        <Select
-          value={block.styles.padding || '10px 20px'}
-          onValueChange={(v) => update('padding', v)}
-        >
-          <SelectTrigger data-testid="editor-divider-padding">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0px">None</SelectItem>
-            <SelectItem value="5px">Extra Small (5px)</SelectItem>
-            <SelectItem value="10px">Small (10px)</SelectItem>
-            <SelectItem value="10px 20px">Medium (10px 20px)</SelectItem>
-            <SelectItem value="20px">Large (20px)</SelectItem>
-            <SelectItem value="20px 40px">Extra Large (20px 40px)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
+      <SpacingControl
+        label="Margin"
+        prefix="margin"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+        hint="Outer spacing around this element"
+      />
     </div>
   );
 }
@@ -1059,32 +1061,17 @@ function ColumnsBlockEditor({ block, onChange }) {
         </Select>
       </div>
 
-      <div className="space-y-2">
-        <Label>Padding</Label>
-        <Select
-          value={block.styles.padding || '10px 0'}
-          onValueChange={(v) => onChange({ ...block, styles: { ...block.styles, padding: v } })}
-        >
-          <SelectTrigger data-testid="editor-columns-padding">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0px">None</SelectItem>
-            <SelectItem value="5px">Extra Small (5px)</SelectItem>
-            <SelectItem value="10px 0">Medium (10px 0)</SelectItem>
-            <SelectItem value="20px 0">Large (20px 0)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
     </div>
   );
 }
 
 function SectionBlockEditor({ block, onChange }) {
-  const update = (key, value) => {
-    onChange({ ...block, styles: { ...block.styles, [key]: value } });
-  };
-
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -1092,80 +1079,17 @@ function SectionBlockEditor({ block, onChange }) {
         <Input
           type="color"
           value={block.styles.backgroundColor || '#ffffff'}
-          onChange={(e) => update('backgroundColor', e.target.value)}
+          onChange={(e) => onChange({ ...block, styles: { ...block.styles, backgroundColor: e.target.value } })}
           className="h-9 p-1"
           data-testid="editor-section-bg-color"
         />
       </div>
-      <div className="space-y-2">
-        <Label>Padding</Label>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">Top</span>
-            <Select value={block.styles.paddingTop || '20px'} onValueChange={(v) => update('paddingTop', v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">0</SelectItem>
-                <SelectItem value="10px">10px</SelectItem>
-                <SelectItem value="20px">20px</SelectItem>
-                <SelectItem value="30px">30px</SelectItem>
-                <SelectItem value="40px">40px</SelectItem>
-                <SelectItem value="60px">60px</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">Bottom</span>
-            <Select value={block.styles.paddingBottom || '20px'} onValueChange={(v) => update('paddingBottom', v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">0</SelectItem>
-                <SelectItem value="10px">10px</SelectItem>
-                <SelectItem value="20px">20px</SelectItem>
-                <SelectItem value="30px">30px</SelectItem>
-                <SelectItem value="40px">40px</SelectItem>
-                <SelectItem value="60px">60px</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">Left</span>
-            <Select value={block.styles.paddingLeft || '20px'} onValueChange={(v) => update('paddingLeft', v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">0</SelectItem>
-                <SelectItem value="10px">10px</SelectItem>
-                <SelectItem value="20px">20px</SelectItem>
-                <SelectItem value="30px">30px</SelectItem>
-                <SelectItem value="40px">40px</SelectItem>
-                <SelectItem value="60px">60px</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <span className="text-xs text-muted-foreground">Right</span>
-            <Select value={block.styles.paddingRight || '20px'} onValueChange={(v) => update('paddingRight', v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">0</SelectItem>
-                <SelectItem value="10px">10px</SelectItem>
-                <SelectItem value="20px">20px</SelectItem>
-                <SelectItem value="30px">30px</SelectItem>
-                <SelectItem value="40px">40px</SelectItem>
-                <SelectItem value="60px">60px</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
+      <SpacingControl
+        label="Padding"
+        prefix="padding"
+        styles={block.styles}
+        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
+      />
       <p className="text-xs text-muted-foreground">
         Drag content blocks into this section to build your email layout.
       </p>

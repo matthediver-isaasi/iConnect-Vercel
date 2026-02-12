@@ -4,6 +4,18 @@ import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
 import { BLOCK_TYPES } from './types';
 import { sanitizeHtml } from './sanitize';
+import { getIndividualValues } from './SpacingControl';
+
+function getSpacingStyle(styles, prefix, cssPrefix) {
+  const vals = getIndividualValues(styles, prefix);
+  const css = cssPrefix || prefix;
+  return {
+    [`${css}Top`]: `${vals.top}px`,
+    [`${css}Right`]: `${vals.right}px`,
+    [`${css}Bottom`]: `${vals.bottom}px`,
+    [`${css}Left`]: `${vals.left}px`,
+  };
+}
 
 function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId }) {
   const children = block.children || [];
@@ -12,15 +24,16 @@ function SectionBlockPreview({ block, isSelected, onSelectChild, selectedChildId
     data: { sectionId: block.id, isSection: true },
   });
 
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const marginStyle = getSpacingStyle(block.styles, 'margin');
+
   return (
     <div
       ref={setNodeRef}
       style={{
         backgroundColor: block.styles.backgroundColor,
-        paddingTop: block.styles.paddingTop,
-        paddingBottom: block.styles.paddingBottom,
-        paddingLeft: block.styles.paddingLeft,
-        paddingRight: block.styles.paddingRight,
+        ...paddingStyle,
+        ...marginStyle,
       }}
       className={`min-h-[60px] transition-colors ${isOver ? 'ring-2 ring-primary ring-inset' : ''}`}
     >
@@ -65,6 +78,8 @@ function ChildBlockRenderer({ block, isSelected, onSelect }) {
 
 function TextBlockPreview({ block }) {
   const isHtml = block.content && block.content.includes('<');
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const marginStyle = getSpacingStyle(block.styles, 'margin');
   return (
     <div
       className="prose prose-sm max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mt-0 [&_h1]:mb-[0.5em] [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-0 [&_h2]:mb-[0.5em] [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:mt-0 [&_h3]:mb-[0.5em] [&_p]:mt-0 [&_p]:mb-[1em] [&_p:last-child]:mb-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline [&_strong]:text-inherit [&_em]:text-inherit [&_h1]:text-inherit [&_h2]:text-inherit [&_h3]:text-inherit [&_p]:text-inherit"
@@ -72,7 +87,8 @@ function TextBlockPreview({ block }) {
         fontFamily: block.styles.fontFamily || 'inherit',
         color: block.styles.color,
         lineHeight: block.styles.lineHeight || '1.5',
-        padding: block.styles.padding,
+        ...paddingStyle,
+        ...marginStyle,
       }}
       dangerouslySetInnerHTML={isHtml ? { __html: sanitizeHtml(block.content) } : undefined}
     >
@@ -90,11 +106,14 @@ function ImageBlockPreview({ block }) {
     return size;
   };
 
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const marginStyle = getSpacingStyle(block.styles, 'margin');
+
   if (!block.src) {
     return (
       <div
         className="flex items-center justify-center bg-muted/50 text-muted-foreground border-2 border-dashed rounded"
-        style={{ padding: block.styles.padding, minHeight: '100px' }}
+        style={{ ...paddingStyle, ...marginStyle, minHeight: '100px' }}
       >
         Click to add image URL
       </div>
@@ -121,7 +140,7 @@ function ImageBlockPreview({ block }) {
   }
 
   return (
-    <div style={{ padding: block.styles.padding }}>
+    <div style={{ ...paddingStyle, ...marginStyle }}>
       <img
         src={block.src}
         alt={block.alt}
@@ -132,8 +151,12 @@ function ImageBlockPreview({ block }) {
 }
 
 function ButtonBlockPreview({ block }) {
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const marginStyle = getSpacingStyle(block.styles, 'margin');
+  const innerPaddingStyle = getSpacingStyle(block.styles, 'innerPadding', 'padding');
+
   return (
-    <div style={{ padding: block.styles.containerPadding, textAlign: block.styles.textAlign }}>
+    <div style={{ ...paddingStyle, ...marginStyle, textAlign: block.styles.textAlign }}>
       <span
         style={{
           display: 'inline-block',
@@ -141,7 +164,7 @@ function ButtonBlockPreview({ block }) {
           color: block.styles.color,
           fontSize: block.styles.fontSize,
           fontWeight: block.styles.fontWeight,
-          padding: block.styles.padding,
+          ...innerPaddingStyle,
           borderRadius: block.styles.borderRadius,
           cursor: 'pointer',
         }}
@@ -153,8 +176,10 @@ function ButtonBlockPreview({ block }) {
 }
 
 function DividerBlockPreview({ block }) {
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const marginStyle = getSpacingStyle(block.styles, 'margin');
   return (
-    <div style={{ padding: block.styles.padding }}>
+    <div style={{ ...paddingStyle, ...marginStyle }}>
       <hr
         style={{
           borderColor: block.styles.borderColor,
@@ -193,9 +218,11 @@ function ColumnDropZone({ columnId, blockId, colIndex, width, paddingLeft, paddi
 function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId }) {
   const colGapPx = parseInt(String(block.styles.columnGap || '10px').replace('px', ''), 10) || 0;
   const halfGap = Math.round(colGapPx / 2);
+  const paddingStyle = getSpacingStyle(block.styles, 'padding');
+  const marginStyle = getSpacingStyle(block.styles, 'margin');
 
   return (
-    <div style={{ padding: block.styles.padding }}>
+    <div style={{ ...paddingStyle, ...marginStyle }}>
       <div className="flex">
         {block.columns.map((col, idx) => (
           <ColumnDropZone
