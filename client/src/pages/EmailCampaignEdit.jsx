@@ -1113,11 +1113,24 @@ export default function EmailCampaignEdit() {
                   Cancel
                 </Button>
                 <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => {
-                    toast.success('Design saved');
+                    handleSaveCampaign();
+                  }}
+                  disabled={saving}
+                  data-testid="button-save-no-close"
+                >
+                  <Save className="w-4 h-4 mr-1" />
+                  {saving ? 'Saving...' : 'Save'}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    handleSaveCampaign();
                     setShowVisualEditor(false);
                   }}
+                  disabled={saving}
                   data-testid="button-save-visual-editor"
                 >
                   <Check className="w-4 h-4 mr-1" />

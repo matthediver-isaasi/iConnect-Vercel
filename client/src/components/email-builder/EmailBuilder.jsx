@@ -23,8 +23,9 @@ import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
 import { BLOCK_TYPES, createBlock, defaultEmailDesign } from './types';
 import { designToHtml } from './mjmlConverter';
-import { PanelRightOpen, PanelRightClose, Layers } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, Layers, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const GOOGLE_FONTS_LINK = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&family=Montserrat:wght@400;700&family=Poppins:wght@400;700&family=Raleway:wght@400;700&family=Oswald:wght@400;700&family=Playfair+Display:wght@400;700&family=Merriweather:wght@400;700&family=Source+Sans+Pro:wght@400;700&display=swap';
 
@@ -58,6 +59,13 @@ export default function EmailBuilder({
   const [layersOpen, setLayersOpen] = useState(true);
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
   const debounceRef = useRef(null);
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const MAX_HISTORY = 50;
+
+  const canUndo = undoStackRef.current.length > 0;
+  const canRedo = redoStackRef.current.length > 0;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -114,11 +122,64 @@ export default function EmailBuilder({
     };
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isRichTextEditor = e.target.closest?.('.ProseMirror');
+      if (isRichTextEditor) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  const isUndoRedoRef = useRef(false);
+
   const updateDesign = useCallback((updater) => {
     setDesign(prev => {
       const newDesign = typeof updater === 'function' ? updater(prev) : updater;
+      if (newDesign === prev) return prev;
+      if (!isUndoRedoRef.current) {
+        undoStackRef.current = [...undoStackRef.current.slice(-(MAX_HISTORY - 1)), prev];
+        redoStackRef.current = [];
+        setHistoryVersion(v => v + 1);
+      }
       notifyChange(newDesign);
       return newDesign;
+    });
+    isUndoRedoRef.current = false;
+  }, [notifyChange]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    isUndoRedoRef.current = true;
+    setDesign(prev => {
+      redoStackRef.current = [...redoStackRef.current, prev];
+      const previousState = undoStackRef.current[undoStackRef.current.length - 1];
+      undoStackRef.current = undoStackRef.current.slice(0, -1);
+      setHistoryVersion(v => v + 1);
+      notifyChange(previousState);
+      return previousState;
+    });
+  }, [notifyChange]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    isUndoRedoRef.current = true;
+    setDesign(prev => {
+      undoStackRef.current = [...undoStackRef.current, prev];
+      const nextState = redoStackRef.current[redoStackRef.current.length - 1];
+      redoStackRef.current = redoStackRef.current.slice(0, -1);
+      setHistoryVersion(v => v + 1);
+      notifyChange(nextState);
+      return nextState;
     });
   }, [notifyChange]);
 
@@ -593,8 +654,38 @@ export default function EmailBuilder({
           </ScrollArea>
         </div>
 
-        <div className="flex-1 overflow-auto" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
-          <div className="p-8 min-h-full flex justify-center">
+        <div className="flex-1 flex flex-col overflow-hidden" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
+          <div className="flex items-center gap-1 px-3 py-1.5 border-b bg-background/80 flex-shrink-0">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleUndo}
+                  disabled={!canUndo}
+                  data-testid="button-undo"
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Undo (Ctrl+Z)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={handleRedo}
+                  disabled={!canRedo}
+                  data-testid="button-redo"
+                >
+                  <Redo2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Redo (Ctrl+Shift+Z)</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex-1 overflow-auto p-8 min-h-0 flex justify-center">
             <div 
               className="w-full shadow-lg"
               style={{ 
