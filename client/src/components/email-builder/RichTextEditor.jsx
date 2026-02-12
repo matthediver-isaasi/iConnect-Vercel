@@ -456,7 +456,13 @@ function MenuBar({ editor }) {
   );
 }
 
-export default function RichTextEditor({ content, onChange, fontFamily, color }) {
+export default function RichTextEditor({ content, onChange, fontFamily, color, lineHeight }) {
+  const buildStyle = (ff, c, lh) => [
+    ff ? `font-family: ${ff}` : '',
+    c ? `color: ${c}` : '',
+    `line-height: ${lh || '1.5'}`,
+  ].filter(Boolean).join('; ');
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -485,11 +491,8 @@ export default function RichTextEditor({ content, onChange, fontFamily, color })
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3',
-        style: [
-          fontFamily ? `font-family: ${fontFamily}` : '',
-          color ? `color: ${color}` : '',
-        ].filter(Boolean).join('; '),
+        class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3 [&_p]:my-0 [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0',
+        style: buildStyle(fontFamily, color, lineHeight),
       },
     },
   });
@@ -502,20 +505,16 @@ export default function RichTextEditor({ content, onChange, fontFamily, color })
 
   useEffect(() => {
     if (editor) {
-      const style = [
-        fontFamily ? `font-family: ${fontFamily}` : '',
-        color ? `color: ${color}` : '',
-      ].filter(Boolean).join('; ');
       editor.setOptions({
         editorProps: {
           attributes: {
-            class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3',
-            style,
+            class: 'prose prose-sm max-w-none focus:outline-none min-h-[120px] p-3 [&_p]:my-0 [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0',
+            style: buildStyle(fontFamily, color, lineHeight),
           },
         },
       });
     }
-  }, [editor, fontFamily, color]);
+  }, [editor, fontFamily, color, lineHeight]);
 
   return (
     <div className="border rounded-md overflow-hidden bg-background" data-testid="rich-text-editor">

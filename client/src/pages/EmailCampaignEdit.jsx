@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
   Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2, X, Check,
-  Monitor, Smartphone
+  Monitor, Smartphone, Reply, Forward, Trash2, Archive, MoreHorizontal, Star, Paperclip
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -1176,34 +1176,91 @@ export default function EmailCampaignEdit() {
           </DialogHeader>
           <div className="flex-1 overflow-auto bg-muted/30 flex justify-center p-6" data-testid="preview-container">
             <div
-              className="bg-white rounded-md shadow-sm overflow-hidden transition-all duration-300 h-fit"
+              className="bg-white dark:bg-zinc-900 rounded-md shadow-md overflow-hidden transition-all duration-300 h-fit border border-border"
               style={{ width: previewMode === 'mobile' ? '375px' : '100%', maxWidth: '800px' }}
             >
-              {formData.design_json ? (() => {
-                try {
-                  const html = designToHtml(formData.design_json);
-                  return (
-                    <iframe
-                      srcDoc={html}
-                      title="Email Preview"
-                      className="w-full border-0"
-                      style={{ minHeight: '600px', height: '100%' }}
-                      sandbox="allow-same-origin"
-                      data-testid="iframe-email-preview"
-                    />
-                  );
-                } catch {
-                  return (
-                    <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-preview-error">
-                      Unable to generate preview. Try adjusting your design.
-                    </div>
-                  );
-                }
-              })() : (
-                <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-no-design">
-                  No design to preview. Add some content blocks first.
+              <div className="border-b border-border bg-muted/40 px-4 py-2 flex items-center justify-between gap-2 flex-wrap" data-testid="preview-email-toolbar">
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1} data-testid="button-preview-archive">
+                    <Archive className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1} data-testid="button-preview-trash">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1} data-testid="button-preview-reply">
+                    <Reply className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1} data-testid="button-preview-forward">
+                    <Forward className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
-              )}
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1} data-testid="button-preview-star">
+                    <Star className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 cursor-default" tabIndex={-1} data-testid="button-preview-more">
+                    <MoreHorizontal className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="border-b border-border px-4 py-3 space-y-1.5 bg-background" data-testid="preview-email-headers">
+                <div className="text-base font-semibold text-foreground" data-testid="text-preview-subject">
+                  {formData.subject || 'No subject'}
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                    <Mail className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-foreground" data-testid="text-preview-from-name">
+                        {formData.from_name || 'Sender Name'}
+                      </span>
+                      <span className="text-xs text-muted-foreground" data-testid="text-preview-from-email">
+                        &lt;{formData.from_email || 'sender@example.com'}&gt;
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5" data-testid="text-preview-to">
+                      to <span className="font-medium">recipient@example.com</span>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground" data-testid="text-preview-date">
+                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                    <Paperclip className="w-3.5 h-3.5 text-muted-foreground opacity-0" />
+                  </div>
+                </div>
+              </div>
+
+              <div data-testid="preview-email-body">
+                {formData.design_json ? (() => {
+                  try {
+                    const html = designToHtml(formData.design_json);
+                    return (
+                      <iframe
+                        srcDoc={html}
+                        title="Email Preview"
+                        className="w-full border-0"
+                        style={{ minHeight: '600px', height: '100%' }}
+                        sandbox="allow-same-origin"
+                        data-testid="iframe-email-preview"
+                      />
+                    );
+                  } catch {
+                    return (
+                      <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-preview-error">
+                        Unable to generate preview. Try adjusting your design.
+                      </div>
+                    );
+                  }
+                })() : (
+                  <div className="flex items-center justify-center h-96 text-muted-foreground text-sm" data-testid="text-no-design">
+                    No design to preview. Add some content blocks first.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </DialogContent>

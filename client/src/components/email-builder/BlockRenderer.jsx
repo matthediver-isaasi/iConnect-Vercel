@@ -67,11 +67,11 @@ function TextBlockPreview({ block }) {
   const isHtml = block.content && block.content.includes('<');
   return (
     <div
-      className="prose prose-sm max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-2 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-1.5 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:my-1 [&_p]:my-1 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline"
+      className="prose prose-sm max-w-none [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-0 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-0 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:my-0 [&_p]:my-0 [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:text-blue-600 [&_a]:underline"
       style={{
         fontFamily: block.styles.fontFamily || 'inherit',
         color: block.styles.color,
-        lineHeight: block.styles.lineHeight,
+        lineHeight: block.styles.lineHeight || '1.5',
         padding: block.styles.padding,
       }}
       dangerouslySetInnerHTML={isHtml ? { __html: sanitizeHtml(block.content) } : undefined}

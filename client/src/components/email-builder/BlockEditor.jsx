@@ -61,6 +61,7 @@ function TextBlockEditor({ block, onChange }) {
           onChange={(html) => update('content', html)}
           fontFamily={block.styles.fontFamily}
           color={block.styles.color}
+          lineHeight={block.styles.lineHeight}
         />
         <p className="text-xs text-muted-foreground">
           Supports: {'{{first_name}}'}, {'{{last_name}}'}, {'{{email}}'}
