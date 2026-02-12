@@ -180,6 +180,9 @@ export const createBlock = (type, props = {}) => {
         ],
         styles: {
           displayMode: 'icon-only',
+          labelPosition: 'right',
+          labelFontFamily: '',
+          labelFontSize: '12',
           iconStyle: 'filled',
           shape: 'circle',
           iconColor: '#333333',
