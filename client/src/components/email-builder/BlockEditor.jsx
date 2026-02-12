@@ -22,10 +22,9 @@ import {
   X,
   FileText
 } from 'lucide-react';
-import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
+import { BLOCK_TYPES } from './types';
 import RichTextEditor from './RichTextEditor';
 import SpacingControl from './SpacingControl';
-import { SOCIAL_ICON_SVGS } from './socialIcons';
 
 const GOOGLE_FONT_OPTIONS = [
   { value: '', label: 'Default (inherit)' },
@@ -1138,187 +1137,6 @@ function SectionBlockEditor({ block, onChange }) {
   );
 }
 
-function SocialIconsBlockEditor({ block, onChange, isChild }) {
-  const platforms = block.platforms || [];
-
-  const updatePlatform = (key, field, value) => {
-    const updated = platforms.map(p => p.key === key ? { ...p, [field]: value } : p);
-    onChange({ ...block, platforms: updated });
-  };
-
-  const togglePlatform = (key) => {
-    const exists = platforms.find(p => p.key === key);
-    if (exists) {
-      const updated = platforms.map(p => p.key === key ? { ...p, enabled: !p.enabled } : p);
-      onChange({ ...block, platforms: updated });
-    } else {
-      const platformDef = SOCIAL_PLATFORMS.find(p => p.key === key);
-      onChange({ ...block, platforms: [...platforms, { key, enabled: true, url: platformDef?.defaultUrl || '' }] });
-    }
-  };
-
-  const updateStyle = (key, value) => {
-    onChange({ ...block, styles: { ...block.styles, [key]: value } });
-  };
-
-  const allPlatformKeys = SOCIAL_PLATFORMS.map(p => p.key);
-  const platformMap = {};
-  platforms.forEach(p => { platformMap[p.key] = p; });
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label>Platforms</Label>
-        <div className="space-y-2 max-h-[300px] overflow-y-auto">
-          {allPlatformKeys.map(key => {
-            const def = SOCIAL_PLATFORMS.find(p => p.key === key);
-            const platform = platformMap[key];
-            const enabled = platform?.enabled || false;
-            const iconData = SOCIAL_ICON_SVGS[key];
-            return (
-              <div key={key} className="space-y-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={() => togglePlatform(key)}
-                    className="rounded"
-                    data-testid={`social-toggle-${key}`}
-                  />
-                  {iconData && (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox={iconData.viewBox} fill="currentColor" className="text-muted-foreground">
-                      <path d={iconData.path} />
-                    </svg>
-                  )}
-                  <span className="text-sm">{def?.label || key}</span>
-                </label>
-                {enabled && (
-                  <Input
-                    value={platform?.url || ''}
-                    onChange={(e) => updatePlatform(key, 'url', e.target.value)}
-                    placeholder={`${def?.label} URL`}
-                    className="ml-6"
-                    data-testid={`social-url-${key}`}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Display Mode</Label>
-        <Select value={block.styles.displayMode || 'icon-only'} onValueChange={(v) => updateStyle('displayMode', v)}>
-          <SelectTrigger data-testid="social-display-mode">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="icon-only">Icon Only</SelectItem>
-            <SelectItem value="icon-text">Icon + Name</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Icon Style</Label>
-        <Select value={block.styles.iconStyle || 'filled'} onValueChange={(v) => updateStyle('iconStyle', v)}>
-          <SelectTrigger data-testid="social-icon-style">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="filled">Filled</SelectItem>
-            <SelectItem value="outline">Outline</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Shape</Label>
-        <Select value={block.styles.shape || 'circle'} onValueChange={(v) => updateStyle('shape', v)}>
-          <SelectTrigger data-testid="social-shape">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="circle">Circle</SelectItem>
-            <SelectItem value="square">Square</SelectItem>
-            <SelectItem value="rounded">Rounded Square</SelectItem>
-            <SelectItem value="none">No Shape</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Icon Color</Label>
-        <Input
-          type="color"
-          value={block.styles.iconColor || '#333333'}
-          onChange={(e) => updateStyle('iconColor', e.target.value)}
-          className="h-9 p-1"
-          data-testid="social-icon-color"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label>Background Color</Label>
-        <Input
-          type="color"
-          value={block.styles.iconBgColor || '#f4f4f4'}
-          onChange={(e) => updateStyle('iconBgColor', e.target.value)}
-          className="h-9 p-1"
-          data-testid="social-bg-color"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label>Icon Size</Label>
-        <Select value={block.styles.iconSize || '32'} onValueChange={(v) => updateStyle('iconSize', v)}>
-          <SelectTrigger data-testid="social-icon-size">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="20">Small (20px)</SelectItem>
-            <SelectItem value="24">Medium-Small (24px)</SelectItem>
-            <SelectItem value="32">Medium (32px)</SelectItem>
-            <SelectItem value="40">Large (40px)</SelectItem>
-            <SelectItem value="48">Extra Large (48px)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Alignment</Label>
-        <Select value={block.styles.textAlign || 'center'} onValueChange={(v) => updateStyle('textAlign', v)}>
-          <SelectTrigger data-testid="social-align">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="left">Left</SelectItem>
-            <SelectItem value="center">Center</SelectItem>
-            <SelectItem value="right">Right</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <SpacingControl
-        label="Padding"
-        prefix="padding"
-        styles={block.styles}
-        onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
-      />
-      {!isChild && (
-        <SpacingControl
-          label="Margin"
-          prefix="margin"
-          styles={block.styles}
-          onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
-          hint="Outer spacing around this element"
-        />
-      )}
-    </div>
-  );
-}
-
 const blockEditors = {
   [BLOCK_TYPES.SECTION]: SectionBlockEditor,
   [BLOCK_TYPES.TEXT]: TextBlockEditor,
@@ -1327,7 +1145,6 @@ const blockEditors = {
   [BLOCK_TYPES.DIVIDER]: DividerBlockEditor,
   [BLOCK_TYPES.SPACER]: SpacerBlockEditor,
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockEditor,
-  [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockEditor,
 };
 
 export default function BlockEditor({ block, onChange, isChild, globalFontFamily }) {
@@ -1340,8 +1157,7 @@ export default function BlockEditor({ block, onChange, isChild, globalFontFamily
   }
 
   const EditorComponent = blockEditors[block.type];
-  const BLOCK_TYPE_LABELS = { social_icons: 'Social Icons', columns: 'Columns' };
-  const blockTypeLabel = BLOCK_TYPE_LABELS[block.type] || (block.type.charAt(0).toUpperCase() + block.type.slice(1));
+  const blockTypeLabel = block.type.charAt(0).toUpperCase() + block.type.slice(1);
 
   return (
     <div className="p-4">

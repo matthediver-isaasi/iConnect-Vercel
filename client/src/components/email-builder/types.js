@@ -6,20 +6,7 @@ export const BLOCK_TYPES = {
   DIVIDER: 'divider',
   SPACER: 'spacer',
   COLUMNS: 'columns',
-  SOCIAL_ICONS: 'social_icons',
 };
-
-export const SOCIAL_PLATFORMS = [
-  { key: 'facebook', label: 'Facebook', defaultUrl: 'https://facebook.com/' },
-  { key: 'twitter', label: 'X (Twitter)', defaultUrl: 'https://x.com/' },
-  { key: 'instagram', label: 'Instagram', defaultUrl: 'https://instagram.com/' },
-  { key: 'linkedin', label: 'LinkedIn', defaultUrl: 'https://linkedin.com/' },
-  { key: 'youtube', label: 'YouTube', defaultUrl: 'https://youtube.com/' },
-  { key: 'tiktok', label: 'TikTok', defaultUrl: 'https://tiktok.com/' },
-  { key: 'pinterest', label: 'Pinterest', defaultUrl: 'https://pinterest.com/' },
-  { key: 'github', label: 'GitHub', defaultUrl: 'https://github.com/' },
-  { key: 'website', label: 'Website', defaultUrl: 'https://' },
-];
 
 export const createBlock = (type, props = {}) => {
   const id = `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -156,36 +143,6 @@ export const createBlock = (type, props = {}) => {
           paddingRight: '0',
           paddingBottom: '10',
           paddingLeft: '0',
-          marginTop: '0',
-          marginRight: '0',
-          marginBottom: '0',
-          marginLeft: '0',
-          ...props.styles,
-        },
-      };
-    case BLOCK_TYPES.SOCIAL_ICONS:
-      return {
-        id,
-        type,
-        platforms: props.platforms || [
-          { key: 'facebook', enabled: true, url: 'https://facebook.com/' },
-          { key: 'twitter', enabled: true, url: 'https://x.com/' },
-          { key: 'instagram', enabled: true, url: 'https://instagram.com/' },
-          { key: 'linkedin', enabled: true, url: 'https://linkedin.com/' },
-        ],
-        styles: {
-          displayMode: 'icon-only',
-          iconStyle: 'filled',
-          shape: 'circle',
-          iconColor: '#333333',
-          iconBgColor: '#f4f4f4',
-          iconSize: '32',
-          iconSpacing: '8',
-          textAlign: 'center',
-          paddingTop: '10',
-          paddingRight: '20',
-          paddingBottom: '10',
-          paddingLeft: '20',
           marginTop: '0',
           marginRight: '0',
           marginBottom: '0',

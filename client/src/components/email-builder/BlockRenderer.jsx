@@ -2,10 +2,9 @@ import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
-import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
+import { BLOCK_TYPES } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues } from './SpacingControl';
-import { SOCIAL_ICON_SVGS } from './socialIcons';
 
 function getSpacingStyle(styles, prefix, cssPrefix) {
   const vals = getIndividualValues(styles, prefix);
@@ -291,71 +290,12 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
   );
 }
 
-function SocialIconsBlockPreview({ block, isChild }) {
-  const platforms = (block.platforms || []).filter(p => p.enabled);
-  const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const iconSize = parseInt(block.styles.iconSize || '32', 10);
-  const iconColor = block.styles.iconColor || '#333333';
-  const bgColor = block.styles.iconBgColor || '#f4f4f4';
-  const shape = block.styles.shape || 'circle';
-  const iconStyle = block.styles.iconStyle || 'filled';
-  const displayMode = block.styles.displayMode || 'icon-only';
-  const align = block.styles.textAlign || 'center';
-  const spacing = parseInt(block.styles.iconSpacing || '8', 10);
-
-  const borderRadius = shape === 'circle' ? '50%' : shape === 'rounded' ? '6px' : '0px';
-  const containerSize = iconSize + 12;
-
-  const socialEl = (
-    <div style={{ ...paddingStyle, textAlign: align }}>
-      <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: `${spacing}px`, justifyContent: align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start' }}>
-        {platforms.length === 0 && (
-          <div className="text-sm text-muted-foreground py-2">No social platforms enabled</div>
-        )}
-        {platforms.map(p => {
-          const iconData = SOCIAL_ICON_SVGS[p.key];
-          const def = SOCIAL_PLATFORMS.find(sp => sp.key === p.key);
-          if (!iconData) return null;
-          return (
-            <div key={p.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-              <div
-                style={{
-                  width: `${containerSize}px`,
-                  height: `${containerSize}px`,
-                  borderRadius,
-                  backgroundColor: shape !== 'none' ? bgColor : 'transparent',
-                  border: iconStyle === 'outline' && shape !== 'none' ? `2px solid ${iconColor}` : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width={iconSize * 0.6} height={iconSize * 0.6} viewBox={iconData.viewBox} fill={iconColor}>
-                  <path d={iconData.path} />
-                </svg>
-              </div>
-              {displayMode === 'icon-text' && (
-                <span style={{ fontSize: '13px', color: iconColor }}>{def?.label || p.key}</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  if (isChild) return socialEl;
-  const marginAsPadding = getSpacingStyle(block.styles, 'margin', 'padding');
-  return <div style={marginAsPadding}>{socialEl}</div>;
-}
-
 const contentBlockPreviewComponents = {
   [BLOCK_TYPES.TEXT]: TextBlockPreview,
   [BLOCK_TYPES.IMAGE]: ImageBlockPreview,
   [BLOCK_TYPES.BUTTON]: ButtonBlockPreview,
   [BLOCK_TYPES.DIVIDER]: DividerBlockPreview,
   [BLOCK_TYPES.SPACER]: SpacerBlockPreview,
-  [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
 };
 
 const blockPreviewComponents = {
@@ -366,7 +306,6 @@ const blockPreviewComponents = {
   [BLOCK_TYPES.DIVIDER]: DividerBlockPreview,
   [BLOCK_TYPES.SPACER]: SpacerBlockPreview,
   [BLOCK_TYPES.COLUMNS]: ColumnsBlockPreview,
-  [BLOCK_TYPES.SOCIAL_ICONS]: SocialIconsBlockPreview,
 };
 
 export default function BlockRenderer({
