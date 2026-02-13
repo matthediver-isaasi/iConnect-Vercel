@@ -2187,10 +2187,10 @@ export default function WorkflowManagementPage() {
                                 </div>
                                 <Switch
                                   checked={action.config?.dry_run || false}
-                                  onCheckedChange={(checked) => updateAction(actionIndex, {
+                                  onCheckedChange={(checked) => updateAction(index, {
                                     config: { ...action.config, dry_run: checked }
                                   })}
-                                  data-testid={`switch-dry-run-${actionIndex}`}
+                                  data-testid={`switch-dry-run-${index}`}
                                 />
                               </div>
                               {(formData.entity_type !== 'organization' && formData.entity_type !== 'member') && (
