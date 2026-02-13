@@ -139,17 +139,6 @@ export default async function handler(req, res) {
     let html = campaign.html_content || '';
     let subject = `[TEST] ${campaign.subject || 'No Subject'}`;
 
-    const buttonTableMatches = html.match(/<table[^>]*role="presentation"[^>]*>[\s\S]*?<\/table>/gi);
-    const mjButtonMatches = html.match(/<mj-button[^>]*>/gi);
-    const textAlignMatches = html.match(/text-align:\s*center[^"']*/gi);
-    console.log('[TestSend] Button alignment debug:', {
-      hasTableButtons: !!(buttonTableMatches && buttonTableMatches.length),
-      tableButtonCount: buttonTableMatches ? buttonTableMatches.length : 0,
-      hasMjButtons: !!(mjButtonMatches && mjButtonMatches.length),
-      centerAlignCount: textAlignMatches ? textAlignMatches.length : 0,
-      htmlSnippetAroundButton: html.includes('border-collapse:separate') ? 'NEW table-based button found' : (html.includes('mso-font-width') ? 'OLD mso-conditional button found' : 'No recognized button pattern'),
-    });
-
     html = html.replace(/\{\{first_name\}\}/gi, firstName);
     html = html.replace(/\{\{last_name\}\}/gi, lastName);
     html = html.replace(/\{\{email\}\}/gi, emailToUse);

@@ -463,7 +463,7 @@ export const designToMjml = (design, { footerHtml } = {}) => {
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
   let footerSection = '';
   if (shouldIncludeFooter) {
-    footerSection = `<mj-section padding="12px 0 12px 0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
+    footerSection = `<mj-section padding="0 0 12px 0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
   }
   
   return `
@@ -495,9 +495,6 @@ export const designToMjml = (design, { footerHtml } = {}) => {
 export const designToHtml = (design, { footerHtml } = {}) => {
   try {
     const mjmlString = designToMjml(design, { footerHtml });
-    console.log('[EmailBuilder] === MJML DEBUG START ===');
-    console.log(mjmlString);
-    console.log('[EmailBuilder] === MJML DEBUG END ===');
     const { html, errors } = mjml2html(mjmlString, {
       validationLevel: 'soft',
     });
@@ -505,10 +502,6 @@ export const designToHtml = (design, { footerHtml } = {}) => {
     if (errors && errors.length > 0) {
       console.warn('[EmailBuilder] MJML conversion warnings:', errors);
     }
-    
-    console.log('[EmailBuilder] === HTML DEBUG START ===');
-    console.log(html);
-    console.log('[EmailBuilder] === HTML DEBUG END ===');
     
     return html;
   } catch (error) {
