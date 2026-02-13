@@ -166,7 +166,6 @@ async function handlePost(req, res, tenantId, tenantContext) {
     discount_value: overrideType === 'discount' ? parseFloat(discountValue) : null,
     membership_year: membershipYear || null,
     note: note.trim(),
-    created_by: tenantContext.tenantUserId || tenantContext.memberId || null,
     updated_at: new Date().toISOString(),
   };
 
