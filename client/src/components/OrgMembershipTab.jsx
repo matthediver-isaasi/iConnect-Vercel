@@ -156,33 +156,31 @@ function YearCostSection({
           <span className="text-muted-foreground">{hasOverride && yearData.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost`}</span>
           <span className="font-medium">{formatCost(yearData.annualCost, currency)}</span>
         </div>
+        {yearData.dailyCost != null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Daily Cost</span>
+            <span className="font-medium">{formatCost(yearData.dailyCost, currency)}</span>
+          </div>
+        )}
         {yearData.customDiscountTotal > 0 && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Custom Discounts</span>
             <span className="text-green-600">-{formatCost(yearData.customDiscountTotal, currency)}</span>
           </div>
         )}
+        {yearData.proRataEnabled && yearData.prorataDays !== null && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Pro-rata ({yearData.prorataDays} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})</span>
+            <span className="font-medium">{formatCost(yearData.prorataCost, currency)}</span>
+          </div>
+        )}
         {yearData.freeDiscount > 0 && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">
-              Free Period ({yearData.freePeriodDaysUsed !== null && yearData.freePeriodTotalDays !== null
-                ? `${yearData.freePeriodDaysUsed} of ${yearData.freePeriodTotalDays} free days applied`
-                : `${yearData.freePeriodAmount} ${yearData.freePeriodUnit}`})
+              Free Period ({yearData.freePeriodDaysApplied} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})
             </span>
             <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
           </div>
-        )}
-        {yearData.proRataEnabled && yearData.remainingDays !== null && (
-          <>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">After Free Period</span>
-              <span className="font-medium">{formatCost(yearData.costAfterFreeDiscount, currency)}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Pro-rata ({yearData.remainingDays} of {yearData.totalDays} days)</span>
-              <span className="font-medium">{formatCost(yearData.prorataCost, currency)}</span>
-            </div>
-          </>
         )}
         {yearData.rolloverDiscount > 0 && (
           <div className="flex items-center justify-between text-sm">
