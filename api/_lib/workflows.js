@@ -331,7 +331,7 @@ async function getMembersByRoleInOrganization(roleId, organizationId) {
   return validMembers;
 }
 
-function buildActionSummary(action) {
+async function buildActionSummary(action, tenantId) {
   const summary = { type: action.type };
   const cfg = action.config || {};
 
@@ -341,9 +341,22 @@ function buildActionSummary(action) {
       let valueLabel = cfg.value;
       if (cfg.value === '{{current_date}}') valueLabel = 'Current date (when workflow runs)';
       else if (cfg.value === '{{current_datetime}}') valueLabel = 'Current date & time';
+      let fieldLabel = cfg.field_label;
+      if (!fieldLabel && cfg.field_id && tenantId) {
+        try {
+          const { data: prefField } = await supabase
+            .from('preference_field')
+            .select('label')
+            .eq('id', cfg.field_id)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+          if (prefField?.label) fieldLabel = prefField.label;
+        } catch (e) {}
+      }
+      if (!fieldLabel) fieldLabel = cfg.field_id || 'field';
       summary.description = 'Update field value';
-      summary.detail = `Set "${cfg.field_label || cfg.field_id || 'field'}" to "${valueLabel || ''}"`;
-      summary.field_label = cfg.field_label || cfg.field_id;
+      summary.detail = `Set "${fieldLabel}" to "${valueLabel || ''}"`;
+      summary.field_label = fieldLabel;
       summary.field_type = fieldType;
       summary.value_label = valueLabel;
       break;
@@ -407,8 +420,14 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       } else if (resolvedValue === '{{current_datetime}}') {
         resolvedValue = new Date().toISOString();
       }
-      await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId);
-      results.push({ action_type: 'update_field', status: 'success' });
+      console.log(`[Workflows] update_field (core): ${table}.${action.config.field_id} = "${resolvedValue}" for ${entityType}:${entityId}`);
+      const { error: updateError } = await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId);
+      if (updateError) {
+        console.error(`[Workflows] update_field (core) error:`, updateError.message);
+        results.push({ action_type: 'update_field', field_type: 'core', status: 'failed', error: updateError.message });
+      } else {
+        results.push({ action_type: 'update_field', field_type: 'core', status: 'success' });
+      }
     } else if (action.type === 'update_field' && normalizedFieldType === 'custom') {
       try {
         let prefTable, foreignKey;
@@ -1640,7 +1659,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: workflow.actions?.map(a => buildActionSummary(a)) || []
+          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id)))
         });
         continue;
       }
@@ -1731,7 +1750,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: workflow.actions?.map(a => buildActionSummary(a)) || []
+          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id)))
         });
         continue;
       }
