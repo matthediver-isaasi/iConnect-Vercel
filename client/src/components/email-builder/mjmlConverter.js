@@ -48,7 +48,7 @@ const buttonToMjml = (block) => {
   const fontFamily = block.styles.fontFamily ? `font-family:${block.styles.fontFamily};` : '';
   const content = escapeHtml(block.content);
 
-  return `<a href="${href}" target="_blank" style="display:inline-block;background-color:${bgColor};color:${color};font-size:${fontSize};font-weight:${fontWeight};border-radius:${borderRadius};padding:${innerPad};text-decoration:none;${fontFamily}mso-padding-alt:0;text-align:center;"><!--[if mso]><i style="mso-font-width:300%;mso-text-raise:30" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:15px;">${content}</span><!--[if mso]><i style="mso-font-width:300%;" hidden>&emsp;&#8203;</i><![endif]--></a>`;
+  return `<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%;"><tr><td bgcolor="${bgColor}" role="presentation" style="border:none;border-radius:${borderRadius};cursor:auto;mso-padding-alt:${innerPad};background:${bgColor};"><a href="${href}" target="_blank" style="display:inline-block;background:${bgColor};color:${color};${fontFamily}font-size:${fontSize};font-weight:${fontWeight};line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:${innerPad};mso-padding-alt:0;border-radius:${borderRadius};">${content}</a></td></tr></table>`;
 };
 
 
