@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     }
 
     const { tenantId } = tenantContext;
-    const { organizationId, mode } = req.body;
+    const { organizationId, mode, targetYear } = req.body;
 
     if (!organizationId) {
       return res.status(400).json({ error: 'organizationId is required' });
@@ -43,6 +43,7 @@ export default async function handler(req, res) {
     const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
       source: 'simulate',
       mode,
+      targetYear: targetYear || null,
     });
 
     if (!simResult.success) {

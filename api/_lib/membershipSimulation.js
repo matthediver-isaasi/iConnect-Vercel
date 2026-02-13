@@ -8,6 +8,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     mode = 'automatic',
     workflowName = null,
     verbose = false,
+    targetYear = null,
   } = options;
 
   const steps = [];
@@ -86,7 +87,12 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   const nextYear = calculateNextMembershipYear(config);
   log('Calculate Membership Year', `Current year: ${currentYear.label}, Next year: ${nextYear.label}`);
 
-  const membershipYear = source === 'simulate' ? nextYear : currentYear;
+  let membershipYear;
+  if (targetYear) {
+    membershipYear = targetYear === currentYear.label ? currentYear : nextYear;
+  } else {
+    membershipYear = source === 'simulate' ? nextYear : currentYear;
+  }
 
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;

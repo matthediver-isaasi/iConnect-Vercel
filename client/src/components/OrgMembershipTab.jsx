@@ -89,7 +89,7 @@ function YearCostSection({
           <Button
             size="sm"
             variant="outline"
-            onClick={onSimulate}
+            onClick={() => onSimulate(yearData.membershipYear)}
             disabled={simulatePending}
             data-testid={`button-simulate-${testIdPrefix}`}
           >
@@ -158,7 +158,11 @@ function YearCostSection({
         )}
         {yearData.freeDiscount > 0 && (
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Free Period ({yearData.freePeriodAmount} {yearData.freePeriodUnit})</span>
+            <span className="text-muted-foreground">
+              Free Period ({yearData.freePeriodDaysUsed !== null && yearData.freePeriodTotalDays !== null
+                ? `${yearData.freePeriodDaysUsed} days of ${yearData.freePeriodAmount} ${yearData.freePeriodUnit} used`
+                : `${yearData.freePeriodAmount} ${yearData.freePeriodUnit}`})
+            </span>
             <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
           </div>
         )}
@@ -413,12 +417,12 @@ export default function OrgMembershipTab({ organizationId }) {
   });
 
   const simulateRenewalMutation = useMutation({
-    mutationFn: async (mode) => {
+    mutationFn: async ({ mode, targetYear }) => {
       const response = await fetch('/api/membership/simulate-renewal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ organizationId, mode }),
+        body: JSON.stringify({ organizationId, mode, targetYear }),
       });
       if (!response.ok) {
         const err = await response.json();
@@ -683,7 +687,7 @@ export default function OrgMembershipTab({ organizationId }) {
                 onOpenOverride={handleOpenOverrideModal}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
-                onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
+                onSimulate={(membershipYear) => simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear })}
                 simulatePending={simulateRenewalMutation.isPending}
                 testIdPrefix="current-year"
               />
@@ -719,7 +723,7 @@ export default function OrgMembershipTab({ organizationId }) {
                 onOpenOverride={handleOpenOverrideModal}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
-                onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
+                onSimulate={(membershipYear) => simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear })}
                 simulatePending={simulateRenewalMutation.isPending}
                 testIdPrefix="next-year"
               />

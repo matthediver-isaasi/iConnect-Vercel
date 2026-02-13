@@ -335,6 +335,18 @@ async function handleGet(req, res, tenantId) {
       totalDays = proRataResult.totalDays;
     }
 
+    let currentYearFreeDaysUsed = null;
+    let currentYearFreeTotalDays = null;
+    if (isNewOrg && config.free_period_amount && config.free_period_unit) {
+      const freePeriodMonths = getFreeMonths(config);
+      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+      const now = new Date();
+      const daysSinceJoin = Math.max(0, Math.floor((now - joinDate) / (1000 * 60 * 60 * 24)));
+      currentYearFreeDaysUsed = Math.min(daysSinceJoin, freePeriodTotalDays);
+      currentYearFreeTotalDays = freePeriodTotalDays;
+    }
+
     currentYearCost = {
       membershipYear: currentYear.label,
       tierLabel: matchedBand?.label || null,
@@ -346,6 +358,8 @@ async function handleGet(req, res, tenantId) {
       freeDiscount: isNewOrg ? freeDiscountForYear : 0,
       freePeriodAmount: config.free_period_amount,
       freePeriodUnit: config.free_period_unit,
+      freePeriodDaysUsed: currentYearFreeDaysUsed,
+      freePeriodTotalDays: currentYearFreeTotalDays,
       costAfterFreeDiscount: isNewOrg ? costAfterFree : annualCost,
       proRataEnabled: !!config.prorata_enabled && isNewOrg,
       prorataCost,
@@ -406,6 +420,18 @@ async function handleGet(req, res, tenantId) {
 
     const nextYearFinal = nextYearCostAfterFree - nextYearRolloverDiscount;
 
+    let nextYearFreeDaysUsed = null;
+    let nextYearFreeTotalDays = null;
+    if (nextYearFreeDiscount > 0 && config.free_period_amount && config.free_period_unit) {
+      const freePeriodMonths = getFreeMonths(config);
+      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+      const now = new Date();
+      const daysSinceJoin = Math.max(0, Math.floor((now - joinDate) / (1000 * 60 * 60 * 24)));
+      nextYearFreeDaysUsed = Math.min(daysSinceJoin, freePeriodTotalDays);
+      nextYearFreeTotalDays = freePeriodTotalDays;
+    }
+
     nextYearPreview = {
       membershipYear: nextYear.label,
       tierLabel: matchedBand?.label || null,
@@ -417,6 +443,8 @@ async function handleGet(req, res, tenantId) {
       freeDiscount: nextYearFreeDiscount,
       freePeriodAmount: nextYearFreeDiscount > 0 ? config.free_period_amount : null,
       freePeriodUnit: nextYearFreeDiscount > 0 ? config.free_period_unit : null,
+      freePeriodDaysUsed: nextYearFreeDaysUsed,
+      freePeriodTotalDays: nextYearFreeTotalDays,
       costAfterFreeDiscount: nextYearCostAfterFree,
       rolloverDiscount: nextYearRolloverDiscount,
       finalCost: parseFloat(Math.max(0, nextYearFinal).toFixed(2)),
