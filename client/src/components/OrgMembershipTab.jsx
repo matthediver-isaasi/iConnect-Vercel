@@ -745,7 +745,7 @@ export default function OrgMembershipTab({ organizationId }) {
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
                 onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear }); }}
-                simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearData?.membershipYear}
+                simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearCost?.membershipYear}
                 testIdPrefix="current-year"
               />
             ) : (
