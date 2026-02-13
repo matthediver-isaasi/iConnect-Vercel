@@ -331,6 +331,58 @@ async function getMembersByRoleInOrganization(roleId, organizationId) {
   return validMembers;
 }
 
+function buildActionSummary(action) {
+  const summary = { type: action.type };
+  const cfg = action.config || {};
+
+  switch (action.type) {
+    case 'update_field': {
+      const fieldType = cfg.field_type?.replace(/^(org_|member_|job_posting_)/, '') || cfg.field_type;
+      let valueLabel = cfg.value;
+      if (cfg.value === '{{current_date}}') valueLabel = 'Current date (when workflow runs)';
+      else if (cfg.value === '{{current_datetime}}') valueLabel = 'Current date & time';
+      summary.description = 'Update field value';
+      summary.detail = `Set "${cfg.field_label || cfg.field_id || 'field'}" to "${valueLabel || ''}"`;
+      summary.field_label = cfg.field_label || cfg.field_id;
+      summary.field_type = fieldType;
+      summary.value_label = valueLabel;
+      break;
+    }
+    case 'send_email': {
+      summary.description = 'Send email notification';
+      if (cfg.mode === 'template' && cfg.template_name) {
+        summary.detail = `Send email using template "${cfg.template_name}"`;
+      } else if (cfg.subject) {
+        summary.detail = `Send email: "${cfg.subject}"`;
+      } else {
+        summary.detail = 'Send email notification';
+      }
+      if (cfg.to_mode === 'role') summary.detail += ' (to role members)';
+      break;
+    }
+    case 'create_membership': {
+      summary.description = cfg.dry_run ? 'Simulate membership calculation (dry run)' : 'Create membership record';
+      summary.detail = cfg.dry_run
+        ? 'Calculate membership tier, discounts, and cost without creating a record'
+        : 'Determine tier band, apply discounts, and create the membership history record';
+      summary.dry_run = !!cfg.dry_run;
+      break;
+    }
+    case 'create_contract': {
+      summary.description = 'Create contract';
+      summary.detail = cfg.contract_form_name
+        ? `Create contract from form "${cfg.contract_form_name}"`
+        : 'Create contract from form template';
+      break;
+    }
+    default:
+      summary.description = action.type?.replace(/_/g, ' ') || 'Unknown action';
+      summary.detail = '';
+  }
+
+  return summary;
+}
+
 async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl) {
   const results = [];
   const tenantId = workflow.tenant_id;
@@ -1588,11 +1640,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          // Don't include before_data/after_data for security - server will fetch fresh data when confirmed
-          actions: workflow.actions?.map(a => ({
-            type: a.type,
-            description: a.type === 'send_email' ? 'Send email notification' : a.type === 'create_membership' ? 'Create membership record' : a.type === 'create_contract' ? 'Create contract' : 'Update field value'
-          })) || []
+          actions: workflow.actions?.map(a => buildActionSummary(a)) || []
         });
         continue;
       }
@@ -1683,10 +1731,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: workflow.actions?.map(a => ({
-            type: a.type,
-            description: a.type === 'send_email' ? 'Send email notification' : a.type === 'create_membership' ? 'Create membership record' : a.type === 'create_contract' ? 'Create contract' : 'Update field value'
-          })) || []
+          actions: workflow.actions?.map(a => buildActionSummary(a)) || []
         });
         continue;
       }

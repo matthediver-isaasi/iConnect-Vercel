@@ -10,24 +10,108 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Zap, Mail, Settings, Check, X, Loader2, PlayCircle, CheckCircle2, XCircle, AlertTriangle, Info } from "lucide-react";
+import {
+  Zap, Mail, Settings, Check, X, Loader2, PlayCircle,
+  CheckCircle2, XCircle, AlertTriangle, Info,
+  FileText, SkipForward, Database
+} from "lucide-react";
 
-export function WorkflowConfirmationModal({ 
-  open, 
-  onOpenChange, 
-  pendingWorkflows = [], 
-  onConfirm, 
+const ACTION_ICONS = {
+  update_field: Settings,
+  send_email: Mail,
+  create_membership: Database,
+  create_contract: FileText,
+};
+
+const ACTION_STATUS_CONFIG = {
+  success: { icon: CheckCircle2, color: 'text-green-600 dark:text-green-500', label: 'Done' },
+  failed: { icon: XCircle, color: 'text-destructive', label: 'Failed' },
+  skipped: { icon: SkipForward, color: 'text-muted-foreground', label: 'Skipped' },
+  dry_run: { icon: PlayCircle, color: 'text-blue-600 dark:text-blue-400', label: 'Simulated' },
+};
+
+function ActionStepList({ actions, results }) {
+  return (
+    <div className="space-y-0.5">
+      {actions.map((action, i) => {
+        const Icon = ACTION_ICONS[action.type] || Zap;
+        const result = results?.[i];
+        const statusCfg = result ? ACTION_STATUS_CONFIG[result.status] : null;
+        const StatusIcon = statusCfg?.icon;
+
+        return (
+          <div
+            key={i}
+            className="flex items-start gap-3 py-2.5 px-3 rounded-md"
+            data-testid={`action-step-${i}`}
+          >
+            <div className="flex items-center gap-2 shrink-0 mt-0.5">
+              <span className="text-xs font-medium text-muted-foreground w-4 text-right">{i + 1}.</span>
+              <Icon className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0 space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium">{action.description}</span>
+                {action.dry_run && (
+                  <Badge variant="outline" className="text-xs">
+                    <PlayCircle className="h-3 w-3 mr-1" />
+                    Dry Run
+                  </Badge>
+                )}
+              </div>
+              {action.detail && (
+                <p className="text-xs text-muted-foreground">{action.detail}</p>
+              )}
+              {result && (
+                <div className="flex items-center gap-1.5 mt-1">
+                  {StatusIcon && <StatusIcon className={`h-3.5 w-3.5 ${statusCfg.color}`} />}
+                  <span className={`text-xs font-medium ${statusCfg.color}`}>{statusCfg.label}</span>
+                  {result.status === 'failed' && result.error && (
+                    <span className="text-xs text-destructive"> - {result.error}</span>
+                  )}
+                  {result.status === 'skipped' && result.message && (
+                    <span className="text-xs text-muted-foreground"> - {result.message}</span>
+                  )}
+                  {result.status === 'success' && result.action_type === 'create_membership' && result.tier_label && (
+                    <span className="text-xs text-muted-foreground">
+                      {' '}- {result.tier_label}, {result.membership_year}
+                    </span>
+                  )}
+                  {result.status === 'dry_run' && result.final_cost !== undefined && (
+                    <span className="text-xs text-muted-foreground">
+                      {' '}- {result.tier_label}, Final: {result.currency || 'GBP'} {parseFloat(result.final_cost).toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function WorkflowConfirmationModal({
+  open,
+  onOpenChange,
+  pendingWorkflows = [],
+  onConfirm,
   onSkip,
-  onSkipAll 
+  onSkipAll
 }) {
   const [processingWorkflowId, setProcessingWorkflowId] = useState(null);
   const [processedWorkflows, setProcessedWorkflows] = useState([]);
+  const [workflowResults, setWorkflowResults] = useState({});
 
   const handleConfirm = async (workflow) => {
     setProcessingWorkflowId(workflow.workflow_id);
     try {
-      await onConfirm(workflow);
+      const result = await onConfirm(workflow);
       setProcessedWorkflows(prev => [...prev, { id: workflow.workflow_id, action: 'confirmed' }]);
+      if (result?.action_results) {
+        setWorkflowResults(prev => ({ ...prev, [workflow.workflow_id]: result.action_results }));
+      }
     } finally {
       setProcessingWorkflowId(null);
     }
@@ -47,52 +131,60 @@ export function WorkflowConfirmationModal({
     w => !processedWorkflows.find(p => p.id === w.workflow_id)
   );
 
+  const confirmedWorkflows = pendingWorkflows.filter(
+    w => processedWorkflows.find(p => p.id === w.workflow_id && p.action === 'confirmed')
+  );
+
   const allProcessed = remainingWorkflows.length === 0 && pendingWorkflows.length > 0;
 
   const handleClose = () => {
-    // Clear processed workflows and reset modal state
     setProcessedWorkflows([]);
-    // Clear parent's pending workflows to prevent them from showing again
+    setWorkflowResults({});
     if (allProcessed || remainingWorkflows.length === 0) {
       onSkipAll?.();
     }
     onOpenChange(false);
   };
 
-  const getActionIcon = (actionType) => {
-    switch (actionType) {
-      case 'send_email':
-        return <Mail className="h-4 w-4" />;
-      case 'update_field':
-        return <Settings className="h-4 w-4" />;
-      default:
-        return <Zap className="h-4 w-4" />;
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
             {allProcessed ? 'Workflows Processed' : 'Workflow Confirmation'}
           </DialogTitle>
           <DialogDescription>
-            {allProcessed ? (
-              processedWorkflows.every(p => p.action === 'skipped') 
+            {allProcessed
+              ? processedWorkflows.every(p => p.action === 'skipped')
                 ? 'All workflows were skipped. No actions were taken.'
                 : processedWorkflows.every(p => p.action === 'confirmed')
-                  ? 'All workflows have been executed successfully.'
+                  ? 'All workflows have been executed. See the results below.'
                   : 'Your workflow choices have been processed.'
-            ) : (
-              'The following workflows are ready to run based on your changes. Would you like to execute them?'
-            )}
+              : 'The following workflows are ready to run based on your changes. Review the actions and confirm.'
+            }
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {allProcessed ? (
+        <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto">
+          {allProcessed && confirmedWorkflows.length > 0 ? (
+            confirmedWorkflows.map((workflow) => (
+              <div key={workflow.workflow_id} className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500 shrink-0" />
+                  <p className="text-sm font-medium" data-testid={`text-workflow-name-${workflow.workflow_id}`}>
+                    {workflow.workflow_name}
+                  </p>
+                </div>
+                <div className="ml-1 border rounded-md bg-muted/20">
+                  <ActionStepList
+                    actions={workflow.actions || []}
+                    results={workflowResults[workflow.workflow_id]}
+                  />
+                </div>
+              </div>
+            ))
+          ) : allProcessed ? (
             <div className="text-center py-4">
               <Check className="h-8 w-8 text-green-500 mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">All workflows processed</p>
@@ -100,24 +192,16 @@ export function WorkflowConfirmationModal({
           ) : (
             remainingWorkflows.map((workflow, index) => (
               <div key={workflow.workflow_id}>
-                {index > 0 && <Separator className="my-4" />}
+                {index > 0 && <Separator className="my-3" />}
                 <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1">
-                      <p className="font-medium" data-testid={`text-workflow-name-${workflow.workflow_id}`}>
-                        {workflow.workflow_name}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {workflow.actions?.map((action, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs">
-                            {getActionIcon(action.type)}
-                            <span className="ml-1">{action.description}</span>
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
+                  <p className="font-medium" data-testid={`text-workflow-name-${workflow.workflow_id}`}>
+                    {workflow.workflow_name}
+                  </p>
+
+                  <div className="border rounded-md bg-muted/20">
+                    <ActionStepList actions={workflow.actions || []} />
                   </div>
-                  
+
                   <div className="flex gap-2 justify-end">
                     <Button
                       variant="outline"
@@ -151,8 +235,8 @@ export function WorkflowConfirmationModal({
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           {!allProcessed && remainingWorkflows.length > 1 && (
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={handleSkipAll}
               className="w-full sm:w-auto"
               data-testid="button-skip-all-workflows"
@@ -160,8 +244,8 @@ export function WorkflowConfirmationModal({
               Skip All
             </Button>
           )}
-          <Button 
-            variant={allProcessed ? "default" : "outline"} 
+          <Button
+            variant={allProcessed ? "default" : "outline"}
             onClick={handleClose}
             className="w-full sm:w-auto"
             data-testid="button-close-workflow-modal"

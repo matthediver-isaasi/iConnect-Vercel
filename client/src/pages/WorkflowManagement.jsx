@@ -1271,11 +1271,13 @@ export default function WorkflowManagementPage() {
                                   <Select
                                     value={action.config?.template_id || '_none'}
                                     onValueChange={(val) => {
+                                      const selectedTpl = val !== '_none' ? emailTemplates.find(t => t.id === val) : null;
                                       updateAction(index, { 
                                         config: { 
                                           ...action.config, 
                                           template_id: val === '_none' ? null : val,
-                                          field_mappings: {} // Reset mappings when template changes
+                                          template_name: selectedTpl?.name || null,
+                                          field_mappings: {}
                                         } 
                                       });
                                     }}
@@ -1717,8 +1719,13 @@ export default function WorkflowManagementPage() {
                                   value={`${action.config?.field_type || 'core'}:${action.config?.field_id || ''}`}
                                   onValueChange={(val) => {
                                     const [fieldType, fieldId] = val.split(':');
+                                    const allFields = [
+                                      ...getEntitySpecificFields(formData.entity_type).core,
+                                      ...getEntitySpecificFields(formData.entity_type).custom
+                                    ];
+                                    const matchedField = allFields.find(f => f.id === fieldId);
                                     updateAction(index, { 
-                                      config: { ...action.config, field_type: fieldType, field_id: fieldId, value: '' } 
+                                      config: { ...action.config, field_type: fieldType, field_id: fieldId, field_label: matchedField?.label || fieldId, value: '' } 
                                     });
                                   }}
                                 >

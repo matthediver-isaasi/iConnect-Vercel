@@ -32,12 +32,12 @@ export function useWorkflowConfirmation() {
       const result = await response.json();
       
       if (result.success) {
-        if (result.dry_run_results?.length > 0) {
-          setDryRunResults(result.dry_run_results);
+        const actionResults = result.action_results || [];
+        const dryRuns = actionResults.filter(r => r.status === 'dry_run');
+        
+        if (dryRuns.length > 0) {
+          setDryRunResults(dryRuns);
           setShowDryRunModal(true);
-          toast.info(`Workflow "${workflow.workflow_name}" dry run completed`);
-        } else {
-          toast.success(`Workflow "${workflow.workflow_name}" executed successfully`);
         }
       } else {
         toast.error(result.error || 'Failed to execute workflow');
