@@ -269,6 +269,7 @@ export default function OrgMembershipTab({ organizationId }) {
   const [invoiceDate, setInvoiceDate] = useState('');
   const [simulationResults, setSimulationResults] = useState(null);
   const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
+  const [simulatingYear, setSimulatingYear] = useState(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
@@ -466,9 +467,11 @@ export default function OrgMembershipTab({ organizationId }) {
     onSuccess: (data) => {
       setSimulationResults(data);
       setSimulationDialogOpen(true);
+      setSimulatingYear(null);
     },
     onError: (error) => {
       toast.error(error.message);
+      setSimulatingYear(null);
     },
   });
 
@@ -741,8 +744,8 @@ export default function OrgMembershipTab({ organizationId }) {
                 onOpenOverride={handleOpenOverrideModal}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
-                onSimulate={(membershipYear) => simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear })}
-                simulatePending={simulateRenewalMutation.isPending}
+                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear }); }}
+                simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearData?.membershipYear}
                 testIdPrefix="current-year"
               />
             ) : (
@@ -778,8 +781,8 @@ export default function OrgMembershipTab({ organizationId }) {
                 onOpenOverride={handleOpenOverrideModal}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
-                onSimulate={(membershipYear) => simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear })}
-                simulatePending={simulateRenewalMutation.isPending}
+                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear }); }}
+                simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearPreview?.membershipYear}
                 testIdPrefix="next-year"
               />
             ) : (
