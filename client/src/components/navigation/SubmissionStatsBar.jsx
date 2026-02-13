@@ -4,11 +4,22 @@ import { FileText, Briefcase } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 
 export default function SubmissionStatsBar() {
   const navigate = useNavigate();
   const { memberInfo } = useMemberAccess();
   
+  useRealtimeSubscription('form_submission', [['form-submission-stats']], {
+    enabled: !!memberInfo?.tenant_id,
+    tenantId: memberInfo?.tenant_id,
+  });
+
+  useRealtimeSubscription('job_posting', [['form-submission-stats']], {
+    enabled: !!memberInfo?.tenant_id,
+    tenantId: memberInfo?.tenant_id,
+  });
+
   const { data: stats, isLoading, isError } = useQuery({
     queryKey: ['form-submission-stats'],
     queryFn: async () => {
@@ -25,8 +36,7 @@ export default function SubmissionStatsBar() {
         return null;
       }
     },
-    staleTime: 30 * 1000,
-    refetchInterval: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
     retry: false
   });
 
