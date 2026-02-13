@@ -495,6 +495,9 @@ export const designToMjml = (design, { footerHtml } = {}) => {
 export const designToHtml = (design, { footerHtml } = {}) => {
   try {
     const mjmlString = designToMjml(design, { footerHtml });
+    console.log('[EmailBuilder] === MJML DEBUG START ===');
+    console.log(mjmlString);
+    console.log('[EmailBuilder] === MJML DEBUG END ===');
     const { html, errors } = mjml2html(mjmlString, {
       validationLevel: 'soft',
     });
@@ -502,6 +505,10 @@ export const designToHtml = (design, { footerHtml } = {}) => {
     if (errors && errors.length > 0) {
       console.warn('[EmailBuilder] MJML conversion warnings:', errors);
     }
+    
+    console.log('[EmailBuilder] === HTML DEBUG START ===');
+    console.log(html);
+    console.log('[EmailBuilder] === HTML DEBUG END ===');
     
     return html;
   } catch (error) {
