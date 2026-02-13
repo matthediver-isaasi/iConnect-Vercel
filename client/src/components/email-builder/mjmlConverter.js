@@ -37,6 +37,20 @@ const getCombinedSectionPadding = (styles) => {
   return `${margin.top || 0}px ${margin.right || 0}px ${margin.bottom || 0}px ${margin.left || 0}px`;
 };
 
+const buttonToMjml = (block) => {
+  const href = escapeHtml(block.href || '#');
+  const bgColor = block.styles.backgroundColor || '#007bff';
+  const color = block.styles.color || '#ffffff';
+  const fontSize = block.styles.fontSize || '16px';
+  const fontWeight = block.styles.fontWeight || 'bold';
+  const borderRadius = block.styles.borderRadius || '4px';
+  const innerPad = getInnerPaddingAttr(block.styles);
+  const fontFamily = block.styles.fontFamily ? `font-family:${block.styles.fontFamily};` : '';
+  const content = escapeHtml(block.content);
+
+  return `<a href="${href}" target="_blank" style="display:inline-block;background-color:${bgColor};color:${color};font-size:${fontSize};font-weight:${fontWeight};border-radius:${borderRadius};padding:${innerPad};text-decoration:none;${fontFamily}mso-padding-alt:0;text-align:center;"><!--[if mso]><i style="mso-font-width:300%;mso-text-raise:30" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:15px;">${content}</span><!--[if mso]><i style="mso-font-width:300%;" hidden>&emsp;&#8203;</i><![endif]--></a>`;
+};
+
 
 const SOCIAL_SVG_PATHS = {
   facebook: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h5.047V9.43c0-4.985 2.97-7.74 7.513-7.74 2.177 0 4.454.389 4.454.389v4.89h-2.509c-2.473 0-3.245 1.534-3.245 3.109v3.73h5.51l-.881 3.47h-4.63v8.385C19.612 23.027 24 18.062 24 12.073z',
@@ -181,17 +195,10 @@ const childBlockToMjml = (block) => {
         ${imgHref}
       />`;
     case BLOCK_TYPES.BUTTON:
-      return `<mj-button 
-        href="${escapeHtml(block.href || '#')}"
-        background-color="${block.styles.backgroundColor || '#007bff'}"
-        color="${block.styles.color || '#ffffff'}"
-        font-size="${block.styles.fontSize || '16px'}"
-        font-weight="${block.styles.fontWeight || 'bold'}"
-        border-radius="${block.styles.borderRadius || '4px'}"
-        inner-padding="${getInnerPaddingAttr(block.styles)}"
-        padding="${getPaddingAttr(block.styles)}"
+      return `<mj-text
         align="${block.styles.textAlign || 'center'}"
-      >${escapeHtml(block.content)}</mj-button>`;
+        padding="${getPaddingAttr(block.styles)}"
+      >${buttonToMjml(block)}</mj-text>`;
     case BLOCK_TYPES.DIVIDER:
       return `<mj-divider 
         border-color="${block.styles.borderColor || '#e0e0e0'}"
@@ -291,17 +298,10 @@ const blockToMjml = (block) => {
       return `
         <mj-section padding="${btnSectionPad}">
           <mj-column>
-            <mj-button 
-              href="${escapeHtml(block.href || '#')}"
-              background-color="${block.styles.backgroundColor || '#007bff'}"
-              color="${block.styles.color || '#ffffff'}"
-              font-size="${block.styles.fontSize || '16px'}"
-              font-weight="${block.styles.fontWeight || 'bold'}"
-              border-radius="${block.styles.borderRadius || '4px'}"
-              inner-padding="${getInnerPaddingAttr(block.styles)}"
-              padding="${getPaddingAttr(block.styles)}"
+            <mj-text
               align="${block.styles.textAlign || 'center'}"
-            >${escapeHtml(block.content)}</mj-button>
+              padding="${getPaddingAttr(block.styles)}"
+            >${buttonToMjml(block)}</mj-text>
           </mj-column>
         </mj-section>
       `;
@@ -383,7 +383,7 @@ const blockToMjml = (block) => {
             return `<mj-image src="${escapeHtml(b.src)}" alt="${escapeHtml(b.alt || '')}" padding="${getPaddingAttr(b.styles)}" />`;
           }
           if (b.type === BLOCK_TYPES.BUTTON) {
-            return `<mj-button href="${escapeHtml(b.href || '#')}" background-color="${b.styles.backgroundColor || '#007bff'}" inner-padding="${getInnerPaddingAttr(b.styles)}" padding="${getPaddingAttr(b.styles)}">${escapeHtml(b.content)}</mj-button>`;
+            return `<mj-text align="${b.styles.textAlign || 'center'}" padding="${getPaddingAttr(b.styles)}">${buttonToMjml(b)}</mj-text>`;
           }
           if (b.type === BLOCK_TYPES.DIVIDER) {
             return `<mj-divider border-color="${b.styles.borderColor || '#e0e0e0'}" border-width="${b.styles.borderWidth || '1px'}" border-style="${b.styles.borderStyle || 'solid'}" padding="${getPaddingAttr(b.styles)}" />`;
