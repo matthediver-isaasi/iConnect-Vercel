@@ -630,6 +630,8 @@ export default function EmailBuilder({
     }));
   };
 
+  const hasFooter = design.globalStyles.useDefaultFooter !== false && footerHtml;
+
   function CanvasDropZone({ children, isEmpty }) {
     const { isOver, setNodeRef } = useDroppable({
       id: 'canvas-drop-area',
@@ -638,7 +640,9 @@ export default function EmailBuilder({
     return (
       <div 
         ref={setNodeRef}
-        className={`min-h-[400px] p-4 transition-colors ${
+        className={`min-h-[400px] transition-colors ${
+          hasFooter ? 'pt-4 px-4 pb-0' : 'p-4'
+        } ${
           isOver ? 'bg-primary/5 ring-2 ring-primary ring-inset' : ''
         }`}
       >
@@ -711,7 +715,6 @@ export default function EmailBuilder({
                 backgroundColor: design.globalStyles.contentBackgroundColor,
                 padding: (() => {
                   const pad = design.globalStyles.contentPadding || '0px';
-                  const hasFooter = design.globalStyles.useDefaultFooter !== false && footerHtml;
                   if (!hasFooter) return pad;
                   const parts = pad.replace(/px/g, '').trim().split(/\s+/).map(v => parseInt(v, 10) || 0);
                   let t, r, b, l;
@@ -743,12 +746,10 @@ export default function EmailBuilder({
                   ))}
                 </CanvasDropZone>
               </SortableContext>
-              {design.globalStyles.useDefaultFooter !== false && footerHtml && (
+              {hasFooter && (
                 <div
-                  className="border-t border-dashed border-muted-foreground/30"
-                  style={{ padding: '0 16px 12px 16px' }}
+                  style={{ padding: '0' }}
                 >
-                  <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider font-medium">Default Footer</p>
                   <div
                     className="text-xs [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
                     style={{ pointerEvents: 'none' }}
