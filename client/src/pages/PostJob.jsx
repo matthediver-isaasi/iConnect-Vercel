@@ -626,8 +626,7 @@ export default function PostJobPage() {
           application_value: formData.application_value,
           contact_name: formData.contact_name,
           attachment_urls: formData.attachment_urls,
-          attachment_names: formData.attachment_names,
-          posting_organization_id: formData.posting_organization_id
+          attachment_names: formData.attachment_names
         });
         toast.success('Job posting updated successfully!');
         setTimeout(() => {
