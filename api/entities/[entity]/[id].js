@@ -263,10 +263,14 @@ export default async function handler(req, res) {
       }
       
       // SECURITY: Strip tenant linkage fields from PATCH body to prevent tenant reassignment attacks
-      // tenant_id, organization_id and member_id should never be changed via PATCH
+      // tenant_id and member_id should never be changed via PATCH
+      // organization_id is allowed for specific tenant-scoped entities where it's a reference field
+      const entitiesAllowingOrgReassign = ['Voucher', 'VoucherTransaction'];
       if (shouldApplyTenantFilter) {
         delete sanitizedBody.tenant_id;
-        delete sanitizedBody.organization_id;
+        if (!entitiesAllowingOrgReassign.includes(entity)) {
+          delete sanitizedBody.organization_id;
+        }
         delete sanitizedBody.member_id;
       }
 
