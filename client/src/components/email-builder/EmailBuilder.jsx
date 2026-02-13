@@ -735,7 +735,7 @@ export default function EmailBuilder({
               {design.globalStyles.useDefaultFooter !== false && footerHtml && (
                 <div
                   className="border-t border-dashed border-muted-foreground/30"
-                  style={{ padding: '0 0 12px 0' }}
+                  style={{ padding: '0 16px 12px 16px' }}
                 >
                   <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider font-medium">Default Footer</p>
                   <div

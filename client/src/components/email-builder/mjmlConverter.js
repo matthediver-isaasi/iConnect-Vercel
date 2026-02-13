@@ -463,7 +463,18 @@ export const designToMjml = (design, { footerHtml } = {}) => {
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
   let footerSection = '';
   if (shouldIncludeFooter) {
-    footerSection = `<mj-section padding="0 0 12px 0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
+    footerSection = `<mj-section padding="0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
+  }
+  
+  let wrapperPadding = globalStyles.contentPadding || '0px';
+  if (shouldIncludeFooter) {
+    const parts = wrapperPadding.replace(/px/g, '').trim().split(/\s+/).map(v => parseInt(v, 10) || 0);
+    let top, right, bottom, left;
+    if (parts.length === 1) { top = parts[0]; right = parts[0]; bottom = parts[0]; left = parts[0]; }
+    else if (parts.length === 2) { top = parts[0]; right = parts[1]; bottom = parts[0]; left = parts[1]; }
+    else if (parts.length === 3) { top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[1]; }
+    else { top = parts[0]; right = parts[1]; bottom = parts[2]; left = parts[3]; }
+    wrapperPadding = `${top}px ${right}px 0px ${left}px`;
   }
   
   return `
@@ -483,7 +494,7 @@ export const designToMjml = (design, { footerHtml } = {}) => {
         </mj-style>
       </mj-head>
       <mj-body background-color="${globalStyles.backgroundColor || '#f4f4f4'}" width="${globalStyles.contentWidth || '600px'}">
-        <mj-wrapper background-color="${globalStyles.contentBackgroundColor || '#ffffff'}" padding="${globalStyles.contentPadding || '0px'}">
+        <mj-wrapper background-color="${globalStyles.contentBackgroundColor || '#ffffff'}" padding="${wrapperPadding}">
           ${mjmlBlocks || '<mj-section><mj-column><mj-text></mj-text></mj-column></mj-section>'}
           ${footerSection}
         </mj-wrapper>

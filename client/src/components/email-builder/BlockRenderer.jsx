@@ -552,7 +552,7 @@ export function ReadOnlyBlockPreview({ blocks, globalStyles, footerHtml }) {
       })}
       {globalStyles?.useDefaultFooter !== false && footerHtml && (
         <div
-          style={{ padding: '0 0 12px 0' }}
+          style={{ padding: '0' }}
         >
           <div
             className="text-xs [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
