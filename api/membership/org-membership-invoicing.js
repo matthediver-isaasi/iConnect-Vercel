@@ -38,32 +38,66 @@ async function handleGet(req, res, tenantId) {
   }
 
   try {
+    await ensureMembershipYearColumn();
+
     const { data, error } = await supabase
       .from('organisation_membership_invoicing')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .maybeSingle();
+      .eq('organization_id', organizationId);
 
     if (error) {
       if (error.code === '42P01') {
-        return res.json({ invoicing_mode: 'manual', invoice_date: null });
+        return res.json({ settings: {} });
       }
       console.error('[Invoicing] Error fetching settings:', error);
       return res.status(500).json({ error: 'Failed to fetch invoicing settings' });
     }
 
-    return res.json(data || { invoicing_mode: 'manual', invoice_date: null });
+    const settings = {};
+    if (data && data.length > 0) {
+      for (const row of data) {
+        const key = row.membership_year || '_legacy';
+        settings[key] = {
+          invoicing_mode: row.invoicing_mode,
+          invoice_date: row.invoice_date,
+          id: row.id,
+        };
+      }
+    }
+
+    return res.json({ settings });
   } catch (err) {
-    return res.json({ invoicing_mode: 'manual', invoice_date: null });
+    console.error('[Invoicing] Error in GET:', err);
+    return res.json({ settings: {} });
+  }
+}
+
+let columnEnsured = false;
+async function ensureMembershipYearColumn() {
+  if (columnEnsured) return;
+  try {
+    await supabase.rpc('exec_sql', {
+      sql_text: `
+        ALTER TABLE organisation_membership_invoicing 
+        ADD COLUMN IF NOT EXISTS membership_year TEXT;
+      `
+    });
+    columnEnsured = true;
+  } catch (err) {
+    columnEnsured = true;
   }
 }
 
 async function handlePut(req, res, tenantId, tenantContext) {
-  const { organizationId, invoicingMode, invoiceDate } = req.body;
+  const { organizationId, invoicingMode, invoiceDate, membershipYear } = req.body;
 
   if (!organizationId) {
     return res.status(400).json({ error: 'organizationId is required' });
+  }
+
+  if (!membershipYear) {
+    return res.status(400).json({ error: 'membershipYear is required' });
   }
 
   if (!invoicingMode || !['automatic', 'scheduled', 'manual'].includes(invoicingMode)) {
@@ -97,16 +131,20 @@ async function handlePut(req, res, tenantId, tenantContext) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
+  await ensureMembershipYearColumn();
+
   const { data: existing } = await supabase
     .from('organisation_membership_invoicing')
     .select('id')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
+    .eq('membership_year', membershipYear)
     .maybeSingle();
 
   const invoicingData = {
     tenant_id: tenantId,
     organization_id: organizationId,
+    membership_year: membershipYear,
     invoicing_mode: invoicingMode,
     invoice_date: invoicingMode === 'scheduled' ? invoiceDate : null,
     updated_at: new Date().toISOString(),

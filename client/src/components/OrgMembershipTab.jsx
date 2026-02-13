@@ -60,6 +60,14 @@ function YearCostSection({
   onSimulate,
   simulatePending,
   testIdPrefix,
+  invoicingMode,
+  invoiceDate,
+  onInvoicingModeChange,
+  onInvoiceDateChange,
+  onSaveInvoicing,
+  invoicingSaving,
+  onManualRenewal,
+  manualRenewalPending,
 }) {
   if (!yearData) return null;
 
@@ -249,6 +257,82 @@ function YearCostSection({
           Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
         </p>
       )}
+
+      <Separator className="my-3" />
+      <div>
+        <p className="text-sm font-medium flex items-center gap-1 mb-2">
+          <FileText className="w-3 h-3" />
+          Invoicing
+        </p>
+        <RadioGroup
+          value={invoicingMode}
+          onValueChange={(val) => {
+            onInvoicingModeChange(val);
+          }}
+          className="space-y-2"
+          data-testid={`radio-invoicing-mode-${testIdPrefix}`}
+        >
+          <div className="flex items-start gap-2">
+            <RadioGroupItem value="automatic" id={`invoicing-automatic-${testIdPrefix}`} data-testid={`radio-invoicing-automatic-${testIdPrefix}`} className="mt-0.5" />
+            <div>
+              <Label htmlFor={`invoicing-automatic-${testIdPrefix}`} className="text-sm cursor-pointer">Automatic</Label>
+              <p className="text-xs text-muted-foreground">
+                {isNewOrg && testIdPrefix === 'current-year'
+                  ? 'Renew and invoice automatically when go-live date is set via workflow'
+                  : 'Renew and invoice automatically at start of membership schedule'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <RadioGroupItem value="scheduled" id={`invoicing-scheduled-${testIdPrefix}`} data-testid={`radio-invoicing-scheduled-${testIdPrefix}`} className="mt-0.5" />
+            <div className="flex-1">
+              <Label htmlFor={`invoicing-scheduled-${testIdPrefix}`} className="text-sm cursor-pointer">Specify date</Label>
+              <p className="text-xs text-muted-foreground">Renew at schedule start, invoice on a specific date</p>
+              {invoicingMode === 'scheduled' && (
+                <Input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => onInvoiceDateChange(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="mt-2 w-48"
+                  data-testid={`input-invoice-date-${testIdPrefix}`}
+                />
+              )}
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <RadioGroupItem value="manual" id={`invoicing-manual-${testIdPrefix}`} data-testid={`radio-invoicing-manual-${testIdPrefix}`} className="mt-0.5" />
+            <div>
+              <Label htmlFor={`invoicing-manual-${testIdPrefix}`} className="text-sm cursor-pointer">Manual</Label>
+              <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice when ready</p>
+            </div>
+          </div>
+        </RadioGroup>
+
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onSaveInvoicing}
+            disabled={invoicingSaving}
+            data-testid={`button-save-invoicing-${testIdPrefix}`}
+          >
+            {invoicingSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+            Save
+          </Button>
+          {invoicingMode === 'manual' && (
+            <Button
+              size="sm"
+              onClick={onManualRenewal}
+              disabled={manualRenewalPending}
+              data-testid={`button-renew-now-${testIdPrefix}`}
+            >
+              {manualRenewalPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+              Renew &amp; Invoice Now
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -265,8 +349,8 @@ export default function OrgMembershipTab({ organizationId }) {
   const [discountType, setDiscountType] = useState('percentage');
   const [discountValue, setDiscountValue] = useState('');
   const [overrideNote, setOverrideNote] = useState('');
-  const [invoicingMode, setInvoicingMode] = useState('manual');
-  const [invoiceDate, setInvoiceDate] = useState('');
+  const [invoicingModes, setInvoicingModes] = useState({});
+  const [invoiceDates, setInvoiceDates] = useState({});
   const [simulationResults, setSimulationResults] = useState(null);
   const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
   const [simulatingYear, setSimulatingYear] = useState(null);
@@ -398,9 +482,48 @@ export default function OrgMembershipTab({ organizationId }) {
   });
 
   useEffect(() => {
-    if (invoicingData?.invoicing_mode) setInvoicingMode(invoicingData.invoicing_mode);
-    if (invoicingData?.invoice_date) setInvoiceDate(invoicingData.invoice_date);
-  }, [invoicingData]);
+    if (invoicingData?.settings) {
+      const modes = {};
+      const dates = {};
+      let legacyMode = 'manual';
+      let legacyDate = '';
+
+      if (invoicingData.settings._legacy) {
+        legacyMode = invoicingData.settings._legacy.invoicing_mode || 'manual';
+        legacyDate = invoicingData.settings._legacy.invoice_date || '';
+      }
+
+      for (const [yearKey, setting] of Object.entries(invoicingData.settings)) {
+        if (yearKey === '_legacy') continue;
+        modes[yearKey] = setting.invoicing_mode || 'manual';
+        dates[yearKey] = setting.invoice_date || '';
+      }
+
+      const curYear = data?.currentYearCost?.membershipYear;
+      const nxtYear = data?.nextYearPreview?.membershipYear;
+
+      setInvoicingModes(prev => {
+        const updated = { ...prev, ...modes };
+        if (curYear && !updated[curYear]) {
+          updated[curYear] = legacyMode;
+        }
+        if (nxtYear && !updated[nxtYear]) {
+          updated[nxtYear] = legacyMode;
+        }
+        return updated;
+      });
+      setInvoiceDates(prev => {
+        const updated = { ...prev, ...dates };
+        if (curYear && !updated[curYear]) {
+          updated[curYear] = legacyDate;
+        }
+        if (nxtYear && !updated[nxtYear]) {
+          updated[nxtYear] = legacyDate;
+        }
+        return updated;
+      });
+    }
+  }, [invoicingData, data?.currentYearCost?.membershipYear, data?.nextYearPreview?.membershipYear]);
 
   const invoicingMutation = useMutation({
     mutationFn: async (payload) => {
@@ -744,9 +867,33 @@ export default function OrgMembershipTab({ organizationId }) {
                 onOpenOverride={handleOpenOverrideModal}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
-                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear }); }}
+                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[currentYearCost?.membershipYear] || 'manual', targetYear: membershipYear }); }}
                 simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearCost?.membershipYear}
                 testIdPrefix="current-year"
+                invoicingMode={invoicingModes[currentYearCost?.membershipYear] || 'manual'}
+                invoiceDate={invoiceDates[currentYearCost?.membershipYear] || ''}
+                onInvoicingModeChange={(val) => {
+                  setInvoicingModes(prev => ({ ...prev, [currentYearCost.membershipYear]: val }));
+                  if (val !== 'scheduled') setInvoiceDates(prev => ({ ...prev, [currentYearCost.membershipYear]: '' }));
+                }}
+                onInvoiceDateChange={(val) => setInvoiceDates(prev => ({ ...prev, [currentYearCost.membershipYear]: val }))}
+                onSaveInvoicing={() => {
+                  const year = currentYearCost.membershipYear;
+                  const mode = invoicingModes[year] || 'manual';
+                  if (mode === 'scheduled' && !invoiceDates[year]) {
+                    toast.error('Please select an invoice date');
+                    return;
+                  }
+                  invoicingMutation.mutate({
+                    organizationId,
+                    invoicingMode: mode,
+                    invoiceDate: mode === 'scheduled' ? invoiceDates[year] : null,
+                    membershipYear: year,
+                  });
+                }}
+                invoicingSaving={invoicingMutation.isPending}
+                onManualRenewal={() => manualRenewalMutation.mutate()}
+                manualRenewalPending={manualRenewalMutation.isPending}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -781,9 +928,33 @@ export default function OrgMembershipTab({ organizationId }) {
                 onOpenOverride={handleOpenOverrideModal}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
-                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingMode, targetYear: membershipYear }); }}
+                onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearPreview?.membershipYear] || 'manual', targetYear: membershipYear }); }}
                 simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearPreview?.membershipYear}
                 testIdPrefix="next-year"
+                invoicingMode={invoicingModes[nextYearPreview?.membershipYear] || 'manual'}
+                invoiceDate={invoiceDates[nextYearPreview?.membershipYear] || ''}
+                onInvoicingModeChange={(val) => {
+                  setInvoicingModes(prev => ({ ...prev, [nextYearPreview.membershipYear]: val }));
+                  if (val !== 'scheduled') setInvoiceDates(prev => ({ ...prev, [nextYearPreview.membershipYear]: '' }));
+                }}
+                onInvoiceDateChange={(val) => setInvoiceDates(prev => ({ ...prev, [nextYearPreview.membershipYear]: val }))}
+                onSaveInvoicing={() => {
+                  const year = nextYearPreview.membershipYear;
+                  const mode = invoicingModes[year] || 'manual';
+                  if (mode === 'scheduled' && !invoiceDates[year]) {
+                    toast.error('Please select an invoice date');
+                    return;
+                  }
+                  invoicingMutation.mutate({
+                    organizationId,
+                    invoicingMode: mode,
+                    invoiceDate: mode === 'scheduled' ? invoiceDates[year] : null,
+                    membershipYear: year,
+                  });
+                }}
+                invoicingSaving={invoicingMutation.isPending}
+                onManualRenewal={() => manualRenewalMutation.mutate()}
+                manualRenewalPending={manualRenewalMutation.isPending}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -793,94 +964,6 @@ export default function OrgMembershipTab({ organizationId }) {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            Invoicing
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div>
-            <RadioGroup
-              value={invoicingMode}
-              onValueChange={(val) => {
-                setInvoicingMode(val);
-                if (val !== 'scheduled') setInvoiceDate('');
-              }}
-              className="space-y-2"
-              data-testid="radio-invoicing-mode"
-            >
-              <div className="flex items-start gap-2">
-                <RadioGroupItem value="automatic" id="invoicing-automatic" data-testid="radio-invoicing-automatic" className="mt-0.5" />
-                <div>
-                  <Label htmlFor="invoicing-automatic" className="text-sm cursor-pointer">Automatic</Label>
-                  <p className="text-xs text-muted-foreground">Renew membership and generate invoice automatically at start of schedule</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <RadioGroupItem value="scheduled" id="invoicing-scheduled" data-testid="radio-invoicing-scheduled" className="mt-0.5" />
-                <div className="flex-1">
-                  <Label htmlFor="invoicing-scheduled" className="text-sm cursor-pointer">Specify date</Label>
-                  <p className="text-xs text-muted-foreground">Renew membership at start of schedule but generate and send invoice on a specific date</p>
-                  {invoicingMode === 'scheduled' && (
-                    <Input
-                      type="date"
-                      value={invoiceDate}
-                      onChange={(e) => setInvoiceDate(e.target.value)}
-                      min={new Date().toISOString().split('T')[0]}
-                      className="mt-2 w-48"
-                      data-testid="input-invoice-date"
-                    />
-                  )}
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <RadioGroupItem value="manual" id="invoicing-manual" data-testid="radio-invoicing-manual" className="mt-0.5" />
-                <div>
-                  <Label htmlFor="invoicing-manual" className="text-sm cursor-pointer">Manual</Label>
-                  <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice generation when ready</p>
-                </div>
-              </div>
-            </RadioGroup>
-
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  if (invoicingMode === 'scheduled' && !invoiceDate) {
-                    toast.error('Please select an invoice date');
-                    return;
-                  }
-                  invoicingMutation.mutate({
-                    organizationId,
-                    invoicingMode,
-                    invoiceDate: invoicingMode === 'scheduled' ? invoiceDate : null,
-                  });
-                }}
-                disabled={invoicingMutation.isPending}
-                data-testid="button-save-invoicing"
-              >
-                {invoicingMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
-                Save
-              </Button>
-              {invoicingMode === 'manual' && (
-                <Button
-                  size="sm"
-                  onClick={() => manualRenewalMutation.mutate()}
-                  disabled={manualRenewalMutation.isPending}
-                  data-testid="button-renew-now"
-                >
-                  {manualRenewalMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-                  Renew &amp; Invoice Now
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">

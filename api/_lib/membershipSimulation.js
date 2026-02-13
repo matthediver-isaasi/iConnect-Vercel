@@ -33,15 +33,22 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   }
   log('Lookup Organisation', `Found: ${org.name}`);
 
-  const { data: invoicingSettings } = await supabase
+  const { data: allInvoicingSettings } = await supabase
     .from('organisation_membership_invoicing')
     .select('*')
     .eq('tenant_id', tenantId)
-    .eq('organization_id', organizationId)
-    .maybeSingle();
+    .eq('organization_id', organizationId);
+
+  let invoicingSettings = null;
+  if (allInvoicingSettings && allInvoicingSettings.length > 0) {
+    invoicingSettings = allInvoicingSettings.find(s => s.membership_year === (targetYear || null));
+    if (!invoicingSettings) {
+      invoicingSettings = allInvoicingSettings.find(s => !s.membership_year);
+    }
+  }
 
   const currentMode = invoicingSettings?.invoicing_mode || 'manual';
-  log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}`);
+  log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}${invoicingSettings?.membership_year ? ` (for ${invoicingSettings.membership_year})` : ''}`);
 
   const config = await getConfigForOrganisation(tenantId, organizationId);
   if (!config) {
