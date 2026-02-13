@@ -782,7 +782,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       .eq('membership_year', membershipYear.label)
       .maybeSingle();
 
-    if (existing) {
+    if (existing && !action.config?.dry_run) {
       console.log(`[Workflows] Membership record for ${membershipYear.label} already exists for org ${organizationId}`);
       return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${membershipYear.label} already exists` };
     }
@@ -884,6 +884,73 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     }
 
     const finalCost = prorataCost !== null ? prorataCost : (annualCost - freeDiscount - rolloverDiscount);
+    const currency = config.currency || 'GBP';
+    const computedFinalCost = parseFloat(Math.max(0, finalCost).toFixed(2));
+
+    if (action.config?.dry_run) {
+      console.log(`[Workflows] Dry run mode for create_membership - returning simulation results`);
+      const steps = [];
+      const log = (step, detail, status = 'ok') => steps.push({ step, detail, status });
+
+      log('Start', `Dry run simulation for organisation "${org.name}" via workflow "${workflow.name}"`);
+      log('Tier Configuration', `Config: "${config.name || 'Default'}", currency: ${currency}`);
+      log('Membership Year', `${membershipYear.label} (start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1})`);
+
+      const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
+        ? 'Member Count' : (config.field_name || 'Value');
+      log('Organisation Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
+      log('Matched Tier Band', `"${matchedBand.label}" (range: ${matchedBand.min_value}-${matchedBand.max_value || '\u221e'}, annual cost: ${matchedBand.annual_cost})`);
+
+      if (goLiveDate) {
+        let yearDesc;
+        if (yearNumber === 1) yearDesc = 'First year - pro-rata and free period discounts apply';
+        else if (yearNumber === 2) yearDesc = config.rollover_enabled ? 'Second year - rollover discount may apply' : 'Second year - no rollover enabled';
+        else yearDesc = `Year ${yearNumber} - established member, full annual fee`;
+        log('Go-Live Date', `${goLiveDate} \u2192 membership year ${yearNumber}. ${yearDesc}`);
+      } else {
+        log('Go-Live Date', 'Not set - treating as established member (full annual fee)', 'warning');
+      }
+
+      if (customDiscountDetails.length > 0) {
+        const discountSummary = customDiscountDetails.map(d =>
+          `${d.label || d.field_label}: ${d.discount_type === 'percentage' ? d.discount_value + '%' : d.applied_amount.toFixed(2)} (${d.applied_amount.toFixed(2)})`
+        ).join(', ');
+        log('Custom Discounts', `${customDiscountDetails.length} discount(s), total: ${customDiscountTotal.toFixed(2)}. ${discountSummary}`);
+      } else {
+        log('Custom Discounts', 'No matching discount rules');
+      }
+
+      if (freeDiscount > 0) log('Free Period Discount', `${freeDiscount.toFixed(2)} (${config.free_period_amount} ${config.free_period_unit})`);
+      if (rolloverDiscount > 0) log('Rollover Discount', `${rolloverDiscount.toFixed(2)}`);
+      if (prorataCost !== null) log('Pro-Rata Cost', `${prorataCost.toFixed(2)} (based on remaining days in year)`);
+
+      if (existing) {
+        log('Existing Record', `A record for ${membershipYear.label} already exists - would be blocked`, 'warning');
+      } else {
+        log('Check Existing Record', `No existing record for ${membershipYear.label} - creation would proceed`);
+      }
+
+      log('Final Cost', `${currency} ${computedFinalCost.toFixed(2)}`);
+      log('Dry Run Complete', 'No records were created or modified', 'info');
+
+      return {
+        action_type: 'create_membership',
+        status: 'dry_run',
+        organization_name: org.name,
+        tier_label: matchedBand.label,
+        annual_cost: annualCost,
+        final_cost: computedFinalCost,
+        membership_year: membershipYear.label,
+        year_number: yearNumber,
+        free_period_discount: freeDiscount,
+        rollover_discount: rolloverDiscount,
+        custom_discount_total: customDiscountTotal,
+        prorata_cost: prorataCost,
+        currency,
+        overrideApplied: false,
+        simulation_steps: steps,
+      };
+    }
 
     const vatRate = matchedBand.vat_rate !== null && matchedBand.vat_rate !== undefined
       ? parseFloat(matchedBand.vat_rate)
@@ -903,8 +970,8 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       rollover_discount: rolloverDiscount,
       custom_discount_total: customDiscountTotal,
       custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
-      final_cost: parseFloat(Math.max(0, finalCost).toFixed(2)),
-      currency: config.currency || 'GBP',
+      final_cost: computedFinalCost,
+      currency,
       billing_period: config.billing_period || 'annual',
       status: 'active',
       notes: `Created by workflow "${workflow.name}" (year ${yearNumber})`,

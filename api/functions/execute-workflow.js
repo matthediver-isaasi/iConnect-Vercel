@@ -70,9 +70,11 @@ export default async function handler(req, res) {
     );
 
     if (result.success) {
+      const dryRunResults = result.results?.filter(r => r.status === 'dry_run') || [];
       return res.status(200).json({
         success: true,
-        message: `Workflow "${result.workflow_name}" executed successfully`
+        message: `Workflow "${result.workflow_name}" executed successfully`,
+        ...(dryRunResults.length > 0 && { dry_run_results: dryRunResults }),
       });
     } else {
       return res.status(400).json({

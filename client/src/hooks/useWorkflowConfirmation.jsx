@@ -4,6 +4,8 @@ import { toast } from "sonner";
 export function useWorkflowConfirmation() {
   const [pendingWorkflows, setPendingWorkflows] = useState([]);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [dryRunResults, setDryRunResults] = useState(null);
+  const [showDryRunModal, setShowDryRunModal] = useState(false);
 
   const checkForPendingWorkflows = useCallback((responseData) => {
     if (responseData?._pendingWorkflowConfirmations?.length > 0) {
@@ -24,14 +26,19 @@ export function useWorkflowConfirmation() {
           workflow_id: workflow.workflow_id,
           entity_type: workflow.entity_type,
           entity_id: workflow.entity_id
-          // Don't send before_data/after_data - server fetches fresh data for security
         }),
       });
       
       const result = await response.json();
       
       if (result.success) {
-        toast.success(`Workflow "${workflow.workflow_name}" executed successfully`);
+        if (result.dry_run_results?.length > 0) {
+          setDryRunResults(result.dry_run_results);
+          setShowDryRunModal(true);
+          toast.info(`Workflow "${workflow.workflow_name}" dry run completed`);
+        } else {
+          toast.success(`Workflow "${workflow.workflow_name}" executed successfully`);
+        }
       } else {
         toast.error(result.error || 'Failed to execute workflow');
       }
@@ -59,6 +66,11 @@ export function useWorkflowConfirmation() {
     setShowConfirmationModal(false);
   }, []);
 
+  const clearDryRunResults = useCallback(() => {
+    setDryRunResults(null);
+    setShowDryRunModal(false);
+  }, []);
+
   return {
     pendingWorkflows,
     showConfirmationModal,
@@ -68,6 +80,10 @@ export function useWorkflowConfirmation() {
     handleSkipWorkflow,
     handleSkipAllWorkflows,
     clearPendingWorkflows,
+    dryRunResults,
+    showDryRunModal,
+    setShowDryRunModal,
+    clearDryRunResults,
   };
 }
 

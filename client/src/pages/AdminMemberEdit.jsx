@@ -39,7 +39,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import { createPageUrl } from "@/utils";
 import MemberEmails from "@/components/MemberEmails";
-import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
+import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
@@ -98,6 +98,10 @@ export default function AdminMemberEdit() {
     handleConfirmWorkflow,
     handleSkipWorkflow,
     handleSkipAllWorkflows,
+    dryRunResults,
+    showDryRunModal,
+    setShowDryRunModal,
+    clearDryRunResults,
   } = useWorkflowConfirmation();
 
   const { data: memberRecord, isLoading: memberLoading, error: memberError } = useQuery({
@@ -1135,6 +1139,15 @@ export default function AdminMemberEdit() {
         onConfirm={handleConfirmWorkflow}
         onSkip={handleSkipWorkflow}
         onSkipAll={handleSkipAllWorkflows}
+      />
+
+      <DryRunSimulationModal
+        open={showDryRunModal}
+        onOpenChange={(open) => {
+          setShowDryRunModal(open);
+          if (!open) clearDryRunResults();
+        }}
+        results={dryRunResults}
       />
     </div>
   );

@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Zap, Mail, Settings, Check, X, Loader2 } from "lucide-react";
+import { Zap, Mail, Settings, Check, X, Loader2, PlayCircle, CheckCircle2, XCircle, AlertTriangle, Info } from "lucide-react";
 
 export function WorkflowConfirmationModal({ 
   open, 
@@ -167,6 +167,90 @@ export function WorkflowConfirmationModal({
             data-testid="button-close-workflow-modal"
           >
             {allProcessed ? 'Done' : 'Close'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function DryRunSimulationModal({
+  open,
+  onOpenChange,
+  results = [],
+}) {
+  if (!results || results.length === 0) return null;
+
+  const result = results[0];
+  const steps = result?.simulation_steps || [];
+
+  const formatCost = (value, currency = 'GBP') => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return '-';
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(num);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PlayCircle className="w-4 h-4" />
+            Dry Run Simulation Results
+          </DialogTitle>
+          <DialogDescription>
+            <span>
+              Organisation: <span className="font-medium">{result.organization_name}</span>
+              {' | '}Tier: <span className="font-medium">{result.tier_label}</span>
+              {' | '}Year: <span className="font-medium">{result.membership_year}</span>
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+
+        {steps.length > 0 && (
+          <div className="space-y-1">
+            {steps.map((step, idx) => {
+              const StatusIcon = step.status === 'error' ? XCircle
+                : step.status === 'warning' ? AlertTriangle
+                : step.status === 'info' ? Info
+                : CheckCircle2;
+              const statusColor = step.status === 'error' ? 'text-destructive'
+                : step.status === 'warning' ? 'text-yellow-600 dark:text-yellow-500'
+                : step.status === 'info' ? 'text-blue-600 dark:text-blue-400'
+                : 'text-green-600 dark:text-green-500';
+
+              return (
+                <div key={idx} className="flex items-start gap-2 py-1.5 border-b last:border-b-0" data-testid={`dry-run-step-${idx}`}>
+                  <StatusIcon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${statusColor}`} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{step.step}</span>
+                    <p className="text-xs text-muted-foreground break-words">{step.detail}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-3 p-3 rounded-md bg-muted/50">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Final Cost</span>
+            <span className="font-semibold">
+              {formatCost(result.final_cost, result.currency)}
+            </span>
+          </div>
+          {result.overrideApplied && (
+            <p className="text-xs text-muted-foreground mt-1">Override was applied to this calculation</p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            data-testid="button-close-dry-run"
+          >
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -2178,6 +2178,21 @@ export default function WorkflowManagementPage() {
                                   <li>Ensure the "Update Field" action sets the go_live date before this action runs</li>
                                 </ul>
                               </div>
+                              <div className="flex items-center justify-between p-3 rounded-md border">
+                                <div className="space-y-0.5">
+                                  <Label className="text-sm font-medium">Dry Run</Label>
+                                  <p className="text-xs text-muted-foreground">
+                                    Simulate the membership calculation without creating a record. Shows a detailed breakdown of what would happen.
+                                  </p>
+                                </div>
+                                <Switch
+                                  checked={action.config?.dry_run || false}
+                                  onCheckedChange={(checked) => updateAction(actionIndex, {
+                                    config: { ...action.config, dry_run: checked }
+                                  })}
+                                  data-testid={`switch-dry-run-${actionIndex}`}
+                                />
+                              </div>
                               {(formData.entity_type !== 'organization' && formData.entity_type !== 'member') && (
                                 <div className="p-2 rounded border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800">
                                   <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1">

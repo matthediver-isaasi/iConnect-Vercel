@@ -83,7 +83,7 @@ import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesEditor";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
-import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
+import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -204,7 +204,11 @@ export default function OrganisationDetailView({
     checkForPendingWorkflows,
     handleConfirmWorkflow,
     handleSkipWorkflow,
-    handleSkipAllWorkflows
+    handleSkipAllWorkflows,
+    dryRunResults,
+    showDryRunModal,
+    setShowDryRunModal,
+    clearDryRunResults,
   } = useWorkflowConfirmation();
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
@@ -2228,6 +2232,15 @@ export default function OrganisationDetailView({
           onConfirm={handleConfirmWorkflow}
           onSkip={handleSkipWorkflow}
           onSkipAll={handleSkipAllWorkflows}
+        />
+
+        <DryRunSimulationModal
+          open={showDryRunModal}
+          onOpenChange={(open) => {
+            setShowDryRunModal(open);
+            if (!open) clearDryRunResults();
+          }}
+          results={dryRunResults}
         />
       </main>
     </div>
