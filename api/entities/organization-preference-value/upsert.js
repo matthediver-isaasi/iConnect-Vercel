@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, checkCrossOrgPermissions } from '../../_lib/tenantContext.js';
+import { triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -22,7 +23,6 @@ export default async function handler(req, res) {
     const targetOrgId = organization_id;
     const effectiveTenantId = tenantCtx.tenantId || tenantCtx.effectiveTenantId;
     
-    // Always validate organization belongs to user's tenant
     if (!effectiveTenantId) {
       return res.status(403).json({ error: 'Unable to verify tenant context' });
     }
@@ -37,7 +37,6 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Organization does not belong to your tenant' });
     }
     
-    // If editing a different organization, check cross-org permissions
     if (organization_id !== tenantCtx.organizationId) {
       let hasCrossOrgAccess = false;
       
@@ -70,6 +69,32 @@ export default async function handler(req, res) {
     if (error) {
       console.error('Error upserting organization_preference_value:', error);
       return res.status(500).json({ error: error.message });
+    }
+
+    const storedValue = value !== undefined ? String(value) : '';
+
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    let host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    if (!host && process.env.VERCEL_URL) {
+      host = process.env.VERCEL_URL;
+    }
+    const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+
+    let pendingWorkflowConfirmations = [];
+    try {
+      const prefResult = await triggerPreferenceWorkflows('organization', targetOrgId, field_id, storedValue, baseUrl);
+      if (prefResult?.pendingConfirmations?.length > 0) {
+        pendingWorkflowConfirmations = prefResult.pendingConfirmations;
+      }
+    } catch (err) {
+      console.error('Preference workflow error in upsert:', err);
+    }
+
+    if (pendingWorkflowConfirmations.length > 0) {
+      return res.status(200).json({
+        ...data,
+        _pendingWorkflowConfirmations: pendingWorkflowConfirmations
+      });
     }
 
     return res.status(200).json(data);

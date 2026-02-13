@@ -650,10 +650,11 @@ export default function OrganisationDetailView({
     mutationFn: async (updates) => {
       return await base44.entities.Organization.update(organization.id, updates);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
       toast.success('Organisation updated successfully');
       setIsEditing(false);
+      checkForPendingWorkflows(data);
     },
     onError: (error) => {
       toast.error('Failed to update organisation: ' + error.message);
