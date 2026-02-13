@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -195,7 +195,15 @@ export default function JobPostingManagementPage() {
     }
   });
 
-  const getStatusBadge = (status) => {
+  const isJobExpired = useCallback((job) => {
+    if (!job.closing_date) return false;
+    const closing = new Date(job.closing_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return closing < today;
+  }, []);
+
+  const getStatusBadge = (status, job) => {
     const styles = {
       pending_approval: 'bg-yellow-100 text-yellow-700',
       active: 'bg-green-100 text-green-700',
@@ -205,7 +213,8 @@ export default function JobPostingManagementPage() {
       paused: 'bg-orange-100 text-orange-700',
       archived: 'bg-slate-200 text-slate-600'
     };
-    return <Badge className={styles[status] || 'bg-slate-100 text-slate-700'}>{status?.replace(/_/g, ' ') || 'unknown'}</Badge>;
+    const displayStatus = (status === 'active' && job && isJobExpired(job)) ? 'expired' : status;
+    return <Badge className={styles[displayStatus] || 'bg-slate-100 text-slate-700'}>{displayStatus?.replace(/_/g, ' ') || 'unknown'}</Badge>;
   };
 
   const filteredJobs = useMemo(() => {
@@ -214,11 +223,15 @@ export default function JobPostingManagementPage() {
         job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company_name?.toLowerCase().includes(searchQuery.toLowerCase());
       
+      const expired = isJobExpired(job);
+      const isEffectivelyArchived = job.status === 'archived' || (job.status === 'active' && expired);
+      const isEffectivelyActive = job.status === 'active' && !expired;
+
       const matchesTab = 
         (activeTab === 'pending' && job.status === 'pending_approval') ||
-        (activeTab === 'active' && job.status === 'active') ||
+        (activeTab === 'active' && isEffectivelyActive) ||
         (activeTab === 'paused' && job.status === 'paused') ||
-        (activeTab === 'archived' && job.status === 'archived') ||
+        (activeTab === 'archived' && isEffectivelyArchived) ||
         (activeTab === 'rejected' && job.status === 'rejected') ||
         (activeTab === 'all');
 
@@ -229,7 +242,7 @@ export default function JobPostingManagementPage() {
 
       return matchesSearch && matchesTab && matchesOrganization;
     });
-  }, [jobs, searchQuery, activeTab, organizationFilter]);
+  }, [jobs, searchQuery, activeTab, organizationFilter, isJobExpired]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredJobs.length / itemsPerPage);
@@ -419,13 +432,13 @@ export default function JobPostingManagementPage() {
               Pending ({jobs.filter(j => j.status === 'pending_approval').length})
             </TabsTrigger>
             <TabsTrigger value="active">
-              Active ({jobs.filter(j => j.status === 'active').length})
+              Active ({jobs.filter(j => j.status === 'active' && !isJobExpired(j)).length})
             </TabsTrigger>
             <TabsTrigger value="paused">
               Paused ({jobs.filter(j => j.status === 'paused').length})
             </TabsTrigger>
             <TabsTrigger value="archived">
-              Archived ({jobs.filter(j => j.status === 'archived').length})
+              Archived ({jobs.filter(j => j.status === 'archived' || (j.status === 'active' && isJobExpired(j))).length})
             </TabsTrigger>
             <TabsTrigger value="rejected">
               Rejected ({jobs.filter(j => j.status === 'rejected').length})
@@ -524,7 +537,7 @@ export default function JobPostingManagementPage() {
                           </div>
 
                           <div className="flex flex-wrap gap-2 mb-4">
-                            {getStatusBadge(job.status)}
+                            {getStatusBadge(job.status, job)}
                             {job.is_member_post ? (
                               <Badge className="bg-purple-100 text-purple-700">
                                 Member: {job.contact_email}
@@ -698,7 +711,7 @@ export default function JobPostingManagementPage() {
                   <h3 className="text-2xl font-bold text-slate-900 mb-2">{selectedJob.title}</h3>
                   <p className="text-slate-600 mb-4">{selectedJob.company_name}</p>
                   <div className="flex gap-2 mb-4 flex-wrap">
-                    {getStatusBadge(selectedJob.status)}
+                    {getStatusBadge(selectedJob.status, selectedJob)}
                     {selectedJob.is_member_post ? (
                       <Badge className="bg-purple-100 text-purple-700">
                         Member: {selectedJob.contact_email}
