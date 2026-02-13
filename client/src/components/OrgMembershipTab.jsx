@@ -166,7 +166,7 @@ function YearCostSection({
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">
               Free Period ({yearData.freePeriodDaysUsed !== null && yearData.freePeriodTotalDays !== null
-                ? `${yearData.freePeriodDaysUsed} days of ${yearData.freePeriodAmount} ${yearData.freePeriodUnit} used`
+                ? `${yearData.freePeriodDaysUsed} of ${yearData.freePeriodTotalDays} free days applied`
                 : `${yearData.freePeriodAmount} ${yearData.freePeriodUnit}`})
             </span>
             <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>

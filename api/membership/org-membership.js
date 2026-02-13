@@ -318,8 +318,10 @@ async function handleGet(req, res, tenantId) {
 
   const isNewOrg = (yearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
 
-  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : new Date(currentYear.start);
-  const currentYearStartDate = currentYear.start.toISOString().split('T')[0];
+  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+  const currentYearStartDate = goLiveDate
+    ? currentYear.start.toISOString().split('T')[0]
+    : new Date().toISOString().split('T')[0];
   const nextYearStartDate = nextYear.start.toISOString().split('T')[0];
 
   let nextYearPreview = null;
@@ -345,9 +347,15 @@ async function handleGet(req, res, tenantId) {
     if (isNewOrg && config.free_period_amount && config.free_period_unit) {
       const freePeriodMonths = getFreeMonths(config);
       const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      const now = new Date();
-      const daysSinceJoin = Math.max(0, Math.floor((now - effectiveJoinDate) / (1000 * 60 * 60 * 24)));
-      currentYearFreeDaysUsed = Math.min(daysSinceJoin, freePeriodTotalDays);
+      const joinMidnight = new Date(effectiveJoinDate);
+      joinMidnight.setHours(0, 0, 0, 0);
+      const freePeriodEnd = new Date(joinMidnight);
+      freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+      const yearEndMidnight = new Date(currentYear.end);
+      yearEndMidnight.setHours(0, 0, 0, 0);
+      const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+      const daysInThisYear = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+      currentYearFreeDaysUsed = Math.min(daysInThisYear, freePeriodTotalDays);
       currentYearFreeTotalDays = freePeriodTotalDays;
     }
 
@@ -430,8 +438,17 @@ async function handleGet(req, res, tenantId) {
     if (nextYearFreeDiscount > 0 && config.free_period_amount && config.free_period_unit) {
       const freePeriodMonths = getFreeMonths(config);
       const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      const daysSinceJoin = Math.max(0, Math.floor((new Date() - effectiveJoinDate) / (1000 * 60 * 60 * 24)));
-      nextYearFreeDaysUsed = Math.min(daysSinceJoin, freePeriodTotalDays);
+      const joinMidnight = new Date(effectiveJoinDate);
+      joinMidnight.setHours(0, 0, 0, 0);
+      const freePeriodEnd = new Date(joinMidnight);
+      freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+      const yearEndMidnight = new Date(currentYear.end);
+      yearEndMidnight.setHours(0, 0, 0, 0);
+      const lastFreeDayY1 = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+      const freeDaysInCurrentYear = Math.max(0, Math.floor((lastFreeDayY1 - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+      nextYearFreeDaysUsed = freePeriodEnd > yearEndMidnight
+        ? Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear)
+        : 0;
       nextYearFreeTotalDays = freePeriodTotalDays;
     }
 
