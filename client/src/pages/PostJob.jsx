@@ -386,8 +386,7 @@ export default function PostJobPage() {
     if (editJobId) {
       const fetchJobForEdit = async () => {
         try {
-          const allJobs = await base44.entities.JobPosting.list();
-          const job = allJobs.find(j => j.id === editJobId);
+          const job = await base44.entities.JobPosting.get(editJobId);
           if (job) {
             setFormData({
               title: job.title || '',
