@@ -472,15 +472,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           .select('id')
           .eq(foreignKey, entityId)
           .eq('field_id', fieldId)
-          .eq('tenant_id', tenantId)
           .maybeSingle();
 
         if (existing) {
           const { error: upErr } = await supabase
             .from(prefTable)
             .update({ value: resolvedValue })
-            .eq('id', existing.id)
-            .eq('tenant_id', tenantId);
+            .eq('id', existing.id);
           if (upErr) {
             console.error(`[Workflows] update_field (custom) update error:`, upErr.message);
             results.push({ action_type: 'update_field', field_type: 'custom', status: 'failed', error: upErr.message });
@@ -493,7 +491,6 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
               [foreignKey]: entityId,
               field_id: fieldId,
               value: resolvedValue,
-              tenant_id: tenantId,
             });
           if (insErr) {
             console.error(`[Workflows] update_field (custom) insert error:`, insErr.message);
