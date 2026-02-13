@@ -329,6 +329,14 @@ export default function PostJobPage() {
 
   // Initialize from props (portal mode) or sessionStorage (public mode)
   useEffect(() => {
+    if (editJobId) {
+      if (memberInfo) {
+        setIsLoggedIn(true);
+        setIsMember(true);
+        setEmail(memberInfo.email);
+      }
+      return;
+    }
     if (memberInfo) {
       // Portal mode - member is logged in via props
       setIsLoggedIn(true);

@@ -1,0 +1,36 @@
+{
+    "id": "dbb2d3f3-c686-4c2c-864e-30b70ee7e10e",
+    "title": "Careers Consultant",
+    "description": "<p>Part Time <span style=\"color: rgb(68, 68, 68);\">FTE 0.80 (28 hours per week)</span>, Permanent Contract</p><p><strong>About the Role:</strong></p><p>As a Careers Consultant, you will play a pivotal role in developing and enhancing the employability and career learning of our students. You will use technology-enabled blended learning approaches to improve the career readiness of our students and graduate employment outcomes of the University. This role will provide strategic consultancy to the departments of our Schools of Humanities and Arts and Communication Design and delivers impactful careers teaching, seminars and 1:1 coaching to students. You will also lead a specialist project; our current projects include working with postgraduate students and supporting our alumni.</p><p><strong>Key Responsibilities:</strong></p><ul><li><strong>Consultancy and Analysis</strong>: Provide expert labour market analysis and advice to enhance student employability.</li><li><strong>Collaboration and Engagement</strong>: Work closely with academic departments and the wider Careers &amp; Employability team to embed employability within the curriculum.</li><li><strong>Student Support</strong>: Manage a student caseload, design and deliver career learning sessions, and provide 1:1 career coaching.</li><li><strong>Project Management</strong>: Lead key projects within the Careers Consultancy Team, setting objectives and overseeing implementation.</li><li><strong>Professional Development</strong>: Stay updated with labour market trends and recruitment practices and engage in continuous professional development.</li></ul><p><strong>What We’re Looking For:</strong></p><ul><li>A degree (Humanities/Arts) or equivalent.</li><li>A relevant professional qualification in careers, coaching or similar (or working towards).</li><li>Excellent communication skills both written and verbal.</li><li>Strong analytical skills with the ability to compile, analyse and present data in a compelling way.</li><li>Experience of collaborating with and influencing a broad range of stakeholders at all levels of an organisation.</li><li>Experience in project management and the ability to manage conflicting priorities.</li><li>Experience delivering seminars or other presentations to large and small groups.</li><li>Knowledge of UK graduate recruitment and national labour market developments.</li></ul><p><strong>What’s in it for you?</strong></p><ul><li>Join a community that is actively making a difference to the future of our planet. Become part of The University of Reading which has been named Sustainable University of the Year 2025 in The Times and The Sunday Times Good University Guide 2025.</li><li>Make a real difference in the lives of students by enhancing their career prospects and employability.</li><li>Benefit from continuous professional development opportunities and stay at the forefront of careers consultancy.</li></ul><p>Student Services currently offer smart working arrangements whereby, (following a 6-week induction period), staff may have the opportunity to work from home up to 40% of their working week. Whilst this is an informal arrangement, it is something the successful post-holder can benefit from, whilst remaining flexible around key event dates and the requirements of the role.</p><p>If you are ready to take on a challenging and rewarding role that will allow you to make a significant impact, we encourage you to apply. Join us at the University of Reading and help shape the future of our students!</p><p>Please see the job description and personal specification for further details.</p><p>For more information, please contact:</p><p>Contact Name: Nicky Norminton</p><p>Contact Job Title: Head of Career Consultancy</p><p>Contact Email address:&nbsp;<a href=\"mailto:n.norminton@reading.ac.uk\" rel=\"noopener noreferrer\" target=\"_blank\" style=\"color: rgb(210, 0, 46);\">n.norminton@reading.ac.uk</a></p><p>Alternative Contact Name: Anne Delauzun</p><p>Alternative Contact Job Title: Director of Careers &amp; Employability</p><p>Alternative Contact Email address: a.h.delauzun@reading.ac.uk</p><p>The University is committed to having a diverse and inclusive workforce, supports the gender equality Athena SWAN Charter and the Race Equality Charter, and champions LGBT+ equality. We are a Disability Confident Employer (Level 2). Applications for job-share, part-time and flexible working arrangements are welcomed and will be considered in line with business needs.</p>",
+    "company_name": "University of Reading",
+    "company_logo_url": "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1764685578531-4ek3nf6-Reading.png",
+    "location": "Reading",
+    "salary_range": "£47389 - £58225 per annum / pro rata",
+    "job_type": "Permanent",
+    "hours": "Part-time",
+    "application_method": "url",
+    "application_value": "https://jobs.reading.ac.uk/Job/JobDetail?JobId=25190",
+    "contact_email": "e.y.wong@reading.ac.uk",
+    "contact_name": "Erika Wong",
+    "posted_by_member_id": "47b43402-e09a-4c06-91f7-88b17d41c0f0",
+    "posted_by_organization_id": "612f9b9d-e00f-44f8-b903-a17f72ddda96",
+    "posted_by_organization_name": "University of Reading",
+    "is_member_post": true,
+    "status": "active",
+    "payment_status": "N/A",
+    "stripe_payment_intent_id": null,
+    "stripe_checkout_session_id": null,
+    "amount_paid": null,
+    "expiry_date": null,
+    "closing_date": "2026-03-01T23:59:59+00:00",
+    "featured": false,
+    "attachment_urls": [
+        "https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770808441711-xe8jsh9-SRF52854_-_JDPS_-_Careers_Consultant.pdf"
+    ],
+    "attachment_names": [
+        "SRF52854_-_JDPS_-_Careers_Consultant.pdf"
+    ],
+    "created_date": "2026-02-11T11:16:17.286+00:00",
+    "payment_date": null,
+    "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d"
+}
