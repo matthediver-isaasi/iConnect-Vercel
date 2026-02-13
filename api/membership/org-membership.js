@@ -176,6 +176,67 @@ async function getOrgFieldValue(orgId, tenantId, config) {
   return null;
 }
 
+async function getGoLiveFieldId(tenantId) {
+  try {
+    const { data } = await supabase
+      .from('preference_field')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'organization')
+      .eq('is_active', true)
+      .eq('name', 'go_live')
+      .maybeSingle();
+    return data?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getOrgGoLiveDate(orgId, goLiveFieldId) {
+  if (!goLiveFieldId) return null;
+  try {
+    const { data } = await supabase
+      .from('organization_preference_value')
+      .select('value')
+      .eq('organization_id', orgId)
+      .eq('field_id', goLiveFieldId)
+      .maybeSingle();
+    if (!data?.value) return null;
+    const dateStr = String(data.value).trim();
+    if (!dateStr || dateStr === 'null') return null;
+    return dateStr.split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+function determineMembershipYearNumber(goLiveDate, targetYear, config) {
+  if (!goLiveDate) return 99;
+
+  const goLive = new Date(goLiveDate);
+  if (isNaN(goLive.getTime())) return 99;
+
+  const startMonth = config.membership_start_month || 1;
+  const startDay = config.membership_start_day || 1;
+
+  const glYear = goLive.getFullYear();
+  const glYearStart = new Date(glYear, startMonth - 1, startDay);
+  const firstYearStart = goLive >= glYearStart ? glYearStart : new Date(glYear - 1, startMonth - 1, startDay);
+
+  const targetStart = new Date(targetYear.start);
+  targetStart.setHours(0, 0, 0, 0);
+
+  let yearNumber = 1;
+  let currentStart = new Date(firstYearStart);
+  while (currentStart < targetStart) {
+    currentStart = new Date(currentStart.getFullYear() + 1, startMonth - 1, startDay);
+    yearNumber++;
+    if (yearNumber > 100) break;
+  }
+
+  return yearNumber;
+}
+
 async function handleGet(req, res, tenantId) {
   const { organizationId, action } = req.query;
 
@@ -240,8 +301,62 @@ async function handleGet(req, res, tenantId) {
     adjustedAnnual = annualCost - freeDiscount;
   }
 
+  const { data: historyRecords } = await supabase
+    .from('organisation_membership_history')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('organization_id', organizationId)
+    .order('membership_year', { ascending: false });
+
+  const goLiveFieldId = await getGoLiveFieldId(tenantId);
+  const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
+  const yearNumber = determineMembershipYearNumber(goLiveDate, currentYear, config);
+
+  const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
+
+  const isNewOrg = yearNumber === 1 && !hasCurrentYearRecord;
+
   let nextYearPreview = null;
-  if (annualCost !== null) {
+  let currentYearCost = null;
+
+  if (annualCost !== null && isNewOrg) {
+    const freeDiscountForYear = calculateFreePeriodDiscount(annualCost, config);
+    const costAfterFree = annualCost - freeDiscountForYear;
+
+    let prorataCost = null;
+    let remainingDays = null;
+    let totalDays = null;
+
+    if (config.prorata_enabled) {
+      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+      const proRataResult = calculateProRata(costAfterFree, config, joinDate);
+      prorataCost = proRataResult.proratedCost;
+      remainingDays = proRataResult.remainingDays;
+      totalDays = proRataResult.totalDays;
+    }
+
+    currentYearCost = {
+      membershipYear: currentYear.label,
+      tierLabel: matchedBand?.label || null,
+      fieldValue,
+      annualCost: annualCost,
+      annualCostBeforeDiscounts: annualCostRaw,
+      customDiscountTotal,
+      customDiscountDetails,
+      freeDiscount: freeDiscountForYear,
+      freePeriodAmount: config.free_period_amount,
+      freePeriodUnit: config.free_period_unit,
+      costAfterFreeDiscount: costAfterFree,
+      proRataEnabled: !!config.prorata_enabled,
+      prorataCost,
+      remainingDays,
+      totalDays,
+      finalCost: prorataCost !== null ? prorataCost : costAfterFree,
+      goLiveDate,
+      currency: config.currency || 'GBP',
+      billingPeriod: config.billing_period || 'annual',
+    };
+  } else if (annualCost !== null) {
     const nextYearFull = annualCost;
     let nextYearRolloverDiscount = 0;
 
@@ -277,13 +392,6 @@ async function handleGet(req, res, tenantId) {
   const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
     ? 'Member Count'
     : config.field_name || 'Value';
-
-  const { data: historyRecords } = await supabase
-    .from('organisation_membership_history')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('organization_id', organizationId)
-    .order('membership_year', { ascending: false });
 
   let override = null;
   try {
@@ -369,6 +477,9 @@ async function handleGet(req, res, tenantId) {
       end: currentYear.end.toISOString().split('T')[0],
     },
     nextYearPreview,
+    currentYearCost,
+    isNewOrg,
+    goLiveDate,
     override,
     history: historyRecords || [],
     bands: bands.map(b => ({

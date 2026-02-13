@@ -302,7 +302,7 @@ export default function OrgMembershipTab({ organizationId }) {
       configId: overrideType === 'structure' ? selectedConfigId : null,
       manualPrice: overrideType === 'price' ? parseFloat(manualPrice) : null,
       note: overrideNote,
-      membershipYear: data?.nextYearPreview?.membershipYear || null,
+      membershipYear: data?.nextYearPreview?.membershipYear || data?.currentYearCost?.membershipYear || null,
     });
   };
 
@@ -356,7 +356,7 @@ export default function OrgMembershipTab({ organizationId }) {
     );
   }
 
-  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, history, bands, override } = data;
+  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, currentYearCost, isNewOrg, goLiveDate, history, bands, override } = data;
   const currency = config.currency || 'GBP';
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const isAutoField = config.field_source === 'core' && config.field_name === 'member_count';
@@ -503,7 +503,70 @@ export default function OrgMembershipTab({ organizationId }) {
 
             <Separator />
 
-            {nextYearPreview ? (
+            {currentYearCost ? (
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Wallet className="w-3 h-3" />
+                    Current Year Membership Cost
+                  </p>
+                  <Badge variant="outline" className="text-xs">New Member</Badge>
+                </div>
+                <p className="font-semibold" data-testid="text-current-year-cost">{currentYearCost.membershipYear}</p>
+
+                {goLiveDate && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Go-live date: {new Date(goLiveDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                )}
+
+                <div className="mt-2 p-3 bg-muted/50 rounded-md space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Tier</span>
+                    <Badge variant="secondary">{currentYearCost.tierLabel || 'Unmapped'}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Based on {fieldLabel}</span>
+                    <span className="font-medium">{currentYearCost.fieldValue?.toLocaleString() ?? 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">{periodLabel} Cost</span>
+                    <span className="font-medium">{formatCost(currentYearCost.annualCost, currency)}</span>
+                  </div>
+                  {currentYearCost.customDiscountTotal > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Custom Discounts</span>
+                      <span className="text-green-600">-{formatCost(currentYearCost.customDiscountTotal, currency)}</span>
+                    </div>
+                  )}
+                  {currentYearCost.freeDiscount > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Free Period ({currentYearCost.freePeriodAmount} {currentYearCost.freePeriodUnit})</span>
+                      <span className="text-green-600">-{formatCost(currentYearCost.freeDiscount, currency)}</span>
+                    </div>
+                  )}
+                  {currentYearCost.proRataEnabled && currentYearCost.remainingDays !== null && (
+                    <>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">After Free Period</span>
+                        <span className="font-medium">{formatCost(currentYearCost.costAfterFreeDiscount, currency)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Pro-rata ({currentYearCost.remainingDays} of {currentYearCost.totalDays} days)</span>
+                        <span className="font-medium">{formatCost(currentYearCost.prorataCost, currency)}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex items-center justify-between text-sm border-t pt-1">
+                    <span className="text-muted-foreground font-medium">Amount Due</span>
+                    <span className="font-semibold">{formatCost(currentYearCost.finalCost, currency)}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This is the calculated cost for the remainder of the {currentYearCost.membershipYear} period. The membership will be created when the workflow runs.
+                </p>
+              </div>
+            ) : nextYearPreview ? (
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -681,7 +744,7 @@ export default function OrgMembershipTab({ organizationId }) {
               </div>
             ) : (
               <div className="text-center py-4 text-muted-foreground">
-                <p className="text-sm">No tier matched for next year preview</p>
+                <p className="text-sm">No tier matched for the current membership configuration. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
               </div>
             )}
           </CardContent>
@@ -761,9 +824,9 @@ export default function OrgMembershipTab({ organizationId }) {
       <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle data-testid="text-override-title">Override Next Year Renewal</DialogTitle>
+            <DialogTitle data-testid="text-override-title">{isNewOrg ? 'Override Current Year Cost' : 'Override Next Year Renewal'}</DialogTitle>
             <DialogDescription>
-              Override the automatically calculated renewal price for {nextYearPreview?.membershipYear || 'next year'}.
+              Override the automatically calculated {isNewOrg ? 'membership cost' : 'renewal price'} for {nextYearPreview?.membershipYear || currentYearCost?.membershipYear || 'next year'}.
               A note will be added to the organisation's Notes tab.
             </DialogDescription>
           </DialogHeader>
@@ -851,9 +914,14 @@ export default function OrgMembershipTab({ organizationId }) {
                   placeholder="Enter renewal price..."
                   data-testid="input-manual-price"
                 />
-                {nextYearPreview && (
+                {(nextYearPreview || currentYearCost) && (
                   <p className="text-xs text-muted-foreground">
-                    Auto-calculated price: {formatCost(nextYearPreview.originalAnnualCost ?? nextYearPreview.annualCost, currency)}
+                    Auto-calculated price: {formatCost(
+                      nextYearPreview
+                        ? (nextYearPreview.originalAnnualCost ?? nextYearPreview.annualCost)
+                        : currentYearCost.finalCost,
+                      currency
+                    )}
                   </p>
                 )}
               </div>
