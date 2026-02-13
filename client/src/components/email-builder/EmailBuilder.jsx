@@ -748,7 +748,7 @@ export default function EmailBuilder({
               </SortableContext>
               {hasFooter && (
                 <div
-                  style={{ padding: '0' }}
+                  style={{ padding: '0 16px' }}
                 >
                   <div
                     className="text-xs [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"

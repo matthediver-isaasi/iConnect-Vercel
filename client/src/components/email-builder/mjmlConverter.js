@@ -463,7 +463,8 @@ export const designToMjml = (design, { footerHtml } = {}) => {
   const shouldIncludeFooter = globalStyles.useDefaultFooter !== false && footerHtml;
   let footerSection = '';
   if (shouldIncludeFooter) {
-    footerSection = `<mj-section padding="0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${footerHtml}</mj-text></mj-column></mj-section>`;
+    const sanitizedFooter = footerHtml.replace(/<tr[^>]*>\s*<td[^>]*linear-gradient[^>]*>[\s\S]*?<\/td>\s*<\/tr>/gi, '');
+    footerSection = `<mj-section padding="0" css-class="tenant-email-footer"><mj-column><mj-text padding="0" font-size="12px" color="#666666" line-height="1.5">${sanitizedFooter}</mj-text></mj-column></mj-section>`;
   }
   
   let wrapperPadding = globalStyles.contentPadding || '0px';
