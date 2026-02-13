@@ -97,17 +97,16 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const yearNumber = determineMembershipYearNumber(goLiveDate, membershipYear, config);
+  const currentYearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
 
   if (goLiveDate) {
     let yearDesc;
     if (yearNumber === 1) yearDesc = 'First year - pro-rata and free period discounts apply';
-    else if (yearNumber === 2) yearDesc = config.rollover_enabled
-      ? 'Second year - rollover discount may apply'
-      : 'Second year - rollover is not enabled, full annual fee applies';
+    else if (yearNumber === 2) yearDesc = 'Second year - free period spillover may apply';
     else yearDesc = `Year ${yearNumber} - established member, full annual fee`;
     log('Go-Live Date', `${goLiveDate} → membership year ${yearNumber}. ${yearDesc}`);
   } else {
-    log('Go-Live Date', 'Not set - treating as established member (full annual fee, no discounts)', goLiveFieldId ? 'warning' : 'error');
+    log('Go-Live Date', 'Not set - treating as new member (year 1 logic applies)', goLiveFieldId ? 'warning' : 'info');
   }
 
   const { data: existingRecord } = await supabase
@@ -139,14 +138,11 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   }
   log('Match Tier Band', `Matched: "${matchedBand.label}" (range: ${matchedBand.min_value}-${matchedBand.max_value || '∞'}, annual cost: ${matchedBand.annual_cost})`);
 
-  let annualCost = parseFloat(matchedBand.annual_cost);
+  let annualCostRaw = parseFloat(matchedBand.annual_cost);
+  let annualCost = annualCostRaw;
   let tierLabel = matchedBand.label;
-  let freeDiscount = 0;
-  let rolloverDiscount = 0;
   let customDiscountTotal = 0;
   let customDiscountDetails = [];
-  let finalCost = annualCost;
-  let prorataCost = null;
   let usedConfigId = config.id;
   let usedBandId = matchedBand.id;
   let overrideApplied = false;
@@ -157,48 +153,12 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     customDiscountTotal = applied.totalDiscount;
     customDiscountDetails = applied.appliedDiscounts;
     annualCost = applied.discountedCost;
-    finalCost = annualCost;
     const discountSummary = customDiscountDetails.map(d =>
       `${d.label || d.field_label}: ${d.discount_type === 'percentage' ? d.discount_value + '%' : d.applied_amount.toFixed(2)} (${d.applied_amount.toFixed(2)})`
     ).join(', ');
     log('Custom Discounts', `${customDiscountDetails.length} discount(s) applied, total: ${customDiscountTotal.toFixed(2)}. Details: ${discountSummary}`);
   } else {
     log('Custom Discounts', 'No matching discount rules for this organisation');
-  }
-
-  if (yearNumber === 1) {
-    freeDiscount = calculateFreePeriodDiscount(annualCost, config);
-    finalCost = annualCost - freeDiscount;
-    if (freeDiscount > 0) {
-      log('Free Period Discount', `First year discount: ${freeDiscount.toFixed(2)} (${config.free_period_amount} ${config.free_period_unit})`);
-    }
-
-    if (config.prorata_enabled) {
-      const startMonth = config.membership_start_month || 1;
-      const startDay = config.membership_start_day || 1;
-      const now = new Date();
-      const yr = now.getFullYear();
-      const ys = new Date(yr, startMonth - 1, startDay);
-      const currentYearStart = now >= ys ? ys : new Date(yr - 1, startMonth - 1, startDay);
-      const nextYearStart = new Date(currentYearStart.getFullYear() + 1, startMonth - 1, startDay);
-
-      const totalDays = Math.ceil((nextYearStart - currentYearStart) / (1000 * 60 * 60 * 24));
-      const joinDate = goLiveDate ? new Date(goLiveDate) : now;
-      const clampedJoinDate = joinDate < currentYearStart ? currentYearStart : joinDate;
-      const remainingDays = Math.max(0, Math.ceil((nextYearStart - clampedJoinDate) / (1000 * 60 * 60 * 24)));
-      prorataCost = parseFloat(((annualCost - freeDiscount) * remainingDays / totalDays).toFixed(2));
-      log('Pro-Rata Cost', `${prorataCost.toFixed(2)} (${remainingDays} of ${totalDays} days remaining)`);
-    }
-  } else if (yearNumber === 2 && config.rollover_enabled) {
-    rolloverDiscount = calculateRolloverDiscount(annualCost, config, goLiveDate);
-    finalCost = annualCost - rolloverDiscount;
-    if (rolloverDiscount > 0) {
-      log('Rollover Discount', `Second year rollover from first year: ${rolloverDiscount.toFixed(2)}`);
-    } else {
-      log('Rollover Discount', 'No rollover discount applicable (free period was fully used in first year)');
-    }
-  } else {
-    log('Discounts', `Year ${yearNumber} - no pro-rata, free period, or rollover discounts apply`);
   }
 
   let override = null;
@@ -222,9 +182,6 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     overrideApplied = true;
     if (override.override_type === 'price' && override.manual_price !== null) {
       annualCost = parseFloat(override.manual_price);
-      finalCost = annualCost;
-      freeDiscount = 0;
-      rolloverDiscount = 0;
       customDiscountTotal = 0;
       customDiscountDetails = [];
       log('Apply Override', `Price override: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
@@ -245,30 +202,6 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
         discount_value: val,
         applied_amount: overrideDiscountAmt,
       }];
-      finalCost = annualCost;
-
-      if (yearNumber === 1) {
-        freeDiscount = calculateFreePeriodDiscount(annualCost, config);
-        finalCost = annualCost - freeDiscount;
-        if (config.prorata_enabled) {
-          const startMonth = config.membership_start_month || 1;
-          const startDay = config.membership_start_day || 1;
-          const now = new Date();
-          const yr = now.getFullYear();
-          const ys = new Date(yr, startMonth - 1, startDay);
-          const currentYearStart = now >= ys ? ys : new Date(yr - 1, startMonth - 1, startDay);
-          const nextYearStart = new Date(currentYearStart.getFullYear() + 1, startMonth - 1, startDay);
-          const totalDays = Math.ceil((nextYearStart - currentYearStart) / (1000 * 60 * 60 * 24));
-          const joinDate = goLiveDate ? new Date(goLiveDate) : now;
-          const clampedJoinDate = joinDate < currentYearStart ? currentYearStart : joinDate;
-          const remainingDays = Math.max(0, Math.ceil((nextYearStart - clampedJoinDate) / (1000 * 60 * 60 * 24)));
-          prorataCost = parseFloat(((annualCost - freeDiscount) * remainingDays / totalDays).toFixed(2));
-        }
-      } else if (yearNumber === 2 && config.rollover_enabled) {
-        rolloverDiscount = calculateRolloverDiscount(annualCost, config, goLiveDate);
-        finalCost = annualCost - rolloverDiscount;
-      }
-
       log('Apply Override', `Discount override: ${override.discount_type === 'percentage' ? val + '%' : val.toFixed(2)} off, discount amount: ${overrideDiscountAmt.toFixed(2)}, net cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
@@ -279,11 +212,10 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
           : matchBand(fieldValue, overrideBands);
 
         if (overrideBand) {
-          annualCost = parseFloat(overrideBand.annual_cost);
+          annualCostRaw = parseFloat(overrideBand.annual_cost);
+          annualCost = annualCostRaw;
           tierLabel = overrideBand.label;
           matchedBand = overrideBand;
-          freeDiscount = 0;
-          rolloverDiscount = 0;
           usedConfigId = overrideConfig.id;
           usedBandId = overrideBand.id;
 
@@ -297,7 +229,6 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
             customDiscountTotal = 0;
             customDiscountDetails = [];
           }
-          finalCost = annualCost;
           log('Apply Override', `Structure override: config "${overrideConfig.name || overrideConfig.id}", band "${overrideBand.label}", cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
         } else {
           log('Apply Override', 'Structure override set but no matching band found', 'warning');
@@ -309,10 +240,120 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log('Check Override', 'No override configured for this organisation');
   }
 
-  const computedFinalCost = parseFloat(Math.max(0, prorataCost !== null ? prorataCost : finalCost).toFixed(2));
+  const isPriceOverride = override?.override_type === 'price';
+
+  const { data: historyRecords } = await supabase
+    .from('organisation_membership_history')
+    .select('id, membership_year')
+    .eq('tenant_id', tenantId)
+    .eq('organization_id', organizationId);
+
+  const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
+  const isNewOrg = (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
+  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+
+  const yearStartMidnight = new Date(membershipYear.start);
+  yearStartMidnight.setHours(0, 0, 0, 0);
+  const yearEndMidnight = new Date(membershipYear.end);
+  yearEndMidnight.setHours(0, 0, 0, 0);
+  const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+  let dailyCost = null;
+  let prorataDays = null;
+  let prorataCost = null;
+  let freePeriodDaysApplied = 0;
+  let freeDiscount = 0;
+  let billableDays = null;
+  let finalCost = annualCost;
+  let proRataEnabled = false;
+
+  if (isPriceOverride) {
+    finalCost = annualCost;
+    log('Price Override', `Final cost set to manual price: ${finalCost.toFixed(2)}, all calculation lines suppressed`);
+  } else if (yearNumber === 1) {
+    dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+
+    if (config.prorata_enabled && isNewOrg) {
+      proRataEnabled = true;
+      const joinMidnight = new Date(effectiveJoinDate);
+      joinMidnight.setHours(0, 0, 0, 0);
+      prorataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+      prorataCost = parseFloat((dailyCost * prorataDays).toFixed(2));
+      log('Pro-Rata', `${prorataDays} days × ${dailyCost.toFixed(4)} = ${prorataCost.toFixed(2)}`);
+
+      if (config.free_period_amount && config.free_period_unit) {
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        const freePeriodEnd = new Date(joinMidnight);
+        freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+        const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+        freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
+        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        log('Free Period', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}`);
+      }
+
+      billableDays = prorataDays - freePeriodDaysApplied;
+      finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
+      log('Final Cost', `${billableDays} billable days × ${dailyCost.toFixed(4)} = ${finalCost.toFixed(2)}`);
+    } else if (isNewOrg && config.free_period_amount && config.free_period_unit) {
+      dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+      const freePeriodMonths = getFreeMonths(config);
+      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+      freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
+      freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+      finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
+      log('Free Period (no pro-rata)', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}, final: ${finalCost.toFixed(2)}`);
+    } else {
+      log('Year 1', `No pro-rata or free period applicable. Final cost: ${finalCost.toFixed(2)}`);
+    }
+  } else if (yearNumber === 2) {
+    dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+
+    if (isNewOrg && config.free_period_amount && config.free_period_unit) {
+      const freePeriodMonths = getFreeMonths(config);
+      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+      const currentYear = calculateMembershipYear(config);
+      const currentYearStartMidnight = new Date(currentYear.start);
+      currentYearStartMidnight.setHours(0, 0, 0, 0);
+      const currentYearEndMidnight = new Date(currentYear.end);
+      currentYearEndMidnight.setHours(0, 0, 0, 0);
+      const currentYearTotalDays = Math.floor((currentYearEndMidnight - currentYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+
+      let freeDaysInCurrentYear = 0;
+      if (config.prorata_enabled) {
+        const joinMidnight = new Date(effectiveJoinDate);
+        joinMidnight.setHours(0, 0, 0, 0);
+        const currentProrataDays = Math.max(0, Math.floor((currentYearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        const freePeriodEnd = new Date(joinMidnight);
+        freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+        const lastFreeDay = freePeriodEnd < currentYearEndMidnight ? freePeriodEnd : currentYearEndMidnight;
+        freeDaysInCurrentYear = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        freeDaysInCurrentYear = Math.min(freeDaysInCurrentYear, currentProrataDays);
+      } else {
+        freeDaysInCurrentYear = Math.min(freePeriodTotalDays, currentYearTotalDays);
+      }
+
+      const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
+      freePeriodDaysApplied = Math.min(spilloverDays, totalDaysInYear);
+      freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+      finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+
+      if (freePeriodDaysApplied > 0) {
+        log('Free Period Spillover', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)} (spillover from year 1)`);
+      } else {
+        log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
+      }
+    } else {
+      log('Year 2', `Full annual cost applies. Final cost: ${finalCost.toFixed(2)}`);
+    }
+  } else {
+    log('Discounts', `Year ${yearNumber} - no pro-rata, free period, or rollover discounts apply`);
+  }
+
+  const computedFinalCost = parseFloat(Math.max(0, finalCost).toFixed(2));
   const currency = config.currency || 'GBP';
 
-  log('Calculate Final Cost', `Annual: ${annualCost.toFixed(2)}${customDiscountTotal > 0 ? ` (after custom discounts: ${customDiscountTotal.toFixed(2)})` : ''}, Free discount: ${freeDiscount.toFixed(2)}, Rollover: ${rolloverDiscount.toFixed(2)}${prorataCost !== null ? `, Pro-rata: ${prorataCost.toFixed(2)}` : ''}, Final: ${computedFinalCost.toFixed(2)} ${currency}`);
+  log('Calculate Final Cost', `Annual: ${annualCost.toFixed(2)}${customDiscountTotal > 0 ? ` (after custom discounts: ${customDiscountTotal.toFixed(2)})` : ''}, Free discount: ${freeDiscount.toFixed(2)}${prorataCost !== null ? `, Pro-rata: ${prorataCost.toFixed(2)}` : ''}, Final: ${computedFinalCost.toFixed(2)} ${currency}`);
 
   const { data: accountCodeSetting } = await supabase
     .from('system_settings')
@@ -422,15 +463,23 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     tierLabel,
     fieldValue,
     annualCost,
+    annualCostBeforeDiscounts: annualCostRaw,
     finalCost: computedFinalCost,
     currency,
     membershipYear,
     yearNumber,
-    freeDiscount,
-    rolloverDiscount,
+    dailyCost: isPriceOverride ? null : dailyCost,
+    totalDaysInYear,
+    proRataEnabled: proRataEnabled,
+    prorataDays: proRataEnabled ? prorataDays : null,
+    prorataCost: proRataEnabled ? prorataCost : null,
+    freeDiscount: isPriceOverride ? 0 : freeDiscount,
+    freePeriodDaysApplied: isPriceOverride ? 0 : freePeriodDaysApplied,
+    freePeriodAmount: config.free_period_amount,
+    freePeriodUnit: config.free_period_unit,
+    billableDays: proRataEnabled ? billableDays : null,
     customDiscountTotal,
     customDiscountDetails,
-    prorataCost,
     overrideApplied,
     overrideType: override?.override_type || null,
     overrideDiscountType: override?.discount_type || null,
@@ -440,6 +489,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     invoicingSettings,
     xeroAccountCode,
     xeroInvoiceStatus,
+    billingPeriod: config.billing_period || 'annual',
+    goLiveDate,
+    isNewOrg,
     steps,
   };
 }
