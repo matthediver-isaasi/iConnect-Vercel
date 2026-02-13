@@ -357,6 +357,65 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       }
       await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId);
       results.push({ action_type: 'update_field', status: 'success' });
+    } else if (action.type === 'update_field' && normalizedFieldType === 'custom') {
+      try {
+        let prefTable, foreignKey;
+        if (entityType === 'organization') {
+          prefTable = 'organization_preference_value';
+          foreignKey = 'organization_id';
+        } else if (entityType === 'member') {
+          prefTable = 'member_preference_value';
+          foreignKey = 'member_id';
+        } else if (entityType === 'job_posting') {
+          prefTable = 'job_posting_preference_value';
+          foreignKey = 'job_posting_id';
+        } else {
+          console.warn(`[Workflows] update_field (custom): unsupported entity type "${entityType}"`);
+          results.push({ action_type: 'update_field', field_type: 'custom', status: 'failed', error: `Unsupported entity type "${entityType}" for custom field update` });
+          continue;
+        }
+
+        const fieldId = action.config.field_id;
+
+        let resolvedValue = action.config.value;
+        if (resolvedValue === '{{current_date}}') {
+          resolvedValue = new Date().toISOString().split('T')[0];
+        } else if (resolvedValue === '{{current_datetime}}') {
+          resolvedValue = new Date().toISOString();
+        }
+
+        console.log(`[Workflows] update_field (custom): ${prefTable}.${fieldId} = "${resolvedValue}" for ${entityType}:${entityId}`);
+
+        const { data: existing } = await supabase
+          .from(prefTable)
+          .select('id')
+          .eq(foreignKey, entityId)
+          .eq('field_id', fieldId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from(prefTable)
+            .update({ value: resolvedValue })
+            .eq('id', existing.id)
+            .eq('tenant_id', tenantId);
+        } else {
+          await supabase
+            .from(prefTable)
+            .insert({
+              [foreignKey]: entityId,
+              field_id: fieldId,
+              value: resolvedValue,
+              tenant_id: tenantId,
+            });
+        }
+
+        results.push({ action_type: 'update_field', field_type: 'custom', status: 'success' });
+      } catch (err) {
+        console.error(`[Workflows] update_field (custom) error:`, err.message);
+        results.push({ action_type: 'update_field', field_type: 'custom', status: 'failed', error: err.message });
+      }
     } else if (action.type === 'send_email') {
       console.log(`[Workflows] send_email action config:`, JSON.stringify(action.config, null, 2));
       
