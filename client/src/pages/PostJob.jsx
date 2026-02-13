@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -122,8 +122,9 @@ export default function PostJobPage() {
   const editJobId = urlParams.get('editJobId');
   const returnTo = urlParams.get('from');
 
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(!!editJobId);
   const [editJobLoaded, setEditJobLoaded] = useState(false);
+  const isEditRef = useRef(!!editJobId);
 
   const [step, setStep] = useState('email'); // 'email', 'form', 'submitting'
   const [email, setEmail] = useState('');
@@ -329,14 +330,15 @@ export default function PostJobPage() {
 
   // Initialize from props (portal mode) or sessionStorage (public mode)
   useEffect(() => {
+    console.log('[PostJob] Member init effect running. isEditRef:', isEditRef.current, 'editJobId:', editJobId, 'memberInfo:', !!memberInfo);
     if (memberInfo) {
-      // Portal mode - member is logged in via props
       setIsLoggedIn(true);
       setIsMember(true);
       setEmail(memberInfo.email);
       setStep('form');
 
-      if (!editJobId && !editJobLoaded) {
+      if (!isEditRef.current) {
+        console.log('[PostJob] Not in edit mode, setting default form data from member/org');
         setFormData((prev) => ({
           ...prev,
           company_name: organizationInfo?.name || '',
@@ -346,9 +348,10 @@ export default function PostJobPage() {
           hours: hoursSettings[0] || ''
         }));
         setSelectedOrganization(null);
+      } else {
+        console.log('[PostJob] In edit mode, skipping default form data');
       }
     } else {
-      // Public mode - check sessionStorage
       const member = localStorage.getItem('agcas_member');
       if (member) {
         const memberData = JSON.parse(member);
@@ -357,7 +360,7 @@ export default function PostJobPage() {
         setEmail(memberData.email);
         setStep('form');
 
-        if (!editJobId) {
+        if (!isEditRef.current) {
           const fetchOrganization = async () => {
             if (memberData.organization_id) {
               try {
@@ -378,7 +381,6 @@ export default function PostJobPage() {
               }
             }
           };
-
           fetchOrganization();
         }
       }
@@ -386,12 +388,15 @@ export default function PostJobPage() {
   }, [memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
 
   useEffect(() => {
+    console.log('[PostJob] Edit fetch effect running. editJobId:', editJobId);
     if (editJobId) {
       const fetchJobForEdit = async () => {
         try {
+          console.log('[PostJob] Fetching job for edit:', editJobId);
           const job = await base44.entities.JobPosting.get(editJobId);
+          console.log('[PostJob] Fetched job:', job ? job.title : 'null/undefined', 'keys:', job ? Object.keys(job) : 'N/A');
           if (job) {
-            setFormData({
+            const newFormData = {
               title: job.title || '',
               description: job.description || '',
               company_name: job.company_name || '',
@@ -407,12 +412,18 @@ export default function PostJobPage() {
               attachment_urls: job.attachment_urls || [],
               attachment_names: job.attachment_names || [],
               posting_organization_id: job.posting_organization_id || null
-            });
+            };
+            console.log('[PostJob] Setting formData to:', JSON.stringify(newFormData, null, 2));
+            setFormData(newFormData);
             setIsEditMode(true);
+            isEditRef.current = true;
             setEditJobLoaded(true);
             setStep('form');
             setIsLoggedIn(true);
             setAgreedToTerms(true);
+            console.log('[PostJob] Edit mode setup complete');
+          } else {
+            console.error('[PostJob] Job not found for editJobId:', editJobId);
           }
         } catch (error) {
           console.error('[PostJob] Failed to fetch job for editing:', error);
