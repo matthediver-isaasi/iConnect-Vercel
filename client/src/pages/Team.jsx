@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, Clock, Edit, X, ChevronLeft, ChevronRight, UserPlus, Link, Copy, Check } from "lucide-react";
@@ -22,6 +23,7 @@ export default function TeamPage({ hasBanner }) {
   const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRoleId, setSelectedRoleId] = useState("all");
   const [showDisabled, setShowDisabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(9);
@@ -152,6 +154,13 @@ export default function TeamPage({ hasBanner }) {
       return await base44.entities.Role.list();
     }
   });
+
+  const rolesInUse = useMemo(() => {
+    const roleIdsInTeam = new Set(teamMembers.map(m => m.role_id).filter(Boolean));
+    return roles
+      .filter(r => roleIdsInTeam.has(r.id))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [teamMembers, roles]);
 
   // Fetch online awards
   const { data: awards = [] } = useQuery({
@@ -350,13 +359,18 @@ export default function TeamPage({ hasBanner }) {
     return stats;
   }, [teamMembers, allArticles, allBookings, awards, offlineAssignments, offlineAwards, awardSublevels]);
 
-  // Filter members based on search and showDisabled toggle
+  // Filter members based on search, role, and showDisabled toggle
   const filteredMembers = useMemo(() => {
     let filtered = teamMembers;
     
     // Filter by disabled accounts
     if (!showDisabled) {
       filtered = filtered.filter(member => member.login_enabled !== false);
+    }
+    
+    // Filter by role
+    if (selectedRoleId && selectedRoleId !== 'all') {
+      filtered = filtered.filter(member => member.role_id === selectedRoleId);
     }
     
     // Filter by search
@@ -371,7 +385,7 @@ export default function TeamPage({ hasBanner }) {
     }
     
     return filtered;
-  }, [teamMembers, searchQuery, showDisabled]);
+  }, [teamMembers, searchQuery, selectedRoleId, showDisabled]);
 
   // Pagination
   const totalPages = Math.ceil(filteredMembers.length / itemsPerPage);
@@ -383,7 +397,7 @@ export default function TeamPage({ hasBanner }) {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, showDisabled]);
+  }, [searchQuery, selectedRoleId, showDisabled]);
 
   const handleToggleLogin = (member, newValue) => {
     toggleLoginMutation.mutate({ memberId: member.id, newValue });
@@ -580,8 +594,25 @@ export default function TeamPage({ hasBanner }) {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10"
+                    data-testid="input-team-search"
                   />
                 </div>
+                {rolesInUse.length > 0 && (
+                  <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                    <SelectTrigger className="w-full md:w-[200px]" data-testid="select-role-filter">
+                      <Shield className="w-4 h-4 mr-2 text-slate-400 flex-shrink-0" />
+                      <SelectValue placeholder="All Roles" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" data-testid="select-role-all">All Roles</SelectItem>
+                      {rolesInUse.map(role => (
+                        <SelectItem key={role.id} value={role.id} data-testid={`select-role-${role.id}`}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 {!isFeatureExcluded('membership.team.view-inactive-accounts') && (
                   <div className="flex items-center gap-3">
                     <Label htmlFor="show-disabled" className="text-sm text-slate-700 whitespace-nowrap cursor-pointer">
