@@ -41,11 +41,189 @@ function formatCost(value, currency) {
   return `${symbol}${parseFloat(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function YearCostSection({
+  yearData,
+  yearLabel,
+  currency,
+  periodLabel,
+  fieldLabel,
+  isNewOrg,
+  goLiveDate,
+  showRecordFee,
+  currentYearRecorded,
+  recordMutation,
+  organizationId,
+  onOpenOverride,
+  onRemoveOverride,
+  removeOverridePending,
+  onSimulate,
+  simulatePending,
+  testIdPrefix,
+}) {
+  if (!yearData) return null;
+
+  const hasOverride = !!yearData.overrideType;
+
+  return (
+    <div data-testid={`section-${testIdPrefix}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-muted-foreground flex items-center gap-1">
+            <Wallet className="w-3 h-3" />
+            {yearLabel}
+          </p>
+          {isNewOrg && testIdPrefix === 'current-year' && (
+            <Badge variant="outline" className="text-xs">New Member</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          <Button
+            size="sm"
+            variant={hasOverride ? "secondary" : "outline"}
+            onClick={() => onOpenOverride(yearData.membershipYear)}
+            data-testid={`button-override-${testIdPrefix}`}
+          >
+            <Pencil className="w-3 h-3 mr-1" />
+            {hasOverride ? 'Edit Override' : 'Override'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onSimulate}
+            disabled={simulatePending}
+            data-testid={`button-simulate-${testIdPrefix}`}
+          >
+            {simulatePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
+            Simulate
+          </Button>
+        </div>
+      </div>
+      <p className="font-semibold" data-testid={`text-year-${testIdPrefix}`}>{yearData.membershipYear}</p>
+
+      {isNewOrg && testIdPrefix === 'current-year' && goLiveDate && (
+        <p className="text-xs text-muted-foreground mt-1">
+          Go-live date: {new Date(goLiveDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+        </p>
+      )}
+
+      {hasOverride && (
+        <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+          <div className="flex items-start gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                {yearData.overrideType === 'price' ? 'Manual Price Override' : 'Structure Override'}
+                {yearData.overrideConfigName && ` - ${yearData.overrideConfigName}`}
+              </p>
+              {yearData.overrideNote && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{yearData.overrideNote}</p>
+              )}
+              {yearData.originalAnnualCost !== undefined && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Original: <span className="line-through">{formatCost(yearData.originalAnnualCost, currency)}</span>
+                </p>
+              )}
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => onRemoveOverride(yearData.membershipYear)}
+              disabled={removeOverridePending}
+              data-testid={`button-remove-override-${testIdPrefix}`}
+            >
+              {removeOverridePending ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-2 p-3 bg-muted/50 rounded-md space-y-1">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Tier</span>
+          <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Based on {fieldLabel}</span>
+          <span className="font-medium">{yearData.fieldValue?.toLocaleString() ?? 'N/A'}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">{hasOverride && yearData.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost`}</span>
+          <span className="font-medium">{formatCost(yearData.annualCost, currency)}</span>
+        </div>
+        {yearData.customDiscountTotal > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Custom Discounts</span>
+            <span className="text-green-600">-{formatCost(yearData.customDiscountTotal, currency)}</span>
+          </div>
+        )}
+        {yearData.freeDiscount > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Free Period ({yearData.freePeriodAmount} {yearData.freePeriodUnit})</span>
+            <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
+          </div>
+        )}
+        {yearData.proRataEnabled && yearData.remainingDays !== null && (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">After Free Period</span>
+              <span className="font-medium">{formatCost(yearData.costAfterFreeDiscount, currency)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Pro-rata ({yearData.remainingDays} of {yearData.totalDays} days)</span>
+              <span className="font-medium">{formatCost(yearData.prorataCost, currency)}</span>
+            </div>
+          </>
+        )}
+        {yearData.rolloverDiscount > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Rollover Discount</span>
+            <span className="text-green-600">-{formatCost(yearData.rolloverDiscount, currency)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-sm border-t pt-1">
+          <span className="text-muted-foreground font-medium">
+            {showRecordFee && currentYearRecorded ? 'Recorded Cost' : 'Final Cost'}
+          </span>
+          <span className="font-semibold">{formatCost(yearData.finalCost, currency)}</span>
+        </div>
+      </div>
+
+      {showRecordFee && (
+        <div className="mt-2">
+          {currentYearRecorded ? (
+            <Badge variant="secondary">
+              Recorded: {formatCost(currentYearRecorded.final_cost, currency)}
+            </Badge>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => recordMutation.mutate({ organizationId, membershipYear: yearData.membershipYear })}
+              disabled={recordMutation.isPending}
+              data-testid="button-record-current"
+            >
+              {recordMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Wallet className="w-3 h-3 mr-1" />}
+              Record {yearData.membershipYear} Fee
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!hasOverride && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function OrgMembershipTab({ organizationId }) {
   const queryClient = useQueryClient();
   const [editingFieldValue, setEditingFieldValue] = useState(null);
   const [isEditingField, setIsEditingField] = useState(false);
   const [overrideModalOpen, setOverrideModalOpen] = useState(false);
+  const [overrideTargetYear, setOverrideTargetYear] = useState(null);
   const [overrideType, setOverrideType] = useState('structure');
   const [selectedConfigId, setSelectedConfigId] = useState('');
   const [manualPrice, setManualPrice] = useState('');
@@ -141,7 +319,7 @@ export default function OrgMembershipTab({ organizationId }) {
       queryClient.invalidateQueries({ queryKey: ['org-notes'] });
       setOverrideModalOpen(false);
       resetOverrideForm();
-      toast.success('Renewal override saved');
+      toast.success('Override saved');
     },
     onError: (error) => {
       toast.error(error.message);
@@ -149,8 +327,9 @@ export default function OrgMembershipTab({ organizationId }) {
   });
 
   const removeOverrideMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/membership/org-membership-override?organizationId=${organizationId}`, {
+    mutationFn: async (membershipYear) => {
+      const yearParam = membershipYear ? `&membershipYear=${encodeURIComponent(membershipYear)}` : '';
+      const response = await fetch(`/api/membership/org-membership-override?organizationId=${organizationId}${yearParam}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -261,17 +440,22 @@ export default function OrgMembershipTab({ organizationId }) {
     setSelectedConfigId('');
     setManualPrice('');
     setOverrideNote('');
+    setOverrideTargetYear(null);
   };
 
-  const handleOpenOverrideModal = () => {
+  const handleOpenOverrideModal = (membershipYear) => {
     resetOverrideForm();
-    if (data?.override) {
-      setOverrideType(data.override.override_type || 'structure');
-      if (data.override.override_type === 'structure' && data.override.config_id) {
-        setSelectedConfigId(data.override.config_id);
+    setOverrideTargetYear(membershipYear);
+
+    const yearOverride = data?.overrides?.find(o => o.membership_year === membershipYear)
+      || data?.overrides?.find(o => !o.membership_year);
+    if (yearOverride) {
+      setOverrideType(yearOverride.override_type || 'structure');
+      if (yearOverride.override_type === 'structure' && yearOverride.config_id) {
+        setSelectedConfigId(yearOverride.config_id);
       }
-      if (data.override.override_type === 'price' && data.override.manual_price !== null) {
-        setManualPrice(data.override.manual_price.toString());
+      if (yearOverride.override_type === 'price' && yearOverride.manual_price !== null) {
+        setManualPrice(yearOverride.manual_price.toString());
       }
     }
     setOverrideModalOpen(true);
@@ -302,7 +486,7 @@ export default function OrgMembershipTab({ organizationId }) {
       configId: overrideType === 'structure' ? selectedConfigId : null,
       manualPrice: overrideType === 'price' ? parseFloat(manualPrice) : null,
       note: overrideNote,
-      membershipYear: data?.nextYearPreview?.membershipYear || data?.currentYearCost?.membershipYear || null,
+      membershipYear: overrideTargetYear,
     });
   };
 
@@ -356,400 +540,271 @@ export default function OrgMembershipTab({ organizationId }) {
     );
   }
 
-  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, currentYearCost, isNewOrg, goLiveDate, history, bands, override } = data;
+  const { config, currentTier, fieldValue, fieldLabel, currentYear, nextYearPreview, currentYearCost, isNewOrg, goLiveDate, history, bands } = data;
   const currency = config.currency || 'GBP';
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const isAutoField = config.field_source === 'core' && config.field_name === 'member_count';
-  const hasOverride = !!nextYearPreview?.overrideType;
 
   const currentYearRecorded = history?.find(h => h.membership_year === currentYear?.label);
 
+  const overrideTargetData = overrideTargetYear === currentYearCost?.membershipYear
+    ? currentYearCost
+    : overrideTargetYear === nextYearPreview?.membershipYear
+      ? nextYearPreview
+      : null;
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" />
-              Current Tier
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" />
+            Current Tier
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-muted-foreground">{fieldLabel}</p>
+              {isEditingField && !isAutoField ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={editingFieldValue}
+                    onChange={(e) => setEditingFieldValue(e.target.value)}
+                    className="w-28"
+                    data-testid="input-field-value"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={handleSaveFieldValue}
+                    disabled={updateFieldMutation.isPending}
+                    data-testid="button-save-field"
+                  >
+                    {updateFieldMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleCancelEditing} data-testid="button-cancel-field">
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-xl font-bold" data-testid="text-field-value">
+                    {fieldValue !== null && fieldValue !== undefined ? fieldValue.toLocaleString() : 'N/A'}
+                  </p>
+                  {!isAutoField && (
+                    <Button size="sm" variant="outline" onClick={handleStartEditing} data-testid="button-edit-field">
+                      Edit
+                    </Button>
+                  )}
+                  {isAutoField && (
+                    <Badge variant="outline" className="text-xs">Auto</Badge>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">Matched Tier</p>
+              {currentTier ? (
+                <Badge variant="secondary" className="mt-1" data-testid="badge-current-tier">{currentTier.label}</Badge>
+              ) : (
+                <Badge variant="outline" className="mt-1 text-muted-foreground" data-testid="badge-no-tier">Unmapped</Badge>
+              )}
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
+              <p className="text-lg font-semibold" data-testid="text-annual-cost">
+                {currentTier ? formatCost(currentTier.annualCost, currency) : '-'}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">Structure</p>
+              <p className="text-sm font-medium" data-testid="text-structure-name">{config.name || 'Default'}</p>
+              <p className="text-xs text-muted-foreground">From {config.effective_from}</p>
+            </div>
+          </div>
+
+          {currentTier && bands?.length > 0 && (
+            <>
+              <Separator />
               <div>
-                <p className="text-sm text-muted-foreground">{fieldLabel}</p>
-                {isEditingField && !isAutoField ? (
-                  <div className="flex items-center gap-2 mt-1">
-                    <Input
-                      type="number"
-                      min="0"
-                      value={editingFieldValue}
-                      onChange={(e) => setEditingFieldValue(e.target.value)}
-                      className="w-28"
-                      data-testid="input-field-value"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={handleSaveFieldValue}
-                      disabled={updateFieldMutation.isPending}
-                      data-testid="button-save-field"
+                <p className="text-xs text-muted-foreground mb-2">All Tier Bands</p>
+                <div className="space-y-1">
+                  {bands.map((band) => (
+                    <div
+                      key={band.id}
+                      className={`flex items-center justify-between text-sm px-2 py-1 rounded ${band.id === currentTier.bandId ? 'bg-primary/10 font-medium' : ''}`}
+                      data-testid={`row-band-${band.id}`}
                     >
-                      {updateFieldMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={handleCancelEditing} data-testid="button-cancel-field">
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xl font-bold" data-testid="text-field-value">
-                      {fieldValue !== null && fieldValue !== undefined ? fieldValue.toLocaleString() : 'N/A'}
-                    </p>
-                    {!isAutoField && (
-                      <Button size="sm" variant="outline" onClick={handleStartEditing} data-testid="button-edit-field">
-                        Edit
-                      </Button>
-                    )}
-                    {isAutoField && (
-                      <Badge variant="outline" className="text-xs">Auto</Badge>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">Matched Tier</p>
-                {currentTier ? (
-                  <Badge variant="secondary" className="mt-1" data-testid="badge-current-tier">{currentTier.label}</Badge>
-                ) : (
-                  <Badge variant="outline" className="mt-1 text-muted-foreground" data-testid="badge-no-tier">Unmapped</Badge>
-                )}
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
-                <p className="text-lg font-semibold" data-testid="text-annual-cost">
-                  {currentTier ? formatCost(currentTier.annualCost, currency) : '-'}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">Structure</p>
-                <p className="text-sm font-medium" data-testid="text-structure-name">{config.name || 'Default'}</p>
-                <p className="text-xs text-muted-foreground">From {config.effective_from}</p>
-              </div>
-            </div>
-
-            {currentTier && bands?.length > 0 && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">All Tier Bands</p>
-                  <div className="space-y-1">
-                    {bands.map((band) => (
-                      <div
-                        key={band.id}
-                        className={`flex items-center justify-between text-sm px-2 py-1 rounded ${band.id === currentTier.bandId ? 'bg-primary/10 font-medium' : ''}`}
-                        data-testid={`row-band-${band.id}`}
-                      >
-                        <span>
-                          {band.label}
-                          <span className="text-muted-foreground ml-1">
-                            ({band.minValue}{band.maxValue !== null ? `-${band.maxValue}` : '+'})
-                          </span>
+                      <span>
+                        {band.label}
+                        <span className="text-muted-foreground ml-1">
+                          ({band.minValue}{band.maxValue !== null ? `-${band.maxValue}` : '+'})
                         </span>
-                        <span>{formatCost(band.annualCost, currency)}</span>
-                      </div>
-                    ))}
-                  </div>
+                      </span>
+                      <span>{formatCost(band.annualCost, currency)}</span>
+                    </div>
+                  ))}
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <CalendarDays className="w-4 h-4" />
-              Membership Year
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {currentYear && (
-              <div>
-                <p className="text-sm text-muted-foreground">Current Year</p>
-                <p className="font-semibold" data-testid="text-current-year">{currentYear.label}</p>
-                <p className="text-xs text-muted-foreground">{currentYear.start} to {currentYear.end}</p>
-                {currentYearRecorded ? (
-                  <Badge variant="secondary" className="mt-1">Recorded: {formatCost(currentYearRecorded.final_cost, currency)}</Badge>
-                ) : currentTier ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-2"
-                    onClick={() => recordMutation.mutate({ organizationId, membershipYear: currentYear.label })}
-                    disabled={recordMutation.isPending}
-                    data-testid="button-record-current"
-                  >
-                    {recordMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Wallet className="w-3 h-3 mr-1" />}
-                    Record {currentYear.label} Fee
-                  </Button>
-                ) : null}
               </div>
-            )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
-            <Separator />
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarDays className="w-4 h-4" />
+            Membership Cost Preview
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {currentYearCost ? (
+            <YearCostSection
+              yearData={currentYearCost}
+              yearLabel="Current Year"
+              currency={currency}
+              periodLabel={periodLabel}
+              fieldLabel={fieldLabel}
+              isNewOrg={isNewOrg}
+              goLiveDate={goLiveDate}
+              showRecordFee={true}
+              currentYearRecorded={currentYearRecorded}
+              recordMutation={recordMutation}
+              organizationId={organizationId}
+              onOpenOverride={handleOpenOverrideModal}
+              onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+              removeOverridePending={removeOverrideMutation.isPending}
+              onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
+              simulatePending={simulateRenewalMutation.isPending}
+              testIdPrefix="current-year"
+            />
+          ) : (
+            <div className="text-center py-4 text-muted-foreground">
+              <p className="text-sm">No tier matched for the current year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
+            </div>
+          )}
 
-            {currentYearCost ? (
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Wallet className="w-3 h-3" />
-                    Current Year Membership Cost
-                  </p>
-                  <Badge variant="outline" className="text-xs">New Member</Badge>
-                </div>
-                <p className="font-semibold" data-testid="text-current-year-cost">{currentYearCost.membershipYear}</p>
+          <Separator />
 
-                {goLiveDate && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Go-live date: {new Date(goLiveDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </p>
-                )}
+          {nextYearPreview ? (
+            <YearCostSection
+              yearData={nextYearPreview}
+              yearLabel="Next Year"
+              currency={currency}
+              periodLabel={periodLabel}
+              fieldLabel={fieldLabel}
+              isNewOrg={false}
+              goLiveDate={null}
+              showRecordFee={false}
+              currentYearRecorded={null}
+              recordMutation={recordMutation}
+              organizationId={organizationId}
+              onOpenOverride={handleOpenOverrideModal}
+              onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+              removeOverridePending={removeOverrideMutation.isPending}
+              onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
+              simulatePending={simulateRenewalMutation.isPending}
+              testIdPrefix="next-year"
+            />
+          ) : (
+            <div className="text-center py-4 text-muted-foreground">
+              <p className="text-sm">No tier matched for the next year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
+            </div>
+          )}
 
-                <div className="mt-2 p-3 bg-muted/50 rounded-md space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Tier</span>
-                    <Badge variant="secondary">{currentYearCost.tierLabel || 'Unmapped'}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Based on {fieldLabel}</span>
-                    <span className="font-medium">{currentYearCost.fieldValue?.toLocaleString() ?? 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{periodLabel} Cost</span>
-                    <span className="font-medium">{formatCost(currentYearCost.annualCost, currency)}</span>
-                  </div>
-                  {currentYearCost.customDiscountTotal > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Custom Discounts</span>
-                      <span className="text-green-600">-{formatCost(currentYearCost.customDiscountTotal, currency)}</span>
-                    </div>
-                  )}
-                  {currentYearCost.freeDiscount > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Free Period ({currentYearCost.freePeriodAmount} {currentYearCost.freePeriodUnit})</span>
-                      <span className="text-green-600">-{formatCost(currentYearCost.freeDiscount, currency)}</span>
-                    </div>
-                  )}
-                  {currentYearCost.proRataEnabled && currentYearCost.remainingDays !== null && (
-                    <>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">After Free Period</span>
-                        <span className="font-medium">{formatCost(currentYearCost.costAfterFreeDiscount, currency)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Pro-rata ({currentYearCost.remainingDays} of {currentYearCost.totalDays} days)</span>
-                        <span className="font-medium">{formatCost(currentYearCost.prorataCost, currency)}</span>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex items-center justify-between text-sm border-t pt-1">
-                    <span className="text-muted-foreground font-medium">Amount Due</span>
-                    <span className="font-semibold">{formatCost(currentYearCost.finalCost, currency)}</span>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  This is the calculated cost for the remainder of the {currentYearCost.membershipYear} period. The membership will be created when the workflow runs.
-                </p>
-              </div>
-            ) : nextYearPreview ? (
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm text-muted-foreground flex items-center gap-1">
-                    <ArrowRight className="w-3 h-3" />
-                    Next Year Preview
-                  </p>
-                  <Button
-                    size="sm"
-                    variant={hasOverride ? "secondary" : "outline"}
-                    onClick={handleOpenOverrideModal}
-                    data-testid="button-override-renewal"
-                  >
-                    <Pencil className="w-3 h-3 mr-1" />
-                    {hasOverride ? 'Edit Override' : 'Override'}
-                  </Button>
-                </div>
-                <p className="font-semibold" data-testid="text-next-year">{nextYearPreview.membershipYear}</p>
+          <Separator />
 
-                {hasOverride && (
-                  <div className="mt-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                    <div className="flex items-start gap-2">
-                      <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                          {nextYearPreview.overrideType === 'price' ? 'Manual Price Override' : 'Structure Override'}
-                          {nextYearPreview.overrideConfigName && ` - ${nextYearPreview.overrideConfigName}`}
-                        </p>
-                        {nextYearPreview.overrideNote && (
-                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{nextYearPreview.overrideNote}</p>
-                        )}
-                        {nextYearPreview.originalAnnualCost !== undefined && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Original: <span className="line-through">{formatCost(nextYearPreview.originalAnnualCost, currency)}</span>
-                          </p>
-                        )}
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => removeOverrideMutation.mutate()}
-                        disabled={removeOverrideMutation.isPending}
-                        data-testid="button-remove-override"
-                      >
-                        {removeOverrideMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt-2 p-3 bg-muted/50 rounded-md space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Tier</span>
-                    <Badge variant="secondary">{nextYearPreview.tierLabel || 'Unmapped'}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Based on {fieldLabel}</span>
-                    <span className="font-medium">{nextYearPreview.fieldValue?.toLocaleString() ?? 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{hasOverride && nextYearPreview.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost`}</span>
-                    <span className="font-medium">{formatCost(nextYearPreview.annualCost, currency)}</span>
-                  </div>
-                  {nextYearPreview.rolloverDiscount > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Rollover Discount</span>
-                      <span className="text-green-600">-{formatCost(nextYearPreview.rolloverDiscount, currency)}</span>
-                    </div>
-                  )}
-                  {(nextYearPreview.rolloverDiscount > 0 || hasOverride) && (
-                    <div className="flex items-center justify-between text-sm border-t pt-1">
-                      <span className="text-muted-foreground">Final Cost</span>
-                      <span className="font-semibold">{formatCost(nextYearPreview.finalCost, currency)}</span>
-                    </div>
-                  )}
-                </div>
-                {!hasOverride && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
-                  </p>
-                )}
-
-                <Separator className="my-4" />
-
+          <div>
+            <p className="text-sm font-medium flex items-center gap-1 mb-3">
+              <FileText className="w-3 h-3" />
+              Invoicing
+            </p>
+            <RadioGroup
+              value={invoicingMode}
+              onValueChange={(val) => {
+                setInvoicingMode(val);
+                if (val !== 'scheduled') setInvoiceDate('');
+              }}
+              className="space-y-2"
+              data-testid="radio-invoicing-mode"
+            >
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="automatic" id="invoicing-automatic" data-testid="radio-invoicing-automatic" className="mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium flex items-center gap-1 mb-3">
-                    <FileText className="w-3 h-3" />
-                    Invoicing
-                  </p>
-                  <RadioGroup
-                    value={invoicingMode}
-                    onValueChange={(val) => {
-                      setInvoicingMode(val);
-                      if (val !== 'scheduled') setInvoiceDate('');
-                    }}
-                    className="space-y-2"
-                    data-testid="radio-invoicing-mode"
-                  >
-                    <div className="flex items-start gap-2">
-                      <RadioGroupItem value="automatic" id="invoicing-automatic" data-testid="radio-invoicing-automatic" className="mt-0.5" />
-                      <div>
-                        <Label htmlFor="invoicing-automatic" className="text-sm cursor-pointer">Automatic</Label>
-                        <p className="text-xs text-muted-foreground">Renew membership and generate invoice automatically at start of schedule</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <RadioGroupItem value="scheduled" id="invoicing-scheduled" data-testid="radio-invoicing-scheduled" className="mt-0.5" />
-                      <div className="flex-1">
-                        <Label htmlFor="invoicing-scheduled" className="text-sm cursor-pointer">Specify date</Label>
-                        <p className="text-xs text-muted-foreground">Renew membership at start of schedule but generate and send invoice on a specific date</p>
-                        {invoicingMode === 'scheduled' && (
-                          <Input
-                            type="date"
-                            value={invoiceDate}
-                            onChange={(e) => setInvoiceDate(e.target.value)}
-                            min={new Date().toISOString().split('T')[0]}
-                            className="mt-2 w-48"
-                            data-testid="input-invoice-date"
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <RadioGroupItem value="manual" id="invoicing-manual" data-testid="radio-invoicing-manual" className="mt-0.5" />
-                      <div>
-                        <Label htmlFor="invoicing-manual" className="text-sm cursor-pointer">Manual</Label>
-                        <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice generation when ready</p>
-                      </div>
-                    </div>
-                  </RadioGroup>
-
-                  <div className="flex items-center gap-2 mt-3 flex-wrap">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (invoicingMode === 'scheduled' && !invoiceDate) {
-                          toast.error('Please select an invoice date');
-                          return;
-                        }
-                        invoicingMutation.mutate({
-                          organizationId,
-                          invoicingMode,
-                          invoiceDate: invoicingMode === 'scheduled' ? invoiceDate : null,
-                        });
-                      }}
-                      disabled={invoicingMutation.isPending}
-                      data-testid="button-save-invoicing"
-                    >
-                      {invoicingMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
-                      Save
-                    </Button>
-                    {invoicingMode === 'manual' && (
-                      <Button
-                        size="sm"
-                        onClick={() => manualRenewalMutation.mutate()}
-                        disabled={manualRenewalMutation.isPending}
-                        data-testid="button-renew-now"
-                      >
-                        {manualRenewalMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-                        Renew &amp; Invoice Now
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => simulateRenewalMutation.mutate(invoicingMode)}
-                      disabled={simulateRenewalMutation.isPending}
-                      data-testid="button-simulate-renewal"
-                    >
-                      {simulateRenewalMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
-                      Simulate Renewal
-                    </Button>
-                  </div>
+                  <Label htmlFor="invoicing-automatic" className="text-sm cursor-pointer">Automatic</Label>
+                  <p className="text-xs text-muted-foreground">Renew membership and generate invoice automatically at start of schedule</p>
                 </div>
               </div>
-            ) : (
-              <div className="text-center py-4 text-muted-foreground">
-                <p className="text-sm">No tier matched for the current membership configuration. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="scheduled" id="invoicing-scheduled" data-testid="radio-invoicing-scheduled" className="mt-0.5" />
+                <div className="flex-1">
+                  <Label htmlFor="invoicing-scheduled" className="text-sm cursor-pointer">Specify date</Label>
+                  <p className="text-xs text-muted-foreground">Renew membership at start of schedule but generate and send invoice on a specific date</p>
+                  {invoicingMode === 'scheduled' && (
+                    <Input
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => setInvoiceDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                      className="mt-2 w-48"
+                      data-testid="input-invoice-date"
+                    />
+                  )}
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="manual" id="invoicing-manual" data-testid="radio-invoicing-manual" className="mt-0.5" />
+                <div>
+                  <Label htmlFor="invoicing-manual" className="text-sm cursor-pointer">Manual</Label>
+                  <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice generation when ready</p>
+                </div>
+              </div>
+            </RadioGroup>
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (invoicingMode === 'scheduled' && !invoiceDate) {
+                    toast.error('Please select an invoice date');
+                    return;
+                  }
+                  invoicingMutation.mutate({
+                    organizationId,
+                    invoicingMode,
+                    invoiceDate: invoicingMode === 'scheduled' ? invoiceDate : null,
+                  });
+                }}
+                disabled={invoicingMutation.isPending}
+                data-testid="button-save-invoicing"
+              >
+                {invoicingMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+                Save
+              </Button>
+              {invoicingMode === 'manual' && (
+                <Button
+                  size="sm"
+                  onClick={() => manualRenewalMutation.mutate()}
+                  disabled={manualRenewalMutation.isPending}
+                  data-testid="button-renew-now"
+                >
+                  {manualRenewalMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                  Renew &amp; Invoice Now
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -824,9 +879,9 @@ export default function OrgMembershipTab({ organizationId }) {
       <Dialog open={overrideModalOpen} onOpenChange={setOverrideModalOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle data-testid="text-override-title">{isNewOrg ? 'Override Current Year Cost' : 'Override Next Year Renewal'}</DialogTitle>
+            <DialogTitle data-testid="text-override-title">Override {overrideTargetYear || ''} Cost</DialogTitle>
             <DialogDescription>
-              Override the automatically calculated {isNewOrg ? 'membership cost' : 'renewal price'} for {nextYearPreview?.membershipYear || currentYearCost?.membershipYear || 'next year'}.
+              Override the automatically calculated membership cost for {overrideTargetYear || 'this year'}.
               A note will be added to the organisation's Notes tab.
             </DialogDescription>
           </DialogHeader>
@@ -911,15 +966,13 @@ export default function OrgMembershipTab({ organizationId }) {
                   step="0.01"
                   value={manualPrice}
                   onChange={(e) => setManualPrice(e.target.value)}
-                  placeholder="Enter renewal price..."
+                  placeholder="Enter price..."
                   data-testid="input-manual-price"
                 />
-                {(nextYearPreview || currentYearCost) && (
+                {overrideTargetData && (
                   <p className="text-xs text-muted-foreground">
                     Auto-calculated price: {formatCost(
-                      nextYearPreview
-                        ? (nextYearPreview.originalAnnualCost ?? nextYearPreview.annualCost)
-                        : currentYearCost.finalCost,
+                      overrideTargetData.originalAnnualCost ?? overrideTargetData.finalCost,
                       currency
                     )}
                   </p>

@@ -62,12 +62,18 @@ async function handleGet(req, res, tenantId) {
     return res.json(configsWithBands);
   }
 
-  const { data: override, error } = await supabase
+  const membershipYear = req.query.membershipYear;
+  let overrideQuery = supabase
     .from('organisation_membership_override')
     .select('*')
     .eq('tenant_id', tenantId)
-    .eq('organization_id', organizationId)
-    .maybeSingle();
+    .eq('organization_id', organizationId);
+  
+  if (membershipYear) {
+    overrideQuery = overrideQuery.eq('membership_year', membershipYear);
+  }
+
+  const { data: override, error } = await overrideQuery.maybeSingle();
 
   if (error) {
     if (error.code === '42P01') {
@@ -148,12 +154,19 @@ async function handlePost(req, res, tenantId, tenantContext) {
     updated_at: new Date().toISOString(),
   };
 
-  const { data: existing } = await supabase
+  let existingQuery = supabase
     .from('organisation_membership_override')
     .select('id')
     .eq('tenant_id', tenantId)
-    .eq('organization_id', organizationId)
-    .maybeSingle();
+    .eq('organization_id', organizationId);
+  
+  if (membershipYear) {
+    existingQuery = existingQuery.eq('membership_year', membershipYear);
+  } else {
+    existingQuery = existingQuery.is('membership_year', null);
+  }
+  
+  const { data: existing } = await existingQuery.maybeSingle();
 
   let result;
   if (existing) {
@@ -224,11 +237,18 @@ async function handleDelete(req, res, tenantId, tenantContext) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
-  const { error } = await supabase
+  const membershipYear = req.query.membershipYear;
+  let deleteQuery = supabase
     .from('organisation_membership_override')
     .delete()
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId);
+  
+  if (membershipYear) {
+    deleteQuery = deleteQuery.eq('membership_year', membershipYear);
+  }
+
+  const { error } = await deleteQuery;
 
   if (error) {
     console.error('[Override] Error deleting override:', error);

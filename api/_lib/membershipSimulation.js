@@ -197,13 +197,19 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   let override = null;
   try {
-    const { data: overrideData } = await supabase
+    const yearLabel = membershipYear?.label || null;
+    let overrideQuery = supabase
       .from('organisation_membership_override')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .maybeSingle();
-    override = overrideData;
+      .eq('organization_id', organizationId);
+    if (yearLabel) {
+      overrideQuery = overrideQuery.or(`membership_year.eq.${yearLabel},membership_year.is.null`);
+    }
+    const { data: overrideRows } = await overrideQuery;
+    if (overrideRows && overrideRows.length > 0) {
+      override = overrideRows.find(o => o.membership_year === yearLabel) || overrideRows.find(o => !o.membership_year) || overrideRows[0];
+    }
   } catch {}
 
   if (override) {

@@ -319,7 +319,7 @@ async function handleGet(req, res, tenantId) {
   let nextYearPreview = null;
   let currentYearCost = null;
 
-  if (annualCost !== null && isNewOrg) {
+  if (annualCost !== null) {
     const freeDiscountForYear = calculateFreePeriodDiscount(annualCost, config);
     const costAfterFree = annualCost - freeDiscountForYear;
 
@@ -327,7 +327,7 @@ async function handleGet(req, res, tenantId) {
     let remainingDays = null;
     let totalDays = null;
 
-    if (config.prorata_enabled) {
+    if (config.prorata_enabled && isNewOrg) {
       const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
       const proRataResult = calculateProRata(costAfterFree, config, joinDate);
       prorataCost = proRataResult.proratedCost;
@@ -343,20 +343,20 @@ async function handleGet(req, res, tenantId) {
       annualCostBeforeDiscounts: annualCostRaw,
       customDiscountTotal,
       customDiscountDetails,
-      freeDiscount: freeDiscountForYear,
+      freeDiscount: isNewOrg ? freeDiscountForYear : 0,
       freePeriodAmount: config.free_period_amount,
       freePeriodUnit: config.free_period_unit,
-      costAfterFreeDiscount: costAfterFree,
-      proRataEnabled: !!config.prorata_enabled,
+      costAfterFreeDiscount: isNewOrg ? costAfterFree : annualCost,
+      proRataEnabled: !!config.prorata_enabled && isNewOrg,
       prorataCost,
       remainingDays,
       totalDays,
-      finalCost: prorataCost !== null ? prorataCost : costAfterFree,
+      finalCost: prorataCost !== null ? prorataCost : (isNewOrg ? costAfterFree : annualCost),
       goLiveDate,
       currency: config.currency || 'GBP',
       billingPeriod: config.billing_period || 'annual',
     };
-  } else if (annualCost !== null) {
+
     const nextYearFull = annualCost;
     let nextYearRolloverDiscount = 0;
 
@@ -382,6 +382,9 @@ async function handleGet(req, res, tenantId) {
       tierLabel: matchedBand?.label || null,
       fieldValue,
       annualCost: nextYearFull,
+      annualCostBeforeDiscounts: annualCostRaw,
+      customDiscountTotal,
+      customDiscountDetails,
       rolloverDiscount: nextYearRolloverDiscount,
       finalCost: parseFloat(nextYearFinal.toFixed(2)),
       currency: config.currency || 'GBP',
@@ -393,29 +396,29 @@ async function handleGet(req, res, tenantId) {
     ? 'Member Count'
     : config.field_name || 'Value';
 
-  let override = null;
+  let overrides = [];
   try {
     const { data: overrideData } = await supabase
       .from('organisation_membership_override')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .maybeSingle();
-    override = overrideData;
+      .eq('organization_id', organizationId);
+    overrides = overrideData || [];
   } catch (err) {
     // Table may not exist yet
   }
 
-  if (override && nextYearPreview) {
+  async function applyOverrideToYear(yearData, override) {
+    if (!override || !yearData) return;
     if (override.override_type === 'price' && override.manual_price !== null) {
-      nextYearPreview.overrideType = 'price';
-      nextYearPreview.overridePrice = parseFloat(override.manual_price);
-      nextYearPreview.overrideNote = override.note;
-      nextYearPreview.originalAnnualCost = nextYearPreview.annualCost;
-      nextYearPreview.originalFinalCost = nextYearPreview.finalCost;
-      nextYearPreview.finalCost = parseFloat(override.manual_price);
-      nextYearPreview.annualCost = parseFloat(override.manual_price);
-      nextYearPreview.rolloverDiscount = 0;
+      yearData.overrideType = 'price';
+      yearData.overridePrice = parseFloat(override.manual_price);
+      yearData.overrideNote = override.note;
+      yearData.originalAnnualCost = yearData.annualCost;
+      yearData.originalFinalCost = yearData.finalCost;
+      yearData.finalCost = parseFloat(override.manual_price);
+      yearData.annualCost = parseFloat(override.manual_price);
+      if (yearData.rolloverDiscount !== undefined) yearData.rolloverDiscount = 0;
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
@@ -426,20 +429,27 @@ async function handleGet(req, res, tenantId) {
 
         if (overrideBand) {
           const overrideCost = parseFloat(overrideBand.annual_cost);
-          nextYearPreview.overrideType = 'structure';
-          nextYearPreview.overrideConfigId = overrideConfig.id;
-          nextYearPreview.overrideConfigName = overrideConfig.name;
-          nextYearPreview.overrideNote = override.note;
-          nextYearPreview.originalAnnualCost = nextYearPreview.annualCost;
-          nextYearPreview.originalFinalCost = nextYearPreview.finalCost;
-          nextYearPreview.tierLabel = overrideBand.label;
-          nextYearPreview.annualCost = overrideCost;
-          nextYearPreview.rolloverDiscount = 0;
-          nextYearPreview.finalCost = overrideCost;
+          yearData.overrideType = 'structure';
+          yearData.overrideConfigId = overrideConfig.id;
+          yearData.overrideConfigName = overrideConfig.name;
+          yearData.overrideNote = override.note;
+          yearData.originalAnnualCost = yearData.annualCost;
+          yearData.originalFinalCost = yearData.finalCost;
+          yearData.tierLabel = overrideBand.label;
+          yearData.annualCost = overrideCost;
+          if (yearData.rolloverDiscount !== undefined) yearData.rolloverDiscount = 0;
+          yearData.finalCost = overrideCost;
         }
       }
     }
   }
+
+  const currentYearOverride = overrides.find(o => o.membership_year === currentYear.label) || null;
+  const nextYearOverride = overrides.find(o => o.membership_year === nextYear.label)
+    || overrides.find(o => !o.membership_year) || null;
+
+  await applyOverrideToYear(currentYearCost, currentYearOverride);
+  await applyOverrideToYear(nextYearPreview, nextYearOverride);
 
   return res.json({
     organization: org,
@@ -480,7 +490,9 @@ async function handleGet(req, res, tenantId) {
     currentYearCost,
     isNewOrg,
     goLiveDate,
-    override,
+    overrides,
+    currentYearOverride,
+    nextYearOverride,
     history: historyRecords || [],
     bands: bands.map(b => ({
       id: b.id,

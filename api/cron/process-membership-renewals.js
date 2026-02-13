@@ -355,13 +355,19 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
 
   let override = null;
   try {
-    const { data: overrideData } = await supabase
+    const yearLabel = nextYear?.label || null;
+    let overrideQuery = supabase
       .from('organisation_membership_override')
       .select('*')
       .eq('tenant_id', tenantId)
-      .eq('organization_id', orgId)
-      .maybeSingle();
-    override = overrideData;
+      .eq('organization_id', orgId);
+    if (yearLabel) {
+      overrideQuery = overrideQuery.or(`membership_year.eq.${yearLabel},membership_year.is.null`);
+    }
+    const { data: overrideRows } = await overrideQuery;
+    if (overrideRows && overrideRows.length > 0) {
+      override = overrideRows.find(o => o.membership_year === yearLabel) || overrideRows.find(o => !o.membership_year) || overrideRows[0];
+    }
   } catch (err) {}
 
   if (override) {
