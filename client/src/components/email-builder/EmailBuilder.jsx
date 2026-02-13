@@ -709,7 +709,18 @@ export default function EmailBuilder({
               style={{ 
                 maxWidth: design.globalStyles.contentWidth || '600px',
                 backgroundColor: design.globalStyles.contentBackgroundColor,
-                padding: design.globalStyles.contentPadding || '0px',
+                padding: (() => {
+                  const pad = design.globalStyles.contentPadding || '0px';
+                  const hasFooter = design.globalStyles.useDefaultFooter !== false && footerHtml;
+                  if (!hasFooter) return pad;
+                  const parts = pad.replace(/px/g, '').trim().split(/\s+/).map(v => parseInt(v, 10) || 0);
+                  let t, r, b, l;
+                  if (parts.length === 1) { t = parts[0]; r = parts[0]; b = parts[0]; l = parts[0]; }
+                  else if (parts.length === 2) { t = parts[0]; r = parts[1]; b = parts[0]; l = parts[1]; }
+                  else if (parts.length === 3) { t = parts[0]; r = parts[1]; b = parts[2]; l = parts[1]; }
+                  else { t = parts[0]; r = parts[1]; b = parts[2]; l = parts[3]; }
+                  return `${t}px ${r}px 0px ${l}px`;
+                })(),
               }}
             >
               <SortableContext
