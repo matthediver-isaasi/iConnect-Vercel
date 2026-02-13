@@ -396,7 +396,6 @@ async function handleGet(req, res, tenantId) {
     };
 
     const nextYearFull = annualCost;
-    let nextYearRolloverDiscount = 0;
     let nextYearFreePeriodDaysApplied = 0;
 
     const nextYearStartMidnight = new Date(nextYear.start);
@@ -414,28 +413,8 @@ async function handleGet(req, res, tenantId) {
       nextYearFreePeriodDaysApplied = Math.min(spilloverDays, nextYearTotalDays);
     }
 
-    if (config.rollover_enabled && config.prorata_enabled) {
-      const currentYearObj = calculateMembershipYear(config);
-      const currentYearEndMs = new Date(currentYearObj.end);
-      currentYearEndMs.setHours(0, 0, 0, 0);
-      const nowMs = new Date();
-      nowMs.setHours(0, 0, 0, 0);
-      const daysRemainingInCurrentYear = Math.max(0, Math.floor((currentYearEndMs - nowMs) / (1000 * 60 * 60 * 24)));
-
-      if (config.free_period_amount && config.free_period_unit) {
-        const freePeriodMonths = getFreeMonths(config);
-        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-        const usedFreeDays = Math.min(freePeriodTotalDays, daysRemainingInCurrentYear);
-        const unusedFreeDays = Math.max(0, freePeriodTotalDays - usedFreeDays);
-
-        if (unusedFreeDays > 0) {
-          nextYearRolloverDiscount = parseFloat((nextYearDailyCost * unusedFreeDays).toFixed(2));
-        }
-      }
-    }
-
     const nextYearFreeDiscount = parseFloat((nextYearDailyCost * nextYearFreePeriodDaysApplied).toFixed(2));
-    const nextYearFinal = parseFloat(Math.max(0, nextYearFull - nextYearFreeDiscount - nextYearRolloverDiscount).toFixed(2));
+    const nextYearFinal = parseFloat(Math.max(0, nextYearFull - nextYearFreeDiscount).toFixed(2));
 
     nextYearPreview = {
       membershipYear: nextYear.label,
@@ -453,7 +432,6 @@ async function handleGet(req, res, tenantId) {
       freePeriodDaysApplied: nextYearFreePeriodDaysApplied,
       freePeriodAmount: nextYearFreePeriodDaysApplied > 0 ? config.free_period_amount : null,
       freePeriodUnit: nextYearFreePeriodDaysApplied > 0 ? config.free_period_unit : null,
-      rolloverDiscount: nextYearRolloverDiscount,
       finalCost: nextYearFinal,
       currency: config.currency || 'GBP',
       billingPeriod: config.billing_period || 'annual',
@@ -486,7 +464,6 @@ async function handleGet(req, res, tenantId) {
       yearData.originalFinalCost = yearData.finalCost;
       yearData.finalCost = parseFloat(override.manual_price);
       yearData.annualCost = parseFloat(override.manual_price);
-      if (yearData.rolloverDiscount !== undefined) yearData.rolloverDiscount = 0;
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
@@ -505,7 +482,6 @@ async function handleGet(req, res, tenantId) {
           yearData.originalFinalCost = yearData.finalCost;
           yearData.tierLabel = overrideBand.label;
           yearData.annualCost = overrideCost;
-          if (yearData.rolloverDiscount !== undefined) yearData.rolloverDiscount = 0;
           yearData.finalCost = overrideCost;
         }
       }

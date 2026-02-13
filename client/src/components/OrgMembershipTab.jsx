@@ -153,19 +153,23 @@ function YearCostSection({
           <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">{hasOverride && yearData.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost`}</span>
+          <span className="text-muted-foreground">{hasOverride && yearData.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost (Gross)`}</span>
+          <span className="font-medium">{formatCost(yearData.annualCostBeforeDiscounts ?? yearData.annualCost, currency)}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Discount</span>
+          <span className={yearData.customDiscountTotal > 0 ? 'text-green-600' : 'font-medium'}>
+            {yearData.customDiscountTotal > 0 ? `-${formatCost(yearData.customDiscountTotal, currency)}` : formatCost(0, currency)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">{periodLabel} Cost (Net)</span>
           <span className="font-medium">{formatCost(yearData.annualCost, currency)}</span>
         </div>
         {yearData.dailyCost != null && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Daily Cost</span>
             <span className="font-medium">{formatCost(yearData.dailyCost, currency)}</span>
-          </div>
-        )}
-        {yearData.customDiscountTotal > 0 && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Custom Discounts</span>
-            <span className="text-green-600">-{formatCost(yearData.customDiscountTotal, currency)}</span>
           </div>
         )}
         {yearData.proRataEnabled && yearData.prorataDays !== null && (
@@ -180,12 +184,6 @@ function YearCostSection({
               Free Period ({yearData.freePeriodDaysApplied} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})
             </span>
             <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
-          </div>
-        )}
-        {yearData.rolloverDiscount > 0 && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Rollover Discount</span>
-            <span className="text-green-600">-{formatCost(yearData.rolloverDiscount, currency)}</span>
           </div>
         )}
         <div className="flex items-center justify-between text-sm border-t pt-1">
