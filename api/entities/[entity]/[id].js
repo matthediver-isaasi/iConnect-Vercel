@@ -817,6 +817,7 @@ export default async function handler(req, res) {
         
         // Nullify organization references in other tables (don't delete, just unlink)
         const nullifyTables = [
+          { table: 'form_submission', column: 'organization_id' },
           { table: 'booking', column: 'organization_id' },
           { table: 'job_posting', column: 'posted_by_organization_id' },
           { table: 'discount_code', column: 'organization_id' },
