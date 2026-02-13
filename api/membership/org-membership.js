@@ -310,11 +310,17 @@ async function handleGet(req, res, tenantId) {
 
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
-  const yearNumber = determineMembershipYearNumber(goLiveDate, currentYear, config);
+  const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
+
+  const nextYearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, nextYear, config) : 2;
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
 
   const isNewOrg = (yearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
+
+  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : new Date(currentYear.start);
+  const currentYearStartDate = currentYear.start.toISOString().split('T')[0];
+  const nextYearStartDate = nextYear.start.toISOString().split('T')[0];
 
   let nextYearPreview = null;
   let currentYearCost = null;
@@ -328,8 +334,7 @@ async function handleGet(req, res, tenantId) {
     let totalDays = null;
 
     if (config.prorata_enabled && isNewOrg) {
-      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
-      const proRataResult = calculateProRata(costAfterFree, config, joinDate);
+      const proRataResult = calculateProRata(costAfterFree, config, effectiveJoinDate);
       prorataCost = proRataResult.proratedCost;
       remainingDays = proRataResult.remainingDays;
       totalDays = proRataResult.totalDays;
@@ -340,15 +345,16 @@ async function handleGet(req, res, tenantId) {
     if (isNewOrg && config.free_period_amount && config.free_period_unit) {
       const freePeriodMonths = getFreeMonths(config);
       const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
       const now = new Date();
-      const daysSinceJoin = Math.max(0, Math.floor((now - joinDate) / (1000 * 60 * 60 * 24)));
+      const daysSinceJoin = Math.max(0, Math.floor((now - effectiveJoinDate) / (1000 * 60 * 60 * 24)));
       currentYearFreeDaysUsed = Math.min(daysSinceJoin, freePeriodTotalDays);
       currentYearFreeTotalDays = freePeriodTotalDays;
     }
 
     currentYearCost = {
       membershipYear: currentYear.label,
+      yearNumber,
+      startDate: currentYearStartDate,
       tierLabel: matchedBand?.label || null,
       fieldValue,
       annualCost: annualCost,
@@ -379,9 +385,8 @@ async function handleGet(req, res, tenantId) {
     if (isNewOrg && config.free_period_amount && config.free_period_unit) {
       const freePeriodMonths = getFreeMonths(config);
       const currentYearObj = calculateMembershipYear(config);
-      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
       const monthsElapsedSinceJoin = Math.max(0,
-        (currentYearObj.end - joinDate) / (1000 * 60 * 60 * 24 * 30.44)
+        (currentYearObj.end - effectiveJoinDate) / (1000 * 60 * 60 * 24 * 30.44)
       );
       const freeMonthsUsedInCurrentYear = Math.min(freePeriodMonths, monthsElapsedSinceJoin);
       const remainingFreeMonths = Math.max(0, freePeriodMonths - freeMonthsUsedInCurrentYear);
@@ -425,15 +430,15 @@ async function handleGet(req, res, tenantId) {
     if (nextYearFreeDiscount > 0 && config.free_period_amount && config.free_period_unit) {
       const freePeriodMonths = getFreeMonths(config);
       const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
-      const now = new Date();
-      const daysSinceJoin = Math.max(0, Math.floor((now - joinDate) / (1000 * 60 * 60 * 24)));
+      const daysSinceJoin = Math.max(0, Math.floor((new Date() - effectiveJoinDate) / (1000 * 60 * 60 * 24)));
       nextYearFreeDaysUsed = Math.min(daysSinceJoin, freePeriodTotalDays);
       nextYearFreeTotalDays = freePeriodTotalDays;
     }
 
     nextYearPreview = {
       membershipYear: nextYear.label,
+      yearNumber: nextYearNumber,
+      startDate: nextYearStartDate,
       tierLabel: matchedBand?.label || null,
       fieldValue,
       annualCost: nextYearFull,

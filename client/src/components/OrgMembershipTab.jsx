@@ -138,13 +138,19 @@ function YearCostSection({
       )}
 
       <div className="mt-2 p-3 bg-muted/50 rounded-md space-y-1">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Tier</span>
-          <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
-        </div>
+        {yearData.startDate && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Start Date</span>
+            <span className="font-medium">{new Date(yearData.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Based on {fieldLabel}</span>
           <span className="font-medium">{yearData.fieldValue?.toLocaleString() ?? 'N/A'}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Tier</span>
+          <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">{hasOverride && yearData.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost`}</span>
@@ -667,14 +673,14 @@ export default function OrgMembershipTab({ organizationId }) {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <CalendarDays className="w-4 h-4" />
-              Current Year
+              {currentYearCost?.yearNumber ? `Year ${currentYearCost.yearNumber}` : 'Current Year'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {currentYearCost ? (
               <YearCostSection
                 yearData={currentYearCost}
-                yearLabel="Current Year"
+                yearLabel={currentYearCost?.yearNumber ? `Year ${currentYearCost.yearNumber}` : 'Current Year'}
                 currency={currency}
                 periodLabel={periodLabel}
                 fieldLabel={fieldLabel}
@@ -703,14 +709,14 @@ export default function OrgMembershipTab({ organizationId }) {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <ArrowRight className="w-4 h-4" />
-              Next Year
+              {nextYearPreview?.yearNumber ? `Year ${nextYearPreview.yearNumber}` : 'Next Year'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {nextYearPreview ? (
               <YearCostSection
                 yearData={nextYearPreview}
-                yearLabel="Next Year"
+                yearLabel={nextYearPreview?.yearNumber ? `Year ${nextYearPreview.yearNumber}` : 'Next Year'}
                 currency={currency}
                 periodLabel={periodLabel}
                 fieldLabel={fieldLabel}
