@@ -32,8 +32,6 @@ export function useWorkflowConfirmation() {
       
       if (result.success) {
         toast.success(`Workflow "${workflow.workflow_name}" executed successfully`);
-        // Remove this workflow from pending list
-        setPendingWorkflows(prev => prev.filter(w => w.workflow_id !== workflow.workflow_id));
       } else {
         toast.error(result.error || 'Failed to execute workflow');
       }
@@ -48,8 +46,6 @@ export function useWorkflowConfirmation() {
 
   const handleSkipWorkflow = useCallback((workflow) => {
     toast.info(`Skipped workflow "${workflow.workflow_name}"`);
-    // Remove this workflow from pending list
-    setPendingWorkflows(prev => prev.filter(w => w.workflow_id !== workflow.workflow_id));
   }, []);
 
   const handleSkipAllWorkflows = useCallback(() => {
