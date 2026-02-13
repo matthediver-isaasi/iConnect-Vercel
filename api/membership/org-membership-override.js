@@ -93,6 +93,8 @@ async function handlePost(req, res, tenantId, tenantContext) {
     configId,
     bandId,
     manualPrice,
+    discountType,
+    discountValue,
     note,
     membershipYear
   } = req.body;
@@ -101,8 +103,8 @@ async function handlePost(req, res, tenantId, tenantContext) {
     return res.status(400).json({ error: 'organizationId is required' });
   }
 
-  if (!overrideType || !['structure', 'price'].includes(overrideType)) {
-    return res.status(400).json({ error: 'overrideType must be "structure" or "price"' });
+  if (!overrideType || !['structure', 'price', 'discount'].includes(overrideType)) {
+    return res.status(400).json({ error: 'overrideType must be "structure", "price", or "discount"' });
   }
 
   if (!note || !note.trim()) {
@@ -141,6 +143,18 @@ async function handlePost(req, res, tenantId, tenantContext) {
     }
   }
 
+  if (overrideType === 'discount') {
+    if (!discountType || !['percentage', 'fixed'].includes(discountType)) {
+      return res.status(400).json({ error: 'discountType must be "percentage" or "fixed"' });
+    }
+    if (discountValue === null || discountValue === undefined || isNaN(parseFloat(discountValue)) || parseFloat(discountValue) < 0) {
+      return res.status(400).json({ error: 'A valid discount value is required' });
+    }
+    if (discountType === 'percentage' && parseFloat(discountValue) > 100) {
+      return res.status(400).json({ error: 'Percentage discount cannot exceed 100%' });
+    }
+  }
+
   const overrideData = {
     tenant_id: tenantId,
     organization_id: organizationId,
@@ -148,6 +162,8 @@ async function handlePost(req, res, tenantId, tenantContext) {
     config_id: overrideType === 'structure' ? configId : null,
     band_id: overrideType === 'structure' ? (bandId || null) : null,
     manual_price: overrideType === 'price' ? parseFloat(manualPrice) : null,
+    discount_type: overrideType === 'discount' ? discountType : null,
+    discount_value: overrideType === 'discount' ? parseFloat(discountValue) : null,
     membership_year: membershipYear || null,
     note: note.trim(),
     created_by: tenantContext.tenantUserId || tenantContext.memberId || null,

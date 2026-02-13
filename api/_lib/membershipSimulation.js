@@ -228,6 +228,48 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
       customDiscountTotal = 0;
       customDiscountDetails = [];
       log('Apply Override', `Price override: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
+    } else if (override.override_type === 'discount' && override.discount_type && override.discount_value !== null) {
+      const grossCost = annualCost + customDiscountTotal;
+      const val = parseFloat(override.discount_value);
+      let overrideDiscountAmt = 0;
+      if (override.discount_type === 'percentage') {
+        overrideDiscountAmt = parseFloat((grossCost * val / 100).toFixed(2));
+      } else {
+        overrideDiscountAmt = Math.min(val, grossCost);
+      }
+      annualCost = Math.max(0, grossCost - overrideDiscountAmt);
+      customDiscountTotal = overrideDiscountAmt;
+      customDiscountDetails = [{
+        label: 'Manual Discount Override',
+        discount_type: override.discount_type,
+        discount_value: val,
+        applied_amount: overrideDiscountAmt,
+      }];
+      finalCost = annualCost;
+
+      if (yearNumber === 1) {
+        freeDiscount = calculateFreePeriodDiscount(annualCost, config);
+        finalCost = annualCost - freeDiscount;
+        if (config.prorata_enabled) {
+          const startMonth = config.membership_start_month || 1;
+          const startDay = config.membership_start_day || 1;
+          const now = new Date();
+          const yr = now.getFullYear();
+          const ys = new Date(yr, startMonth - 1, startDay);
+          const currentYearStart = now >= ys ? ys : new Date(yr - 1, startMonth - 1, startDay);
+          const nextYearStart = new Date(currentYearStart.getFullYear() + 1, startMonth - 1, startDay);
+          const totalDays = Math.ceil((nextYearStart - currentYearStart) / (1000 * 60 * 60 * 24));
+          const joinDate = goLiveDate ? new Date(goLiveDate) : now;
+          const clampedJoinDate = joinDate < currentYearStart ? currentYearStart : joinDate;
+          const remainingDays = Math.max(0, Math.ceil((nextYearStart - clampedJoinDate) / (1000 * 60 * 60 * 24)));
+          prorataCost = parseFloat(((annualCost - freeDiscount) * remainingDays / totalDays).toFixed(2));
+        }
+      } else if (yearNumber === 2 && config.rollover_enabled) {
+        rolloverDiscount = calculateRolloverDiscount(annualCost, config, goLiveDate);
+        finalCost = annualCost - rolloverDiscount;
+      }
+
+      log('Apply Override', `Discount override: ${override.discount_type === 'percentage' ? val + '%' : val.toFixed(2)} off, discount amount: ${overrideDiscountAmt.toFixed(2)}, net cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
@@ -390,6 +432,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     customDiscountDetails,
     prorataCost,
     overrideApplied,
+    overrideType: override?.override_type || null,
+    overrideDiscountType: override?.discount_type || null,
+    overrideDiscountValue: override?.discount_value || null,
     existingRecord,
     invoicePreview: !existingRecord ? invoicePreview : null,
     invoicingSettings,

@@ -47,6 +47,7 @@ function YearCostSection({
   currency,
   periodLabel,
   fieldLabel,
+  configName,
   isNewOrg,
   goLiveDate,
   showRecordFee,
@@ -112,8 +113,10 @@ function YearCostSection({
             <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                {yearData.overrideType === 'price' ? 'Manual Price Override' : 'Structure Override'}
+                {yearData.overrideType === 'price' ? 'Manual Price Override' : yearData.overrideType === 'discount' ? 'Discount Override' : 'Structure Override'}
                 {yearData.overrideConfigName && ` - ${yearData.overrideConfigName}`}
+                {yearData.overrideType === 'discount' && yearData.overrideDiscountType === 'percentage' && ` (${yearData.overrideDiscountValue}%)`}
+                {yearData.overrideType === 'discount' && yearData.overrideDiscountType === 'fixed' && ` (${formatCost(yearData.overrideDiscountValue, currency)})`}
               </p>
               {yearData.overrideNote && (
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{yearData.overrideNote}</p>
@@ -148,50 +151,76 @@ function YearCostSection({
           <span className="text-muted-foreground">Based on {fieldLabel}</span>
           <span className="font-medium">{yearData.fieldValue?.toLocaleString() ?? 'N/A'}</span>
         </div>
+        {configName && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Structure</span>
+            <span className="font-medium">{yearData.overrideConfigName || configName}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Tier</span>
           <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
         </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">{hasOverride && yearData.overrideType === 'price' ? 'Override Price' : `${periodLabel} Cost (Gross)`}</span>
-          <span className="font-medium">{formatCost(yearData.annualCostBeforeDiscounts ?? yearData.annualCost, currency)}</span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Discount</span>
-          <span className={yearData.customDiscountTotal > 0 ? 'text-green-600' : 'font-medium'}>
-            {yearData.customDiscountTotal > 0 ? `-${formatCost(yearData.customDiscountTotal, currency)}` : formatCost(0, currency)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">{periodLabel} Cost (Net)</span>
-          <span className="font-medium">{formatCost(yearData.annualCost, currency)}</span>
-        </div>
-        {yearData.dailyCost != null && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Daily Cost</span>
-            <span className="font-medium">{formatCost(yearData.dailyCost, currency)}</span>
-          </div>
+        {hasOverride && yearData.overrideType === 'price' ? (
+          <>
+            <div className="flex items-center justify-between text-sm border-t pt-1">
+              <span className="text-muted-foreground font-medium">
+                {showRecordFee && currentYearRecorded ? 'Recorded Cost' : 'Final Cost'}
+              </span>
+              <span className="font-semibold">
+                <Badge variant="outline" className="mr-1 text-xs">Override</Badge>
+                {formatCost(yearData.finalCost, currency)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{periodLabel} Cost (Gross)</span>
+              <span className="font-medium">{formatCost(yearData.annualCostBeforeDiscounts ?? yearData.annualCost, currency)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                {hasOverride && yearData.overrideType === 'discount' ? (
+                  <><Badge variant="outline" className="mr-1 text-xs">Override</Badge>Discount</>
+                ) : 'Discount'}
+              </span>
+              <span className={yearData.customDiscountTotal > 0 ? 'text-green-600' : 'font-medium'}>
+                {yearData.customDiscountTotal > 0 ? `-${formatCost(yearData.customDiscountTotal, currency)}` : formatCost(0, currency)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{periodLabel} Cost (Net)</span>
+              <span className="font-medium">{formatCost(yearData.annualCost, currency)}</span>
+            </div>
+            {yearData.dailyCost != null && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Daily Cost</span>
+                <span className="font-medium">{formatCost(yearData.dailyCost, currency)}</span>
+              </div>
+            )}
+            {yearData.proRataEnabled && yearData.prorataDays !== null && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Pro-rata ({yearData.prorataDays} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})</span>
+                <span className="font-medium">{formatCost(yearData.prorataCost, currency)}</span>
+              </div>
+            )}
+            {yearData.freeDiscount > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  Free Period ({yearData.freePeriodDaysApplied} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})
+                </span>
+                <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-sm border-t pt-1">
+              <span className="text-muted-foreground font-medium">
+                {showRecordFee && currentYearRecorded ? 'Recorded Cost' : 'Final Cost'}
+              </span>
+              <span className="font-semibold">{formatCost(yearData.finalCost, currency)}</span>
+            </div>
+          </>
         )}
-        {yearData.proRataEnabled && yearData.prorataDays !== null && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Pro-rata ({yearData.prorataDays} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})</span>
-            <span className="font-medium">{formatCost(yearData.prorataCost, currency)}</span>
-          </div>
-        )}
-        {yearData.freeDiscount > 0 && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">
-              Free Period ({yearData.freePeriodDaysApplied} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})
-            </span>
-            <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
-          </div>
-        )}
-        <div className="flex items-center justify-between text-sm border-t pt-1">
-          <span className="text-muted-foreground font-medium">
-            {showRecordFee && currentYearRecorded ? 'Recorded Cost' : 'Final Cost'}
-          </span>
-          <span className="font-semibold">{formatCost(yearData.finalCost, currency)}</span>
-        </div>
       </div>
 
       {showRecordFee && (
@@ -233,6 +262,8 @@ export default function OrgMembershipTab({ organizationId }) {
   const [overrideType, setOverrideType] = useState('structure');
   const [selectedConfigId, setSelectedConfigId] = useState('');
   const [manualPrice, setManualPrice] = useState('');
+  const [discountType, setDiscountType] = useState('percentage');
+  const [discountValue, setDiscountValue] = useState('');
   const [overrideNote, setOverrideNote] = useState('');
   const [invoicingMode, setInvoicingMode] = useState('manual');
   const [invoiceDate, setInvoiceDate] = useState('');
@@ -445,6 +476,8 @@ export default function OrgMembershipTab({ organizationId }) {
     setOverrideType('structure');
     setSelectedConfigId('');
     setManualPrice('');
+    setDiscountType('percentage');
+    setDiscountValue('');
     setOverrideNote('');
     setOverrideTargetYear(null);
   };
@@ -462,6 +495,10 @@ export default function OrgMembershipTab({ organizationId }) {
       }
       if (yearOverride.override_type === 'price' && yearOverride.manual_price !== null) {
         setManualPrice(yearOverride.manual_price.toString());
+      }
+      if (yearOverride.override_type === 'discount') {
+        setDiscountType(yearOverride.discount_type || 'percentage');
+        setDiscountValue(yearOverride.discount_value?.toString() || '');
       }
     }
     setOverrideModalOpen(true);
@@ -486,11 +523,25 @@ export default function OrgMembershipTab({ organizationId }) {
       }
     }
 
+    if (overrideType === 'discount') {
+      const val = parseFloat(discountValue);
+      if (isNaN(val) || val < 0) {
+        toast.error('Please enter a valid discount value');
+        return;
+      }
+      if (discountType === 'percentage' && val > 100) {
+        toast.error('Percentage discount cannot exceed 100%');
+        return;
+      }
+    }
+
     overrideMutation.mutate({
       organizationId,
       overrideType,
       configId: overrideType === 'structure' ? selectedConfigId : null,
       manualPrice: overrideType === 'price' ? parseFloat(manualPrice) : null,
+      discountType: overrideType === 'discount' ? discountType : null,
+      discountValue: overrideType === 'discount' ? parseFloat(discountValue) : null,
       note: overrideNote,
       membershipYear: overrideTargetYear,
     });
@@ -680,6 +731,7 @@ export default function OrgMembershipTab({ organizationId }) {
                 currency={currency}
                 periodLabel={periodLabel}
                 fieldLabel={fieldLabel}
+                configName={config.name}
                 isNewOrg={isNewOrg}
                 goLiveDate={goLiveDate}
                 showRecordFee={true}
@@ -716,6 +768,7 @@ export default function OrgMembershipTab({ organizationId }) {
                 currency={currency}
                 periodLabel={periodLabel}
                 fieldLabel={fieldLabel}
+                configName={config.name}
                 isNewOrg={false}
                 goLiveDate={null}
                 showRecordFee={false}
@@ -915,6 +968,8 @@ export default function OrgMembershipTab({ organizationId }) {
                   setOverrideType(val);
                   setSelectedConfigId('');
                   setManualPrice('');
+                  setDiscountType('percentage');
+                  setDiscountValue('');
                 }}
                 data-testid="radio-override-type"
               >
@@ -928,6 +983,12 @@ export default function OrgMembershipTab({ organizationId }) {
                   <RadioGroupItem value="price" id="override-price" data-testid="radio-price" />
                   <Label htmlFor="override-price" className="text-sm cursor-pointer">
                     Set a manual price
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="discount" id="override-discount" data-testid="radio-discount" />
+                  <Label htmlFor="override-discount" className="text-sm cursor-pointer">
+                    Set a discount override
                   </Label>
                 </div>
               </RadioGroup>
@@ -996,6 +1057,66 @@ export default function OrgMembershipTab({ organizationId }) {
                       currency
                     )}
                   </p>
+                )}
+              </div>
+            )}
+
+            {overrideType === 'discount' && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Discount Type</Label>
+                <RadioGroup
+                  value={discountType}
+                  onValueChange={(val) => {
+                    setDiscountType(val);
+                    setDiscountValue('');
+                  }}
+                  data-testid="radio-discount-type"
+                >
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="percentage" id="discount-percentage" data-testid="radio-discount-percentage" />
+                    <Label htmlFor="discount-percentage" className="text-sm cursor-pointer">
+                      Percentage (%)
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="fixed" id="discount-fixed" data-testid="radio-discount-fixed" />
+                    <Label htmlFor="discount-fixed" className="text-sm cursor-pointer">
+                      Fixed amount ({getCurrencySymbol(currency)})
+                    </Label>
+                  </div>
+                </RadioGroup>
+
+                <div className="space-y-2">
+                  <Label htmlFor="discount-value" className="text-sm font-medium">
+                    {discountType === 'percentage' ? 'Discount Percentage' : `Discount Amount (${getCurrencySymbol(currency)})`}
+                  </Label>
+                  <Input
+                    id="discount-value"
+                    type="number"
+                    min="0"
+                    max={discountType === 'percentage' ? '100' : undefined}
+                    step={discountType === 'percentage' ? '0.1' : '0.01'}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    placeholder={discountType === 'percentage' ? 'e.g. 10' : 'e.g. 100.00'}
+                    data-testid="input-discount-value"
+                  />
+                </div>
+
+                {overrideTargetData && discountValue && (
+                  <div className="p-2 bg-muted/50 rounded-md">
+                    <p className="text-xs text-muted-foreground">
+                      {(() => {
+                        const gross = overrideTargetData.annualCostBeforeDiscounts ?? overrideTargetData.annualCost;
+                        const val = parseFloat(discountValue) || 0;
+                        const discountAmt = discountType === 'percentage'
+                          ? parseFloat((gross * val / 100).toFixed(2))
+                          : Math.min(val, gross);
+                        const net = Math.max(0, gross - discountAmt);
+                        return `Gross: ${formatCost(gross, currency)} - Discount: ${formatCost(discountAmt, currency)} = Net: ${formatCost(net, currency)}`;
+                      })()}
+                    </p>
+                  </div>
                 )}
               </div>
             )}

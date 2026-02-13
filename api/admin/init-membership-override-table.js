@@ -22,10 +22,12 @@ export default async function handler(req, res) {
           id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
           tenant_id UUID NOT NULL,
           organization_id UUID NOT NULL,
-          override_type TEXT NOT NULL CHECK (override_type IN ('structure', 'price')),
+          override_type TEXT NOT NULL CHECK (override_type IN ('structure', 'price', 'discount')),
           config_id UUID,
           band_id UUID,
           manual_price NUMERIC(12,2),
+          discount_type TEXT CHECK (discount_type IN ('percentage', 'fixed')),
+          discount_value NUMERIC(12,4),
           membership_year TEXT,
           note TEXT,
           created_by UUID,
@@ -38,6 +40,15 @@ export default async function handler(req, res) {
           ON organisation_membership_override(tenant_id);
         CREATE INDEX IF NOT EXISTS idx_org_membership_override_org 
           ON organisation_membership_override(tenant_id, organization_id);
+
+        DO $$ BEGIN
+          ALTER TABLE organisation_membership_override DROP CONSTRAINT IF EXISTS organisation_membership_override_override_type_check;
+          ALTER TABLE organisation_membership_override ADD CONSTRAINT organisation_membership_override_override_type_check CHECK (override_type IN ('structure', 'price', 'discount'));
+        EXCEPTION WHEN others THEN NULL;
+        END $$;
+
+        ALTER TABLE organisation_membership_override ADD COLUMN IF NOT EXISTS discount_type TEXT CHECK (discount_type IN ('percentage', 'fixed'));
+        ALTER TABLE organisation_membership_override ADD COLUMN IF NOT EXISTS discount_value NUMERIC(12,4);
       `
     });
 
@@ -56,10 +67,12 @@ export default async function handler(req, res) {
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id UUID NOT NULL,
   organization_id UUID NOT NULL,
-  override_type TEXT NOT NULL CHECK (override_type IN ('structure', 'price')),
+  override_type TEXT NOT NULL CHECK (override_type IN ('structure', 'price', 'discount')),
   config_id UUID,
   band_id UUID,
   manual_price NUMERIC(12,2),
+  discount_type TEXT CHECK (discount_type IN ('percentage', 'fixed')),
+  discount_value NUMERIC(12,4),
   membership_year TEXT,
   note TEXT,
   created_by UUID,

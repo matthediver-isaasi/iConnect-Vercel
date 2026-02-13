@@ -464,6 +464,50 @@ async function handleGet(req, res, tenantId) {
       yearData.originalFinalCost = yearData.finalCost;
       yearData.finalCost = parseFloat(override.manual_price);
       yearData.annualCost = parseFloat(override.manual_price);
+      yearData.annualCostBeforeDiscounts = parseFloat(override.manual_price);
+      yearData.customDiscountTotal = 0;
+      yearData.customDiscountDetails = [];
+      yearData.dailyCost = null;
+      yearData.proRataEnabled = false;
+      yearData.prorataDays = null;
+      yearData.prorataCost = null;
+      yearData.freeDiscount = 0;
+      yearData.freePeriodDaysApplied = 0;
+      yearData.billableDays = null;
+    } else if (override.override_type === 'discount') {
+      const grossCost = yearData.annualCostBeforeDiscounts ?? yearData.annualCost;
+      let discountAmount = 0;
+      if (override.discount_type === 'percentage' && override.discount_value != null) {
+        discountAmount = parseFloat((grossCost * parseFloat(override.discount_value) / 100).toFixed(2));
+      } else if (override.discount_type === 'fixed' && override.discount_value != null) {
+        discountAmount = parseFloat(parseFloat(override.discount_value).toFixed(2));
+      }
+      discountAmount = Math.min(discountAmount, grossCost);
+      const netCost = parseFloat((grossCost - discountAmount).toFixed(2));
+      yearData.overrideType = 'discount';
+      yearData.overrideNote = override.note;
+      yearData.overrideDiscountType = override.discount_type;
+      yearData.overrideDiscountValue = parseFloat(override.discount_value);
+      yearData.originalAnnualCost = yearData.annualCost;
+      yearData.originalFinalCost = yearData.finalCost;
+      yearData.originalCustomDiscountTotal = yearData.customDiscountTotal;
+      yearData.customDiscountTotal = discountAmount;
+      yearData.annualCost = netCost;
+      const totalDays = yearData.totalDaysInYear || 365;
+      yearData.dailyCost = parseFloat((netCost / totalDays).toFixed(4));
+      if (yearData.proRataEnabled && yearData.prorataDays != null) {
+        yearData.prorataCost = parseFloat((yearData.dailyCost * yearData.prorataDays).toFixed(2));
+        if (yearData.freePeriodDaysApplied > 0) {
+          yearData.freeDiscount = parseFloat((yearData.dailyCost * yearData.freePeriodDaysApplied).toFixed(2));
+        }
+        yearData.billableDays = yearData.prorataDays - (yearData.freePeriodDaysApplied || 0);
+        yearData.finalCost = parseFloat((yearData.dailyCost * yearData.billableDays).toFixed(2));
+      } else if (yearData.freePeriodDaysApplied > 0) {
+        yearData.freeDiscount = parseFloat((yearData.dailyCost * yearData.freePeriodDaysApplied).toFixed(2));
+        yearData.finalCost = parseFloat((netCost - yearData.freeDiscount).toFixed(2));
+      } else {
+        yearData.finalCost = netCost;
+      }
     } else if (override.override_type === 'structure' && override.config_id) {
       const overrideConfig = await getConfigById(override.config_id, tenantId);
       if (overrideConfig) {
@@ -493,6 +537,16 @@ async function handleGet(req, res, tenantId) {
     || overrides.find(o => !o.membership_year) || null;
 
   await applyOverrideToYear(currentYearCost, currentYearOverride);
+
+  if (currentYearOverride?.override_type === 'price' && nextYearPreview) {
+    nextYearPreview.freeDiscount = 0;
+    nextYearPreview.freePeriodDaysApplied = 0;
+    nextYearPreview.freePeriodAmount = null;
+    nextYearPreview.freePeriodUnit = null;
+    const nextFull = nextYearPreview.annualCost;
+    nextYearPreview.finalCost = parseFloat(Math.max(0, nextFull).toFixed(2));
+  }
+
   await applyOverrideToYear(nextYearPreview, nextYearOverride);
 
   return res.json({
