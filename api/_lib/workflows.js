@@ -400,10 +400,17 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   const results = [];
   const tenantId = workflow.tenant_id;
   
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   for (const action of (workflow.actions || [])) {
     // Normalize prefixed field types (e.g., job_posting_core -> core)
-    const normalizedFieldType = action.config?.field_type?.replace(/^(org_|member_|job_posting_)/, '') || action.config?.field_type;
+    let normalizedFieldType = action.config?.field_type?.replace(/^(org_|member_|job_posting_)/, '') || action.config?.field_type;
     
+    if (action.type === 'update_field' && normalizedFieldType === 'core' && UUID_REGEX.test(action.config?.field_id)) {
+      console.log(`[Workflows] update_field: field_id "${action.config.field_id}" is a UUID, reclassifying from core to custom for ${entityType}`);
+      normalizedFieldType = 'custom';
+    }
+
     if (action.type === 'update_field' && normalizedFieldType === 'core') {
       let table;
       if (entityType === 'organization') {
@@ -421,10 +428,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         resolvedValue = new Date().toISOString();
       }
       console.log(`[Workflows] update_field (core): ${table}.${action.config.field_id} = "${resolvedValue}" for ${entityType}:${entityId}`);
-      const { error: updateError } = await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId);
+      const { data: updateData, error: updateError } = await supabase.from(table).update({ [action.config.field_id]: resolvedValue }).eq('id', entityId).select('id');
       if (updateError) {
         console.error(`[Workflows] update_field (core) error:`, updateError.message);
         results.push({ action_type: 'update_field', field_type: 'core', status: 'failed', error: updateError.message });
+      } else if (!updateData || updateData.length === 0) {
+        console.warn(`[Workflows] update_field (core): 0 rows updated for ${table}.${action.config.field_id} on entity ${entityId}`);
+        results.push({ action_type: 'update_field', field_type: 'core', status: 'failed', error: `No rows updated - field "${action.config.field_id}" may not exist on ${table}` });
       } else {
         results.push({ action_type: 'update_field', field_type: 'core', status: 'success' });
       }
@@ -466,13 +476,18 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           .maybeSingle();
 
         if (existing) {
-          await supabase
+          const { error: upErr } = await supabase
             .from(prefTable)
             .update({ value: resolvedValue })
             .eq('id', existing.id)
             .eq('tenant_id', tenantId);
+          if (upErr) {
+            console.error(`[Workflows] update_field (custom) update error:`, upErr.message);
+            results.push({ action_type: 'update_field', field_type: 'custom', status: 'failed', error: upErr.message });
+            continue;
+          }
         } else {
-          await supabase
+          const { error: insErr } = await supabase
             .from(prefTable)
             .insert({
               [foreignKey]: entityId,
@@ -480,6 +495,11 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
               value: resolvedValue,
               tenant_id: tenantId,
             });
+          if (insErr) {
+            console.error(`[Workflows] update_field (custom) insert error:`, insErr.message);
+            results.push({ action_type: 'update_field', field_type: 'custom', status: 'failed', error: insErr.message });
+            continue;
+          }
         }
 
         results.push({ action_type: 'update_field', field_type: 'custom', status: 'success' });
