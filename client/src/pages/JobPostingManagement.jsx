@@ -5,18 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Search, CheckCircle, XCircle, Briefcase, MapPin, Building2, Clock, Globe, AlertCircle, Pencil, Trash2, FileText, Upload, X, Loader2, ChevronLeft, ChevronRight, Pause, Archive, Play } from "lucide-react";
+import { Search, CheckCircle, XCircle, Briefcase, MapPin, Building2, Clock, Globe, AlertCircle, Pencil, Trash2, FileText, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 
 export default function JobPostingManagementPage() {
@@ -25,40 +23,13 @@ export default function JobPostingManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedJob, setSelectedJob] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [editingJob, setEditingJob] = useState(null);
   const [activeTab, setActiveTab] = useState("pending");
-  const [uploadingFiles, setUploadingFiles] = useState(false);
   const [organizationFilter, setOrganizationFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const [confirmAction, setConfirmAction] = useState(null);
   
   const queryClient = useQueryClient();
-
-  const quillModules = useMemo(() => ({
-    toolbar: {
-      container: [
-        [{ 'header': [1, 2, 3, false] }],
-        ['bold', 'italic', 'underline', 'strike'],
-        [{ 'color': [] }, { 'background': [] }],
-        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-        [{ 'indent': '-1'}, { 'indent': '+1' }],
-        [{ 'align': [] }],
-        ['link'],
-        ['clean']
-      ]
-    },
-  }), []);
-
-  const quillFormats = [
-    'header',
-    'bold', 'italic', 'underline', 'strike',
-    'color', 'background',
-    'list', 'bullet', 'indent',
-    'align',
-    'link'
-  ];
 
   useEffect(() => {
     if (isAccessReady) {
@@ -149,8 +120,6 @@ export default function JobPostingManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
       toast.success('Job posting updated successfully');
-      setShowEditDialog(false);
-      setEditingJob(null);
     },
     onError: (error) => {
       toast.error('Failed to update job posting: ' + error.message);
@@ -290,79 +259,7 @@ export default function JobPostingManagementPage() {
   };
 
   const handleEdit = (job) => {
-    setEditingJob({ 
-      ...job,
-      attachment_urls: job.attachment_urls || [],
-      attachment_names: job.attachment_names || []
-    });
-    setShowEditDialog(true);
-  };
-
-  const handleFileUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    const allowedTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ];
-
-    const invalidFiles = files.filter(file => !allowedTypes.includes(file.type));
-    if (invalidFiles.length > 0) {
-      toast.error('Only PDF, Word, and Excel documents are allowed');
-      return;
-    }
-
-    const oversizedFiles = files.filter(file => file.size > 10 * 1024 * 1024);
-    if (oversizedFiles.length > 0) {
-      toast.error('Files must be smaller than 10MB');
-      return;
-    }
-
-    setUploadingFiles(true);
-
-    try {
-      const uploadPromises = files.map(async (file) => {
-        const response = await base44.integrations.Core.UploadFile({ file });
-        return {
-          url: response.file_url,
-          name: file.name
-        };
-      });
-
-      const uploadedFiles = await Promise.all(uploadPromises);
-
-      setEditingJob(prev => ({
-        ...prev,
-        attachment_urls: [...(prev.attachment_urls || []), ...uploadedFiles.map(f => f.url)],
-        attachment_names: [...(prev.attachment_names || []), ...uploadedFiles.map(f => f.name)]
-      }));
-
-      toast.success(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded successfully`);
-    } catch (error) {
-      toast.error('Failed to upload files. Please try again.');
-    } finally {
-      setUploadingFiles(false);
-    }
-  };
-
-  const handleRemoveAttachment = (index) => {
-    setEditingJob(prev => ({
-      ...prev,
-      attachment_urls: prev.attachment_urls.filter((_, i) => i !== index),
-      attachment_names: prev.attachment_names.filter((_, i) => i !== index)
-    }));
-  };
-
-  const handleSaveEdit = () => {
-    if (!editingJob.title || !editingJob.company_name || !editingJob.closing_date) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-    updateJobMutation.mutate({ id: editingJob.id, data: editingJob });
+    window.location.href = `${createPageUrl('PostJob')}?editJobId=${job.id}&from=JobPostingManagement`;
   };
 
   const isClosingSoon = (closingDate) => {
@@ -865,263 +762,6 @@ export default function JobPostingManagementPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Edit Dialog */}
-        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Job Posting</DialogTitle>
-            </DialogHeader>
-            {editingJob && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Job Title *</Label>
-                  <Input
-                    id="title"
-                    value={editingJob.title}
-                    onChange={(e) => setEditingJob({ ...editingJob, title: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="company_name">Company Name *</Label>
-                  <Input
-                    id="company_name"
-                    value={editingJob.company_name}
-                    onChange={(e) => setEditingJob({ ...editingJob, company_name: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location *</Label>
-                  <Input
-                    id="location"
-                    value={editingJob.location}
-                    onChange={(e) => setEditingJob({ ...editingJob, location: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="job_type">Job Type</Label>
-                    <select
-                      id="job_type"
-                      value={editingJob.job_type || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, job_type: e.target.value })}
-                      className="w-full h-10 px-3 rounded-md border border-slate-200"
-                    >
-                      <option value="">Select...</option>
-                      {jobTypeSettings.map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="hours">Hours</Label>
-                    <select
-                      id="hours"
-                      value={editingJob.hours || ''}
-                      onChange={(e) => setEditingJob({ ...editingJob, hours: e.target.value })}
-                      className="w-full h-10 px-3 rounded-md border border-slate-200"
-                    >
-                      <option value="">Select...</option>
-                      {hoursSettings.map(hour => (
-                        <option key={hour} value={hour}>{hour}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="salary_range">Salary Range</Label>
-                  <Input
-                    id="salary_range"
-                    value={editingJob.salary_range || ''}
-                    onChange={(e) => setEditingJob({ ...editingJob, salary_range: e.target.value })}
-                    placeholder="e.g., £30,000 - £40,000"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="closing_date">Closing Date *</Label>
-                  <Input
-                    id="closing_date"
-                    type="date"
-                    value={editingJob.closing_date ? editingJob.closing_date.split('T')[0] : ''}
-                    onChange={(e) => setEditingJob({ ...editingJob, closing_date: e.target.value + 'T23:59:59Z' })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="company_logo_url">Company Logo URL</Label>
-                  <Input
-                    id="company_logo_url"
-                    value={editingJob.company_logo_url || ''}
-                    onChange={(e) => setEditingJob({ ...editingJob, company_logo_url: e.target.value })}
-                    placeholder="https://..."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Job Description *</Label>
-                  <div className="bg-white rounded-md border">
-                    <ReactQuill
-                      theme="snow"
-                      value={editingJob.description || ''}
-                      onChange={(value) => setEditingJob({ ...editingJob, description: value })}
-                      modules={quillModules}
-                      formats={quillFormats}
-                      placeholder="Describe the job role, responsibilities, and requirements..."
-                      style={{ minHeight: '200px' }}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-4 p-4 bg-slate-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-slate-900">Additional Documents</h3>
-                      <p className="text-sm text-slate-600">Upload or remove job-related documents</p>
-                    </div>
-                    <Label htmlFor="edit-file-upload" className="cursor-pointer">
-                      <div className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                        <Upload className="w-4 h-4" />
-                        <span className="text-sm font-medium">Upload</span>
-                      </div>
-                      <input
-                        id="edit-file-upload"
-                        type="file"
-                        multiple
-                        accept=".pdf,.doc,.docx,.xls,.xlsx"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                        disabled={uploadingFiles}
-                      />
-                    </Label>
-                  </div>
-
-                  {uploadingFiles && (
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Uploading files...</span>
-                    </div>
-                  )}
-
-                  {editingJob.attachment_urls && editingJob.attachment_urls.length > 0 && (
-                    <div className="space-y-2">
-                      {editingJob.attachment_names.map((name, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200">
-                          <div className="flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-blue-600" />
-                            <span className="text-sm font-medium text-slate-700">{name}</span>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveAttachment(index)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {(!editingJob.attachment_urls || editingJob.attachment_urls.length === 0) && !uploadingFiles && (
-                    <p className="text-sm text-slate-500 text-center py-4">No documents attached</p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="featured"
-                    checked={editingJob.featured || false}
-                    onChange={(e) => setEditingJob({ ...editingJob, featured: e.target.checked })}
-                    className="rounded border-slate-300"
-                  />
-                  <Label htmlFor="featured" className="flex items-center gap-2">
-                    <Globe className="w-4 h-4" />
-                    Feature on Web (only one job can be featured at a time)
-                  </Label>
-                </div>
-              </div>
-            )}
-            <DialogFooter className="flex-col sm:flex-row gap-2">
-              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                {editingJob?.status === 'active' && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfirmAction({ type: 'pause', jobId: editingJob.id })}
-                    disabled={updateJobMutation.isPending}
-                    className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                    data-testid="button-pause-job"
-                  >
-                    <Pause className="w-4 h-4 mr-2" />
-                    Pause
-                  </Button>
-                )}
-                {editingJob?.status === 'paused' && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfirmAction({ type: 'reactivate', jobId: editingJob.id })}
-                    disabled={updateJobMutation.isPending}
-                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                    data-testid="button-reactivate-job"
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    Reactivate
-                  </Button>
-                )}
-                {editingJob?.status !== 'archived' && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfirmAction({ type: 'archive', jobId: editingJob.id })}
-                    disabled={updateJobMutation.isPending}
-                    className="text-slate-600 hover:text-slate-700 hover:bg-slate-100"
-                    data-testid="button-archive-job"
-                  >
-                    <Archive className="w-4 h-4 mr-2" />
-                    Archive
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  onClick={() => setConfirmAction({ type: 'delete', jobId: editingJob.id })}
-                  disabled={deleteJobMutation.isPending}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  data-testid="button-delete-job"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete
-                </Button>
-              </div>
-              <div className="flex gap-2 w-full sm:w-auto sm:ml-auto">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowEditDialog(false);
-                    setEditingJob(null);
-                  }}
-                  data-testid="button-cancel-edit"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSaveEdit}
-                  disabled={updateJobMutation.isPending || uploadingFiles}
-                  className="bg-blue-600 hover:bg-blue-700"
-                  data-testid="button-save-job"
-                >
-                  {updateJobMutation.isPending ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
         {/* Confirmation Dialog */}
         <AlertDialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
           <AlertDialogContent>
@@ -1154,9 +794,6 @@ export default function JobPostingManagementPage() {
                     if (confirmAction.fromViewDialog) {
                       setShowDialog(false);
                       setSelectedJob(null);
-                    } else {
-                      setShowEditDialog(false);
-                      setEditingJob(null);
                     }
                   }
                   setConfirmAction(null);

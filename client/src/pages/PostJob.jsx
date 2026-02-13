@@ -118,6 +118,13 @@ export default function PostJobPage() {
   const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
   const { branding } = useTenantBranding();
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const editJobId = urlParams.get('editJobId');
+  const returnTo = urlParams.get('from');
+
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editJobLoaded, setEditJobLoaded] = useState(false);
+
   const [step, setStep] = useState('email'); // 'email', 'form', 'submitting'
   const [email, setEmail] = useState('');
   const [checkingEmail, setCheckingEmail] = useState(false);
@@ -375,6 +382,45 @@ export default function PostJobPage() {
     }
   }, [memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
 
+  useEffect(() => {
+    if (editJobId) {
+      const fetchJobForEdit = async () => {
+        try {
+          const allJobs = await base44.entities.JobPosting.list();
+          const job = allJobs.find(j => j.id === editJobId);
+          if (job) {
+            setFormData({
+              title: job.title || '',
+              description: job.description || '',
+              company_name: job.company_name || '',
+              company_logo_url: job.company_logo_url || '',
+              location: job.location || '',
+              salary_range: job.salary_range || '',
+              job_type: job.job_type || '',
+              hours: job.hours || '',
+              closing_date: job.closing_date || '',
+              application_method: job.application_method || 'email',
+              application_value: job.application_value || '',
+              contact_name: job.contact_name || '',
+              attachment_urls: job.attachment_urls || [],
+              attachment_names: job.attachment_names || [],
+              posting_organization_id: job.posting_organization_id || null
+            });
+            setIsEditMode(true);
+            setEditJobLoaded(true);
+            setStep('form');
+            setIsLoggedIn(true);
+            setAgreedToTerms(true);
+          }
+        } catch (error) {
+          console.error('[PostJob] Failed to fetch job for editing:', error);
+          toast.error('Failed to load job posting for editing');
+        }
+      };
+      fetchJobForEdit();
+    }
+  }, [editJobId]);
+
   const handleEmailCheck = async (e) => {
     e.preventDefault();
     setCheckingEmail(true);
@@ -548,9 +594,41 @@ export default function PostJobPage() {
       return;
     }
 
-    if (!agreedToTerms) {
+    if (!agreedToTerms && !isEditMode) {
       console.log('[PostJob] Terms not agreed');
       toast.error('Please agree to the Terms and Conditions');
+      return;
+    }
+
+    if (isEditMode && editJobId) {
+      setStep('submitting');
+      try {
+        await base44.entities.JobPosting.update(editJobId, {
+          title: formData.title,
+          description: formData.description,
+          company_name: formData.company_name,
+          company_logo_url: formData.company_logo_url,
+          location: formData.location,
+          salary_range: formData.salary_range,
+          job_type: formData.job_type,
+          hours: formData.hours,
+          closing_date: formData.closing_date,
+          application_method: formData.application_method,
+          application_value: formData.application_value,
+          contact_name: formData.contact_name,
+          attachment_urls: formData.attachment_urls,
+          attachment_names: formData.attachment_names,
+          posting_organization_id: formData.posting_organization_id
+        });
+        toast.success('Job posting updated successfully!');
+        setTimeout(() => {
+          window.location.href = createPageUrl(returnTo || 'JobPostingManagement');
+        }, 500);
+      } catch (error) {
+        console.error('[PostJob] Update error:', error);
+        toast.error('Failed to update job posting: ' + (error.message || 'Unknown error'));
+        setStep('form');
+      }
       return;
     }
 
@@ -738,23 +816,23 @@ export default function PostJobPage() {
       <div className="max-w-3xl mx-auto">
         {/* Back to Job Board link */}
         <Link 
-          to={createPageUrl('JobBoard')} 
+          to={returnTo ? createPageUrl(returnTo) : createPageUrl('JobBoard')} 
           className="inline-flex items-center text-sm text-slate-600 hover:text-blue-600 mb-4"
           data-testid="link-back-to-jobboard"
         >
           <ArrowLeft className="w-4 h-4 mr-1" />
-          Back to Job Board
+          {returnTo === 'JobPostingManagement' ? 'Back to Job Management' : 'Back to Job Board'}
         </Link>
 
         <Card className="border-slate-200 shadow-xl">
           <CardHeader>
             <CardTitle>
-              {isLoggedIn ? 'Post a Job (Free for Members)' : 'Post a Job'}
+              {isEditMode ? 'Edit Job Posting' : (isLoggedIn ? 'Post a Job (Free for Members)' : 'Post a Job')}
             </CardTitle>
             <CardDescription>
-              {isLoggedIn ?
+              {isEditMode ? 'Update the details below and save your changes' : (isLoggedIn ?
               'Fill in the details below to post your job listing' :
-              'Complete the form below. Payment will be processed after submission.'}
+              'Complete the form below. Payment will be processed after submission.')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -883,8 +961,8 @@ export default function PostJobPage() {
                   placeholder="e.g., University of Example"
                   value={formData.company_name}
                   onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                  disabled={isLoggedIn && (organizationInfo || selectedOrganization)}
-                  className={isLoggedIn && (organizationInfo || selectedOrganization) ? 'bg-slate-100 cursor-not-allowed' : ''}
+                  disabled={!isEditMode && isLoggedIn && (organizationInfo || selectedOrganization)}
+                  className={!isEditMode && isLoggedIn && (organizationInfo || selectedOrganization) ? 'bg-slate-100 cursor-not-allowed' : ''}
                   required />
 
                 {isLoggedIn && organizationInfo && !selectedOrganization &&
@@ -911,7 +989,7 @@ export default function PostJobPage() {
                 </div>
 
                 {/* Logged-in member view - show org logo (read-only) */}
-                {isLoggedIn && organizationInfo ? (
+                {isLoggedIn && organizationInfo && !isEditMode ? (
                   formData.company_logo_url ? (
                     <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
                       <div className="w-24 h-24 flex-shrink-0 bg-slate-50 rounded-lg p-2 border border-slate-200">
@@ -1194,7 +1272,7 @@ export default function PostJobPage() {
                 </div>
               </div>
 
-              {!isLoggedIn &&
+              {!isLoggedIn && !isEditMode &&
               <div className="space-y-2">
                   <Label htmlFor="contact_name">Your Name *</Label>
                   <Input
@@ -1207,6 +1285,7 @@ export default function PostJobPage() {
                 </div>
               }
 
+              {!isEditMode && (
               <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2">
                   <FileCheck className="w-5 h-5 text-blue-600" />
@@ -1233,12 +1312,13 @@ export default function PostJobPage() {
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="flex gap-4 pt-4">
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => window.location.href = createPageUrl('JobBoard')}
+                  onClick={() => window.location.href = isEditMode && returnTo ? createPageUrl(returnTo) : createPageUrl('JobBoard')}
                   className="flex-1">
 
                   Cancel
@@ -1246,14 +1326,15 @@ export default function PostJobPage() {
                 <Button
                   type="submit"
                   className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  disabled={step === 'submitting' || uploadingFiles || uploadingLogo || !agreedToTerms}
+                  disabled={step === 'submitting' || uploadingFiles || uploadingLogo || (!agreedToTerms && !isEditMode)}
                   onClick={() => console.log('[PostJob] Submit button clicked, agreedToTerms:', agreedToTerms, 'step:', step)}>
 
                   {step === 'submitting' ?
                   <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Processing...
+                      {isEditMode ? 'Saving...' : 'Processing...'}
                     </> :
+                  isEditMode ? 'Save Changes' :
                   isLoggedIn ?
                   'Submit for Approval' :
 
