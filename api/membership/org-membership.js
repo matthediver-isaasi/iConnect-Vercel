@@ -359,8 +359,37 @@ async function handleGet(req, res, tenantId) {
 
     const nextYearFull = annualCost;
     let nextYearRolloverDiscount = 0;
+    let nextYearFreeDiscount = 0;
+    let nextYearCostAfterFree = nextYearFull;
 
-    if (config.rollover_enabled && config.free_period_amount && config.prorata_enabled) {
+    if (isNewOrg && config.free_period_amount && config.free_period_unit) {
+      const freePeriodMonths = getFreeMonths(config);
+      const currentYearObj = calculateMembershipYear(config);
+      const joinDate = goLiveDate ? new Date(goLiveDate) : new Date();
+      const monthsElapsedSinceJoin = Math.max(0,
+        (currentYearObj.end - joinDate) / (1000 * 60 * 60 * 24 * 30.44)
+      );
+      const freeMonthsUsedInCurrentYear = Math.min(freePeriodMonths, monthsElapsedSinceJoin);
+      const remainingFreeMonths = Math.max(0, freePeriodMonths - freeMonthsUsedInCurrentYear);
+
+      if (remainingFreeMonths > 0) {
+        nextYearFreeDiscount = parseFloat((nextYearFull * remainingFreeMonths / 12).toFixed(2));
+        nextYearCostAfterFree = nextYearFull - nextYearFreeDiscount;
+      }
+
+      if (config.rollover_enabled && config.prorata_enabled) {
+        const totalMonthsInYear = 12;
+        const remainingMonths = Math.ceil(
+          (currentYearObj.end - new Date()) / (1000 * 60 * 60 * 24 * 30.44)
+        );
+        const usedFreeMonths = Math.min(freePeriodMonths, Math.max(0, remainingMonths));
+        const unusedFreeMonths = Math.max(0, freePeriodMonths - usedFreeMonths);
+
+        if (unusedFreeMonths > 0) {
+          nextYearRolloverDiscount = parseFloat((nextYearFull * unusedFreeMonths / totalMonthsInYear).toFixed(2));
+        }
+      }
+    } else if (config.rollover_enabled && config.free_period_amount && config.prorata_enabled) {
       const freePeriodMonths = getFreeMonths(config);
       const currentYearObj = calculateMembershipYear(config);
       const totalMonthsInYear = 12;
@@ -371,11 +400,11 @@ async function handleGet(req, res, tenantId) {
       const unusedFreeMonths = Math.max(0, freePeriodMonths - usedFreeMonths);
 
       if (unusedFreeMonths > 0) {
-        nextYearRolloverDiscount = parseFloat((annualCost * unusedFreeMonths / totalMonthsInYear).toFixed(2));
+        nextYearRolloverDiscount = parseFloat((nextYearFull * unusedFreeMonths / totalMonthsInYear).toFixed(2));
       }
     }
 
-    const nextYearFinal = nextYearFull - nextYearRolloverDiscount;
+    const nextYearFinal = nextYearCostAfterFree - nextYearRolloverDiscount;
 
     nextYearPreview = {
       membershipYear: nextYear.label,
@@ -385,8 +414,12 @@ async function handleGet(req, res, tenantId) {
       annualCostBeforeDiscounts: annualCostRaw,
       customDiscountTotal,
       customDiscountDetails,
+      freeDiscount: nextYearFreeDiscount,
+      freePeriodAmount: nextYearFreeDiscount > 0 ? config.free_period_amount : null,
+      freePeriodUnit: nextYearFreeDiscount > 0 ? config.free_period_unit : null,
+      costAfterFreeDiscount: nextYearCostAfterFree,
       rolloverDiscount: nextYearRolloverDiscount,
-      finalCost: parseFloat(nextYearFinal.toFixed(2)),
+      finalCost: parseFloat(Math.max(0, nextYearFinal).toFixed(2)),
       currency: config.currency || 'GBP',
       billingPeriod: config.billing_period || 'annual',
     };

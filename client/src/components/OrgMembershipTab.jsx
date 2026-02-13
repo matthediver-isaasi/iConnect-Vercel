@@ -658,75 +658,89 @@ export default function OrgMembershipTab({ organizationId }) {
         </CardContent>
       </Card>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CalendarDays className="w-4 h-4" />
+              Current Year
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {currentYearCost ? (
+              <YearCostSection
+                yearData={currentYearCost}
+                yearLabel="Current Year"
+                currency={currency}
+                periodLabel={periodLabel}
+                fieldLabel={fieldLabel}
+                isNewOrg={isNewOrg}
+                goLiveDate={goLiveDate}
+                showRecordFee={true}
+                currentYearRecorded={currentYearRecorded}
+                recordMutation={recordMutation}
+                organizationId={organizationId}
+                onOpenOverride={handleOpenOverrideModal}
+                onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+                removeOverridePending={removeOverrideMutation.isPending}
+                onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
+                simulatePending={simulateRenewalMutation.isPending}
+                testIdPrefix="current-year"
+              />
+            ) : (
+              <div className="text-center py-4 text-muted-foreground">
+                <p className="text-sm">No tier matched for the current year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ArrowRight className="w-4 h-4" />
+              Next Year
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {nextYearPreview ? (
+              <YearCostSection
+                yearData={nextYearPreview}
+                yearLabel="Next Year"
+                currency={currency}
+                periodLabel={periodLabel}
+                fieldLabel={fieldLabel}
+                isNewOrg={false}
+                goLiveDate={null}
+                showRecordFee={false}
+                currentYearRecorded={null}
+                recordMutation={recordMutation}
+                organizationId={organizationId}
+                onOpenOverride={handleOpenOverrideModal}
+                onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
+                removeOverridePending={removeOverrideMutation.isPending}
+                onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
+                simulatePending={simulateRenewalMutation.isPending}
+                testIdPrefix="next-year"
+              />
+            ) : (
+              <div className="text-center py-4 text-muted-foreground">
+                <p className="text-sm">No tier matched for the next year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <CalendarDays className="w-4 h-4" />
-            Membership Cost Preview
+            <FileText className="w-4 h-4" />
+            Invoicing
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {currentYearCost ? (
-            <YearCostSection
-              yearData={currentYearCost}
-              yearLabel="Current Year"
-              currency={currency}
-              periodLabel={periodLabel}
-              fieldLabel={fieldLabel}
-              isNewOrg={isNewOrg}
-              goLiveDate={goLiveDate}
-              showRecordFee={true}
-              currentYearRecorded={currentYearRecorded}
-              recordMutation={recordMutation}
-              organizationId={organizationId}
-              onOpenOverride={handleOpenOverrideModal}
-              onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
-              removeOverridePending={removeOverrideMutation.isPending}
-              onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
-              simulatePending={simulateRenewalMutation.isPending}
-              testIdPrefix="current-year"
-            />
-          ) : (
-            <div className="text-center py-4 text-muted-foreground">
-              <p className="text-sm">No tier matched for the current year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
-            </div>
-          )}
-
-          <Separator />
-
-          {nextYearPreview ? (
-            <YearCostSection
-              yearData={nextYearPreview}
-              yearLabel="Next Year"
-              currency={currency}
-              periodLabel={periodLabel}
-              fieldLabel={fieldLabel}
-              isNewOrg={false}
-              goLiveDate={null}
-              showRecordFee={false}
-              currentYearRecorded={null}
-              recordMutation={recordMutation}
-              organizationId={organizationId}
-              onOpenOverride={handleOpenOverrideModal}
-              onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
-              removeOverridePending={removeOverrideMutation.isPending}
-              onSimulate={() => simulateRenewalMutation.mutate(invoicingMode)}
-              simulatePending={simulateRenewalMutation.isPending}
-              testIdPrefix="next-year"
-            />
-          ) : (
-            <div className="text-center py-4 text-muted-foreground">
-              <p className="text-sm">No tier matched for the next year. Check that the organisation has a valid {fieldLabel?.toLowerCase() || 'field value'} and an active tier structure exists.</p>
-            </div>
-          )}
-
-          <Separator />
-
+        <CardContent>
           <div>
-            <p className="text-sm font-medium flex items-center gap-1 mb-3">
-              <FileText className="w-3 h-3" />
-              Invoicing
-            </p>
             <RadioGroup
               value={invoicingMode}
               onValueChange={(val) => {
