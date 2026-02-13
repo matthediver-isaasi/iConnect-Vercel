@@ -96,7 +96,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
-  const yearNumber = determineMembershipYearNumber(goLiveDate, membershipYear, config);
+  const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, membershipYear, config) : 1;
   const currentYearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
 
   if (goLiveDate) {
