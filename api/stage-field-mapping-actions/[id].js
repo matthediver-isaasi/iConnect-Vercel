@@ -85,11 +85,13 @@ export default async function handler(req, res) {
         for (const mapping of field_mappings) {
           // For static mappings, require static_value; for field mappings, require source_field_id
           const isStaticMapping = mapping.source_type === 'static';
+          const isCurrentDateMapping = mapping.source_type === 'current_date' || mapping.transformation === 'current_date';
+          const isClearMapping = mapping.source_type === 'clear';
           if (isStaticMapping) {
             if (!mapping.static_value && mapping.static_value !== 0 && mapping.static_value !== false) {
               return res.status(400).json({ error: 'Static mappings require a static_value' });
             }
-          } else {
+          } else if (!isCurrentDateMapping && !isClearMapping) {
             if (!mapping.source_field_id) {
               return res.status(400).json({ error: 'Field mappings require a source_field_id' });
             }

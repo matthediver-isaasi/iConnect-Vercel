@@ -483,9 +483,9 @@ export default async function handler(req, res) {
         
         let value;
         
-        // Handle current_date transformation first - it doesn't need a source value
-        if (transformation === 'current_date') {
-          value = applyTransformation('', transformation);
+        // Handle current_date source type or transformation - doesn't need a source value
+        if (source_type === 'current_date' || transformation === 'current_date') {
+          value = applyTransformation('', 'current_date');
           console.log('[AppProcessor] Current date mapping:', target_field, '=', value);
         } else if (source_type === 'static') {
           // Static value mapping - use the fixed value
@@ -1541,10 +1541,10 @@ export default async function handler(req, res) {
             if (!mapping.target_field || mapping.target_field === 'email') continue;
             
             let value;
-            if (mapping.source_type === 'static') {
-              value = mapping.static_value;
-            } else if (mapping.transformation === 'current_date') {
+            if (mapping.source_type === 'current_date' || mapping.transformation === 'current_date') {
               value = new Date().toISOString().split('T')[0];
+            } else if (mapping.source_type === 'static') {
+              value = mapping.static_value;
             } else if (mapping.source_field_id) {
               value = form_values[mapping.source_field_id];
             }
