@@ -314,7 +314,7 @@ async function handleGet(req, res, tenantId) {
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
 
-  const isNewOrg = yearNumber === 1 && !hasCurrentYearRecord;
+  const isNewOrg = (yearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
 
   let nextYearPreview = null;
   let currentYearCost = null;
