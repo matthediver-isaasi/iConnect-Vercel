@@ -329,14 +329,6 @@ export default function PostJobPage() {
 
   // Initialize from props (portal mode) or sessionStorage (public mode)
   useEffect(() => {
-    if (editJobId) {
-      if (memberInfo) {
-        setIsLoggedIn(true);
-        setIsMember(true);
-        setEmail(memberInfo.email);
-      }
-      return;
-    }
     if (memberInfo) {
       // Portal mode - member is logged in via props
       setIsLoggedIn(true);
@@ -344,16 +336,17 @@ export default function PostJobPage() {
       setEmail(memberInfo.email);
       setStep('form');
 
-      setFormData((prev) => ({
-        ...prev,
-        company_name: organizationInfo?.name || '',
-        company_logo_url: organizationInfo?.logo_url || '',
-        contact_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
-        job_type: jobTypeSettings[0] || '',
-        hours: hoursSettings[0] || ''
-      }));
-      // Reset selected organization when member info changes
-      setSelectedOrganization(null);
+      if (!editJobId && !editJobLoaded) {
+        setFormData((prev) => ({
+          ...prev,
+          company_name: organizationInfo?.name || '',
+          company_logo_url: organizationInfo?.logo_url || '',
+          contact_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+          job_type: jobTypeSettings[0] || '',
+          hours: hoursSettings[0] || ''
+        }));
+        setSelectedOrganization(null);
+      }
     } else {
       // Public mode - check sessionStorage
       const member = localStorage.getItem('agcas_member');
@@ -364,28 +357,30 @@ export default function PostJobPage() {
         setEmail(memberData.email);
         setStep('form');
 
-        const fetchOrganization = async () => {
-          if (memberData.organization_id) {
-            try {
-              const allOrgs = await base44.entities.Organization.list();
-              const org = allOrgs.find((o) => o.id === memberData.organization_id);
-              if (org) {
-                setFormData((prev) => ({
-                  ...prev,
-                  company_name: org.name,
-                  company_logo_url: org.logo_url || '',
-                  contact_name: `${memberData.first_name} ${memberData.last_name}`,
-                  job_type: jobTypeSettings[0] || '',
-                  hours: hoursSettings[0] || ''
-                }));
+        if (!editJobId) {
+          const fetchOrganization = async () => {
+            if (memberData.organization_id) {
+              try {
+                const allOrgs = await base44.entities.Organization.list();
+                const org = allOrgs.find((o) => o.id === memberData.organization_id);
+                if (org) {
+                  setFormData((prev) => ({
+                    ...prev,
+                    company_name: org.name,
+                    company_logo_url: org.logo_url || '',
+                    contact_name: `${memberData.first_name} ${memberData.last_name}`,
+                    job_type: jobTypeSettings[0] || '',
+                    hours: hoursSettings[0] || ''
+                  }));
+                }
+              } catch (error) {
+                console.error('Failed to fetch organization:', error);
               }
-            } catch (error) {
-              console.error('Failed to fetch organization:', error);
             }
-          }
-        };
+          };
 
-        fetchOrganization();
+          fetchOrganization();
+        }
       }
     }
   }, [memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
