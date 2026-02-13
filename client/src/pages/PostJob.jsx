@@ -849,8 +849,12 @@ export default function PostJobPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {isEditMode && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                <strong>DEBUG:</strong> title="{formData.title}" | company="{formData.company_name}" | location="{formData.location}" | editJobLoaded={String(editJobLoaded)}
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* ... keep all existing form fields exactly as they are ... */}
               <div className="space-y-2">
                 <Label htmlFor="title">Job Title *</Label>
                 <Input
