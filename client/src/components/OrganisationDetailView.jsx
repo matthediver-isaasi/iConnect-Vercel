@@ -1569,7 +1569,7 @@ export default function OrganisationDetailView({
                               </p>
                               <Badge variant="outline" className="mt-2">Form Submitted</Badge>
                             </div>
-                            <Link to={`/FormSubmission/${submission.id}`} onClick={(e) => e.stopPropagation()}>
+                            <Link to={`/FormSubmission/${submission.id}?from=org&orgId=${organization.id}`} onClick={(e) => e.stopPropagation()}>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1925,29 +1925,9 @@ export default function OrganisationDetailView({
                             <p className="text-sm text-slate-500 mt-1">
                               Submitted: {submission.created_date ? format(new Date(submission.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown'}
                             </p>
-                            {submission.submission_data && (
-                              <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                                {(() => {
-                                  const values = submission.submission_data;
-                                  const previewFields = Object.entries(values).slice(0, 3);
-                                  return previewFields.map(([key, value]) => {
-                                    const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value || '');
-                                    const truncated = displayValue.length > 50 ? displayValue.slice(0, 50) + '...' : displayValue;
-                                    return (
-                                      <span key={key} className="inline-block mr-3">
-                                        <span className="text-slate-400">{key}:</span> {truncated}
-                                      </span>
-                                    );
-                                  });
-                                })()}
-                                {Object.keys(submission.submission_data || {}).length > 3 && (
-                                  <span className="text-slate-400">+{Object.keys(submission.submission_data).length - 3} more</span>
-                                )}
-                              </div>
-                            )}
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <Link to={`/FormSubmission/${submission.id}`}>
+                            <Link to={`/FormSubmission/${submission.id}?from=org&orgId=${organization.id}`}>
                               <Button
                                 variant="outline"
                                 size="sm"

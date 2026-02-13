@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -19,10 +19,16 @@ const SUBMISSION_STATUSES = [
 
 export default function FormSubmissionView() {
   const { submissionId } = useParams();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [expandedSections, setExpandedSections] = useState({});
   const [editField, setEditField] = useState(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+
+  const fromOrg = searchParams.get('from') === 'org';
+  const orgId = searchParams.get('orgId');
+  const backPath = fromOrg && orgId ? `/organisations?selected=${orgId}` : '/FormSubmissions';
+  const backLabel = fromOrg ? 'Back to Organisation' : 'Back to Submissions';
 
   const { data: submission, isLoading: submissionLoading, error: submissionError } = useQuery({
     queryKey: ['form-submission', submissionId],
@@ -94,10 +100,10 @@ export default function FormSubmissionView() {
               <p className="text-slate-600 dark:text-slate-400 mb-4">
                 The form submission you're looking for doesn't exist or you don't have access to it.
               </p>
-              <Link to="/FormSubmissions">
+              <Link to={backPath}>
                 <Button variant="outline">
                   <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to Submissions
+                  {backLabel}
                 </Button>
               </Link>
             </CardContent>
@@ -245,10 +251,10 @@ export default function FormSubmissionView() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
-          <Link to="/FormSubmissions">
+          <Link to={backPath}>
             <Button variant="ghost" size="sm" className="mb-4" data-testid="button-back">
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Submissions
+              {backLabel}
             </Button>
           </Link>
           

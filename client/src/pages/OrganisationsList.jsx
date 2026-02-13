@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,8 +92,10 @@ export default function OrganisationsListPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [accessChecked, setAccessChecked] = useState(false);
   const lastLoadedSlugRef = useRef(undefined);
+  const autoSelectHandledRef = useRef(false);
   
   const [viewMode, setViewMode] = useState('list');
   const [searchQuery, setSearchQuery] = useState('');
@@ -179,6 +182,19 @@ export default function OrganisationsListPage() {
       }
     }
   }, [organizations, selectedOrg, orgsLoading]);
+
+  useEffect(() => {
+    if (autoSelectHandledRef.current || orgsLoading || organizations.length === 0) return;
+    const selectedId = searchParams.get('selected');
+    if (selectedId) {
+      const org = organizations.find(o => o.id === selectedId);
+      if (org) {
+        setSelectedOrg(org);
+      }
+      autoSelectHandledRef.current = true;
+      setSearchParams({}, { replace: true });
+    }
+  }, [organizations, orgsLoading, searchParams, setSearchParams]);
 
   const { data: members = [] } = useQuery({
     queryKey: ['all-members-for-org-list'],
