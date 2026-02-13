@@ -125,6 +125,7 @@ export default function PostJobPage() {
   const [isEditMode, setIsEditMode] = useState(!!editJobId);
   const [editJobLoaded, setEditJobLoaded] = useState(false);
   const isEditRef = useRef(!!editJobId);
+  const editDataRef = useRef(null);
 
   const [step, setStep] = useState('email'); // 'email', 'form', 'submitting'
   const [email, setEmail] = useState('');
@@ -394,7 +395,7 @@ export default function PostJobPage() {
         try {
           console.log('[PostJob] Fetching job for edit:', editJobId);
           const job = await base44.entities.JobPosting.get(editJobId);
-          console.log('[PostJob] Fetched job:', job ? job.title : 'null/undefined', 'keys:', job ? Object.keys(job) : 'N/A');
+          console.log('[PostJob] Fetched job:', job ? job.title : 'null/undefined');
           if (job) {
             const newFormData = {
               title: job.title || '',
@@ -413,15 +414,15 @@ export default function PostJobPage() {
               attachment_names: job.attachment_names || [],
               posting_organization_id: job.posting_organization_id || null
             };
-            console.log('[PostJob] Setting formData to:', JSON.stringify(newFormData, null, 2));
-            setFormData(newFormData);
+            editDataRef.current = newFormData;
+            setFormData(() => newFormData);
             setIsEditMode(true);
             isEditRef.current = true;
             setEditJobLoaded(true);
             setStep('form');
             setIsLoggedIn(true);
             setAgreedToTerms(true);
-            console.log('[PostJob] Edit mode setup complete');
+            console.log('[PostJob] Edit mode setup complete, title:', newFormData.title);
           } else {
             console.error('[PostJob] Job not found for editJobId:', editJobId);
           }
@@ -771,6 +772,14 @@ export default function PostJobPage() {
     }, 1500);
   };
 
+  // Recovery: if edit data was fetched but formData is empty, restore from ref
+  useEffect(() => {
+    if (editDataRef.current && editJobLoaded && !formData.title) {
+      console.log('[PostJob] RECOVERY: formData was reset, restoring from editDataRef');
+      setFormData(() => ({ ...editDataRef.current }));
+    }
+  });
+
   // PRIORITY CHECK: If member is logged in (via props or sessionStorage), skip email check
   // Only show email check form if NOT logged in AND step is 'email'
   if (!isLoggedIn && step === 'email') {
@@ -851,7 +860,7 @@ export default function PostJobPage() {
           <CardContent>
             {isEditMode && (
               <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                <strong>DEBUG:</strong> title="{formData.title}" | company="{formData.company_name}" | location="{formData.location}" | editJobLoaded={String(editJobLoaded)}
+                <strong>DEBUG:</strong> title="{formData.title}" | company="{formData.company_name}" | location="{formData.location}" | editJobLoaded={String(editJobLoaded)} | refTitle="{editDataRef.current?.title || 'null'}"
               </div>
             )}
             <form onSubmit={handleSubmit} className="space-y-6">
