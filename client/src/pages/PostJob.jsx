@@ -124,6 +124,7 @@ export default function PostJobPage() {
 
   const [isEditMode, setIsEditMode] = useState(!!editJobId);
   const [editJobLoaded, setEditJobLoaded] = useState(false);
+  const [editLoadError, setEditLoadError] = useState(null);
   const isEditRef = useRef(!!editJobId);
   const editDataRef = useRef(null);
 
@@ -331,7 +332,6 @@ export default function PostJobPage() {
 
   // Initialize from props (portal mode) or sessionStorage (public mode)
   useEffect(() => {
-    console.log('[PostJob] Member init effect running. isEditRef:', isEditRef.current, 'editJobId:', editJobId, 'memberInfo:', !!memberInfo);
     if (memberInfo) {
       setIsLoggedIn(true);
       setIsMember(true);
@@ -339,7 +339,6 @@ export default function PostJobPage() {
       setStep('form');
 
       if (!isEditRef.current) {
-        console.log('[PostJob] Not in edit mode, setting default form data from member/org');
         setFormData((prev) => ({
           ...prev,
           company_name: organizationInfo?.name || '',
@@ -349,8 +348,6 @@ export default function PostJobPage() {
           hours: hoursSettings[0] || ''
         }));
         setSelectedOrganization(null);
-      } else {
-        console.log('[PostJob] In edit mode, skipping default form data');
       }
     } else {
       const member = localStorage.getItem('agcas_member');
@@ -389,13 +386,10 @@ export default function PostJobPage() {
   }, [memberInfo, organizationInfo, jobTypeSettings, hoursSettings]);
 
   useEffect(() => {
-    console.log('[PostJob] Edit fetch effect running. editJobId:', editJobId);
     if (editJobId) {
       const fetchJobForEdit = async () => {
         try {
-          console.log('[PostJob] Fetching job for edit:', editJobId);
           const job = await base44.entities.JobPosting.get(editJobId);
-          console.log('[PostJob] Fetched job:', job ? job.title : 'null/undefined');
           if (job) {
             const newFormData = {
               title: job.title || '',
@@ -422,13 +416,14 @@ export default function PostJobPage() {
             setStep('form');
             setIsLoggedIn(true);
             setAgreedToTerms(true);
-            console.log('[PostJob] Edit mode setup complete, title:', newFormData.title);
           } else {
-            console.error('[PostJob] Job not found for editJobId:', editJobId);
+            setEditLoadError('Job posting not found.');
+            setEditJobLoaded(true);
           }
         } catch (error) {
-          console.error('[PostJob] Failed to fetch job for editing:', error);
-          toast.error('Failed to load job posting for editing');
+          console.error('Failed to fetch job for editing:', error);
+          setEditLoadError('Failed to load job posting.');
+          setEditJobLoaded(true);
         }
       };
       fetchJobForEdit();
@@ -775,10 +770,34 @@ export default function PostJobPage() {
   // Recovery: if edit data was fetched but formData is empty, restore from ref
   useEffect(() => {
     if (editDataRef.current && editJobLoaded && !formData.title) {
-      console.log('[PostJob] RECOVERY: formData was reset, restoring from editDataRef');
       setFormData(() => ({ ...editDataRef.current }));
     }
   });
+
+  if (editJobId && (!editJobLoaded || editLoadError)) {
+    return (
+      <div className="bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center min-h-[400px] px-4">
+        <Card className="max-w-md w-full border-slate-200 shadow-xl">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            {editLoadError ? (
+              <>
+                <AlertCircle className="w-10 h-10 text-red-500 mb-4" />
+                <p className="text-slate-700 text-sm font-medium mb-4">{editLoadError}</p>
+                {returnTo && (
+                  <a href={returnTo} className="text-blue-600 hover:underline text-sm">Go back</a>
+                )}
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+                <p className="text-slate-600 text-sm font-medium">Loading job posting...</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // PRIORITY CHECK: If member is logged in (via props or sessionStorage), skip email check
   // Only show email check form if NOT logged in AND step is 'email'
@@ -858,11 +877,6 @@ export default function PostJobPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {isEditMode && (
-              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                <strong>DEBUG:</strong> title="{formData.title}" | company="{formData.company_name}" | location="{formData.location}" | editJobLoaded={String(editJobLoaded)} | refTitle="{editDataRef.current?.title || 'null'}"
-              </div>
-            )}
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="title">Job Title *</Label>
