@@ -188,6 +188,47 @@ export default async function handler(req, res) {
 
     const currencySymbol = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' }[currency] || currency;
 
+    const breakdownRows = [];
+
+    if (costBreakdown.annualCostBeforeDiscounts != null && costBreakdown.annualCostBeforeDiscounts !== finalCost) {
+      breakdownRows.push({ label: 'Annual Membership Fee', value: `${currencySymbol}${parseFloat(costBreakdown.annualCostBeforeDiscounts).toFixed(2)}` });
+    } else if (costBreakdown.annualCost != null) {
+      breakdownRows.push({ label: 'Annual Membership Fee', value: `${currencySymbol}${parseFloat(costBreakdown.annualCost).toFixed(2)}` });
+    }
+
+    if (costBreakdown.customDiscountDetails && costBreakdown.customDiscountDetails.length > 0) {
+      costBreakdown.customDiscountDetails.forEach(d => {
+        breakdownRows.push({ label: `Discount: ${d.label || d.ruleName || 'Custom'}`, value: `-${currencySymbol}${parseFloat(d.amount || 0).toFixed(2)}`, isDiscount: true });
+      });
+    } else if (costBreakdown.customDiscountTotal > 0) {
+      breakdownRows.push({ label: 'Discounts', value: `-${currencySymbol}${parseFloat(costBreakdown.customDiscountTotal).toFixed(2)}`, isDiscount: true });
+    }
+
+    if (costBreakdown.proRataEnabled && costBreakdown.prorataDays != null) {
+      const prorataCostVal = parseFloat(costBreakdown.prorataCost || 0);
+      breakdownRows.push({ label: `Pro-rata (${costBreakdown.prorataDays} days)`, value: `${currencySymbol}${prorataCostVal.toFixed(2)}` });
+    }
+
+    if (costBreakdown.freeDiscount > 0) {
+      breakdownRows.push({ label: `Free period (${costBreakdown.freePeriodDaysApplied || 0} days)`, value: `-${currencySymbol}${parseFloat(costBreakdown.freeDiscount).toFixed(2)}`, isDiscount: true });
+    }
+
+    if (costBreakdown.rolloverDiscount > 0) {
+      breakdownRows.push({ label: 'Rollover credit', value: `-${currencySymbol}${parseFloat(costBreakdown.rolloverDiscount).toFixed(2)}`, isDiscount: true });
+    }
+
+    if (costBreakdown.overrideType) {
+      const overrideLabels = { structure: 'Structure Override', manual_price: 'Manual Price Override', discount: 'Discount Override' };
+      breakdownRows.push({ label: overrideLabels[costBreakdown.overrideType] || 'Override', value: 'Applied', isNote: true });
+    }
+
+    const breakdownHtml = breakdownRows.map(row => `
+      <tr>
+        <td style="padding: 4px 0; color: ${row.isDiscount ? '#16a34a' : '#666'};">${row.label}</td>
+        <td style="padding: 4px 0; text-align: right; font-weight: 600; color: ${row.isDiscount ? '#16a34a' : row.isNote ? '#888' : 'inherit'};">${row.value}</td>
+      </tr>
+    `).join('');
+
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         ${tenant?.logo_url ? `<div style="text-align: center; padding: 20px 0;"><img src="${tenant.logo_url}" alt="${tenantName}" style="max-height: 60px;" /></div>` : ''}
@@ -201,8 +242,12 @@ export default async function handler(req, res) {
                 <td style="padding: 4px 0; color: #666;">Tier</td>
                 <td style="padding: 4px 0; text-align: right; font-weight: 600;">${tierLabel || 'Standard'}</td>
               </tr>
+              ${breakdownHtml}
               <tr>
-                <td style="padding: 4px 0; color: #666;">Total Fee</td>
+                <td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #333; font-weight: 600;">Total Due</td>
                 <td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${currencySymbol}${finalCost.toFixed(2)}</td>
               </tr>
             </table>

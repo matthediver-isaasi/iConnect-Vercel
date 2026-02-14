@@ -129,12 +129,30 @@ export default async function handler(req, res) {
         }
 
         try {
-          await supabase
+          const { data: existingInvoicing } = await supabase
             .from('organisation_membership_invoicing')
-            .update({ purchase_order_number: poNumber.trim() })
+            .select('id')
             .eq('tenant_id', feeToken.tenant_id)
             .eq('organization_id', feeToken.organization_id)
-            .eq('membership_year', feeToken.membership_year);
+            .eq('membership_year', feeToken.membership_year)
+            .maybeSingle();
+
+          if (existingInvoicing) {
+            await supabase
+              .from('organisation_membership_invoicing')
+              .update({ purchase_order_number: poNumber.trim(), updated_at: new Date().toISOString() })
+              .eq('id', existingInvoicing.id);
+          } else {
+            await supabase
+              .from('organisation_membership_invoicing')
+              .insert({
+                tenant_id: feeToken.tenant_id,
+                organization_id: feeToken.organization_id,
+                membership_year: feeToken.membership_year,
+                invoicing_mode: 'manual',
+                purchase_order_number: poNumber.trim(),
+              });
+          }
         } catch {}
 
         try {
