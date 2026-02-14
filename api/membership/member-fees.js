@@ -57,18 +57,10 @@ export default async function handler(req, res) {
 
       let stripePublishableKey = null;
       try {
-        const { data: integration } = await supabase
-          .from('tenant_integrations')
-          .select('credentials, is_enabled')
-          .eq('tenant_id', tenantId)
-          .eq('integration_type', 'stripe')
-          .single();
-
-        if (integration?.is_enabled && integration?.credentials?.publishable_key) {
-          const pk = integration.credentials.publishable_key;
-          if (pk.startsWith('pk_')) {
-            stripePublishableKey = pk;
-          }
+        const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
+        const creds = await getStripeCredentials(tenantId);
+        if (creds?.is_enabled && creds?.publishable_key) {
+          stripePublishableKey = creds.publishable_key;
         }
       } catch {}
 
