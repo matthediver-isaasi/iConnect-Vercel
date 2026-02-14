@@ -24,7 +24,7 @@ The application is deployed on Vercel, using `iconn.app` for tenant owner manage
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
 -   **Content Management:** Event/booking management, general content management, dynamic page builder, custom forms with conditional logic, and blog posts.
 -   **Communication:** Email template placeholder system and communication preferences.
--   **Workflow Automation:** Tenant-scoped workflows for automating actions like sending emails, updating fields, creating contracts, and creating memberships, including a Due Diligence process. The `create_membership` action incorporates go_live-aware discount logic.
+-   **Workflow Automation:** Tenant-scoped workflows for automating actions like sending emails, updating fields, creating contracts, and creating memberships, including a Due Diligence process. The `create_membership` action uses the shared `simulateMembershipForOrg()` function from `membershipSimulation.js` for all cost calculations (both dry-run and live paths), eliminating duplicate logic. The cron job (`process-membership-renewals.js`) still has its own calculation logic — flagged for future consolidation.
 -   **Branding & Customization:** Per-tenant branding for public-facing pages and embeddable forms.
 -   **Data Management:** Server-side pagination and a robust data migration system.
 -   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant.
