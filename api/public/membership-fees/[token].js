@@ -120,8 +120,20 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to save purchase order number' });
         }
 
+        let poSyncWarning = null;
         try {
-          const { data: existingInvoicing } = await supabase
+          try {
+            await supabase.rpc('exec_sql', {
+              sql_text: `
+                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
+                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS membership_year TEXT;
+              `
+            });
+          } catch (colErr) {
+            console.warn('[Public Fee] exec_sql unavailable for column ensure:', colErr?.message || colErr);
+          }
+
+          const { data: existingInvoicing, error: lookupErr } = await supabase
             .from('organisation_membership_invoicing')
             .select('id')
             .eq('tenant_id', feeToken.tenant_id)
@@ -129,13 +141,20 @@ export default async function handler(req, res) {
             .eq('membership_year', feeToken.membership_year)
             .maybeSingle();
 
-          if (existingInvoicing) {
-            await supabase
+          if (lookupErr) {
+            console.error('[Public Fee] Error looking up invoicing row:', lookupErr);
+            poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab. The admin may need to add the purchase_order_number column manually.';
+          } else if (existingInvoicing) {
+            const { error: updErr } = await supabase
               .from('organisation_membership_invoicing')
               .update({ purchase_order_number: poNumber.trim(), updated_at: new Date().toISOString() })
               .eq('id', existingInvoicing.id);
+            if (updErr) {
+              console.error('[Public Fee] Error updating PO on invoicing row:', updErr);
+              poSyncWarning = 'PO number saved on token but failed to sync to admin invoicing tab.';
+            }
           } else {
-            await supabase
+            const { error: insErr } = await supabase
               .from('organisation_membership_invoicing')
               .insert({
                 tenant_id: feeToken.tenant_id,
@@ -144,8 +163,15 @@ export default async function handler(req, res) {
                 invoicing_mode: 'manual',
                 purchase_order_number: poNumber.trim(),
               });
+            if (insErr) {
+              console.error('[Public Fee] Error inserting invoicing row with PO:', insErr);
+              poSyncWarning = 'PO number saved on token but failed to sync to admin invoicing tab.';
+            }
           }
-        } catch {}
+        } catch (syncErr) {
+          console.error('[Public Fee] Error syncing PO to invoicing:', syncErr);
+          poSyncWarning = 'PO number saved on token but could not sync to admin invoicing tab.';
+        }
 
         try {
           await supabase.from('organization_note').insert({
@@ -156,10 +182,12 @@ export default async function handler(req, res) {
           });
         } catch {}
 
-        return res.json({
+        const response = {
           success: true,
           message: 'Purchase order number submitted successfully',
-        });
+        };
+        if (poSyncWarning) response.warning = poSyncWarning;
+        return res.json(response);
       }
 
       if (action === 'create_payment') {
@@ -173,6 +201,12 @@ export default async function handler(req, res) {
 
         const stripe = new Stripe(stripeCredentials.secret_key);
         const amount = Math.round(parseFloat(feeToken.final_cost) * 100);
+        const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
+        const cur = (feeToken.currency || 'GBP').toLowerCase();
+        const minCents = STRIPE_MIN_CENTS[cur] || 50;
+        if (amount < minCents) {
+          return res.status(400).json({ error: `Amount is below the minimum charge for ${cur.toUpperCase()}` });
+        }
 
         const { data: org } = await supabase
           .from('organization')

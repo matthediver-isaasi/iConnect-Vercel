@@ -16,6 +16,13 @@ function formatCurrency(amount, currency) {
   return `${symbol}${parseFloat(amount || 0).toFixed(2)}`;
 }
 
+const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
+
+function isBelowStripeMinimum(amount, currency) {
+  const min = STRIPE_MINIMUMS[currency] || 0.50;
+  return parseFloat(amount || 0) < min;
+}
+
 export default function MembershipFees() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
 
@@ -101,6 +108,7 @@ export default function MembershipFees() {
 
   const initStripe = async () => {
     if (!data?.stripePublishableKey) return;
+    if (isBelowStripeMinimum(data?.finalCost, data?.currency)) return;
     setCreatingPayment(true);
     setPaymentError(null);
 
@@ -402,12 +410,18 @@ export default function MembershipFees() {
           <CardContent>
             {paymentMode !== 'stripe' ? (
               <>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Pay your membership fee immediately by card. Your membership will be activated once payment is confirmed.
-                </p>
+                {isBelowStripeMinimum(data?.finalCost, data?.currency) ? (
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Online payment is not available as the amount is below the minimum that can be processed by card ({formatCurrency(STRIPE_MINIMUMS[data?.currency] || 0.50, data?.currency)}).
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Pay your membership fee immediately by card. Your membership will be activated once payment is confirmed.
+                  </p>
+                )}
                 <Button
                   onClick={initStripe}
-                  disabled={creatingPayment}
+                  disabled={creatingPayment || isBelowStripeMinimum(data?.finalCost, data?.currency)}
                   className="w-full"
                   data-testid="button-portal-pay-now"
                 >

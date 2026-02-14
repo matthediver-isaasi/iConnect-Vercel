@@ -198,6 +198,11 @@ export default async function handler(req, res) {
         const stripe = new Stripe(stripeCredentials.secret_key);
         const amount = Math.round(simResult.finalCost * 100);
         const currency = (simResult.currency || 'GBP').toLowerCase();
+        const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
+        const minCents = STRIPE_MIN_CENTS[currency] || 50;
+        if (amount < minCents) {
+          return res.status(400).json({ error: `Amount is below the minimum charge for ${currency.toUpperCase()}` });
+        }
 
         const { data: org } = await supabase
           .from('organization')
