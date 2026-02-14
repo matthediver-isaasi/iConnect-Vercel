@@ -870,9 +870,51 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       };
     }
 
+    const targetYearLabel = simResult.membershipYear.label;
+    const { data: invoicingSetting } = await supabase
+      .from('organisation_membership_invoicing')
+      .select('invoicing_mode, invoice_date')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .eq('membership_year', targetYearLabel)
+      .maybeSingle();
+
+    let fallbackSetting = null;
+    if (!invoicingSetting) {
+      const { data: legacySetting } = await supabase
+        .from('organisation_membership_invoicing')
+        .select('invoicing_mode, invoice_date')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .is('membership_year', null)
+        .maybeSingle();
+      fallbackSetting = legacySetting;
+    }
+
+    const effectiveInvoicingMode = invoicingSetting?.invoicing_mode || fallbackSetting?.invoicing_mode || 'automatic';
+
+    if (effectiveInvoicingMode === 'manual') {
+      console.log(`[Workflows] Skipping create_membership for org ${organizationId} - invoicing mode is manual for ${targetYearLabel}`);
+      return {
+        action_type: 'create_membership',
+        status: 'skipped',
+        message: `Invoicing is set to manual for ${targetYearLabel}. Use the admin UI "Renew & Invoice Now" button to create the record.`,
+      };
+    }
+
+    if (effectiveInvoicingMode === 'scheduled') {
+      const invoiceDate = invoicingSetting?.invoice_date || fallbackSetting?.invoice_date || null;
+      console.log(`[Workflows] Skipping create_membership for org ${organizationId} - invoicing mode is scheduled for ${targetYearLabel} (invoice date: ${invoiceDate})`);
+      return {
+        action_type: 'create_membership',
+        status: 'skipped',
+        message: `Invoicing is set to scheduled for ${targetYearLabel}${invoiceDate ? ` (invoice date: ${invoiceDate})` : ''}. The scheduled renewal job will process this automatically.`,
+      };
+    }
+
     if (simResult.existingRecord) {
-      console.log(`[Workflows] Membership record for ${simResult.membershipYear.label} already exists for org ${organizationId}`);
-      return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${simResult.membershipYear.label} already exists` };
+      console.log(`[Workflows] Membership record for ${targetYearLabel} already exists for org ${organizationId}`);
+      return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${targetYearLabel} already exists` };
     }
 
     const vatRate = simResult.matchedBand?.vat_rate !== null && simResult.matchedBand?.vat_rate !== undefined
