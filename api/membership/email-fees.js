@@ -6,6 +6,54 @@ import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
+let tokenTableEnsured = false;
+async function ensureTokenTable() {
+  if (tokenTableEnsured) return;
+  try {
+    const { error: checkError } = await supabase
+      .from('membership_fee_token')
+      .select('id')
+      .limit(1);
+
+    if (!checkError) {
+      tokenTableEnsured = true;
+      return;
+    }
+
+    if (checkError.code === '42P01') {
+      await supabase.rpc('exec_sql', {
+        sql_text: `
+          CREATE TABLE IF NOT EXISTS membership_fee_token (
+            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+            token TEXT NOT NULL UNIQUE,
+            tenant_id UUID NOT NULL,
+            organization_id UUID NOT NULL,
+            membership_year TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'po_submitted', 'paid', 'expired', 'cancelled')),
+            final_cost NUMERIC(12, 2),
+            currency TEXT DEFAULT 'GBP',
+            tier_label TEXT,
+            cost_breakdown JSONB,
+            po_number TEXT,
+            stripe_payment_intent_id TEXT,
+            stripe_client_secret TEXT,
+            recipient_email TEXT,
+            expires_at TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_membership_fee_token_token ON membership_fee_token(token);
+          CREATE INDEX IF NOT EXISTS idx_membership_fee_token_tenant_org ON membership_fee_token(tenant_id, organization_id, membership_year);
+        `
+      });
+    }
+    tokenTableEnsured = true;
+  } catch (err) {
+    console.error('[Email Fees] Error ensuring token table:', err.message);
+    tokenTableEnsured = true;
+  }
+}
+
 export default async function handler(req, res) {
   if (!supabase) {
     return res.status(500).json({ error: 'Database not configured' });
@@ -105,6 +153,8 @@ export default async function handler(req, res) {
         .maybeSingle();
       poNumber = invoicingSetting?.purchase_order_number || null;
     } catch {}
+
+    await ensureTokenTable();
 
     const { error: tokenError } = await supabase
       .from('membership_fee_token')
