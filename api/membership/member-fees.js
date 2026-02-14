@@ -144,7 +144,7 @@ export default async function handler(req, res) {
         if (existing) {
           await supabase
             .from('organisation_membership_invoicing')
-            .update({ purchase_order_number: poNumber.trim() })
+            .update({ purchase_order_number: poNumber.trim(), po_source: 'member' })
             .eq('id', existing.id);
         } else {
           await supabase
@@ -155,6 +155,7 @@ export default async function handler(req, res) {
               membership_year: targetYear,
               invoicing_mode: 'automatic',
               purchase_order_number: poNumber.trim(),
+              po_source: 'member',
             });
         }
 

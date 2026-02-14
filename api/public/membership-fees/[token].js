@@ -127,6 +127,7 @@ export default async function handler(req, res) {
               sql_text: `
                 ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
                 ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS membership_year TEXT;
+                ALTER TABLE organisation_membership_invoicing ADD COLUMN IF NOT EXISTS po_source TEXT;
               `
             });
           } catch (colErr) {
@@ -147,7 +148,7 @@ export default async function handler(req, res) {
           } else if (existingInvoicing) {
             const { error: updErr } = await supabase
               .from('organisation_membership_invoicing')
-              .update({ purchase_order_number: poNumber.trim(), updated_at: new Date().toISOString() })
+              .update({ purchase_order_number: poNumber.trim(), po_source: 'member', updated_at: new Date().toISOString() })
               .eq('id', existingInvoicing.id);
             if (updErr) {
               console.error('[Public Fee] Error updating PO on invoicing row:', updErr);
@@ -162,6 +163,7 @@ export default async function handler(req, res) {
                 membership_year: feeToken.membership_year,
                 invoicing_mode: 'manual',
                 purchase_order_number: poNumber.trim(),
+                po_source: 'member',
               });
             if (insErr) {
               console.error('[Public Fee] Error inserting invoicing row with PO:', insErr);

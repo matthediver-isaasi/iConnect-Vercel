@@ -39,7 +39,7 @@ async function handleGet(req, res, tenantId) {
   }
 
   try {
-    await ensureMembershipYearColumn();
+    await ensureColumns();
 
     const { data, error } = await supabase
       .from('organisation_membership_invoicing')
@@ -63,29 +63,11 @@ async function handleGet(req, res, tenantId) {
           invoicing_mode: row.invoicing_mode,
           invoice_date: row.invoice_date,
           purchase_order_number: row.purchase_order_number || null,
-          po_supplied_by_member: false,
+          po_supplied_by_member: row.po_source === 'member',
           id: row.id,
         };
       }
     }
-
-    try {
-      const { data: feeTokens } = await supabase
-        .from('membership_fee_token')
-        .select('membership_year, po_number')
-        .eq('tenant_id', tenantId)
-        .eq('organization_id', organizationId)
-        .not('po_number', 'is', null);
-
-      if (feeTokens) {
-        for (const token of feeTokens) {
-          const key = token.membership_year || '_legacy';
-          if (settings[key] && token.po_number) {
-            settings[key].po_supplied_by_member = true;
-          }
-        }
-      }
-    } catch {}
 
     return res.json({ settings });
   } catch (err) {
@@ -95,13 +77,17 @@ async function handleGet(req, res, tenantId) {
 }
 
 let columnEnsured = false;
-async function ensureMembershipYearColumn() {
+async function ensureColumns() {
   if (columnEnsured) return;
   try {
     await supabase.rpc('exec_sql', {
       sql_text: `
         ALTER TABLE organisation_membership_invoicing 
         ADD COLUMN IF NOT EXISTS membership_year TEXT;
+        ALTER TABLE organisation_membership_invoicing 
+        ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
+        ALTER TABLE organisation_membership_invoicing 
+        ADD COLUMN IF NOT EXISTS po_source TEXT;
       `
     });
     columnEnsured = true;
@@ -152,7 +138,7 @@ async function handlePut(req, res, tenantId, tenantContext) {
     return res.status(404).json({ error: 'Organisation not found' });
   }
 
-  await ensureMembershipYearColumn();
+  await ensureColumns();
 
   const { data: existing } = await supabase
     .from('organisation_membership_invoicing')
