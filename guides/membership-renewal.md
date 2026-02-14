@@ -15,13 +15,14 @@
 5. [Override System](#override-system)
 6. [Invoicing Modes](#invoicing-modes)
 7. [The Three Renewal Paths](#the-three-renewal-paths)
-8. [Safeguards and Duplicate Prevention](#safeguards-and-duplicate-prevention)
-9. [Frontend UI — Organisation Membership Tab](#frontend-ui--organisation-membership-tab)
-10. [Database Tables](#database-tables)
-11. [Data Flow Diagrams](#data-flow-diagrams)
-12. [Xero Integration](#xero-integration)
-13. [Configuration Reference](#configuration-reference)
-14. [Troubleshooting](#troubleshooting)
+8. [Record Fee](#record-fee)
+9. [Safeguards and Duplicate Prevention](#safeguards-and-duplicate-prevention)
+10. [Frontend UI — Organisation Membership Tab](#frontend-ui--organisation-membership-tab)
+11. [Database Tables](#database-tables)
+12. [Data Flow Diagrams](#data-flow-diagrams)
+13. [Xero Integration](#xero-integration)
+14. [Configuration Reference](#configuration-reference)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -369,6 +370,55 @@ The `membership_year` column in `organisation_membership_invoicing` was added la
 
 ---
 
+## Record Fee
+
+### Purpose
+
+The Record Fee button allows an admin to manually capture the current year's calculated membership cost as a history record — **without generating a Xero invoice**. This is distinct from the three renewal paths described above, which are all part of the invoicing lifecycle.
+
+### How It Works
+
+1. Admin clicks "Record {year} Fee" button on the current year card
+2. The frontend sends a POST to `/api/membership/org-membership` with `{ organizationId, membershipYear }`
+3. The backend runs the simulation to calculate the current cost (including any active overrides)
+4. The simulation result's **final cost** is saved as a `organisation_membership_history` record
+5. No Xero invoice is generated
+
+### What Gets Recorded
+
+The recorded fee is the **final cost shown on the year card** at the time the button is clicked. This means:
+
+- If a **structure override** is active, the recorded cost reflects the alternative tier/band pricing
+- If a **manual price override** is set, the recorded cost is exactly that manual price
+- If a **discount override** is active, the recorded cost reflects the overridden discount
+- If **no override** is active, the recorded cost reflects the standard tier calculation with any custom discounts, pro-rata, and free period adjustments
+
+### Record Fee vs Renew & Invoice Now
+
+| Aspect | Record Fee | Renew & Invoice Now |
+|--------|-----------|-------------------|
+| Creates history record | Yes | Yes |
+| Generates Xero invoice | No | Yes |
+| Appears on | Current year card only | Current year card only (when mode is Manual) |
+| Use case | Lock in the calculated cost without invoicing | Create record and send invoice immediately |
+
+### UI Behaviour After Recording
+
+Once a fee is recorded for the current year:
+
+- The **Record Fee button** is replaced by a badge showing "Recorded: {amount}"
+- The **Final Cost** label changes to "Recorded Cost"
+- The **entire invoicing section is hidden** (radio buttons, date picker, Save button, and Renew & Invoice Now button) — replaced by a message: "Fee recorded for {year} — invoicing controls hidden"
+- The **next year card is unaffected** — it continues to show all invoicing controls as normal
+
+### When to Use
+
+- When you want to lock in the cost calculation for the year before deciding how/when to invoice
+- When invoicing will be handled outside the platform (e.g. manually through Xero directly)
+- When you need a record of the agreed cost but don't want to trigger an automatic invoice
+
+---
+
 ## Safeguards and Duplicate Prevention
 
 We implement three layers of duplicate prevention to ensure a membership record is never created twice for the same year:
@@ -453,6 +503,7 @@ Each year card displays:
 - Invoicing mode changes are saved independently per year
 - The simulate button calls the backend with the year label and displays detailed steps in a panel
 - Override modal supports all three override types with configuration-specific forms
+- When a **fee has been recorded** for the current year (`currentYearRecorded` is truthy), the entire invoicing section (radio buttons, date picker, Save, Renew & Invoice Now) is hidden and replaced with a status message. The next year card is unaffected since it always passes `currentYearRecorded={null}`
 
 ### Mutations
 
@@ -461,7 +512,7 @@ Each year card displays:
 | `invoicingMutation` | `/api/membership/org-membership-invoicing` | PUT | Save invoicing mode/date |
 | `manualRenewalMutation` | `/api/membership/org-membership-invoicing` | POST | Trigger manual renewal |
 | `simulateRenewalMutation` | `/api/membership/org-membership-simulate` | POST | Run dry-run simulation |
-| `recordMutation` | `/api/membership/org-membership-record-fee` | POST | Record a one-off fee |
+| `recordMutation` | `/api/membership/org-membership` | POST | Record fee — saves the simulated cost as a history record without invoicing |
 | `removeOverrideMutation` | `/api/membership/org-membership-override` | DELETE | Remove an override |
 
 ### Cache Invalidation
