@@ -258,81 +258,93 @@ function YearCostSection({
         </p>
       )}
 
-      <Separator className="my-3" />
-      <div>
-        <p className="text-sm font-medium flex items-center gap-1 mb-2">
-          <FileText className="w-3 h-3" />
-          Invoicing
-        </p>
-        <RadioGroup
-          value={invoicingMode}
-          onValueChange={(val) => {
-            onInvoicingModeChange(val);
-          }}
-          className="space-y-2"
-          data-testid={`radio-invoicing-mode-${testIdPrefix}`}
-        >
-          <div className="flex items-start gap-2">
-            <RadioGroupItem value="automatic" id={`invoicing-automatic-${testIdPrefix}`} data-testid={`radio-invoicing-automatic-${testIdPrefix}`} className="mt-0.5" />
-            <div>
-              <Label htmlFor={`invoicing-automatic-${testIdPrefix}`} className="text-sm cursor-pointer">Automatic</Label>
-              <p className="text-xs text-muted-foreground">
-                {isNewOrg && testIdPrefix === 'current-year'
-                  ? 'Renew and invoice automatically when go-live date is set via workflow'
-                  : 'Renew and invoice automatically at start of membership schedule'}
-              </p>
-            </div>
+      {currentYearRecorded ? (
+        <>
+          <Separator className="my-3" />
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-invoicing-complete-${testIdPrefix}`}>
+            <FileText className="w-3 h-3" />
+            <span>Fee recorded for {yearData.membershipYear} — invoicing controls hidden</span>
           </div>
-          <div className="flex items-start gap-2">
-            <RadioGroupItem value="scheduled" id={`invoicing-scheduled-${testIdPrefix}`} data-testid={`radio-invoicing-scheduled-${testIdPrefix}`} className="mt-0.5" />
-            <div className="flex-1">
-              <Label htmlFor={`invoicing-scheduled-${testIdPrefix}`} className="text-sm cursor-pointer">Specify date</Label>
-              <p className="text-xs text-muted-foreground">Renew at schedule start, invoice on a specific date</p>
-              {invoicingMode === 'scheduled' && (
-                <Input
-                  type="date"
-                  value={invoiceDate}
-                  onChange={(e) => onInvoiceDateChange(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="mt-2 w-48"
-                  data-testid={`input-invoice-date-${testIdPrefix}`}
-                />
+        </>
+      ) : (
+        <>
+          <Separator className="my-3" />
+          <div>
+            <p className="text-sm font-medium flex items-center gap-1 mb-2">
+              <FileText className="w-3 h-3" />
+              Invoicing
+            </p>
+            <RadioGroup
+              value={invoicingMode}
+              onValueChange={(val) => {
+                onInvoicingModeChange(val);
+              }}
+              className="space-y-2"
+              data-testid={`radio-invoicing-mode-${testIdPrefix}`}
+            >
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="automatic" id={`invoicing-automatic-${testIdPrefix}`} data-testid={`radio-invoicing-automatic-${testIdPrefix}`} className="mt-0.5" />
+                <div>
+                  <Label htmlFor={`invoicing-automatic-${testIdPrefix}`} className="text-sm cursor-pointer">Automatic</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {isNewOrg && testIdPrefix === 'current-year'
+                      ? 'Renew and invoice automatically when go-live date is set via workflow'
+                      : 'Renew and invoice automatically at start of membership schedule'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="scheduled" id={`invoicing-scheduled-${testIdPrefix}`} data-testid={`radio-invoicing-scheduled-${testIdPrefix}`} className="mt-0.5" />
+                <div className="flex-1">
+                  <Label htmlFor={`invoicing-scheduled-${testIdPrefix}`} className="text-sm cursor-pointer">Specify date</Label>
+                  <p className="text-xs text-muted-foreground">Renew at schedule start, invoice on a specific date</p>
+                  {invoicingMode === 'scheduled' && (
+                    <Input
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => onInvoiceDateChange(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                      className="mt-2 w-48"
+                      data-testid={`input-invoice-date-${testIdPrefix}`}
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <RadioGroupItem value="manual" id={`invoicing-manual-${testIdPrefix}`} data-testid={`radio-invoicing-manual-${testIdPrefix}`} className="mt-0.5" />
+                <div>
+                  <Label htmlFor={`invoicing-manual-${testIdPrefix}`} className="text-sm cursor-pointer">Manual</Label>
+                  <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice when ready</p>
+                </div>
+              </div>
+            </RadioGroup>
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onSaveInvoicing}
+                disabled={invoicingSaving}
+                data-testid={`button-save-invoicing-${testIdPrefix}`}
+              >
+                {invoicingSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+                Save
+              </Button>
+              {invoicingMode === 'manual' && onManualRenewal && (
+                <Button
+                  size="sm"
+                  onClick={onManualRenewal}
+                  disabled={manualRenewalPending}
+                  data-testid={`button-renew-now-${testIdPrefix}`}
+                >
+                  {manualRenewalPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                  Renew &amp; Invoice Now
+                </Button>
               )}
             </div>
           </div>
-          <div className="flex items-start gap-2">
-            <RadioGroupItem value="manual" id={`invoicing-manual-${testIdPrefix}`} data-testid={`radio-invoicing-manual-${testIdPrefix}`} className="mt-0.5" />
-            <div>
-              <Label htmlFor={`invoicing-manual-${testIdPrefix}`} className="text-sm cursor-pointer">Manual</Label>
-              <p className="text-xs text-muted-foreground">Manually trigger renewal and invoice when ready</p>
-            </div>
-          </div>
-        </RadioGroup>
-
-        <div className="flex items-center gap-2 mt-3 flex-wrap">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onSaveInvoicing}
-            disabled={invoicingSaving}
-            data-testid={`button-save-invoicing-${testIdPrefix}`}
-          >
-            {invoicingSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
-            Save
-          </Button>
-          {invoicingMode === 'manual' && onManualRenewal && (
-            <Button
-              size="sm"
-              onClick={onManualRenewal}
-              disabled={manualRenewalPending}
-              data-testid={`button-renew-now-${testIdPrefix}`}
-            >
-              {manualRenewalPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-              Renew &amp; Invoice Now
-            </Button>
-          )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
