@@ -103,8 +103,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
-  const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, membershipYear, config) : 1;
-  const currentYearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
+  const assumedGoLiveDate = goLiveDate || new Date().toISOString().split('T')[0];
+  const yearNumber = determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
+  const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYear, config);
 
   if (goLiveDate) {
     let yearDesc;
@@ -113,7 +114,11 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     else yearDesc = `Year ${yearNumber} - established member, full annual fee`;
     log('Go-Live Date', `${goLiveDate} → membership year ${yearNumber}. ${yearDesc}`);
   } else {
-    log('Go-Live Date', 'Not set - treating as new member (year 1 logic applies)', goLiveFieldId ? 'warning' : 'info');
+    let yearDesc;
+    if (yearNumber === 1) yearDesc = 'First year - pro-rata and free period discounts apply';
+    else if (yearNumber === 2) yearDesc = 'Second year - free period spillover may apply';
+    else yearDesc = `Year ${yearNumber} - established member, full annual fee`;
+    log('Go-Live Date', `Not set - assuming today (${assumedGoLiveDate}) as go-live date → membership year ${yearNumber}. ${yearDesc}`, goLiveFieldId ? 'warning' : 'info');
   }
 
   const { data: existingRecord } = await supabase
