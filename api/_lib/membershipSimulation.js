@@ -123,7 +123,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   const { data: existingRecord } = await supabase
     .from('organisation_membership_history')
-    .select('id, membership_year, final_cost')
+    .select('id, membership_year, final_cost, xero_invoice_id')
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .eq('membership_year', membershipYear.label)

@@ -1,7 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { createXeroMembershipInvoice } from '../_lib/xero.js';
-import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
-import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
+import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -136,69 +135,73 @@ async function processTenantRenewals(tenantId, results) {
 
   if (!invoicingRows || invoicingRows.length === 0) return;
 
-  const goLiveFieldId = await getGoLiveFieldId(tenantId);
-  const configBandsCache = {};
-
   for (const invoicingSetting of invoicingRows) {
     const orgId = invoicingSetting.organization_id;
     const mode = invoicingSetting.invoicing_mode;
+    const targetYear = invoicingSetting.membership_year || null;
 
     try {
-      const config = await getConfigForOrganisation(tenantId, orgId);
-      if (!config) {
+      const simResult = await simulateMembershipForOrg(tenantId, orgId, {
+        source: 'cron',
+        mode,
+        targetYear,
+      });
+
+      if (!simResult.success) {
         results.skipped++;
-        results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: 'No matching tier config for this organisation' });
+        results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: simResult.error || 'Simulation failed' });
         continue;
       }
 
-      if (!configBandsCache[config.id]) {
-        configBandsCache[config.id] = await getBandsForConfig(config.id, tenantId);
+      if (!simResult.goLiveDate) {
+        results.skipped++;
+        results.details.push({
+          tenantId,
+          orgId,
+          orgName: simResult.org?.name || orgId,
+          mode,
+          status: 'skipped',
+          reason: 'No Go Live date set - organisation cannot be auto-renewed without a go-live date',
+        });
+        console.log(`[cron/process-membership-renewals] Skipped org ${simResult.org?.name || orgId}: no Go Live date`);
+        continue;
       }
-      const bands = configBandsCache[config.id];
 
-      const nextYear = calculateNextMembershipYear(config);
-      const yearStart = new Date(nextYear.start);
+      const membershipYear = simResult.membershipYear;
+      const yearStart = new Date(membershipYear.start);
       yearStart.setHours(0, 0, 0, 0);
       const renewalDue = today >= yearStart;
-
-      const { data: existing } = await supabase
-        .from('organisation_membership_history')
-        .select('id, xero_invoice_id')
-        .eq('tenant_id', tenantId)
-        .eq('organization_id', orgId)
-        .eq('membership_year', nextYear.label)
-        .maybeSingle();
 
       if (mode === 'automatic') {
         if (!renewalDue) {
           results.skipped++;
           continue;
         }
-        if (existing) {
+        if (simResult.existingRecord) {
           results.skipped++;
-          results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${nextYear.label} already exists` });
+          results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${membershipYear.label} already exists` });
           continue;
         }
-        await processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, true, goLiveFieldId, results);
+        await processOrgRenewal(tenantId, orgId, simResult, mode, true, results);
       } else if (mode === 'scheduled') {
-        if (!renewalDue && !existing) {
+        if (!renewalDue && !simResult.existingRecord) {
           results.skipped++;
           continue;
         }
 
-        if (!existing && renewalDue) {
+        if (!simResult.existingRecord && renewalDue) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          await processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, invoiceDue, goLiveFieldId, results);
-        } else if (existing && !existing.xero_invoice_id) {
+          await processOrgRenewal(tenantId, orgId, simResult, mode, invoiceDue, results);
+        } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
           if (invoiceDue) {
-            await invoiceExistingRecord(tenantId, orgId, existing.id, config, bands, nextYear, results);
+            await invoiceExistingRecord(tenantId, orgId, simResult, results);
           } else {
             results.skipped++;
           }
         } else {
           results.skipped++;
-          results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${nextYear.label} already exists with invoice` });
+          results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${membershipYear.label} already exists with invoice` });
         }
       }
     } catch (orgErr) {
@@ -216,28 +219,31 @@ function isInvoiceDateReached(invoicingSetting, today) {
   return today >= scheduledDate;
 }
 
-async function invoiceExistingRecord(tenantId, orgId, recordId, config, bands, nextYear, results) {
-  const { data: org } = await supabase
-    .from('organization')
-    .select('id, name, tenant_id')
-    .eq('id', orgId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
+  const existingRecord = simResult.existingRecord;
+  if (!existingRecord) return;
 
+  const org = simResult.org;
   if (!org) return;
 
   const { data: record } = await supabase
     .from('organisation_membership_history')
     .select('*')
-    .eq('id', recordId)
+    .eq('id', existingRecord.id)
     .single();
 
   if (!record) return;
 
-  let bandVatRate = null;
-  if (record.band_id) {
-    const band = bands.find(b => b.id === record.band_id);
-    bandVatRate = band?.vat_rate || null;
+  let bandVatRate = record.vat_rate || null;
+  if (!bandVatRate && record.band_id) {
+    try {
+      const { data: band } = await supabase
+        .from('membership_tier_band')
+        .select('vat_rate')
+        .eq('id', record.band_id)
+        .maybeSingle();
+      bandVatRate = band?.vat_rate || null;
+    } catch {}
   }
 
   let xeroInvoice = null;
@@ -260,7 +266,7 @@ async function invoiceExistingRecord(tenantId, orgId, recordId, config, bands, n
           xero_invoice_id: xeroInvoice.invoice_id,
           xero_invoice_number: xeroInvoice.invoice_number,
         })
-        .eq('id', recordId);
+        .eq('id', existingRecord.id);
     }
   } catch (xeroErr) {
     console.error(`[cron/process-membership-renewals] Scheduled Xero invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
@@ -298,14 +304,8 @@ async function invoiceExistingRecord(tenantId, orgId, recordId, config, bands, n
   console.log(`[cron/process-membership-renewals] Scheduled invoice: ${org.name} for ${record.membership_year}, cost: ${parseFloat(record.final_cost).toFixed(2)}, invoice: ${xeroInvoice?.invoice_number || 'none'}`);
 }
 
-async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode, createInvoice, goLiveFieldId, results) {
-  const { data: org } = await supabase
-    .from('organization')
-    .select('id, name, tenant_id')
-    .eq('id', orgId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-
+async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice, results) {
+  const org = simResult.org;
   if (!org) {
     results.skipped++;
     results.details.push({
@@ -318,100 +318,7 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
     return;
   }
 
-  const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(orgId, goLiveFieldId) : null;
-  const membershipYearNumber = determineMembershipYearNumber(goLiveDate, nextYear, config);
-
-  const fieldValue = await getOrgFieldValue(orgId, tenantId, config);
-  let matchedBand = matchBand(fieldValue, bands);
-  let annualCost = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
-  let tierLabel = matchedBand?.label || null;
-  let bandVatRate = matchedBand?.vat_rate || null;
-  let finalCost = annualCost;
-  let freeDiscount = 0;
-  let rolloverDiscount = 0;
-  let customDiscountTotal = 0;
-  let customDiscountDetails = [];
-  let usedConfigId = config.id;
-  let usedBandId = matchedBand?.id || null;
-
-  if (annualCost !== null) {
-    const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, orgId);
-    if (discountResult.discountDetails.length > 0) {
-      const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
-      customDiscountTotal = applied.totalDiscount;
-      customDiscountDetails = applied.appliedDiscounts;
-      annualCost = applied.discountedCost;
-      finalCost = annualCost;
-    }
-
-    if (membershipYearNumber === 1) {
-      freeDiscount = calculateFreePeriodDiscount(annualCost, config);
-      finalCost = annualCost - freeDiscount;
-    } else if (membershipYearNumber === 2 && config.rollover_enabled) {
-      rolloverDiscount = calculateRolloverDiscount(annualCost, config, goLiveDate);
-      finalCost = annualCost - rolloverDiscount;
-    }
-  }
-
-  let override = null;
-  try {
-    const yearLabel = nextYear?.label || null;
-    let overrideQuery = supabase
-      .from('organisation_membership_override')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', orgId);
-    if (yearLabel) {
-      overrideQuery = overrideQuery.or(`membership_year.eq.${yearLabel},membership_year.is.null`);
-    }
-    const { data: overrideRows } = await overrideQuery;
-    if (overrideRows && overrideRows.length > 0) {
-      override = overrideRows.find(o => o.membership_year === yearLabel) || overrideRows.find(o => !o.membership_year) || overrideRows[0];
-    }
-  } catch (err) {}
-
-  if (override) {
-    if (override.override_type === 'price' && override.manual_price !== null) {
-      annualCost = parseFloat(override.manual_price);
-      finalCost = annualCost;
-      freeDiscount = 0;
-      rolloverDiscount = 0;
-      customDiscountTotal = 0;
-      customDiscountDetails = [];
-    } else if (override.override_type === 'structure' && override.config_id) {
-      const overrideConfig = await getConfigById(override.config_id, tenantId);
-      if (overrideConfig) {
-        const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
-        const overrideBand = override.band_id
-          ? overrideBands.find(b => b.id === override.band_id)
-          : matchBand(fieldValue, overrideBands);
-
-        if (overrideBand) {
-          annualCost = parseFloat(overrideBand.annual_cost);
-          tierLabel = overrideBand.label;
-          bandVatRate = overrideBand.vat_rate || null;
-          freeDiscount = 0;
-          rolloverDiscount = 0;
-          usedConfigId = overrideConfig.id;
-          usedBandId = overrideBand.id;
-
-          const overrideDiscountResult = await evaluateDiscountsForOrg(overrideConfig.id, tenantId, orgId);
-          if (overrideDiscountResult.discountDetails.length > 0) {
-            const overrideApplied = applyDiscountsToAnnualCost(annualCost, overrideDiscountResult.discountDetails);
-            customDiscountTotal = overrideApplied.totalDiscount;
-            customDiscountDetails = overrideApplied.appliedDiscounts;
-            annualCost = overrideApplied.discountedCost;
-          } else {
-            customDiscountTotal = 0;
-            customDiscountDetails = [];
-          }
-          finalCost = annualCost;
-        }
-      }
-    }
-  }
-
-  if (annualCost === null) {
+  if (simResult.existingRecord) {
     results.skipped++;
     results.details.push({
       tenantId,
@@ -419,51 +326,78 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
       orgName: org.name,
       mode,
       status: 'skipped',
-      reason: 'No matching tier band',
+      reason: `Record for ${simResult.membershipYear.label} already exists (safety check in processOrgRenewal)`,
     });
+    console.log(`[cron/process-membership-renewals] DUPLICATE PREVENTION: Skipped ${org.name} - record for ${simResult.membershipYear.label} already exists`);
     return;
   }
+
+  const membershipYear = simResult.membershipYear;
+  const finalCost = simResult.finalCost;
+  const annualCost = simResult.annualCost;
+  const tierLabel = simResult.tierLabel;
+  const currency = simResult.currency;
+  const yearNumber = simResult.yearNumber;
+  const goLiveDate = simResult.goLiveDate;
+  const freeDiscount = simResult.freeDiscount || 0;
+  const rolloverDiscount = simResult.rolloverDiscount || 0;
+  const customDiscountTotal = simResult.customDiscountTotal || 0;
+  const customDiscountDetails = simResult.customDiscountDetails || [];
 
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
       tenant_id: tenantId,
       organization_id: orgId,
-      membership_year: nextYear.label,
-      config_id: usedConfigId,
-      band_id: usedBandId,
+      membership_year: membershipYear.label,
+      config_id: simResult.config.id,
+      band_id: simResult.matchedBand?.id || null,
       tier_label: tierLabel,
-      field_value: fieldValue,
+      field_value: simResult.fieldValue,
       annual_cost: annualCost,
-      prorata_cost: null,
+      prorata_cost: simResult.prorataCost,
       free_period_discount: freeDiscount,
       rollover_discount: rolloverDiscount,
       custom_discount_total: customDiscountTotal,
       custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
       final_cost: finalCost,
-      currency: config.currency || 'GBP',
-      billing_period: config.billing_period || 'annual',
+      currency: currency,
+      billing_period: simResult.billingPeriod || 'annual',
       status: 'active',
-      notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${membershipYearNumber}${goLiveDate ? ', go-live: ' + goLiveDate : ''})`,
+      notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, go-live: ${goLiveDate})`,
     })
     .select()
     .single();
 
   if (insertError) {
+    if (insertError.code === '23505') {
+      results.skipped++;
+      results.details.push({
+        tenantId,
+        orgId,
+        orgName: org.name,
+        mode,
+        status: 'skipped',
+        reason: `Duplicate record prevented by database constraint for ${membershipYear.label}`,
+      });
+      console.log(`[cron/process-membership-renewals] DB CONSTRAINT: Duplicate prevented for ${org.name} - ${membershipYear.label}`);
+      return;
+    }
     throw new Error(`Failed to create history record: ${insertError.message}`);
   }
 
   let xeroInvoice = null;
   if (createInvoice) {
     try {
+      const bandVatRate = simResult.matchedBand?.vat_rate || null;
       xeroInvoice = await createXeroMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
-        membershipYear: nextYear.label,
+        membershipYear: membershipYear.label,
         tierLabel,
         finalCost,
-        currency: config.currency || 'GBP',
-        reference: `Membership ${nextYear.label}`,
+        currency: currency,
+        reference: `Membership ${membershipYear.label}`,
         vatRate: bandVatRate,
       });
 
@@ -487,7 +421,7 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
 
   try {
     const modeLabel = mode === 'automatic' ? 'Automatic' : 'Scheduled';
-    let noteContent = `[Membership Renewal - ${modeLabel}] Membership renewed for ${nextYear.label}. Fee: ${config.currency || 'GBP'} ${finalCost.toFixed(2)}.`;
+    let noteContent = `[Membership Renewal - ${modeLabel}] Membership renewed for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}.`;
     if (createInvoice) {
       noteContent += xeroInvoice
         ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
@@ -515,8 +449,8 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
     mode,
     action: createInvoice ? 'renewed_and_invoiced' : 'renewed',
     status: 'processed',
-    membershipYear: nextYear.label,
-    membershipYearNumber,
+    membershipYear: membershipYear.label,
+    yearNumber,
     goLiveDate: goLiveDate || null,
     finalCost,
     freeDiscount,
@@ -524,212 +458,5 @@ async function processOrgRenewal(tenantId, orgId, config, bands, nextYear, mode,
     xeroInvoice: xeroInvoice?.invoice_number || null,
   });
 
-  console.log(`[cron/process-membership-renewals] Renewed: ${org.name} for ${nextYear.label} (year ${membershipYearNumber}), cost: ${finalCost.toFixed(2)}, free: ${freeDiscount.toFixed(2)}, rollover: ${rolloverDiscount.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
-}
-
-function calculateMembershipYear(config) {
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const yearStart = new Date(currentYear, startMonth - 1, startDay);
-
-  if (now < yearStart) {
-    return {
-      label: `${currentYear - 1}/${currentYear}`,
-      start: new Date(currentYear - 1, startMonth - 1, startDay),
-      end: new Date(currentYear, startMonth - 1, startDay - 1),
-    };
-  }
-  return {
-    label: `${currentYear}/${currentYear + 1}`,
-    start: yearStart,
-    end: new Date(currentYear + 1, startMonth - 1, startDay - 1),
-  };
-}
-
-function calculateNextMembershipYear(config) {
-  const current = calculateMembershipYear(config);
-  const nextStart = new Date(current.end);
-  nextStart.setDate(nextStart.getDate() + 1);
-  const startMonth = config.membership_start_month || 1;
-  const nextYear = nextStart.getFullYear();
-  return {
-    label: `${nextYear}/${nextYear + 1}`,
-    start: nextStart,
-    end: new Date(nextYear + 1, startMonth - 1, (config.membership_start_day || 1) - 1),
-  };
-}
-
-function calculateFreePeriodDiscount(annualCost, config) {
-  if (!config.free_period_amount || !config.free_period_unit) return 0;
-  const amount = config.free_period_amount;
-  const unit = config.free_period_unit;
-  let freeMonths = 0;
-  if (unit === 'months') freeMonths = amount;
-  else if (unit === 'weeks') freeMonths = amount / 4.33;
-  else if (unit === 'days') freeMonths = amount / 30.44;
-  return parseFloat((annualCost * freeMonths / 12).toFixed(2));
-}
-
-function matchBand(fieldValue, bands) {
-  if (fieldValue === null || fieldValue === undefined || !bands?.length) return null;
-  for (const band of bands) {
-    const min = parseFloat(band.min_value);
-    const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
-    if (fieldValue >= min && fieldValue <= max) return band;
-  }
-  return null;
-}
-
-async function getBandsForConfig(configId, tenantId) {
-  const { data } = await supabase
-    .from('membership_tier_band')
-    .select('*')
-    .eq('config_id', configId)
-    .eq('tenant_id', tenantId)
-    .order('min_value', { ascending: true });
-  return data || [];
-}
-
-async function getConfigById(configId, tenantId) {
-  const { data } = await supabase
-    .from('membership_tier_config')
-    .select('*')
-    .eq('id', configId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-  return data;
-}
-
-async function getGoLiveFieldId(tenantId) {
-  try {
-    const { data } = await supabase
-      .from('preference_field')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('entity_scope', 'organization')
-      .eq('is_active', true)
-      .eq('name', 'go_live')
-      .maybeSingle();
-    return data?.id || null;
-  } catch {
-    return null;
-  }
-}
-
-async function getOrgGoLiveDate(orgId, goLiveFieldId) {
-  if (!goLiveFieldId) return null;
-  try {
-    const { data } = await supabase
-      .from('organization_preference_value')
-      .select('value')
-      .eq('organization_id', orgId)
-      .eq('field_id', goLiveFieldId)
-      .maybeSingle();
-    if (!data?.value) return null;
-    const dateStr = String(data.value).trim();
-    if (!dateStr || dateStr === 'null') return null;
-    return dateStr.split('T')[0];
-  } catch {
-    return null;
-  }
-}
-
-function getMembershipYearStartForDate(date, config) {
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  const year = date.getFullYear();
-  const yearStart = new Date(year, startMonth - 1, startDay);
-  if (date >= yearStart) {
-    return yearStart;
-  }
-  return new Date(year - 1, startMonth - 1, startDay);
-}
-
-function getNextMembershipYearStart(yearStart, config) {
-  const startMonth = config.membership_start_month || 1;
-  const startDay = config.membership_start_day || 1;
-  return new Date(yearStart.getFullYear() + 1, startMonth - 1, startDay);
-}
-
-function determineMembershipYearNumber(goLiveDate, targetYear, config) {
-  if (!goLiveDate) return 99;
-
-  const goLive = new Date(goLiveDate);
-  if (isNaN(goLive.getTime())) return 99;
-
-  const firstYearStart = getMembershipYearStartForDate(goLive, config);
-  const targetStart = new Date(targetYear.start);
-  targetStart.setHours(0, 0, 0, 0);
-
-  let yearNumber = 1;
-  let currentStart = new Date(firstYearStart);
-  while (currentStart < targetStart) {
-    currentStart = getNextMembershipYearStart(currentStart, config);
-    yearNumber++;
-    if (yearNumber > 100) break;
-  }
-
-  return yearNumber;
-}
-
-function calculateRolloverDiscount(annualCost, config, goLiveDate) {
-  if (!config.rollover_enabled || !config.free_period_amount || !goLiveDate) return 0;
-
-  const goLive = new Date(goLiveDate);
-  if (isNaN(goLive.getTime())) return 0;
-
-  const firstYearStart = getMembershipYearStartForDate(goLive, config);
-  const firstYearEnd = getNextMembershipYearStart(firstYearStart, config);
-
-  const totalDaysInFirstYear = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
-  const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - goLive) / (1000 * 60 * 60 * 24)));
-  const remainingMonths = (remainingDaysInFirstYear / totalDaysInFirstYear) * 12;
-
-  const freeMonths = getFreeMonths(config);
-  const unusedFreeMonths = Math.max(0, freeMonths - remainingMonths);
-
-  if (unusedFreeMonths <= 0) return 0;
-  return parseFloat((annualCost * unusedFreeMonths / 12).toFixed(2));
-}
-
-function getFreeMonths(config) {
-  if (!config.free_period_amount || !config.free_period_unit) return 0;
-  const amount = config.free_period_amount;
-  const unit = config.free_period_unit;
-  if (unit === 'months') return amount;
-  if (unit === 'weeks') return amount / 4.33;
-  if (unit === 'days') return amount / 30.44;
-  return 0;
-}
-
-async function getOrgFieldValue(orgId, tenantId, config) {
-  if (!config) return null;
-
-  if (config.field_source === 'core' && config.field_name === 'member_count') {
-    const { data: members } = await supabase
-      .from('member')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', orgId);
-    return members?.length || 0;
-  }
-
-  if (config.field_id) {
-    const { data: pv } = await supabase
-      .from('organization_preference_value')
-      .select('value, organization:organization!inner(tenant_id)')
-      .eq('organization_id', orgId)
-      .eq('field_id', config.field_id)
-      .eq('organization.tenant_id', tenantId)
-      .maybeSingle();
-
-    if (pv?.value) {
-      const num = parseFloat(pv.value);
-      return isNaN(num) ? null : num;
-    }
-  }
-
-  return null;
+  console.log(`[cron/process-membership-renewals] Renewed: ${org.name} for ${membershipYear.label} (year ${yearNumber}), cost: ${finalCost.toFixed(2)}, free: ${freeDiscount.toFixed(2)}, rollover: ${rolloverDiscount.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
 }
