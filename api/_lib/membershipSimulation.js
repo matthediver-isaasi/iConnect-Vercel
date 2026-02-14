@@ -467,6 +467,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   log('Dry Run Complete', 'No records were created or modified', 'info');
 
+  const rolloverDiscount = (yearNumber === 2 && !isPriceOverride) ? freeDiscount : 0;
+  const year1FreeDiscount = (yearNumber === 1 && !isPriceOverride) ? freeDiscount : 0;
+
   return {
     success: true,
     org,
@@ -485,7 +488,8 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     proRataEnabled: proRataEnabled,
     prorataDays: proRataEnabled ? prorataDays : null,
     prorataCost: proRataEnabled ? prorataCost : null,
-    freeDiscount: isPriceOverride ? 0 : freeDiscount,
+    freeDiscount: isPriceOverride ? 0 : year1FreeDiscount,
+    rolloverDiscount,
     freePeriodDaysApplied: isPriceOverride ? 0 : freePeriodDaysApplied,
     freePeriodAmount: config.free_period_amount,
     freePeriodUnit: config.free_period_unit,
