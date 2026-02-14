@@ -63,10 +63,29 @@ async function handleGet(req, res, tenantId) {
           invoicing_mode: row.invoicing_mode,
           invoice_date: row.invoice_date,
           purchase_order_number: row.purchase_order_number || null,
+          po_supplied_by_member: false,
           id: row.id,
         };
       }
     }
+
+    try {
+      const { data: feeTokens } = await supabase
+        .from('membership_fee_token')
+        .select('membership_year, po_number')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .not('po_number', 'is', null);
+
+      if (feeTokens) {
+        for (const token of feeTokens) {
+          const key = token.membership_year || '_legacy';
+          if (settings[key] && token.po_number) {
+            settings[key].po_supplied_by_member = true;
+          }
+        }
+      }
+    } catch {}
 
     return res.json({ settings });
   } catch (err) {

@@ -26,7 +26,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
-  FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail
+  FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
+  Lock, LockOpen
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -70,10 +71,14 @@ function YearCostSection({
   manualRenewalPending,
   purchaseOrderNumber,
   onPurchaseOrderChange,
+  poSuppliedByMember,
   onEmailFees,
   emailFeesPending,
   hideInvoicing,
 }) {
+  const [poUnlocked, setPoUnlocked] = useState(false);
+  const isPoLocked = poSuppliedByMember && !poUnlocked;
+
   if (!yearData) return null;
 
   const hasOverride = !!yearData.overrideType;
@@ -334,13 +339,29 @@ function YearCostSection({
 
             <div className="mt-3">
               <Label className="text-xs text-muted-foreground">Purchase Order Number (optional)</Label>
-              <Input
-                value={purchaseOrderNumber || ''}
-                onChange={(e) => onPurchaseOrderChange(e.target.value)}
-                placeholder="e.g. PO-12345"
-                className="mt-1 w-48"
-                data-testid={`input-po-number-${testIdPrefix}`}
-              />
+              <div className="flex items-center gap-1 mt-1">
+                <Input
+                  value={purchaseOrderNumber || ''}
+                  onChange={(e) => onPurchaseOrderChange(e.target.value)}
+                  placeholder="e.g. PO-12345"
+                  className="w-48"
+                  disabled={isPoLocked}
+                  data-testid={`input-po-number-${testIdPrefix}`}
+                />
+                {poSuppliedByMember && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setPoUnlocked(!poUnlocked)}
+                    data-testid={`button-toggle-po-lock-${testIdPrefix}`}
+                  >
+                    {isPoLocked ? <Lock className="w-3.5 h-3.5" /> : <LockOpen className="w-3.5 h-3.5" />}
+                  </Button>
+                )}
+              </div>
+              {poSuppliedByMember && isPoLocked && (
+                <p className="text-xs text-muted-foreground mt-1">Supplied by member</p>
+              )}
             </div>
 
             <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -400,6 +421,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [invoicingModes, setInvoicingModes] = useState({});
   const [invoiceDates, setInvoiceDates] = useState({});
   const [purchaseOrderNumbers, setPurchaseOrderNumbers] = useState({});
+  const [poSuppliedByMemberMap, setPoSuppliedByMemberMap] = useState({});
   const [simulationResults, setSimulationResults] = useState(null);
   const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
   const [simulatingYear, setSimulatingYear] = useState(null);
@@ -546,11 +568,13 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       }
 
       const poNumbers = {};
+      const poMemberFlags = {};
       for (const [yearKey, setting] of Object.entries(invoicingData.settings)) {
         if (yearKey === '_legacy') continue;
         modes[yearKey] = setting.invoicing_mode || 'manual';
         dates[yearKey] = setting.invoice_date || '';
         poNumbers[yearKey] = setting.purchase_order_number || '';
+        if (setting.po_supplied_by_member) poMemberFlags[yearKey] = true;
       }
 
       const curYear = data?.currentYearCost?.membershipYear;
@@ -577,6 +601,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
         return updated;
       });
       setPurchaseOrderNumbers(prev => ({ ...prev, ...poNumbers }));
+      setPoSuppliedByMemberMap(prev => ({ ...prev, ...poMemberFlags }));
     }
   }, [invoicingData, data?.currentYearCost?.membershipYear, data?.nextYearPreview?.membershipYear]);
 
@@ -976,6 +1001,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 manualRenewalPending={manualRenewalMutation.isPending}
                 purchaseOrderNumber={purchaseOrderNumbers[currentYearCost?.membershipYear] || ''}
                 onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [currentYearCost.membershipYear]: val }))}
+                poSuppliedByMember={!!poSuppliedByMemberMap[currentYearCost?.membershipYear]}
                 onEmailFees={() => {
                   setEmailFeesYear(currentYearCost.membershipYear);
                   setEmailFeesRecipient(invoicingEmail || '');
@@ -1046,6 +1072,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 manualRenewalPending={false}
                 purchaseOrderNumber={purchaseOrderNumbers[nextYearPreview?.membershipYear] || ''}
                 onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [nextYearPreview.membershipYear]: val }))}
+                poSuppliedByMember={!!poSuppliedByMemberMap[nextYearPreview?.membershipYear]}
                 onEmailFees={() => {
                   setEmailFeesYear(nextYearPreview.membershipYear);
                   setEmailFeesRecipient(invoicingEmail || '');
