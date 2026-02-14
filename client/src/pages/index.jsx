@@ -287,6 +287,8 @@ import FundraisingManagement from "./FundraisingManagement";
 
 import DonatePage from "./DonatePage";
 
+import MembershipFeePage from "./MembershipFeePage";
+
 import TenantSignup from "./TenantSignup";
 
 import DomainSettings from "./DomainSettings";
@@ -956,6 +958,7 @@ function StandaloneRoutes() {
             <Route path="/embed/event/:identifier" element={<EmbedEvent />} />
             <Route path="/embed/alternative-signer" element={<EmbedAlternativeSigner />} />
             <Route path="/donate/:token" element={<DonatePage />} />
+            <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
             <Route path="/email-preferences" element={<EmailPreferences />} />
@@ -1040,6 +1043,7 @@ function AppRoutes() {
     const isEmbedPage = location.pathname.toLowerCase().startsWith('/embed/');
     const isBookingPage = location.pathname.toLowerCase().startsWith('/book/');
     const isDonatePage = location.pathname.toLowerCase().startsWith('/donate/');
+    const isMembershipFeePage = location.pathname.toLowerCase().startsWith('/membership-fees/');
     
     // Use window.location.search to reliably detect embed param (works even before routing)
     const hasEmbedParam = new URLSearchParams(window.location.search).get('embed') === 'true';
@@ -1047,7 +1051,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isMembershipFeePage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     

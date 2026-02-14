@@ -246,8 +246,25 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     } catch {}
   }
 
+  let poNumber = record.purchase_order_number || null;
+  if (!poNumber) {
+    try {
+      const { data: invoicingSetting } = await supabase
+        .from('organisation_membership_invoicing')
+        .select('purchase_order_number')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', orgId)
+        .eq('membership_year', record.membership_year)
+        .maybeSingle();
+      poNumber = invoicingSetting?.purchase_order_number || null;
+    } catch {}
+  }
+
   let xeroInvoice = null;
   try {
+    const xeroReference = poNumber
+      ? `Membership ${record.membership_year} - PO: ${poNumber}`
+      : `Membership ${record.membership_year}`;
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
@@ -255,7 +272,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
       tierLabel: record.tier_label,
       finalCost: parseFloat(record.final_cost),
       currency: record.currency || 'GBP',
-      reference: `Membership ${record.membership_year}`,
+      reference: xeroReference,
       vatRate: bandVatRate,
     });
 
@@ -344,6 +361,20 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   const customDiscountTotal = simResult.customDiscountTotal || 0;
   const customDiscountDetails = simResult.customDiscountDetails || [];
 
+  let poNumber = null;
+  try {
+    const { data: invoicingSetting } = await supabase
+      .from('organisation_membership_invoicing')
+      .select('purchase_order_number')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', orgId)
+      .eq('membership_year', membershipYear.label)
+      .maybeSingle();
+    poNumber = invoicingSetting?.purchase_order_number || null;
+  } catch (poErr) {
+    console.log(`[cron/process-membership-renewals] Could not fetch PO for org ${orgId} (non-fatal):`, poErr.message);
+  }
+
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -363,6 +394,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       final_cost: finalCost,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
+      purchase_order_number: poNumber,
       status: 'active',
       notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, go-live: ${goLiveDate})`,
     })
@@ -390,6 +422,9 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   if (createInvoice) {
     try {
       const bandVatRate = simResult.matchedBand?.vat_rate || null;
+      const xeroReference = poNumber
+        ? `Membership ${membershipYear.label} - PO: ${poNumber}`
+        : `Membership ${membershipYear.label}`;
       xeroInvoice = await createXeroMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
@@ -397,7 +432,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         tierLabel,
         finalCost,
         currency: currency,
-        reference: `Membership ${membershipYear.label}`,
+        reference: xeroReference,
         vatRate: bandVatRate,
       });
 

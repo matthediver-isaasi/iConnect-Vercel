@@ -62,6 +62,7 @@ async function handleGet(req, res, tenantId) {
         settings[key] = {
           invoicing_mode: row.invoicing_mode,
           invoice_date: row.invoice_date,
+          purchase_order_number: row.purchase_order_number || null,
           id: row.id,
         };
       }
@@ -91,7 +92,7 @@ async function ensureMembershipYearColumn() {
 }
 
 async function handlePut(req, res, tenantId, tenantContext) {
-  const { organizationId, invoicingMode, invoiceDate, membershipYear } = req.body;
+  const { organizationId, invoicingMode, invoiceDate, membershipYear, purchaseOrderNumber } = req.body;
 
   if (!organizationId) {
     return res.status(400).json({ error: 'organizationId is required' });
@@ -148,6 +149,7 @@ async function handlePut(req, res, tenantId, tenantContext) {
     membership_year: membershipYear,
     invoicing_mode: invoicingMode,
     invoice_date: invoicingMode === 'scheduled' ? invoiceDate : null,
+    purchase_order_number: purchaseOrderNumber?.trim() || null,
     updated_at: new Date().toISOString(),
   };
 
@@ -215,6 +217,20 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   const currency = simResult.currency;
   const bandVatRate = simResult.matchedBand?.vat_rate || null;
 
+  let poNumber = null;
+  try {
+    const { data: invoicingSetting } = await supabase
+      .from('organisation_membership_invoicing')
+      .select('purchase_order_number')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .eq('membership_year', membershipYear.label)
+      .maybeSingle();
+    poNumber = invoicingSetting?.purchase_order_number || null;
+  } catch (poErr) {
+    console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
+  }
+
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -234,6 +250,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       final_cost: finalCost,
       currency: currency,
       billing_period: simResult.billingPeriod || 'annual',
+      purchase_order_number: poNumber,
       status: 'active',
       notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})`,
     })
@@ -250,6 +267,9 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
 
   let xeroInvoice = null;
   try {
+    const xeroReference = poNumber
+      ? `Membership ${membershipYear.label} - PO: ${poNumber}`
+      : `Membership ${membershipYear.label}`;
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
@@ -257,7 +277,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       tierLabel,
       finalCost,
       currency: currency,
-      reference: `Membership ${membershipYear.label}`,
+      reference: xeroReference,
       vatRate: bandVatRate,
     });
 

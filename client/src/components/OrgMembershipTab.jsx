@@ -26,7 +26,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
-  FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle
+  FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,6 +68,10 @@ function YearCostSection({
   invoicingSaving,
   onManualRenewal,
   manualRenewalPending,
+  purchaseOrderNumber,
+  onPurchaseOrderChange,
+  onEmailFees,
+  emailFeesPending,
 }) {
   if (!yearData) return null;
 
@@ -319,6 +323,17 @@ function YearCostSection({
               </div>
             </RadioGroup>
 
+            <div className="mt-3">
+              <Label className="text-xs text-muted-foreground">Purchase Order Number (optional)</Label>
+              <Input
+                value={purchaseOrderNumber || ''}
+                onChange={(e) => onPurchaseOrderChange(e.target.value)}
+                placeholder="e.g. PO-12345"
+                className="mt-1 w-48"
+                data-testid={`input-po-number-${testIdPrefix}`}
+              />
+            </div>
+
             <div className="flex items-center gap-2 mt-3 flex-wrap">
               <Button
                 size="sm"
@@ -339,6 +354,18 @@ function YearCostSection({
                 >
                   {manualRenewalPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
                   Renew &amp; Invoice Now
+                </Button>
+              )}
+              {onEmailFees && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onEmailFees}
+                  disabled={emailFeesPending}
+                  data-testid={`button-email-fees-${testIdPrefix}`}
+                >
+                  {emailFeesPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Mail className="w-3 h-3 mr-1" />}
+                  Email Fees
                 </Button>
               )}
             </div>
@@ -363,9 +390,13 @@ export default function OrgMembershipTab({ organizationId }) {
   const [overrideNote, setOverrideNote] = useState('');
   const [invoicingModes, setInvoicingModes] = useState({});
   const [invoiceDates, setInvoiceDates] = useState({});
+  const [purchaseOrderNumbers, setPurchaseOrderNumbers] = useState({});
   const [simulationResults, setSimulationResults] = useState(null);
   const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
   const [simulatingYear, setSimulatingYear] = useState(null);
+  const [emailFeesDialogOpen, setEmailFeesDialogOpen] = useState(false);
+  const [emailFeesYear, setEmailFeesYear] = useState(null);
+  const [emailFeesRecipient, setEmailFeesRecipient] = useState('');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
@@ -505,10 +536,12 @@ export default function OrgMembershipTab({ organizationId }) {
         legacyDate = invoicingData.settings._legacy.invoice_date || '';
       }
 
+      const poNumbers = {};
       for (const [yearKey, setting] of Object.entries(invoicingData.settings)) {
         if (yearKey === '_legacy') continue;
         modes[yearKey] = setting.invoicing_mode || 'manual';
         dates[yearKey] = setting.invoice_date || '';
+        poNumbers[yearKey] = setting.purchase_order_number || '';
       }
 
       const curYear = data?.currentYearCost?.membershipYear;
@@ -534,6 +567,7 @@ export default function OrgMembershipTab({ organizationId }) {
         }
         return updated;
       });
+      setPurchaseOrderNumbers(prev => ({ ...prev, ...poNumbers }));
     }
   }, [invoicingData, data?.currentYearCost?.membershipYear, data?.nextYearPreview?.membershipYear]);
 
@@ -579,6 +613,30 @@ export default function OrgMembershipTab({ organizationId }) {
       queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
       queryClient.invalidateQueries({ queryKey: ['org-notes'] });
       toast.success(data.message || 'Membership renewed and invoice generated');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const emailFeesMutation = useMutation({
+    mutationFn: async ({ membershipYear, recipientEmail }) => {
+      const response = await fetch('/api/membership/email-fees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organizationId, membershipYear, recipientEmail: recipientEmail || undefined }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to send fee email');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['org-notes'] });
+      setEmailFeesDialogOpen(false);
+      toast.success(data.message || `Fee email sent to ${data.sentTo}`);
     },
     onError: (error) => {
       toast.error(error.message);
@@ -901,11 +959,20 @@ export default function OrgMembershipTab({ organizationId }) {
                     invoicingMode: mode,
                     invoiceDate: mode === 'scheduled' ? invoiceDates[year] : null,
                     membershipYear: year,
+                    purchaseOrderNumber: purchaseOrderNumbers[year] || null,
                   });
                 }}
                 invoicingSaving={invoicingMutation.isPending}
                 onManualRenewal={() => manualRenewalMutation.mutate({ membershipYear: currentYearCost?.membershipYear })}
                 manualRenewalPending={manualRenewalMutation.isPending}
+                purchaseOrderNumber={purchaseOrderNumbers[currentYearCost?.membershipYear] || ''}
+                onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [currentYearCost.membershipYear]: val }))}
+                onEmailFees={() => {
+                  setEmailFeesYear(currentYearCost.membershipYear);
+                  setEmailFeesRecipient('');
+                  setEmailFeesDialogOpen(true);
+                }}
+                emailFeesPending={emailFeesMutation.isPending}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -962,11 +1029,20 @@ export default function OrgMembershipTab({ organizationId }) {
                     invoicingMode: mode,
                     invoiceDate: mode === 'scheduled' ? invoiceDates[year] : null,
                     membershipYear: year,
+                    purchaseOrderNumber: purchaseOrderNumbers[year] || null,
                   });
                 }}
                 invoicingSaving={invoicingMutation.isPending}
                 onManualRenewal={null}
                 manualRenewalPending={false}
+                purchaseOrderNumber={purchaseOrderNumbers[nextYearPreview?.membershipYear] || ''}
+                onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [nextYearPreview.membershipYear]: val }))}
+                onEmailFees={() => {
+                  setEmailFeesYear(nextYearPreview.membershipYear);
+                  setEmailFeesRecipient('');
+                  setEmailFeesDialogOpen(true);
+                }}
+                emailFeesPending={emailFeesMutation.isPending}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -1321,6 +1397,52 @@ export default function OrgMembershipTab({ organizationId }) {
               data-testid="button-close-simulation"
             >
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={emailFeesDialogOpen} onOpenChange={setEmailFeesDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-4 h-4" />
+              Email Membership Fees
+            </DialogTitle>
+            <DialogDescription>
+              Send the fee breakdown and payment link to the organisation's finance contact for {emailFeesYear}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm">Recipient Email</Label>
+              <Input
+                value={emailFeesRecipient}
+                onChange={(e) => setEmailFeesRecipient(e.target.value)}
+                placeholder="Leave blank to use primary contact email"
+                className="mt-1"
+                data-testid="input-email-fees-recipient"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                If left blank, the email will be sent to the organisation's primary contact.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setEmailFeesDialogOpen(false)}
+              data-testid="button-cancel-email-fees"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => emailFeesMutation.mutate({ membershipYear: emailFeesYear, recipientEmail: emailFeesRecipient })}
+              disabled={emailFeesMutation.isPending}
+              data-testid="button-send-email-fees"
+            >
+              {emailFeesMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+              Send
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -23,6 +23,8 @@
 13. [Xero Integration](#xero-integration)
 14. [Configuration Reference](#configuration-reference)
 15. [Troubleshooting](#troubleshooting)
+16. [Purchase Order Numbers](#purchase-order-numbers)
+17. [Email Fees & Member Payment Portal](#email-fees--member-payment-portal)
 
 ---
 
@@ -827,3 +829,101 @@ The simulation and record creation use the exact same function (`simulateMembers
 - Did the tier config change?
 
 The simulation is a point-in-time calculation — it reflects the state at the moment it runs.
+
+---
+
+## Purchase Order Numbers
+
+### Overview
+
+Admins can attach a purchase order (PO) number to an organisation's membership year. The PO number flows through to Xero invoices as the reference field, formatted as `Membership YYYY - PO: XXXXX`.
+
+### Storage
+
+PO numbers are stored in the `organisation_membership_invoicing` table via the `purchase_order_number` column, scoped by `tenant_id`, `organization_id`, and `membership_year`.
+
+### Flow
+
+1. Admin enters a PO number in the year card invoicing controls
+2. Saved alongside invoicing mode via `PUT /api/membership/org-membership-invoicing`
+3. All three renewal paths (manual, cron, workflow) read the PO from invoicing settings
+4. PO is passed to `createXeroMembershipInvoice` as the `reference` field
+5. PO is stored in the `organisation_membership_history` record
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/membership/org-membership-invoicing.js` | Saves/loads PO alongside invoicing mode |
+| `api/cron/process-membership-renewals.js` | Reads PO for cron-generated invoices |
+| `api/_lib/workflows.js` | Reads PO for workflow-generated invoices |
+
+---
+
+## Email Fees & Member Payment Portal
+
+### Overview
+
+The "Email Fees" feature allows admins to send a branded email to an organisation's finance contact, containing a cost breakdown and a link to a public payment page. From the public page, the member can:
+
+- View the full cost breakdown for the membership year
+- Submit a purchase order number
+- Pay immediately via Stripe (if enabled for the tenant)
+
+### Token System
+
+Each "Email Fees" action generates a secure token stored in `membership_fee_tokens`:
+
+| Column | Purpose |
+|------|---------|
+| `token` | Random UUID, used as the public URL path |
+| `status` | `pending` → `po_submitted` → `paid` (or `expired`/`cancelled`) |
+| `expires_at` | 30 days from creation |
+| `stripe_payment_intent_id` | Set when card payment is initiated |
+| `paid_at` | Timestamp when payment confirmed |
+| `po_number` | PO submitted by the member |
+
+### Admin Flow
+
+1. Admin clicks "Email Fees" on the year card
+2. Modal shows the org's primary contact email (editable)
+3. On send, the backend:
+   - Creates a token record
+   - Runs simulation for cost breakdown
+   - Sends a branded email via tenant's email service
+4. Email contains cost summary and a link to `/membership-fees/{token}`
+
+### Member Flow (Public Page)
+
+The public page at `/membership-fees/:token` shows:
+
+1. Tenant branding (logo, primary colour)
+2. Organisation name, period, tier
+3. Full cost breakdown (gross, discounts, pro-rata, free period)
+4. Total amount due
+5. PO number input (optional)
+6. "Pay Now" button (if Stripe enabled)
+
+### Stripe Payment
+
+When the member clicks "Pay Now":
+
+1. Frontend calls `POST /api/public/membership-fees/:token` with `action: create_payment`
+2. Backend creates a Stripe PaymentIntent for the total amount
+3. Stripe Elements mounts in the page
+4. Member enters card details and confirms
+5. On success, frontend calls `action: confirm_payment`
+6. Backend:
+   - Creates `organisation_membership_history` record
+   - Creates Xero invoice marked as PAID
+   - Updates token status to `paid`
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/admin/init-membership-fee-tokens.js` | Database table creation |
+| `api/membership/email-fees.js` | Email Fees endpoint — token creation, email sending |
+| `api/public/membership-fees/[token].js` | Public API — token validation, PO submission, payment |
+| `client/src/pages/MembershipFeePage.jsx` | Public member-facing payment page |
+| `client/src/components/OrgMembershipTab.jsx` | Admin UI — Email Fees button and modal |
