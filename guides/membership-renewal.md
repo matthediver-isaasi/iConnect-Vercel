@@ -51,7 +51,12 @@ The system supports per-year invoicing controls, allowing admins to independentl
 | `api/_lib/workflows.js` | Workflow `create_membership` action (automatic path) |
 | `api/cron/process-membership-renewals.js` | Cron job for automatic and scheduled renewals |
 | `api/membership/org-membership-invoicing.js` | Manual renewal endpoint and invoicing settings management |
+| `api/membership/member-fees.js` | Authenticated portal API — session-based fee lookup, PO submission, Stripe payment |
+| `api/membership/email-fees.js` | Email Fees endpoint — token creation, email sending |
+| `api/public/membership-fees/[token].js` | Public API — token validation, PO submission, Stripe payment |
 | `client/src/components/OrgMembershipTab.jsx` | Frontend UI for the organisation membership tab |
+| `client/src/pages/MembershipFeePage.jsx` | Public member-facing payment page (token-based) |
+| `client/src/pages/MembershipFees.jsx` | Portal membership fees page (authenticated members) |
 
 ### Design Principles
 
@@ -596,6 +601,9 @@ Records of membership renewals — one row per org per year.
 | `currency` | text | Currency code |
 | `billing_period` | text | e.g. `'annual'` |
 | `vat_rate` | text | VAT configuration snapshot |
+| `purchase_order_number` | text | PO number (from invoicing settings, member submission, or token page) |
+| `payment_method` | text | How payment was made: `'stripe'`, `'xero'`, or null (admin-initiated) |
+| `stripe_payment_intent_id` | text | Stripe PaymentIntent ID (if paid via Stripe) |
 | `status` | text | `'active'` |
 | `notes` | text | How the record was created |
 | `xero_invoice_id` | text | Linked Xero invoice ID |
@@ -613,6 +621,8 @@ Per-org, per-year invoicing mode settings.
 | `membership_year` | text | Year label (null for legacy fallback) |
 | `invoicing_mode` | text | `'automatic'`, `'scheduled'`, or `'manual'` |
 | `invoice_date` | date | Scheduled invoice date (for scheduled mode) |
+| `purchase_order_number` | text | PO number for this year's membership |
+| `po_source` | text | `'member'` if PO was submitted by a member (via token page or portal), null if entered by admin |
 | `updated_at` | timestamp | Last modification |
 
 ### `organisation_membership_override`
@@ -837,11 +847,14 @@ The simulation is a point-in-time calculation — it reflects the state at the m
 
 ### Overview
 
-Admins can attach a purchase order (PO) number to an organisation's membership year. The PO number flows through to Xero invoices as the reference field, formatted as `Membership YYYY - PO: XXXXX`.
+Admins can attach a purchase order (PO) number to an organisation's membership year. The PO number flows through to Xero invoices as the reference field, formatted as `Membership YYYY - PO: XXXXX`. Members can also submit PO numbers via the public token page or the portal membership fees page.
 
 ### Storage
 
-PO numbers are stored in the `organisation_membership_invoicing` table via the `purchase_order_number` column, scoped by `tenant_id`, `organization_id`, and `membership_year`.
+PO numbers are stored in the `organisation_membership_invoicing` table via the `purchase_order_number` column, scoped by `tenant_id`, `organization_id`, and `membership_year`. The `po_source` column tracks who submitted the PO:
+
+- `'member'` — submitted by a member via the public token page or portal
+- `null` — entered or overridden by an admin
 
 ### Flow
 
@@ -851,13 +864,33 @@ PO numbers are stored in the `organisation_membership_invoicing` table via the `
 4. PO is passed to `createXeroMembershipInvoice` as the `reference` field
 5. PO is stored in the `organisation_membership_history` record
 
+### Member-Submitted PO Numbers
+
+When a member submits a PO number (via token page or portal):
+
+1. The PO is saved to `organisation_membership_invoicing` with `po_source = 'member'`
+2. In the admin UI (Organisation Membership Tab), the PO field appears **locked** with a "Supplied by member" label
+3. An **unlock button** allows the admin to edit the member-submitted PO
+4. When the admin saves (after unlocking and editing), `po_source` is cleared to `null`, removing the lock on subsequent loads
+5. If a member later resubmits a PO, `po_source` is set back to `'member'` and the lock reappears
+
+### Admin Override of Member PO
+
+The lock/unlock pattern ensures admins can clearly see when a PO was submitted by a member vs. entered by an admin. The admin can always override a member-submitted PO by:
+
+1. Clicking the unlock button next to the locked PO field
+2. Editing the PO value
+3. Clicking Save — this clears `po_source` to `null`
+
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `api/membership/org-membership-invoicing.js` | Saves/loads PO alongside invoicing mode |
+| `api/membership/org-membership-invoicing.js` | Saves/loads PO alongside invoicing mode; clears `po_source` on admin save |
 | `api/cron/process-membership-renewals.js` | Reads PO for cron-generated invoices |
 | `api/_lib/workflows.js` | Reads PO for workflow-generated invoices |
+| `api/public/membership-fees/[token].js` | Saves member-submitted PO with `po_source: 'member'` |
+| `api/membership/member-fees.js` | Saves member-submitted PO with `po_source: 'member'` (portal path) |
 
 ---
 
@@ -915,9 +948,30 @@ When the member clicks "Pay Now":
 4. Member enters card details and confirms
 5. On success, frontend calls `action: confirm_payment`
 6. Backend:
-   - Creates `organisation_membership_history` record
-   - Creates Xero invoice marked as PAID
+   - Verifies the PaymentIntent status is `succeeded` and the amount matches
+   - Creates `organisation_membership_history` record with `status: 'active'`, `payment_method: 'stripe'`, and the Stripe `payment_intent_id`
+   - Creates Xero invoice with "(PAID)" in the reference
    - Updates token status to `paid`
+   - Creates an organisation note with payment details
+
+### Stripe Payment as Invoicing Override
+
+A successful Stripe payment **immediately records the membership as paid**, which effectively overrides whatever invoicing mode (Automatic/Scheduled/Manual) the admin has configured for that year. Once the history record exists:
+
+- The **cron job** will find `simResult.existingRecord` and skip the organisation entirely (for automatic mode) or skip record creation (for scheduled mode)
+- The **workflow action** will find the existing record and skip
+- The **manual renewal** button will show "already exists" if clicked
+
+This means a member paying via Stripe settles the membership independently of the admin's invoicing settings. The only admin setting that flows through is the **PO number** — if one was saved in the invoicing settings before the member pays, it is included on the history record.
+
+### Stripe Minimum Amounts
+
+Stripe enforces minimum payment amounts by currency. The system enforces these both on the frontend (disabling the Pay button) and the backend (returning a 400 error):
+
+| Currency | Minimum |
+|----------|---------|
+| GBP | 0.30 |
+| USD, EUR, AUD, NZD | 0.50 |
 
 ### Key Files
 
@@ -955,11 +1009,15 @@ Admins manage these permissions via Role Management / Role Access Config Managem
    - Looks up their organisation
    - Runs `simulateMembershipForOrg()` to get current fees
    - Returns the same cost breakdown, PO status, and Stripe availability
-3. Member can submit a PO number (stored in `organisation_membership_invoicing`)
+3. Member can submit a PO number (stored in `organisation_membership_invoicing` with `po_source: 'member'`)
 4. Member can pay via Stripe — same flow as the public page:
    - `POST` with `action: create_payment` creates a PaymentIntent
    - Stripe Elements captures card details
-   - `POST` with `action: confirm_payment` validates and creates the history record + Xero invoice
+   - `POST` with `action: confirm_payment` validates payment, then:
+     - Creates `organisation_membership_history` record with `status: 'active'`, `payment_method: 'stripe'`, and the Stripe `payment_intent_id`
+     - Creates Xero invoice with "(PAID)" in the reference
+     - Creates an organisation note with payment details
+   - This immediately marks the membership as paid, preventing the cron job from re-invoicing (see [Stripe Payment as Invoicing Override](#stripe-payment-as-invoicing-override))
 
 ### Difference from Token-Based Page
 
