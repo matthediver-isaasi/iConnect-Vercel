@@ -155,6 +155,7 @@ async function handlePut(req, res, tenantId, tenantContext) {
     invoicing_mode: invoicingMode,
     invoice_date: invoicingMode === 'scheduled' ? invoiceDate : null,
     purchase_order_number: purchaseOrderNumber?.trim() || null,
+    po_source: null,
     updated_at: new Date().toISOString(),
   };
 
