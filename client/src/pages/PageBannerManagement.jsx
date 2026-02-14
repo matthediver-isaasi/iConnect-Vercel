@@ -122,7 +122,8 @@ const BUILT_IN_PORTAL_PAGES = [
   { value: "portal_zoom_webinar_provisioning", label: "Zoom Webinar Management" },
   { value: "portal_data_export", label: "Data Export" },
   { value: "portal_ticket_sales_analytics", label: "Ticket Sales Analytics" },
-  { value: "portal_discount_code_management", label: "Discount Code Management" }
+  { value: "portal_discount_code_management", label: "Discount Code Management" },
+  { value: "portal_membership_fees", label: "Membership Fees" }
 ];
 
 export default function PageBannerManagementPage() {

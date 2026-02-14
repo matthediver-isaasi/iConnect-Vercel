@@ -245,6 +245,7 @@ const hardcodedPublicPages = [
   { name: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
   { name: "MemberGroupManagement", label: "Member Group Management" },
   { name: "MemberHandleManagement", label: "Member Handle Management" },
+  { name: "MembershipFees", label: "Membership Fees" },
   { name: "MemberRoleAssignment", label: "Member Role Assignment" },
   { name: "members", label: "Members (CRM)" },
   { name: "MyJobPostings", label: "My Job Postings" },
