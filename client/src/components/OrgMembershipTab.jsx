@@ -320,7 +320,7 @@ function YearCostSection({
             {invoicingSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
             Save
           </Button>
-          {invoicingMode === 'manual' && (
+          {invoicingMode === 'manual' && onManualRenewal && (
             <Button
               size="sm"
               onClick={onManualRenewal}
@@ -549,12 +549,12 @@ export default function OrgMembershipTab({ organizationId }) {
   });
 
   const manualRenewalMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ membershipYear }) => {
       const response = await fetch('/api/membership/org-membership-invoicing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ organizationId }),
+        body: JSON.stringify({ organizationId, membershipYear }),
       });
       if (!response.ok) {
         const err = await response.json();
@@ -892,7 +892,7 @@ export default function OrgMembershipTab({ organizationId }) {
                   });
                 }}
                 invoicingSaving={invoicingMutation.isPending}
-                onManualRenewal={() => manualRenewalMutation.mutate()}
+                onManualRenewal={() => manualRenewalMutation.mutate({ membershipYear: currentYearCost?.membershipYear })}
                 manualRenewalPending={manualRenewalMutation.isPending}
               />
             ) : (
@@ -953,8 +953,8 @@ export default function OrgMembershipTab({ organizationId }) {
                   });
                 }}
                 invoicingSaving={invoicingMutation.isPending}
-                onManualRenewal={() => manualRenewalMutation.mutate()}
-                manualRenewalPending={manualRenewalMutation.isPending}
+                onManualRenewal={null}
+                manualRenewalPending={false}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
