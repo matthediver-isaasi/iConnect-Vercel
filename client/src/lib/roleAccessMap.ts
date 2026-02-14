@@ -152,6 +152,14 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Training Fund Management"
       },
       {
+        id: "commerce.membership",
+        label: "Membership Fees",
+        features: [
+          { id: "commerce.membership.submit-po", label: "Submit Purchase Order" },
+          { id: "commerce.membership.pay-online", label: "Pay Online (Stripe)" }
+        ]
+      },
+      {
         id: "commerce.membership-setup",
         label: "Membership Tier Management"
       }
@@ -899,6 +907,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_SpeakerManagement": "events.speakers",
   "page_ArticlesSettings": "content.articles-settings",
   "page_VoucherManagement": "commerce.voucher-management",
+  "page_MembershipFees": "commerce.membership",
   "page_MembershipTierManagement": "commerce.membership-setup",
   "page_TrainingFundManagement": "commerce.training-fund-management",
   "page_MembersList": "crm.members",

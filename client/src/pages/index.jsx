@@ -289,6 +289,8 @@ import DonatePage from "./DonatePage";
 
 import MembershipFeePage from "./MembershipFeePage";
 
+import MembershipFees from "./MembershipFees";
+
 import TenantSignup from "./TenantSignup";
 
 import DomainSettings from "./DomainSettings";
@@ -413,6 +415,7 @@ const PAGES = {
     EventRegistrationReport: EventRegistrationReport,
     OrganisationEngagementReport: OrganisationEngagementReport,
     MembershipTierManagement: MembershipTierManagement,
+    MembershipFees: MembershipFees,
     FundraisingManagement: FundraisingManagement,
     
     Resources: Resources,
@@ -725,6 +728,7 @@ function PagesContent() {
                 <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
                 <Route path="/OrganisationEngagementReport" element={<OrganisationEngagementReport />} />
                 <Route path="/MembershipTierManagement" element={<MembershipTierManagement />} />
+                <Route path="/MembershipFees" element={<MembershipFees />} />
                 <Route path="/FundraisingManagement" element={<FundraisingManagement />} />
                 
                 <Route path="/Resources" element={<Resources />} />

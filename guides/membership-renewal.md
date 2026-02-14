@@ -25,6 +25,7 @@
 15. [Troubleshooting](#troubleshooting)
 16. [Purchase Order Numbers](#purchase-order-numbers)
 17. [Email Fees & Member Payment Portal](#email-fees--member-payment-portal)
+18. [Portal Membership Fees Page](#portal-membership-fees-page)
 
 ---
 
@@ -925,5 +926,56 @@ When the member clicks "Pay Now":
 | `api/admin/init-membership-fee-tokens.js` | Database table creation |
 | `api/membership/email-fees.js` | Email Fees endpoint — token creation, email sending |
 | `api/public/membership-fees/[token].js` | Public API — token validation, PO submission, payment |
-| `client/src/pages/MembershipFeePage.jsx` | Public member-facing payment page |
+| `client/src/pages/MembershipFeePage.jsx` | Public member-facing payment page (token-based) |
 | `client/src/components/OrgMembershipTab.jsx` | Admin UI — Email Fees button and modal |
+
+---
+
+## Portal Membership Fees Page
+
+### Overview
+
+In addition to the token-based public page for external contacts, a portal page at `/MembershipFees` is available for authenticated members with the `commerce.membership` role access key. This serves members who have portal access (e.g., a finance person at the organisation) and can view fees and make payments at any time without needing an email link.
+
+### Access Control
+
+The page is gated by `commerce.membership` in the role access configuration:
+
+- **`commerce.membership`** — Controls visibility of the Membership Fees page in the portal navigation
+- **`commerce.membership.submit-po`** — Controls whether the member can submit a purchase order number
+- **`commerce.membership.pay-online`** — Controls whether the member can pay via Stripe
+
+Admins manage these permissions via Role Management / Role Access Config Management.
+
+### How It Works
+
+1. Member navigates to `/MembershipFees` in the portal
+2. The page calls `GET /api/membership/member-fees` which:
+   - Identifies the member from their session
+   - Looks up their organisation
+   - Runs `simulateMembershipForOrg()` to get current fees
+   - Returns the same cost breakdown, PO status, and Stripe availability
+3. Member can submit a PO number (stored in `organisation_membership_invoicing`)
+4. Member can pay via Stripe — same flow as the public page:
+   - `POST` with `action: create_payment` creates a PaymentIntent
+   - Stripe Elements captures card details
+   - `POST` with `action: confirm_payment` validates and creates the history record + Xero invoice
+
+### Difference from Token-Based Page
+
+| Aspect | Token Page (`/membership-fees/:token`) | Portal Page (`/MembershipFees`) |
+|--------|----------------------------------------|--------------------------------|
+| Authentication | Token in URL | Member session |
+| Access | Anyone with the link | Portal members with role access |
+| Expiry | 30-day token expiry | Always available |
+| Use case | External finance contacts | Members with portal login |
+| Branding | Full tenant branding (standalone) | Portal layout (within portal navigation) |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/membership/member-fees.js` | Authenticated API — session-based fee lookup, PO, payment |
+| `client/src/pages/MembershipFees.jsx` | Portal page component |
+| `client/src/lib/roleAccessMap.ts` | Role access config entry (`commerce.membership`) |
+| `client/src/pages/pageRegistry.js` | Page registered as `MembershipFees` |
