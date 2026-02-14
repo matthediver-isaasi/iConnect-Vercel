@@ -52,6 +52,15 @@ export default async function handler(req, res) {
 
     let toEmail = recipientEmail;
     if (!toEmail) {
+      const { data: orgData } = await supabase
+        .from('organization')
+        .select('invoicing_email')
+        .eq('id', organizationId)
+        .single();
+
+      toEmail = orgData?.invoicing_email;
+    }
+    if (!toEmail) {
       const { data: primaryContact } = await supabase
         .from('member')
         .select('email')
@@ -64,7 +73,7 @@ export default async function handler(req, res) {
     }
 
     if (!toEmail) {
-      return res.status(400).json({ error: 'No recipient email provided and no primary contact found for this organisation' });
+      return res.status(400).json({ error: 'No recipient email provided and no invoicing email or primary contact found for this organisation' });
     }
 
     const token = crypto.randomBytes(32).toString('hex');

@@ -72,6 +72,7 @@ function YearCostSection({
   onPurchaseOrderChange,
   onEmailFees,
   emailFeesPending,
+  hideInvoicing,
 }) {
   if (!yearData) return null;
 
@@ -270,6 +271,14 @@ function YearCostSection({
             <span>Fee recorded for {yearData.membershipYear} — invoicing controls hidden</span>
           </div>
         </>
+      ) : hideInvoicing ? (
+        <>
+          <Separator className="my-3" />
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-invoicing-pending-${testIdPrefix}`}>
+            <FileText className="w-3 h-3" />
+            <span>Invoicing controls will be available once the current year has been processed</span>
+          </div>
+        </>
       ) : (
         <>
           <Separator className="my-3" />
@@ -376,7 +385,7 @@ function YearCostSection({
   );
 }
 
-export default function OrgMembershipTab({ organizationId }) {
+export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const queryClient = useQueryClient();
   const [editingFieldValue, setEditingFieldValue] = useState(null);
   const [isEditingField, setIsEditingField] = useState(false);
@@ -969,7 +978,7 @@ export default function OrgMembershipTab({ organizationId }) {
                 onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [currentYearCost.membershipYear]: val }))}
                 onEmailFees={() => {
                   setEmailFeesYear(currentYearCost.membershipYear);
-                  setEmailFeesRecipient('');
+                  setEmailFeesRecipient(invoicingEmail || '');
                   setEmailFeesDialogOpen(true);
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
@@ -1039,10 +1048,11 @@ export default function OrgMembershipTab({ organizationId }) {
                 onPurchaseOrderChange={(val) => setPurchaseOrderNumbers(prev => ({ ...prev, [nextYearPreview.membershipYear]: val }))}
                 onEmailFees={() => {
                   setEmailFeesYear(nextYearPreview.membershipYear);
-                  setEmailFeesRecipient('');
+                  setEmailFeesRecipient(invoicingEmail || '');
                   setEmailFeesDialogOpen(true);
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
+                hideInvoicing={!currentYearRecorded}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -1419,12 +1429,12 @@ export default function OrgMembershipTab({ organizationId }) {
               <Input
                 value={emailFeesRecipient}
                 onChange={(e) => setEmailFeesRecipient(e.target.value)}
-                placeholder="Leave blank to use primary contact email"
+                placeholder="Enter recipient email address"
                 className="mt-1"
                 data-testid="input-email-fees-recipient"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                If left blank, the email will be sent to the organisation's primary contact.
+                {invoicingEmail ? 'Pre-filled from the organisation\'s invoicing email. You can change it if needed.' : 'Enter the email address to send the fee breakdown to.'}
               </p>
             </div>
           </div>

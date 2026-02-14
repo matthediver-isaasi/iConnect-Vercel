@@ -129,7 +129,17 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Purchase order number is required' });
         }
 
-        const targetYear = membershipYear || new Date().getFullYear().toString();
+        let targetYear = membershipYear;
+        if (!targetYear) {
+          const simForYear = await simulateMembershipForOrg(tenantId, organizationId, {
+            source: 'member-portal-po',
+            mode: 'manual',
+          });
+          if (!simForYear.success || !simForYear.membershipYear?.label) {
+            return res.status(400).json({ error: 'Could not determine membership year for PO submission' });
+          }
+          targetYear = simForYear.membershipYear.label;
+        }
 
         const { data: existing } = await supabase
           .from('organisation_membership_invoicing')

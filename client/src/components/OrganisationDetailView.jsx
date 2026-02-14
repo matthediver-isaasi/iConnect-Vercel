@@ -2068,7 +2068,7 @@ export default function OrganisationDetailView({
         })()}
 
         {activeTab === 'membership' && (
-          <OrgMembershipTab organizationId={organization?.id} />
+          <OrgMembershipTab organizationId={organization?.id} invoicingEmail={organization?.invoicing_email} />
         )}
 
         <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>
