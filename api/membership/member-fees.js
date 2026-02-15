@@ -85,7 +85,7 @@ export default async function handler(req, res) {
 
       const { data: existingRecord } = await supabase
         .from('organisation_membership_history')
-        .select('id, status, payment_method, stripe_payment_intent_id')
+        .select('id, status, payment_method, stripe_payment_intent_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, custom_discount_details, final_cost, tier_label, field_value, currency, billing_period')
         .eq('tenant_id', tenantId)
         .eq('organization_id', organizationId)
         .eq('membership_year', simResult.membershipYear?.label)
@@ -93,13 +93,44 @@ export default async function handler(req, res) {
 
       const approvalInfo = await checkMemberFeesApproval(tenantId, organizationId, simResult.membershipYear?.label);
 
-      return res.json({
-        organizationName: org?.name || 'Organisation',
-        membershipYear: simResult.membershipYear?.label,
-        finalCost: simResult.finalCost,
-        currency: simResult.currency || 'GBP',
-        tierLabel: simResult.tierLabel,
-        costBreakdown: {
+      let finalCost, currency, tierLabel, costBreakdown;
+
+      if (existingRecord) {
+        const recAnnual = parseFloat(existingRecord.annual_cost);
+        const recProrata = existingRecord.prorata_cost != null ? parseFloat(existingRecord.prorata_cost) : null;
+        const recFreeDiscount = parseFloat(existingRecord.free_period_discount || 0);
+        const recRollover = parseFloat(existingRecord.rollover_discount || 0);
+        const recCustomTotal = parseFloat(existingRecord.custom_discount_total || 0);
+        const hasProRata = recProrata !== null && recProrata !== recAnnual;
+
+        let recProrataDays = null;
+        if (hasProRata && simResult.goLiveDate && simResult.membershipYear) {
+          const joinMidnight = new Date(simResult.goLiveDate);
+          joinMidnight.setHours(0, 0, 0, 0);
+          const yearEndMidnight = new Date(simResult.membershipYear.end);
+          yearEndMidnight.setHours(0, 0, 0, 0);
+          recProrataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        }
+
+        finalCost = parseFloat(existingRecord.final_cost);
+        currency = existingRecord.currency || simResult.currency || 'GBP';
+        tierLabel = existingRecord.tier_label || simResult.tierLabel;
+        costBreakdown = {
+          annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,
+          customDiscountTotal: recCustomTotal,
+          customDiscountDetails: existingRecord.custom_discount_details || [],
+          annualCost: recAnnual,
+          proRataEnabled: hasProRata,
+          prorataDays: hasProRata ? recProrataDays : null,
+          prorataCost: hasProRata ? recProrata : null,
+          freeDiscount: recFreeDiscount,
+          rolloverDiscount: recRollover,
+        };
+      } else {
+        finalCost = simResult.finalCost;
+        currency = simResult.currency || 'GBP';
+        tierLabel = simResult.tierLabel;
+        costBreakdown = {
           annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
           customDiscountTotal: simResult.customDiscountTotal || 0,
           customDiscountDetails: simResult.customDiscountDetails || [],
@@ -109,7 +140,16 @@ export default async function handler(req, res) {
           prorataCost: simResult.prorataCost,
           freeDiscount: simResult.freeDiscount || 0,
           rolloverDiscount: simResult.rolloverDiscount || 0,
-        },
+        };
+      }
+
+      return res.json({
+        organizationName: org?.name || 'Organisation',
+        membershipYear: simResult.membershipYear?.label,
+        finalCost,
+        currency,
+        tierLabel,
+        costBreakdown,
         poNumber: invoicingSetting?.purchase_order_number || null,
         stripeEnabled: !!stripePublishableKey,
         stripePublishableKey,
