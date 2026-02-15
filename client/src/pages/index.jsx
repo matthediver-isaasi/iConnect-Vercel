@@ -275,6 +275,8 @@ import OrganisationEngagementReport from "./OrganisationEngagementReport";
 
 import MembershipTierManagement from "./MembershipTierManagement";
 
+import MembershipSettings from "./MembershipSettings";
+
 import SearchResults from "./SearchResults";
 
 import Forum from "./Forum";
@@ -415,6 +417,7 @@ const PAGES = {
     EventRegistrationReport: EventRegistrationReport,
     OrganisationEngagementReport: OrganisationEngagementReport,
     MembershipTierManagement: MembershipTierManagement,
+    MembershipSettings: MembershipSettings,
     MembershipFees: MembershipFees,
     FundraisingManagement: FundraisingManagement,
     
@@ -728,6 +731,7 @@ function PagesContent() {
                 <Route path="/EventRegistrationReport" element={<EventRegistrationReport />} />
                 <Route path="/OrganisationEngagementReport" element={<OrganisationEngagementReport />} />
                 <Route path="/MembershipTierManagement" element={<MembershipTierManagement />} />
+                <Route path="/MembershipSettings" element={<MembershipSettings />} />
                 <Route path="/MembershipFees" element={<MembershipFees />} />
                 <Route path="/FundraisingManagement" element={<FundraisingManagement />} />
                 

@@ -172,6 +172,13 @@ async function processTenantRenewals(tenantId, results) {
       yearStart.setHours(0, 0, 0, 0);
       const renewalDue = today >= yearStart;
 
+      const approvalCheck = await checkCronApproval(tenantId, orgId, membershipYear.label);
+      if (approvalCheck.required && !approvalCheck.approved) {
+        results.skipped++;
+        results.details.push({ tenantId, orgId, orgName: simResult.org?.name || orgId, mode, status: 'skipped', reason: 'Fees not yet approved' });
+        continue;
+      }
+
       if (mode === 'automatic') {
         if (!renewalDue) {
           results.skipped++;
@@ -494,4 +501,29 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   });
 
   console.log(`[cron/process-membership-renewals] Renewed: ${org.name} for ${membershipYear.label} (year ${yearNumber}), cost: ${finalCost.toFixed(2)}, free: ${freeDiscount.toFixed(2)}, rollover: ${rolloverDiscount.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
+}
+
+async function checkCronApproval(tenantId, orgId, membershipYearLabel) {
+  try {
+    const { data: setting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'membership_require_approval')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (setting?.setting_value !== 'true') return { required: false };
+
+    const { data: invoicing } = await supabase
+      .from('organisation_membership_invoicing')
+      .select('fees_approved')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', orgId)
+      .eq('membership_year', membershipYearLabel)
+      .maybeSingle();
+
+    return { required: true, approved: !!invoicing?.fees_approved };
+  } catch {
+    return { required: false };
+  }
 }

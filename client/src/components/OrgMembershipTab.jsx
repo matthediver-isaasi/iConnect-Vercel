@@ -27,7 +27,7 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
   FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
-  Lock, LockOpen
+  Lock, LockOpen, ShieldCheck
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -75,6 +75,11 @@ function YearCostSection({
   onEmailFees,
   emailFeesPending,
   hideInvoicing,
+  approvalRequired,
+  feesApproved,
+  onApprove,
+  onUnapprove,
+  approvePending,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const isPoLocked = poSuppliedByMember && !poUnlocked;
@@ -84,7 +89,7 @@ function YearCostSection({
   const hasOverride = !!yearData.overrideType;
 
   return (
-    <div data-testid={`section-${testIdPrefix}`}>
+    <div data-testid={`section-${testIdPrefix}`} className={approvalRequired && feesApproved ? 'rounded-md border border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/30 p-3 -m-1' : ''}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -93,6 +98,12 @@ function YearCostSection({
           </p>
           {isNewOrg && testIdPrefix === 'current-year' && (
             <Badge variant="outline" className="text-xs">New Member</Badge>
+          )}
+          {approvalRequired && feesApproved && (
+            <Badge variant="outline" className="text-xs text-green-700 border-green-300 dark:text-green-400 dark:border-green-700" data-testid={`badge-approved-${testIdPrefix}`}>
+              <ShieldCheck className="w-3 h-3 mr-1" />
+              Approved
+            </Badge>
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
@@ -375,30 +386,61 @@ function YearCostSection({
                 {invoicingSaving ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
                 Save
               </Button>
-              {invoicingMode === 'manual' && onManualRenewal && (
-                <Button
-                  size="sm"
-                  onClick={onManualRenewal}
-                  disabled={manualRenewalPending}
-                  data-testid={`button-renew-now-${testIdPrefix}`}
-                >
-                  {manualRenewalPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-                  Renew &amp; Invoice Now
-                </Button>
+              {approvalRequired && onApprove && onUnapprove && (
+                feesApproved ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onUnapprove}
+                    disabled={approvePending}
+                    data-testid={`button-unapprove-${testIdPrefix}`}
+                  >
+                    {approvePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                    Unapprove
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={onApprove}
+                    disabled={approvePending}
+                    data-testid={`button-approve-${testIdPrefix}`}
+                  >
+                    {approvePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1" />}
+                    Approve Fees
+                  </Button>
+                )
               )}
               {onEmailFees && (
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={onEmailFees}
-                  disabled={emailFeesPending}
+                  disabled={emailFeesPending || (approvalRequired && !feesApproved)}
                   data-testid={`button-email-fees-${testIdPrefix}`}
                 >
                   {emailFeesPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Mail className="w-3 h-3 mr-1" />}
                   Email Fees
                 </Button>
               )}
+              {invoicingMode === 'manual' && onManualRenewal && (
+                <Button
+                  size="sm"
+                  onClick={onManualRenewal}
+                  disabled={manualRenewalPending || (approvalRequired && !feesApproved)}
+                  data-testid={`button-renew-now-${testIdPrefix}`}
+                >
+                  {manualRenewalPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                  Renew &amp; Invoice Now
+                </Button>
+              )}
             </div>
+            {approvalRequired && !feesApproved && (
+              <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                <ShieldAlert className="w-3 h-3" />
+                Fees must be approved before invoicing or payment actions
+              </p>
+            )}
           </div>
         </>
       )}
@@ -428,6 +470,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [emailFeesDialogOpen, setEmailFeesDialogOpen] = useState(false);
   const [emailFeesYear, setEmailFeesYear] = useState(null);
   const [emailFeesRecipient, setEmailFeesRecipient] = useState('');
+  const [feesApprovedMap, setFeesApprovedMap] = useState({});
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['org-membership', organizationId],
@@ -545,6 +588,39 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     },
   });
 
+  const { data: membershipSettings } = useQuery({
+    queryKey: ['membership-settings'],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/membership-settings', { credentials: 'include' });
+      if (!response.ok) return { require_approval: false, stripe_enabled: true, custom_message: '' };
+      return response.json();
+    },
+  });
+
+  const approvalMutation = useMutation({
+    mutationFn: async ({ membershipYear, action }) => {
+      const response = await fetch('/api/membership/org-membership-invoicing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organizationId, membershipYear, action }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to update approval');
+      }
+      return response.json();
+    },
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['org-membership-invoicing', organizationId] });
+      setFeesApprovedMap(prev => ({ ...prev, [variables.membershipYear]: result.fees_approved }));
+      toast.success(result.fees_approved ? 'Fees approved' : 'Fees unapproved');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
   const { data: invoicingData } = useQuery({
     queryKey: ['org-membership-invoicing', organizationId],
     queryFn: async () => {
@@ -569,12 +645,14 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
 
       const poNumbers = {};
       const poMemberFlags = {};
+      const approvedFlags = {};
       for (const [yearKey, setting] of Object.entries(invoicingData.settings)) {
         if (yearKey === '_legacy') continue;
         modes[yearKey] = setting.invoicing_mode || 'manual';
         dates[yearKey] = setting.invoice_date || '';
         poNumbers[yearKey] = setting.purchase_order_number || '';
         if (setting.po_supplied_by_member) poMemberFlags[yearKey] = true;
+        approvedFlags[yearKey] = !!setting.fees_approved;
       }
 
       const curYear = data?.currentYearCost?.membershipYear;
@@ -602,6 +680,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       });
       setPurchaseOrderNumbers(prev => ({ ...prev, ...poNumbers }));
       setPoSuppliedByMemberMap(prev => ({ ...prev, ...poMemberFlags }));
+      setFeesApprovedMap(prev => ({ ...prev, ...approvedFlags }));
     }
   }, [invoicingData, data?.currentYearCost?.membershipYear, data?.nextYearPreview?.membershipYear]);
 
@@ -1008,6 +1087,11 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                   setEmailFeesDialogOpen(true);
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
+                approvalRequired={!!membershipSettings?.require_approval}
+                feesApproved={!!feesApprovedMap[currentYearCost?.membershipYear]}
+                onApprove={() => approvalMutation.mutate({ membershipYear: currentYearCost.membershipYear, action: 'approve' })}
+                onUnapprove={() => approvalMutation.mutate({ membershipYear: currentYearCost.membershipYear, action: 'unapprove' })}
+                approvePending={approvalMutation.isPending}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">
@@ -1080,6 +1164,11 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
                 hideInvoicing={!currentYearRecorded}
+                approvalRequired={!!membershipSettings?.require_approval}
+                feesApproved={!!feesApprovedMap[nextYearPreview?.membershipYear]}
+                onApprove={() => approvalMutation.mutate({ membershipYear: nextYearPreview.membershipYear, action: 'approve' })}
+                onUnapprove={() => approvalMutation.mutate({ membershipYear: nextYearPreview.membershipYear, action: 'unapprove' })}
+                approvePending={approvalMutation.isPending}
               />
             ) : (
               <div className="text-center py-4 text-muted-foreground">

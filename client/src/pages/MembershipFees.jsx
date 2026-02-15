@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Loader2, CheckCircle2, CreditCard, ClipboardList,
-  AlertCircle, Building2, FileText, RefreshCw
+  AlertCircle, Building2, FileText, RefreshCw, ShieldAlert
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -342,7 +342,23 @@ export default function MembershipFees() {
         </CardContent>
       </Card>
 
-      {canSubmitPo && !alreadyPaid && !poSubmitted && paymentMode !== 'stripe' && (
+      {data?.approvalPending && !alreadyPaid && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-amber-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium text-sm mb-1" data-testid="text-approval-pending-title">Fees Pending Approval</p>
+                <p className="text-sm text-muted-foreground" data-testid="text-approval-pending-message">
+                  {data.approvalMessage || 'Your membership fees are currently being reviewed. You will be notified when they are ready for payment.'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {canSubmitPo && !alreadyPaid && !poSubmitted && paymentMode !== 'stripe' && !data?.approvalPending && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -399,7 +415,7 @@ export default function MembershipFees() {
         </Card>
       )}
 
-      {canPayOnline && data?.stripeEnabled && !alreadyPaid && !paymentComplete && (
+      {canPayOnline && data?.stripeEnabled && !alreadyPaid && !paymentComplete && !data?.approvalPending && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">

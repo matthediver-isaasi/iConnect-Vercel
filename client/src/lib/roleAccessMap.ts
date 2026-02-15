@@ -162,6 +162,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "commerce.membership-setup",
         label: "Membership Tier Management"
+      },
+      {
+        id: "commerce.membership-settings",
+        label: "Membership Settings"
       }
     ]
   },
@@ -909,6 +913,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_VoucherManagement": "commerce.voucher-management",
   "page_MembershipFees": "commerce.membership",
   "page_MembershipTierManagement": "commerce.membership-setup",
+  "page_MembershipSettings": "commerce.membership-settings",
   "page_TrainingFundManagement": "commerce.training-fund-management",
   "page_MembersList": "crm.members",
   "page_OrganisationsList": "crm.organisations",

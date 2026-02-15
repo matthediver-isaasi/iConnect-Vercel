@@ -90,6 +90,16 @@ export default async function handler(req, res) {
           logoUrl: tenantBranding.logo_url,
           primaryColor: tenantBranding.primary_color || '#5C0085',
         } : null,
+        ...(await (async () => {
+          try {
+            const { data: s } = await supabase.from('system_settings').select('setting_value').eq('setting_key', 'membership_require_approval').eq('tenant_id', feeToken.tenant_id).maybeSingle();
+            if (s?.setting_value !== 'true') return { approvalPending: false, approvalMessage: null };
+            const { data: inv } = await supabase.from('organisation_membership_invoicing').select('fees_approved').eq('tenant_id', feeToken.tenant_id).eq('organization_id', feeToken.organization_id).eq('membership_year', feeToken.membership_year).maybeSingle();
+            if (inv?.fees_approved) return { approvalPending: false, approvalMessage: null };
+            const { data: msgSetting } = await supabase.from('system_settings').select('setting_value').eq('setting_key', 'membership_custom_message').eq('tenant_id', feeToken.tenant_id).maybeSingle();
+            return { approvalPending: true, approvalMessage: msgSetting?.setting_value || null };
+          } catch { return { approvalPending: false, approvalMessage: null }; }
+        })()),
       });
     }
 
@@ -105,6 +115,29 @@ export default async function handler(req, res) {
         if (!poNumber || !poNumber.trim()) {
           return res.status(400).json({ error: 'Purchase order number is required' });
         }
+
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', feeToken.tenant_id)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            const { data: invoicing } = await supabase
+              .from('organisation_membership_invoicing')
+              .select('fees_approved')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('organization_id', feeToken.organization_id)
+              .eq('membership_year', feeToken.membership_year)
+              .maybeSingle();
+
+            if (!invoicing?.fees_approved) {
+              return res.status(400).json({ error: 'Fees have not yet been approved. Please contact your administrator.' });
+            }
+          }
+        } catch {}
 
         const { error: updateError } = await supabase
           .from('membership_fee_token')
@@ -193,6 +226,29 @@ export default async function handler(req, res) {
       }
 
       if (action === 'create_payment') {
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', feeToken.tenant_id)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            const { data: invoicing } = await supabase
+              .from('organisation_membership_invoicing')
+              .select('fees_approved')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('organization_id', feeToken.organization_id)
+              .eq('membership_year', feeToken.membership_year)
+              .maybeSingle();
+
+            if (!invoicing?.fees_approved) {
+              return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
+            }
+          }
+        } catch {}
+
         const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
 
@@ -248,6 +304,29 @@ export default async function handler(req, res) {
         if (!paymentIntentId) {
           return res.status(400).json({ error: 'paymentIntentId is required' });
         }
+
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', feeToken.tenant_id)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            const { data: invoicing } = await supabase
+              .from('organisation_membership_invoicing')
+              .select('fees_approved')
+              .eq('tenant_id', feeToken.tenant_id)
+              .eq('organization_id', feeToken.organization_id)
+              .eq('membership_year', feeToken.membership_year)
+              .maybeSingle();
+
+            if (!invoicing?.fees_approved) {
+              return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
+            }
+          }
+        } catch {}
 
         const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;

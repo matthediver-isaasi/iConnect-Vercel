@@ -80,6 +80,8 @@ export default async function handler(req, res) {
         .eq('membership_year', simResult.membershipYear?.label)
         .maybeSingle();
 
+      const approvalInfo = await checkMemberFeesApproval(tenantId, organizationId, simResult.membershipYear?.label);
+
       return res.json({
         organizationName: org?.name || 'Organisation',
         membershipYear: simResult.membershipYear?.label,
@@ -109,6 +111,8 @@ export default async function handler(req, res) {
           name: tenantBranding.name,
           primaryColor: tenantBranding.primary_color || '#5C0085',
         } : null,
+        approvalPending: approvalInfo.blocked || false,
+        approvalMessage: approvalInfo.blocked ? approvalInfo.message : null,
       });
     }
 
@@ -122,6 +126,10 @@ export default async function handler(req, res) {
         }
 
         let targetYear = membershipYear;
+        const poApprovalCheck = await checkMemberFeesApproval(tenantId, organizationId, targetYear);
+        if (poApprovalCheck.blocked) {
+          return res.status(400).json({ error: poApprovalCheck.message || 'Fees have not yet been approved. Please contact your administrator.' });
+        }
         if (!targetYear) {
           const simForYear = await simulateMembershipForOrg(tenantId, organizationId, {
             source: 'member-portal-po',
@@ -188,6 +196,11 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'A membership record already exists for this period' });
         }
 
+        const approvalStatus = await checkMemberFeesApproval(tenantId, organizationId, simResult.membershipYear?.label);
+        if (approvalStatus.blocked) {
+          return res.status(400).json({ error: approvalStatus.message });
+        }
+
         const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
 
@@ -237,6 +250,11 @@ export default async function handler(req, res) {
         const { paymentIntentId, membershipYear: confirmYear } = req.body;
         if (!paymentIntentId) {
           return res.status(400).json({ error: 'paymentIntentId is required' });
+        }
+
+        const confirmApprovalCheck = await checkMemberFeesApproval(tenantId, organizationId, confirmYear);
+        if (confirmApprovalCheck.blocked) {
+          return res.status(400).json({ error: confirmApprovalCheck.message || 'Fees have not yet been approved for payment. Please contact your administrator.' });
         }
 
         const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
@@ -389,5 +407,40 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('[Member Fees] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function checkMemberFeesApproval(tenantId, organizationId, membershipYearLabel) {
+  try {
+    const { data: setting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'membership_require_approval')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (setting?.setting_value !== 'true') return { blocked: false };
+
+    const { data: invoicing } = await supabase
+      .from('organisation_membership_invoicing')
+      .select('fees_approved')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .eq('membership_year', membershipYearLabel)
+      .maybeSingle();
+
+    if (invoicing?.fees_approved) return { blocked: false };
+
+    const { data: msgSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'membership_custom_message')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    const message = msgSetting?.setting_value || 'Your membership fees are currently being reviewed. You will be notified when they are ready for payment.';
+    return { blocked: true, message };
+  } catch {
+    return { blocked: false };
   }
 }

@@ -22,6 +22,8 @@ export default async function handler(req, res) {
       return handlePut(req, res, tenantId, tenantContext);
     } else if (req.method === 'POST') {
       return handleManualRenewal(req, res, tenantId, tenantContext);
+    } else if (req.method === 'PATCH') {
+      return handleApproval(req, res, tenantId);
     } else {
       return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -64,6 +66,7 @@ async function handleGet(req, res, tenantId) {
           invoice_date: row.invoice_date,
           purchase_order_number: row.purchase_order_number || null,
           po_supplied_by_member: row.po_source === 'member',
+          fees_approved: !!row.fees_approved,
           id: row.id,
         };
       }
@@ -88,6 +91,8 @@ async function ensureColumns() {
         ADD COLUMN IF NOT EXISTS purchase_order_number TEXT;
         ALTER TABLE organisation_membership_invoicing 
         ADD COLUMN IF NOT EXISTS po_source TEXT;
+        ALTER TABLE organisation_membership_invoicing 
+        ADD COLUMN IF NOT EXISTS fees_approved BOOLEAN DEFAULT false;
       `
     });
     columnEnsured = true;
@@ -190,6 +195,29 @@ async function handlePut(req, res, tenantId, tenantContext) {
   return res.json(result);
 }
 
+async function checkApprovalRequired(tenantId, organizationId, membershipYear) {
+  const { data: setting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'membership_require_approval')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (setting?.setting_value !== 'true') return { required: false };
+
+  await ensureColumns();
+
+  const { data: invoicing } = await supabase
+    .from('organisation_membership_invoicing')
+    .select('fees_approved')
+    .eq('tenant_id', tenantId)
+    .eq('organization_id', organizationId)
+    .eq('membership_year', membershipYear)
+    .maybeSingle();
+
+  return { required: true, approved: !!invoicing?.fees_approved };
+}
+
 async function handleManualRenewal(req, res, tenantId, tenantContext) {
   const { organizationId, membershipYear: requestedYear } = req.body;
 
@@ -213,6 +241,11 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
 
   if (simResult.existingRecord) {
     return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists` });
+  }
+
+  const approval = await checkApprovalRequired(tenantId, organizationId, simResult.membershipYear.label);
+  if (approval.required && !approval.approved) {
+    return res.status(400).json({ error: 'Fees must be approved before renewal can be processed. Use the Approve Fees button first.' });
   }
 
   const org = simResult.org;
@@ -327,6 +360,60 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     success: true,
     record: { ...record, xero_invoice_id: xeroInvoice?.invoice_id, xero_invoice_number: xeroInvoice?.invoice_number },
     xeroInvoice: xeroInvoice || null,
-    message: `Membership renewed for ${membershipYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` Invoice ${xeroInvoice.invoice_number} created.` : ''}`
+    message: `Membership renewed for ${membershipYear.label}. Fee: ${finalCost.toFixed(2)}.${xeroInvoice ? ` Invoice ${xeroInvoice.invoice_number} created.` : ''}`,
   });
+}
+
+async function handleApproval(req, res, tenantId) {
+  const { organizationId, membershipYear, action } = req.body;
+
+  if (!organizationId || !membershipYear) {
+    return res.status(400).json({ error: 'organizationId and membershipYear are required' });
+  }
+
+  if (!['approve', 'unapprove'].includes(action)) {
+    return res.status(400).json({ error: 'action must be "approve" or "unapprove"' });
+  }
+
+  await ensureColumns();
+
+  const approved = action === 'approve';
+
+  const { data: existing } = await supabase
+    .from('organisation_membership_invoicing')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('organization_id', organizationId)
+    .eq('membership_year', membershipYear)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('organisation_membership_invoicing')
+      .update({ fees_approved: approved, updated_at: new Date().toISOString() })
+      .eq('id', existing.id);
+
+    if (error) {
+      console.error('[Invoicing] Error updating approval:', error);
+      return res.status(500).json({ error: 'Failed to update approval status' });
+    }
+  } else {
+    const { error } = await supabase
+      .from('organisation_membership_invoicing')
+      .insert({
+        tenant_id: tenantId,
+        organization_id: organizationId,
+        membership_year: membershipYear,
+        invoicing_mode: 'manual',
+        fees_approved: approved,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error('[Invoicing] Error creating approval record:', error);
+      return res.status(500).json({ error: 'Failed to create approval record' });
+    }
+  }
+
+  return res.json({ success: true, fees_approved: approved });
 }
