@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
 import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
+import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -682,103 +683,59 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'organizationId and membershipYear are required' });
   }
 
-  const { data: org } = await supabase
-    .from('organization')
-    .select('id, tenant_id')
-    .eq('id', organizationId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+  const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
+    source: 'record_fee',
+    mode: 'manual',
+    targetYear: membershipYear,
+  });
 
-  if (!org) {
-    return res.status(404).json({ error: 'Organisation not found' });
+  if (!simResult.success) {
+    return res.status(400).json({ error: simResult.error || 'Simulation failed' });
   }
 
-  const config = await getConfigForOrganisation(tenantId, organizationId);
-  if (!config) {
-    return res.status(400).json({ error: 'No active tier configuration found' });
+  if (simResult.existingRecord) {
+    return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists` });
   }
 
-  const bands = await getBandsForConfig(config.id, tenantId);
-  const fieldValue = await getOrgFieldValue(organizationId, tenantId, config);
-  const matchedBand = matchBand(fieldValue, bands);
+  const vatRate = simResult.matchedBand?.vat_rate !== null && simResult.matchedBand?.vat_rate !== undefined
+    ? parseFloat(simResult.matchedBand.vat_rate)
+    : null;
 
-  if (!matchedBand) {
-    return res.status(400).json({ error: 'Organisation does not match any tier band' });
-  }
+  const insertData = {
+    tenant_id: tenantId,
+    organization_id: organizationId,
+    membership_year: simResult.membershipYear.label,
+    config_id: simResult.config.id,
+    band_id: simResult.matchedBand?.id || null,
+    tier_label: simResult.tierLabel,
+    field_value: simResult.fieldValue,
+    annual_cost: simResult.annualCost,
+    prorata_cost: simResult.prorataCost,
+    free_period_discount: simResult.freeDiscount || 0,
+    rollover_discount: simResult.rolloverDiscount || 0,
+    custom_discount_total: simResult.customDiscountTotal || 0,
+    custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
+    final_cost: simResult.finalCost,
+    currency: simResult.currency,
+    billing_period: simResult.billingPeriod || 'annual',
+    status: 'active',
+    notes: notes || null,
+  };
 
-  let annualCost = parseFloat(matchedBand.annual_cost);
-  let customDiscountTotal = 0;
-  let customDiscountDetails = [];
-
-  const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
-  if (discountResult.discountDetails.length > 0) {
-    const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
-    customDiscountTotal = applied.totalDiscount;
-    customDiscountDetails = applied.appliedDiscounts;
-    annualCost = applied.discountedCost;
-  }
-
-  const freeDiscount = calculateFreePeriodDiscount(annualCost, config);
-  const adjustedAnnual = annualCost - freeDiscount;
-
-  let prorataCost = null;
-  if (config.prorata_enabled) {
-    const prorata = calculateProRata(adjustedAnnual, config);
-    prorataCost = prorata.proratedCost;
-  }
-
-  let rolloverDiscount = 0;
-  if (config.rollover_enabled && config.free_period_amount) {
-    const prevYearHistory = await supabase
-      .from('organisation_membership_history')
-      .select('rollover_discount')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .order('membership_year', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-  }
-
-  const finalCost = prorataCost !== null ? prorataCost : adjustedAnnual;
-
-  const { data: existing } = await supabase
-    .from('organisation_membership_history')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('organization_id', organizationId)
-    .eq('membership_year', membershipYear)
-    .maybeSingle();
-
-  if (existing) {
-    return res.status(400).json({ error: `A membership record for ${membershipYear} already exists` });
+  if (vatRate !== null) {
+    insertData.vat_rate = vatRate;
   }
 
   const { data: record, error } = await supabase
     .from('organisation_membership_history')
-    .insert({
-      tenant_id: tenantId,
-      organization_id: organizationId,
-      membership_year: membershipYear,
-      config_id: config.id,
-      band_id: matchedBand.id,
-      tier_label: matchedBand.label,
-      field_value: fieldValue,
-      annual_cost: annualCost,
-      prorata_cost: prorataCost,
-      free_period_discount: freeDiscount,
-      rollover_discount: rolloverDiscount,
-      custom_discount_total: customDiscountTotal,
-      custom_discount_details: customDiscountDetails.length > 0 ? customDiscountDetails : null,
-      final_cost: finalCost,
-      currency: config.currency || 'GBP',
-      billing_period: config.billing_period || 'annual',
-      status: 'active',
-      notes: notes || null,
-    })
+    .insert(insertData)
     .select()
     .single();
 
   if (error) {
+    if (error.code === '23505') {
+      return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists (duplicate prevented)` });
+    }
     console.error('[Org Membership] Error creating history record:', error);
     return res.status(500).json({ error: 'Failed to create membership record' });
   }
