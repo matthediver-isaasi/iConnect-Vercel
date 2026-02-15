@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       return res.json({
         require_approval: settings.membership_require_approval === 'true',
         stripe_enabled: settings.membership_stripe_enabled !== 'false',
-        custom_message: settings.membership_custom_message || '',
+        custom_message: settings.membership_custom_message && settings.membership_custom_message !== 'none' ? settings.membership_custom_message : '',
       });
     }
 
@@ -50,30 +50,24 @@ export default async function handler(req, res) {
       const updates = [
         { key: 'membership_require_approval', value: String(!!require_approval) },
         { key: 'membership_stripe_enabled', value: String(stripe_enabled !== false) },
-        { key: 'membership_custom_message', value: custom_message || '' },
+        { key: 'membership_custom_message', value: custom_message || 'none' },
       ];
 
       for (const { key, value } of updates) {
-        const { data: existing } = await supabase
+        const { error: upsertError } = await supabase
           .from('system_settings')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .eq('setting_key', key)
-          .maybeSingle();
-
-        if (existing) {
-          await supabase
-            .from('system_settings')
-            .update({ setting_value: value, updated_at: new Date().toISOString() })
-            .eq('id', existing.id);
-        } else {
-          await supabase
-            .from('system_settings')
-            .insert({
+          .upsert(
+            {
               tenant_id: tenantId,
               setting_key: key,
               setting_value: value,
-            });
+            },
+            { onConflict: 'tenant_id,setting_key' }
+          );
+
+        if (upsertError) {
+          console.error(`[MembershipSettings] Error upserting ${key}:`, upsertError);
+          return res.status(500).json({ error: `Failed to save setting: ${key}` });
         }
       }
 
