@@ -111,6 +111,7 @@ const builtInPages = [
   { value: "MemberGroupManagement", label: "Member Group Management" },
   { value: "MemberHandleManagement", label: "Member Handle Management" },
   { value: "MembershipFees", label: "Membership Fees" },
+  { value: "MembershipSettings", label: "Membership Settings" },
   { value: "MembershipTierManagement", label: "Membership Tier Management" },
   { value: "MemberRoleAssignment", label: "Member Role Assignment" },
   { value: "MemberRoleReport", label: "Member Role Report" },
