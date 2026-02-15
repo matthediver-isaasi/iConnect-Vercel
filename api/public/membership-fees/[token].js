@@ -85,14 +85,22 @@ export default async function handler(req, res) {
         }
       } catch {}
 
+      const breakdown = feeToken.cost_breakdown || {};
+      const tokenVatRate = breakdown.vatRatePercent || null;
+      const tokenVatAmount = breakdown.vatAmount || 0;
+      const tokenTotalWithVat = breakdown.totalWithVat || parseFloat(feeToken.final_cost);
+
       return res.json({
         status: feeToken.status,
         organizationName: org?.name || 'Organisation',
         membershipYear: feeToken.membership_year,
         finalCost: parseFloat(feeToken.final_cost),
+        vatRatePercent: tokenVatRate,
+        vatAmount: tokenVatAmount,
+        totalWithVat: tokenTotalWithVat,
         currency: feeToken.currency || 'GBP',
         tierLabel: feeToken.tier_label,
-        costBreakdown: feeToken.cost_breakdown || {},
+        costBreakdown: breakdown,
         poNumber: feeToken.po_number || null,
         stripeEnabled: !!stripePublishableKey,
         stripePublishableKey,
@@ -269,7 +277,9 @@ export default async function handler(req, res) {
         }
 
         const stripe = new Stripe(stripeCredentials.secret_key);
-        const amount = Math.round(parseFloat(feeToken.final_cost) * 100);
+        const tokenBreakdown = feeToken.cost_breakdown || {};
+        const chargeTotal = tokenBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
+        const amount = Math.round(chargeTotal * 100);
         const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
         const cur = (feeToken.currency || 'GBP').toLowerCase();
         const minCents = STRIPE_MIN_CENTS[cur] || 50;
@@ -358,7 +368,9 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Payment has not been completed', status: paymentIntent.status });
         }
 
-        const expectedAmount = Math.round(parseFloat(feeToken.final_cost) * 100);
+        const confirmBreakdown = feeToken.cost_breakdown || {};
+        const confirmTotal = confirmBreakdown.totalWithVat || parseFloat(feeToken.final_cost);
+        const expectedAmount = Math.round(confirmTotal * 100);
         if (paymentIntent.amount !== expectedAmount) {
           console.error(`[Public Fee] Amount mismatch: expected ${expectedAmount}, got ${paymentIntent.amount}`);
           return res.status(400).json({ error: 'Payment amount does not match expected fee' });
@@ -452,7 +464,7 @@ export default async function handler(req, res) {
           await supabase.from('organization_note').insert({
             organization_id: feeToken.organization_id,
             member_id: null,
-            content: `[Membership Fee - Stripe Payment] Payment received for ${feeToken.membership_year}. Amount: ${feeToken.currency} ${parseFloat(feeToken.final_cost).toFixed(2)}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
+            content: `[Membership Fee - Stripe Payment] Payment received for ${feeToken.membership_year}. Amount: ${feeToken.currency} ${parseFloat(confirmTotal).toFixed(2)}${confirmBreakdown.vatAmount > 0 ? ` (incl. VAT ${parseFloat(confirmBreakdown.vatAmount).toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
             attachments: [],
           });
         } catch {}

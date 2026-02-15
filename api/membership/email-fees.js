@@ -140,6 +140,10 @@ export default async function handler(req, res) {
       rolloverDiscount: simResult.rolloverDiscount || 0,
       proRataEnabled: simResult.proRataEnabled,
       overrideType: simResult.overrideType || null,
+      vatRatePercent: simResult.vatRatePercent || null,
+      vatAmount: simResult.vatAmount || 0,
+      totalWithVat: simResult.totalWithVat || finalCost,
+      taxLabel: simResult.taxLabel || null,
     };
 
     let poNumber = null;
@@ -222,9 +226,17 @@ export default async function handler(req, res) {
       breakdownRows.push({ label: overrideLabels[costBreakdown.overrideType] || 'Override', value: 'Applied', isNote: true });
     }
 
+    const hasVat = costBreakdown.vatRatePercent && costBreakdown.vatAmount > 0;
+    const displayTotal = hasVat ? costBreakdown.totalWithVat : finalCost;
+
+    if (hasVat) {
+      breakdownRows.push({ label: 'Net Amount', value: `${currencySymbol}${finalCost.toFixed(2)}`, isSubtotal: true });
+      breakdownRows.push({ label: `VAT (${costBreakdown.vatRatePercent}%)`, value: `${currencySymbol}${parseFloat(costBreakdown.vatAmount).toFixed(2)}` });
+    }
+
     const breakdownHtml = breakdownRows.map(row => `
       <tr>
-        <td style="padding: 4px 0; color: ${row.isDiscount ? '#16a34a' : '#666'};">${row.label}</td>
+        <td style="padding: 4px 0; color: ${row.isDiscount ? '#16a34a' : row.isSubtotal ? '#333' : '#666'};">${row.label}</td>
         <td style="padding: 4px 0; text-align: right; font-weight: 600; color: ${row.isDiscount ? '#16a34a' : row.isNote ? '#888' : 'inherit'};">${row.value}</td>
       </tr>
     `).join('');
@@ -247,8 +259,8 @@ export default async function handler(req, res) {
                 <td colspan="2" style="padding: 8px 0 4px 0; border-top: 1px solid #ddd;"></td>
               </tr>
               <tr>
-                <td style="padding: 4px 0; color: #333; font-weight: 600;">Total Due</td>
-                <td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${currencySymbol}${finalCost.toFixed(2)}</td>
+                <td style="padding: 4px 0; color: #333; font-weight: 600;">Total Due${hasVat ? ' (incl. VAT)' : ''}</td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 700; font-size: 18px;">${currencySymbol}${displayTotal.toFixed(2)}</td>
               </tr>
             </table>
           </div>

@@ -94,7 +94,7 @@ export default function MembershipFeePage() {
 
   const initStripe = async () => {
     if (!data?.stripePublishableKey) return;
-    if (isBelowStripeMinimum(data?.finalCost, data?.currency)) return;
+    if (isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency)) return;
     setCreatingPayment(true);
     setPaymentError(null);
 
@@ -226,7 +226,7 @@ export default function MembershipFeePage() {
             <div className="p-3 rounded-md bg-gray-50 border">
               <p className="text-sm text-gray-600">Amount Paid</p>
               <p className="text-2xl font-bold" style={{ color: primaryColor }}>
-                {formatCurrency(data?.finalCost, data?.currency)}
+                {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </p>
             </div>
           </CardContent>
@@ -305,12 +305,26 @@ export default function MembershipFeePage() {
               </div>
             )}
 
+            {data?.vatRatePercent > 0 && data?.vatAmount > 0 && (
+              <>
+                <Separator className="my-3" />
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">Net Amount</span>
+                  <span>{formatCurrency(data?.finalCost, data?.currency)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">VAT ({data.vatRatePercent}%)</span>
+                  <span data-testid="text-vat">{formatCurrency(data.vatAmount, data?.currency)}</span>
+                </div>
+              </>
+            )}
+
             <Separator className="my-3" />
 
             <div className="flex items-center justify-between">
-              <span className="font-medium">Total Due</span>
+              <span className="font-medium">Total Due{data?.vatRatePercent > 0 ? ' (incl. VAT)' : ''}</span>
               <span className="text-2xl font-bold" style={{ color: primaryColor }} data-testid="text-total">
-                {formatCurrency(data?.finalCost, data?.currency)}
+                {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
               </span>
             </div>
           </CardContent>
@@ -370,20 +384,20 @@ export default function MembershipFeePage() {
 
               {paymentMode !== 'stripe' ? (
                 <>
-                  {isBelowStripeMinimum(data?.finalCost, data?.currency) ? (
+                  {isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency) ? (
                     <p className="text-sm text-gray-500 mb-3">
                       Online payment is not available as the amount is below the minimum that can be processed by card ({formatCurrency(STRIPE_MINIMUMS[data?.currency] || 0.50, data?.currency)}).
                     </p>
                   ) : (
                     <p className="text-sm text-gray-500 mb-3">
-                      Pay your membership fee immediately by card. Your membership will be activated once payment is confirmed.
+                      Pay your membership fee immediately by card.{data?.vatRatePercent > 0 ? ` The amount includes VAT at ${data.vatRatePercent}%.` : ''} Your membership will be activated once payment is confirmed.
                     </p>
                   )}
                   <Button
                     onClick={initStripe}
-                    disabled={creatingPayment || isBelowStripeMinimum(data?.finalCost, data?.currency)}
+                    disabled={creatingPayment || isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency)}
                     className="w-full"
-                    style={{ background: isBelowStripeMinimum(data?.finalCost, data?.currency) ? '#9ca3af' : primaryColor }}
+                    style={{ background: isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency) ? '#9ca3af' : primaryColor }}
                     data-testid="button-pay-now"
                   >
                     {creatingPayment ? (
@@ -391,7 +405,7 @@ export default function MembershipFeePage() {
                     ) : (
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
-                    Pay {formatCurrency(data?.finalCost, data?.currency)}
+                    Pay {formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}
                   </Button>
                 </>
               ) : (
@@ -417,7 +431,7 @@ export default function MembershipFeePage() {
                     ) : (
                       <CreditCard className="w-4 h-4 mr-2" />
                     )}
-                    {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(data?.finalCost, data?.currency)}`}
+                    {processingPayment ? 'Processing...' : `Confirm Payment - ${formatCurrency(data?.totalWithVat || data?.finalCost, data?.currency)}`}
                   </Button>
                 </div>
               )}

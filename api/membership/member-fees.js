@@ -93,7 +93,7 @@ export default async function handler(req, res) {
 
       const approvalInfo = await checkMemberFeesApproval(tenantId, organizationId, simResult.membershipYear?.label);
 
-      let finalCost, currency, tierLabel, costBreakdown;
+      let finalCost, currency, tierLabel, costBreakdown, vatRatePercent, vatAmount, totalWithVat;
 
       if (existingRecord) {
         const recAnnual = parseFloat(existingRecord.annual_cost);
@@ -115,6 +115,11 @@ export default async function handler(req, res) {
         finalCost = parseFloat(existingRecord.final_cost);
         currency = existingRecord.currency || simResult.currency || 'GBP';
         tierLabel = existingRecord.tier_label || simResult.tierLabel;
+
+        vatRatePercent = simResult.vatRatePercent || null;
+        vatAmount = vatRatePercent ? parseFloat((finalCost * vatRatePercent / 100).toFixed(2)) : 0;
+        totalWithVat = parseFloat((finalCost + vatAmount).toFixed(2));
+
         costBreakdown = {
           annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,
           customDiscountTotal: recCustomTotal,
@@ -130,6 +135,9 @@ export default async function handler(req, res) {
         finalCost = simResult.finalCost;
         currency = simResult.currency || 'GBP';
         tierLabel = simResult.tierLabel;
+        vatRatePercent = simResult.vatRatePercent || null;
+        vatAmount = simResult.vatAmount || 0;
+        totalWithVat = simResult.totalWithVat || finalCost;
         costBreakdown = {
           annualCostBeforeDiscounts: simResult.annualCostBeforeDiscounts,
           customDiscountTotal: simResult.customDiscountTotal || 0,
@@ -147,6 +155,9 @@ export default async function handler(req, res) {
         organizationName: org?.name || 'Organisation',
         membershipYear: simResult.membershipYear?.label,
         finalCost,
+        vatRatePercent,
+        vatAmount,
+        totalWithVat,
         currency,
         tierLabel,
         costBreakdown,
@@ -261,7 +272,8 @@ export default async function handler(req, res) {
         }
 
         const stripe = new Stripe(stripeCredentials.secret_key);
-        const amount = Math.round(simResult.finalCost * 100);
+        const chargeAmount = simResult.totalWithVat || simResult.finalCost;
+        const amount = Math.round(chargeAmount * 100);
         const currency = (simResult.currency || 'GBP').toLowerCase();
         const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
         const minCents = STRIPE_MIN_CENTS[currency] || 50;
@@ -291,7 +303,10 @@ export default async function handler(req, res) {
         return res.json({
           clientSecret: paymentIntent.client_secret,
           paymentIntentId: paymentIntent.id,
-          amount: simResult.finalCost,
+          amount: chargeAmount,
+          netAmount: simResult.finalCost,
+          vatAmount: simResult.vatAmount || 0,
+          vatRatePercent: simResult.vatRatePercent || null,
           currency: simResult.currency || 'GBP',
           membershipYear: simResult.membershipYear?.label,
         });
@@ -344,7 +359,8 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: simResult.error || 'Could not verify membership fees' });
         }
 
-        const expectedAmount = Math.round(simResult.finalCost * 100);
+        const confirmChargeTotal = simResult.totalWithVat || simResult.finalCost;
+        const expectedAmount = Math.round(confirmChargeTotal * 100);
         if (paymentIntent.amount !== expectedAmount) {
           console.error(`[Member Fees] Amount mismatch: expected ${expectedAmount}, got ${paymentIntent.amount}`);
           return res.status(400).json({ error: 'Payment amount does not match expected fee' });
@@ -438,7 +454,7 @@ export default async function handler(req, res) {
           await supabase.from('organization_note').insert({
             organization_id: organizationId,
             member_id: sessionMember.id,
-            content: `[Membership Fee - Portal Payment] Payment received for ${targetYear}. Amount: ${simResult.currency || 'GBP'} ${simResult.finalCost?.toFixed(2)}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
+            content: `[Membership Fee - Portal Payment] Payment received for ${targetYear}. Amount: ${simResult.currency || 'GBP'} ${confirmChargeTotal.toFixed(2)}${simResult.vatAmount > 0 ? ` (incl. VAT ${simResult.vatAmount.toFixed(2)})` : ''}. Stripe PI: ${paymentIntentId}.${invoiceNote}`,
             attachments: [],
           });
         } catch {}

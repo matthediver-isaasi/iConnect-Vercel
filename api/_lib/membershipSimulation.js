@@ -397,7 +397,39 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     }
   }
 
-  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set on tier band (no VAT applied)'}`);
+  let vatRatePercent = null;
+  if (taxType) {
+    try {
+      const vatRatesKey = `xero_vat_rates_${tenantId}`;
+      const { data: vatRatesSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', vatRatesKey)
+        .maybeSingle();
+
+      if (vatRatesSetting?.setting_value) {
+        const cachedData = JSON.parse(vatRatesSetting.setting_value);
+        const matchedRate = (cachedData.rates || []).find(r => r.taxType === taxType);
+        if (matchedRate && matchedRate.effectiveRate != null) {
+          vatRatePercent = parseFloat(matchedRate.effectiveRate);
+        }
+      }
+    } catch (vatLookupErr) {
+      log('VAT Rate Lookup', `Could not look up numeric VAT rate for taxType "${taxType}": ${vatLookupErr.message}`, 'warning');
+    }
+
+    if (vatRatePercent == null && taxLabel) {
+      const percentMatch = taxLabel.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (percentMatch) {
+        vatRatePercent = parseFloat(percentMatch[1]);
+      }
+    }
+  }
+
+  const vatAmount = vatRatePercent ? parseFloat((computedFinalCost * vatRatePercent / 100).toFixed(2)) : 0;
+  const totalWithVat = parseFloat((computedFinalCost + vatAmount).toFixed(2));
+
+  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set on tier band (no VAT applied)'}${vatRatePercent ? `, Rate: ${vatRatePercent}%, VAT Amount: ${vatAmount.toFixed(2)}, Total incl VAT: ${totalWithVat.toFixed(2)}` : ''}`);
 
   const scheduleStartDate = formatDate(membershipYear.start) + ' at 00:00';
   const scheduledInvoiceDate = invoicingSettings?.invoice_date ? formatDate(new Date(invoicingSettings.invoice_date)) + ' at 00:00' : null;
@@ -508,6 +540,11 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     billingPeriod: config.billing_period || 'annual',
     goLiveDate,
     isNewOrg,
+    vatRatePercent,
+    vatAmount,
+    totalWithVat,
+    taxType,
+    taxLabel,
     steps,
   };
 }
