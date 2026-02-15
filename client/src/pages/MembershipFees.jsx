@@ -358,7 +358,7 @@ export default function MembershipFees() {
         </Card>
       )}
 
-      {canSubmitPo && !alreadyPaid && !poSubmitted && paymentMode !== 'stripe' && !data?.approvalPending && (
+      {canSubmitPo && !alreadyPaid && !poSubmitted && !data?.poNumber && paymentMode !== 'stripe' && !data?.approvalPending && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -389,27 +389,26 @@ export default function MembershipFees() {
         </Card>
       )}
 
-      {poSubmitted && (
+      {(poSubmitted || data?.poNumber) && (
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="w-5 h-5" />
-              <span className="font-medium">Purchase Order Submitted</span>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              PO Number: <span className="font-medium">{poNumber}</span>
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {data?.poNumber && !poSubmitted && (
-        <Card>
-          <CardContent className="pt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ClipboardList className="w-4 h-4" />
+              Purchase Order Number
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Current PO Number:</span>
-              <span className="text-sm font-medium">{data.poNumber}</span>
+              <Input
+                value={poSubmitted ? poNumber : data?.poNumber}
+                readOnly
+                disabled
+                data-testid="input-portal-po-locked"
+              />
+              <Badge variant="secondary" data-testid="badge-po-submitted">
+                <CheckCircle2 className="w-3 h-3 mr-1" />
+                Submitted
+              </Badge>
             </div>
           </CardContent>
         </Card>
