@@ -315,7 +315,8 @@ async function handleGet(req, res, tenantId) {
 
   const nextYearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, nextYear, config) : 2;
 
-  const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
+  const currentYearRecord = (historyRecords || []).find(h => h.membership_year === currentYear.label);
+  const hasCurrentYearRecord = !!currentYearRecord;
 
   const isNewOrg = (yearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
 
@@ -336,65 +337,130 @@ async function handleGet(req, res, tenantId) {
     const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
     const dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
 
-    let prorataDays = totalDaysInYear;
-    let prorataCost = annualCost;
-    let freePeriodDaysApplied = 0;
-    let freeDiscount = 0;
-    let billableDays = totalDaysInYear;
-    let finalCost = annualCost;
+    if (currentYearRecord) {
+      const recAnnual = parseFloat(currentYearRecord.annual_cost);
+      const recProrata = currentYearRecord.prorata_cost != null ? parseFloat(currentYearRecord.prorata_cost) : null;
+      const recFreeDiscount = parseFloat(currentYearRecord.free_period_discount || 0);
+      const recRollover = parseFloat(currentYearRecord.rollover_discount || 0);
+      const recCustomTotal = parseFloat(currentYearRecord.custom_discount_total || 0);
+      const recFinal = parseFloat(currentYearRecord.final_cost);
+      const recDailyCost = recAnnual > 0 ? parseFloat((recAnnual / totalDaysInYear).toFixed(4)) : 0;
 
-    if (config.prorata_enabled && isNewOrg) {
-      const joinMidnight = new Date(effectiveJoinDate);
-      joinMidnight.setHours(0, 0, 0, 0);
-      prorataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-      prorataCost = parseFloat((dailyCost * prorataDays).toFixed(2));
+      const hasProRata = recProrata !== null && recProrata !== recAnnual;
+      let recProrataDays = null;
+      let recFreePeriodDaysApplied = 0;
+      let recBillableDays = null;
 
-      if (config.free_period_amount && config.free_period_unit) {
+      if (hasProRata && goLiveDate && config.prorata_enabled) {
+        const joinMidnight = new Date(goLiveDate);
+        joinMidnight.setHours(0, 0, 0, 0);
+        recProrataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+      }
+      if (recFreeDiscount > 0 && goLiveDate && config.free_period_amount && config.free_period_unit) {
+        const joinMidnight = new Date(goLiveDate);
+        joinMidnight.setHours(0, 0, 0, 0);
         const freePeriodMonths = getFreeMonths(config);
         const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
         const freePeriodEnd = new Date(joinMidnight);
         freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
         const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
-        freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-        freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
-        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        recFreePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        if (recProrataDays !== null) {
+          recFreePeriodDaysApplied = Math.min(recFreePeriodDaysApplied, recProrataDays);
+        }
+      }
+      if (hasProRata && recProrataDays !== null) {
+        recBillableDays = Math.max(0, recProrataDays - recFreePeriodDaysApplied);
       }
 
-      billableDays = prorataDays - freePeriodDaysApplied;
-      finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
-    } else if (isNewOrg && config.free_period_amount && config.free_period_unit) {
-      const freePeriodMonths = getFreeMonths(config);
-      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
-      freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-      finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
-    }
+      currentYearCost = {
+        membershipYear: currentYear.label,
+        yearNumber,
+        startDate: currentYearStartDate,
+        tierLabel: currentYearRecord.tier_label || matchedBand?.label || null,
+        fieldValue: currentYearRecord.field_value != null ? parseFloat(currentYearRecord.field_value) : fieldValue,
+        annualCost: recAnnual,
+        annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,
+        customDiscountTotal: recCustomTotal,
+        customDiscountDetails: currentYearRecord.custom_discount_details || [],
+        dailyCost: recDailyCost,
+        totalDaysInYear,
+        proRataEnabled: hasProRata,
+        prorataDays: hasProRata ? recProrataDays : null,
+        prorataCost: hasProRata ? recProrata : null,
+        freeDiscount: recFreeDiscount,
+        freePeriodDaysApplied: recFreePeriodDaysApplied,
+        freePeriodAmount: config.free_period_amount,
+        freePeriodUnit: config.free_period_unit,
+        billableDays: hasProRata ? recBillableDays : null,
+        rolloverDiscount: recRollover,
+        finalCost: recFinal,
+        goLiveDate,
+        currency: currentYearRecord.currency || config.currency || 'GBP',
+        billingPeriod: currentYearRecord.billing_period || config.billing_period || 'annual',
+        recordedFromHistory: true,
+      };
+    } else {
+      let prorataDays = totalDaysInYear;
+      let prorataCost = annualCost;
+      let freePeriodDaysApplied = 0;
+      let freeDiscount = 0;
+      let billableDays = totalDaysInYear;
+      let finalCost = annualCost;
 
-    currentYearCost = {
-      membershipYear: currentYear.label,
-      yearNumber,
-      startDate: currentYearStartDate,
-      tierLabel: matchedBand?.label || null,
-      fieldValue,
-      annualCost: annualCost,
-      annualCostBeforeDiscounts: annualCostRaw,
-      customDiscountTotal,
-      customDiscountDetails,
-      dailyCost,
-      totalDaysInYear,
-      proRataEnabled: !!config.prorata_enabled && isNewOrg,
-      prorataDays: config.prorata_enabled && isNewOrg ? prorataDays : null,
-      prorataCost: config.prorata_enabled && isNewOrg ? prorataCost : null,
-      freeDiscount: isNewOrg ? freeDiscount : 0,
-      freePeriodDaysApplied: isNewOrg ? freePeriodDaysApplied : 0,
-      freePeriodAmount: config.free_period_amount,
-      freePeriodUnit: config.free_period_unit,
-      billableDays: config.prorata_enabled && isNewOrg ? billableDays : null,
-      finalCost,
-      goLiveDate,
-      currency: config.currency || 'GBP',
-      billingPeriod: config.billing_period || 'annual',
-    };
+      if (config.prorata_enabled && isNewOrg) {
+        const joinMidnight = new Date(effectiveJoinDate);
+        joinMidnight.setHours(0, 0, 0, 0);
+        prorataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        prorataCost = parseFloat((dailyCost * prorataDays).toFixed(2));
+
+        if (config.free_period_amount && config.free_period_unit) {
+          const freePeriodMonths = getFreeMonths(config);
+          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+          const freePeriodEnd = new Date(joinMidnight);
+          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+          const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+          freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
+          freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        }
+
+        billableDays = prorataDays - freePeriodDaysApplied;
+        finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
+      } else if (isNewOrg && config.free_period_amount && config.free_period_unit) {
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
+        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
+      }
+
+      currentYearCost = {
+        membershipYear: currentYear.label,
+        yearNumber,
+        startDate: currentYearStartDate,
+        tierLabel: matchedBand?.label || null,
+        fieldValue,
+        annualCost: annualCost,
+        annualCostBeforeDiscounts: annualCostRaw,
+        customDiscountTotal,
+        customDiscountDetails,
+        dailyCost,
+        totalDaysInYear,
+        proRataEnabled: !!config.prorata_enabled && isNewOrg,
+        prorataDays: config.prorata_enabled && isNewOrg ? prorataDays : null,
+        prorataCost: config.prorata_enabled && isNewOrg ? prorataCost : null,
+        freeDiscount: isNewOrg ? freeDiscount : 0,
+        freePeriodDaysApplied: isNewOrg ? freePeriodDaysApplied : 0,
+        freePeriodAmount: config.free_period_amount,
+        freePeriodUnit: config.free_period_unit,
+        billableDays: config.prorata_enabled && isNewOrg ? billableDays : null,
+        finalCost,
+        goLiveDate,
+        currency: config.currency || 'GBP',
+        billingPeriod: config.billing_period || 'annual',
+      };
+    }
 
     const nextYearFull = annualCost;
     let nextYearFreePeriodDaysApplied = 0;
