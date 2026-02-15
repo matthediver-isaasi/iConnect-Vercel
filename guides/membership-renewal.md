@@ -26,6 +26,8 @@
 16. [Purchase Order Numbers](#purchase-order-numbers)
 17. [Email Fees & Member Payment Portal](#email-fees--member-payment-portal)
 18. [Portal Membership Fees Page](#portal-membership-fees-page)
+19. [Membership Settings](#membership-settings)
+20. [Fee Approval Workflow](#fee-approval-workflow)
 
 ---
 
@@ -35,7 +37,7 @@ The membership renewal system handles the full lifecycle of calculating, creatin
 
 Each organisation's membership year is determined by the tenant's tier configuration (configurable start month/day), and costs are calculated using a day-based approach that accounts for pro-rata periods, free periods, spillover discounts, custom discount rules, and three types of overrides.
 
-The system supports per-year invoicing controls, allowing admins to independently choose Automatic, Scheduled, or Manual invoicing for each membership year.
+The system supports per-year invoicing controls, allowing admins to independently choose Automatic, Scheduled, or Manual invoicing for each membership year. An optional fee approval workflow allows admins to review and approve calculated fees per organisation/year before any processing (cron, manual renewal, or member payment) can proceed.
 
 ---
 
@@ -54,7 +56,9 @@ The system supports per-year invoicing controls, allowing admins to independentl
 | `api/membership/member-fees.js` | Authenticated portal API — session-based fee lookup, PO submission, Stripe payment |
 | `api/membership/email-fees.js` | Email Fees endpoint — token creation, email sending |
 | `api/public/membership-fees/[token].js` | Public API — token validation, PO submission, Stripe payment |
+| `api/membership/membership-settings.js` | Membership settings API — approval toggle, Stripe enablement, custom message |
 | `client/src/components/OrgMembershipTab.jsx` | Frontend UI for the organisation membership tab |
+| `client/src/pages/MembershipSettings.jsx` | Admin page for membership settings (approval, Stripe, custom message) |
 | `client/src/pages/MembershipFeePage.jsx` | Public member-facing payment page (token-based) |
 | `client/src/pages/MembershipFees.jsx` | Portal membership fees page (authenticated members) |
 
@@ -65,6 +69,7 @@ The system supports per-year invoicing controls, allowing admins to independentl
 3. **Per-year independence**: Each membership year has its own invoicing mode, override, and simulation — they don't interfere with each other.
 4. **Tenant isolation**: All queries are scoped by `tenant_id` to ensure strict multi-tenant data separation.
 5. **Defensive coding**: Three layers of duplicate prevention ensure a membership record is never created twice.
+6. **Optional approval gate**: When enabled, fee approval adds a consistent check across all four processing paths (cron, manual, portal, public token) using the same pattern — query the tenant setting, then check the per-org/year flag.
 
 ---
 
@@ -471,6 +476,19 @@ All automated renewal paths require a go-live date:
 - **Manual**: Returns a 400 error explaining a go-live date is required
 - **Workflow**: The simulation still runs (to allow dry runs/previews) but the go-live date is reported. The workflow action itself only proceeds for automatic mode, which typically is triggered by setting the go-live date
 
+### Fee Approval Guard
+
+When `membership_require_approval` is enabled in `system_settings`, all processing paths check the `fees_approved` flag on the org/year's invoicing record before proceeding:
+
+- **Cron**: `checkCronApproval()` skips the org with reason `'Fees not yet approved'`
+- **Manual renewal**: `checkApprovalRequired()` returns 400 error
+- **Member portal**: `checkMemberFeesApproval()` blocks payment actions and returns an approval-pending response
+- **Token page**: Inline check blocks PO submission and payment with 400 errors
+
+Each check follows the same two-step pattern:
+1. Query `system_settings` for `membership_require_approval` — if not `'true'`, approval is not required (return early)
+2. Query `organisation_membership_invoicing.fees_approved` for the org/year — if `true`, proceed; if `false`, block
+
 ### Invoicing Mode Guard (Workflow)
 
 The workflow `create_membership` action checks the invoicing mode before creating records:
@@ -522,6 +540,7 @@ Each year card displays:
 | `simulateRenewalMutation` | `/api/membership/org-membership-simulate` | POST | Run dry-run simulation |
 | `recordMutation` | `/api/membership/org-membership` | POST | Record fee — saves the simulated cost as a history record without invoicing |
 | `removeOverrideMutation` | `/api/membership/org-membership-override` | DELETE | Remove an override |
+| `approvalMutation` | `/api/membership/org-membership-invoicing` | PATCH | Approve or unapprove fees for a year |
 
 ### Cache Invalidation
 
@@ -623,6 +642,7 @@ Per-org, per-year invoicing mode settings.
 | `invoice_date` | date | Scheduled invoice date (for scheduled mode) |
 | `purchase_order_number` | text | PO number for this year's membership |
 | `po_source` | text | `'member'` if PO was submitted by a member (via token page or portal), null if entered by admin |
+| `fees_approved` | boolean | Whether fees have been approved by an admin for this org/year (default `false`) |
 | `updated_at` | timestamp | Last modification |
 
 ### `organisation_membership_override`
@@ -642,6 +662,25 @@ Per-org overrides.
 | `discount_type` | text | `'percentage'` or `'fixed'` (for discount override) |
 | `discount_value` | numeric | Discount amount (for discount override) |
 | `note` | text | Admin note explaining the override |
+
+### `system_settings`
+
+Tenant-scoped key-value store for membership configuration settings. Used by the Membership Settings admin page to control approval workflow, Stripe enablement, and custom member-facing messages.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `tenant_id` | uuid | Tenant scope |
+| `setting_key` | text | Setting identifier (e.g. `'membership_require_approval'`) |
+| `setting_value` | text | Setting value (stored as string) |
+
+**Membership-related keys:**
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `membership_require_approval` | `'true'` / `'false'` | `'false'` (not present) | When `'true'`, fees must be approved per org/year before any processing |
+| `membership_stripe_enabled` | `'true'` / `'false'` | `'true'` (not present) | When `'false'`, Stripe payment is hidden on member-facing pages |
+| `membership_custom_message` | text / `'none'` | `'none'` (not present) | Custom message shown to members when fees are pending approval |
 
 ---
 
@@ -665,6 +704,7 @@ Daily cron runs
     → simulateMembershipForOrg(source: 'cron')
     → Go-live date set? ✓
     → Year started? ✓
+    → Approval required? → Check fees_approved ✓ (skip if not approved)
     → Existing record? → Skip entirely (record + invoice already handled or invoice not needed yet)
     → No existing record? → Create record + invoice together
 ```
@@ -712,6 +752,7 @@ Admin opens Organisation Membership tab
       → simulateMembershipForOrg(source: 'manual', targetYear: currentYear)
       → Go-live date set? ✓
       → No existing record? ✓
+      → Approval required? → Check fees_approved ✓ (400 error if not approved)
       → Insert membership_history record
       → Create Xero invoice immediately
       → Add organisation note
@@ -814,7 +855,25 @@ When `rollover_enabled` is true and a free period is configured, any unused free
 
 **Check for existing record**: If a record already exists for that year, all paths skip.
 
+**Check fee approval**: If `membership_require_approval` is enabled and `fees_approved` is false for the org/year, all processing paths (cron, manual, member payment) will be blocked.
+
 Use the **Simulate** button in the UI to see the step-by-step breakdown.
+
+### Member cannot pay or submit PO
+
+**Symptom**: Member sees an approval-pending message instead of payment/PO options on the membership fees page (portal or token-based).
+
+**Cause**: The tenant has `membership_require_approval` enabled, and the admin has not yet approved fees for that organisation/year.
+
+**Fix**: Admin navigates to the organisation's Membership tab and clicks the "Approve Fees" button on the relevant year card. Alternatively, disable the approval requirement in Membership Settings if it's no longer needed.
+
+### Stripe payment option not showing for members
+
+**Symptom**: Members see the fee breakdown but no "Pay Now" button on the portal or token-based payment page.
+
+**Cause**: The tenant has `membership_stripe_enabled` set to `'false'` in Membership Settings.
+
+**Fix**: Admin navigates to Membership Settings and enables the "Allow Stripe Payments" toggle.
 
 ### Duplicate record error
 
@@ -1037,3 +1096,210 @@ Admins manage these permissions via Role Management / Role Access Config Managem
 | `client/src/pages/MembershipFees.jsx` | Portal page component |
 | `client/src/lib/roleAccessMap.ts` | Role access config entry (`commerce.membership`) |
 | `client/src/pages/pageRegistry.js` | Page registered as `MembershipFees` |
+
+---
+
+## Membership Settings
+
+### Overview
+
+The Membership Settings page (`/MembershipSettings`) provides tenant-level controls that affect how membership fees are processed and presented to members. Three settings are managed from this page:
+
+1. **Require Fee Approval** — enables the fee approval workflow (see [Fee Approval Workflow](#fee-approval-workflow))
+2. **Allow Stripe Payments** — controls whether Stripe payment is offered on member-facing fee pages
+3. **Custom Approval Message** — a free-text message shown to members when their fees are pending approval
+
+These settings are stored in the `system_settings` table as key-value pairs scoped by `tenant_id`.
+
+### Admin UI
+
+**File:** `client/src/pages/MembershipSettings.jsx`
+
+The page is accessible from the Portal Menu Management dropdown (registered in the admin navigation). It displays three controls:
+
+- **Require Fee Approval** toggle — when enabled, fees for each org/year must be explicitly approved by an admin before any processing (cron, manual renewal, member payment) can proceed
+- **Allow Stripe Payments** toggle — when disabled, the "Pay Now" button and Stripe Elements are hidden from both the portal membership fees page and the public token-based payment page. Defaults to enabled
+- **Custom Message** text area — optional message displayed to members on fee pages when their fees are pending approval. If empty, a default message is shown: "Your membership fees are currently being reviewed. You will be notified when they are ready for payment."
+
+### API
+
+**File:** `api/membership/membership-settings.js`
+
+| Method | Purpose |
+|--------|---------|
+| `GET` | Returns the three settings as a normalised object: `{ require_approval, stripe_enabled, custom_message }` |
+| `PUT` | Saves all three settings using upsert (`ON CONFLICT tenant_id, setting_key`) |
+
+**GET response defaults:**
+
+| Field | Default (when no setting exists) |
+|-------|----------------------------------|
+| `require_approval` | `false` |
+| `stripe_enabled` | `true` |
+| `custom_message` | `''` (empty string) |
+
+**PUT body:**
+
+```javascript
+{
+  require_approval: true,      // boolean
+  stripe_enabled: true,        // boolean
+  custom_message: "..."        // string or empty
+}
+```
+
+### Stripe Enablement Control
+
+The `membership_stripe_enabled` setting is checked in two places to control Stripe payment visibility:
+
+1. **Authenticated portal** (`api/membership/member-fees.js`) — the GET response includes `stripeEnabled` based on the setting. The frontend hides the Stripe payment card when `stripeEnabled` is false.
+2. **Public token page** (`api/public/membership-fees/[token].js`) — same check on GET. The frontend hides the payment section accordingly.
+
+**Important:** This setting does not prevent Stripe payments at the API level — it controls frontend visibility only. The approval workflow (if enabled) provides the backend enforcement layer that blocks payment processing.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/membership/membership-settings.js` | Settings API — GET/PUT for all three settings |
+| `client/src/pages/MembershipSettings.jsx` | Admin settings page |
+| `api/membership/member-fees.js` | Reads `membership_stripe_enabled` for portal fee page |
+| `api/public/membership-fees/[token].js` | Reads `membership_stripe_enabled` for public fee page |
+
+---
+
+## Fee Approval Workflow
+
+### Overview
+
+The fee approval workflow adds an admin-controlled gate to the membership fee lifecycle. When enabled (via `membership_require_approval` in Membership Settings), fees for each organisation/year must be explicitly approved by an admin before any processing path — cron job, manual renewal, member payment, or PO submission — can proceed.
+
+This gives admins the ability to review and verify calculated fees before they are sent to members or processed into invoices.
+
+### How It Works
+
+1. Admin enables "Require Fee Approval" in Membership Settings
+2. On the Organisation Membership tab, each year card now shows an **Approve Fees** button (next to the Save button in the invoicing controls area)
+3. Admin clicks **Approve Fees** to mark that org/year as approved
+4. Once approved:
+   - The year card gets a green border and "Approved" badge
+   - The "Renew & Invoice Now" and "Email Fees" buttons become enabled
+   - The cron job will process the org
+   - Members can pay or submit POs on the fee pages
+5. Admin can click **Unapprove** to revoke approval at any time
+
+### Approval State Storage
+
+The approval flag is stored as `fees_approved` (boolean, default `false`) on the `organisation_membership_invoicing` table, scoped by `tenant_id`, `organization_id`, and `membership_year`.
+
+**PATCH endpoint** (`api/membership/org-membership-invoicing.js`):
+
+```javascript
+PATCH /api/membership/org-membership-invoicing
+{
+  organizationId: "...",
+  membershipYear: "2025/2026",
+  action: "approve"    // or "unapprove"
+}
+```
+
+If no invoicing record exists for the org/year, the PATCH handler creates one with `invoicing_mode: 'manual'` and the requested `fees_approved` value. If a record exists, only `fees_approved` and `updated_at` are updated.
+
+### Enforcement Points
+
+The approval check follows the same pattern across all four processing paths: query `system_settings` for `membership_require_approval`, and if enabled, query the org/year's `fees_approved` flag.
+
+#### Path 1: Cron Job
+
+**File:** `api/cron/process-membership-renewals.js` → `checkCronApproval()`
+
+- Called after simulation, before record creation
+- If approval required and not approved → org is skipped with reason `'Fees not yet approved'`
+- Logged in the cron results as a skipped entry
+
+#### Path 2: Manual Renewal
+
+**File:** `api/membership/org-membership-invoicing.js` → `checkApprovalRequired()`
+
+- Called after simulation and duplicate check, before record insertion
+- If approval required and not approved → returns 400 error: `'Fees must be approved before renewal can be processed. Use the Approve Fees button first.'`
+
+#### Path 3: Portal Member Fees (Authenticated)
+
+**File:** `api/membership/member-fees.js` → `checkMemberFeesApproval()`
+
+- **GET**: Returns `approvalPending` and `approvalMessage` in the response. The frontend shows the approval message card and hides payment/PO options.
+- **POST** (`create_payment`, `confirm_payment`): Checks approval before processing. Returns 400 error if not approved.
+
+#### Path 4: Public Token Page
+
+**File:** `api/public/membership-fees/[token].js`
+
+- **GET**: Returns `approvalPending` and `approvalMessage` inline. The frontend shows the approval message and hides payment/PO options.
+- **POST** (`submit_po`): Checks approval before saving PO. Returns 400 error if not approved.
+- **POST** (`create_payment`, `confirm_payment`): Checks approval before processing. Returns 400 error if not approved.
+
+### Frontend Behaviour
+
+#### Organisation Membership Tab (`OrgMembershipTab.jsx`)
+
+When `membership_require_approval` is enabled:
+
+- Each `YearCostSection` receives `approvalRequired`, `feesApproved`, `onApprove`, `onUnapprove`, and `approvePending` props
+- **Not approved state**:
+  - "Approve Fees" button (primary variant) appears next to Save
+  - "Renew & Invoice Now" and "Email Fees" buttons are disabled
+  - An amber warning message appears: "Fees must be approved before invoicing or payment actions"
+- **Approved state**:
+  - Year card gets a green border and light green background (`border-green-200 bg-green-50/50`, dark mode: `border-green-900 bg-green-950/30`)
+  - "Approved" badge appears next to the year label
+  - "Unapprove" button (outline variant) replaces the "Approve Fees" button
+  - All action buttons are enabled
+- Approval state is tracked per year in a `feesApprovedMap` keyed by year label
+- Both current year and next year cards independently support approve/unapprove
+
+#### Portal Membership Fees Page (`MembershipFees.jsx`)
+
+When `approvalPending` is true in the API response:
+
+- A card with an amber shield icon displays the approval message
+- The message is the custom message from Membership Settings, or a default: "Your membership fees are currently being reviewed. You will be notified when they are ready for payment."
+- PO submission and Stripe payment sections are hidden
+
+#### Public Token Page (`MembershipFeePage.jsx`)
+
+The public token page receives `approvalPending` and `approvalMessage` in the GET response from the backend, but the current frontend component does not display a dedicated approval message card. Enforcement is handled at the backend level — POST requests for PO submission and Stripe payment return 400 errors when fees are not approved. The `approvalPending` flag is available in the API response for future frontend use.
+
+### Data Flow Diagram
+
+```
+Admin enables "Require Fee Approval" in Membership Settings
+  → system_settings: membership_require_approval = 'true'
+
+Admin opens Organisation Membership tab
+  → Year card shows "Approve Fees" button
+  → Admin reviews calculated fees
+  → Admin clicks "Approve Fees"
+    → PATCH /api/membership/org-membership-invoicing
+      → Sets fees_approved = true on invoicing record
+      → Year card turns green, "Approved" badge appears
+
+Processing paths check approval:
+  → Cron job: checkCronApproval() → approved? ✓ proceed / ✗ skip
+  → Manual renewal: checkApprovalRequired() → approved? ✓ proceed / ✗ 400 error
+  → Member portal: checkMemberFeesApproval() → approved? ✓ show payment / ✗ show message
+  → Token page: inline check → approved? ✓ show payment / ✗ show message
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `api/membership/membership-settings.js` | Manages `membership_require_approval` setting |
+| `api/membership/org-membership-invoicing.js` | PATCH handler for approve/unapprove; `checkApprovalRequired()` for manual renewal |
+| `api/cron/process-membership-renewals.js` | `checkCronApproval()` for cron path |
+| `api/membership/member-fees.js` | `checkMemberFeesApproval()` for portal path |
+| `api/public/membership-fees/[token].js` | Inline approval checks for public token path |
+| `client/src/components/OrgMembershipTab.jsx` | Approve/Unapprove buttons, green card styling, disabled state logic |
+| `client/src/pages/MembershipFees.jsx` | Approval-pending message display for portal |
+| `client/src/pages/MembershipFeePage.jsx` | Approval-pending message display for public page |
