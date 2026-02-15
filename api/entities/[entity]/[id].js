@@ -204,7 +204,7 @@ export default async function handler(req, res) {
       const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting';
       const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       
-      if (isWorkflowEntity) {
+      if (isWorkflowEntity || isPreferenceValueEntity) {
         try {
           let beforeQuery = supabase
             .from(tableName)
@@ -418,22 +418,22 @@ export default async function handler(req, res) {
         }
       }
       
-      // Also trigger workflows when preference values are updated
       if (isPreferenceValueEntity && data) {
         const entityType = entityNormalized === 'organizationpreferencevalue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         
-        // Use req.body.value (what was sent) rather than data.value (what was returned)
-        // This ensures we check against the NEW value being set
         const newValue = req.body.value !== undefined ? req.body.value : data.value;
+        const prevValue = beforeData?.value;
         
         if (entityId && fieldId) {
           try {
-            const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl);
-            // Add any pending confirmations from preference workflows
+            const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl, prevValue);
             if (prefResult?.pendingConfirmations?.length > 0) {
               pendingWorkflowConfirmations.push(...prefResult.pendingConfirmations);
+            }
+            if (prefResult?.reverts?.length > 0) {
+              workflowReverts.push(...prefResult.reverts);
             }
           } catch (err) {
             console.error('Preference workflow error:', err);

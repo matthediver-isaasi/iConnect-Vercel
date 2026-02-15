@@ -1544,26 +1544,25 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   }
 }
 
-export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl) {
+export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl, previousValue) {
   const pendingConfirmations = [];
+  const reverts = [];
   
-  if (!supabase) return { pendingConfirmations };
+  if (!supabase) return { pendingConfirmations, reverts };
   
   try {
-    // Resolve tenant_id from the entity
     const table = entityType === 'organization' ? 'organization' : 'member';
     const { data: entity } = await supabase
       .from(table)
-      .select('tenant_id')
+      .select('*')
       .eq('id', entityId)
       .single();
     
     const tenantId = entity?.tenant_id;
     
-    // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
     if (!tenantId) {
       console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping preference workflow evaluation`);
-      return { pendingConfirmations };
+      return { pendingConfirmations, reverts };
     }
     
     const { data: workflows } = await supabase
@@ -1574,9 +1573,9 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
-    if (!workflows || workflows.length === 0) return { pendingConfirmations };
+    if (!workflows || workflows.length === 0) return { pendingConfirmations, reverts };
     
-    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}" (tenant: ${tenantId})`);
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}", previousValue="${previousValue}" (tenant: ${tenantId})`);
 
     for (const workflow of workflows) {
       const cfg = workflow.trigger_config;
@@ -1603,13 +1602,150 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       console.log(`[Workflows] Result: triggerMatches=${triggerMatches}`);
       
       if (!triggerMatches) continue;
+
+      let allConditionsMet = true;
+      if (workflow.conditions && workflow.conditions.length > 0) {
+        console.log(`[Workflows] Evaluating ${workflow.conditions.length} conditions for preference workflow ${workflow.name}`);
+        
+        for (let i = 0; i < workflow.conditions.length; i++) {
+          const condition = workflow.conditions[i];
+          let afterValue;
+          let beforeValue;
+          
+          const fieldType = condition.field_type || 'core';
+          const isMemberField = fieldType === 'core' || fieldType === 'member_core';
+          const isOrgField = fieldType === 'org_core';
+          const isMemberCustom = fieldType === 'custom' || fieldType === 'member_custom';
+          const isOrgCustom = fieldType === 'org_custom';
+          
+          if (isMemberField) {
+            if (entityType === 'member') {
+              afterValue = entity?.[condition.field_id];
+            }
+          } else if (isOrgField) {
+            if (entityType === 'organization') {
+              afterValue = entity?.[condition.field_id];
+            } else if (entity?.organization_id) {
+              const { data: orgData } = await supabase
+                .from('organization')
+                .select('*')
+                .eq('id', entity.organization_id)
+                .single();
+              afterValue = orgData?.[condition.field_id];
+            }
+          } else if (isMemberCustom) {
+            const memberId = entityType === 'member' ? entityId : null;
+            if (memberId) {
+              if (condition.field_id === fieldId) {
+                afterValue = value;
+                beforeValue = previousValue;
+              } else {
+                const { data: prefValue } = await supabase
+                  .from('member_preference_value')
+                  .select('value')
+                  .eq('member_id', memberId)
+                  .eq('field_id', condition.field_id)
+                  .single();
+                afterValue = prefValue?.value;
+              }
+            }
+          } else if (isOrgCustom) {
+            const orgIdForCustomField = entityType === 'organization' ? entityId : entity?.organization_id;
+            if (orgIdForCustomField) {
+              if (condition.field_id === fieldId) {
+                afterValue = value;
+                beforeValue = previousValue;
+              } else {
+                const { data: prefValue } = await supabase
+                  .from('organization_preference_value')
+                  .select('value')
+                  .eq('organization_id', orgIdForCustomField)
+                  .eq('field_id', condition.field_id)
+                  .single();
+                afterValue = prefValue?.value;
+              }
+            }
+          }
+          
+          const actualValue = String(afterValue ?? '');
+          const targetValue = String(condition.value ?? '');
+          const beforeStr = String(beforeValue ?? '');
+          
+          let conditionMet = false;
+          switch (condition.operator) {
+            case 'equals': conditionMet = actualValue.toLowerCase() === targetValue.toLowerCase(); break;
+            case 'not_equals': conditionMet = actualValue.toLowerCase() !== targetValue.toLowerCase(); break;
+            case 'contains': conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase()); break;
+            case 'not_contains': conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase()); break;
+            case 'starts_with': conditionMet = actualValue.toLowerCase().startsWith(targetValue.toLowerCase()); break;
+            case 'ends_with': conditionMet = actualValue.toLowerCase().endsWith(targetValue.toLowerCase()); break;
+            case 'is_empty': conditionMet = afterValue === null || afterValue === undefined || afterValue === ''; break;
+            case 'is_not_empty': conditionMet = afterValue !== null && afterValue !== undefined && afterValue !== ''; break;
+            case 'changed_to': conditionMet = beforeStr !== actualValue && actualValue.toLowerCase() === targetValue.toLowerCase(); break;
+            case 'changed_from': conditionMet = beforeStr.toLowerCase() === targetValue.toLowerCase() && beforeStr !== actualValue; break;
+            default: conditionMet = false;
+          }
+          
+          console.log(`[Workflows] Pref condition ${i}: field="${condition.field_id}", op="${condition.operator}", value="${condition.value}", actual="${actualValue}", before="${beforeStr}", met=${conditionMet}`);
+          
+          if (i === 0) {
+            allConditionsMet = conditionMet;
+          } else {
+            if (condition.logic === 'OR') {
+              allConditionsMet = allConditionsMet || conditionMet;
+            } else {
+              allConditionsMet = allConditionsMet && conditionMet;
+            }
+          }
+        }
+        
+        console.log(`[Workflows] Final allConditionsMet for preference workflow ${workflow.name}: ${allConditionsMet}`);
+        
+        if (!allConditionsMet) {
+          console.log(`[Workflows] Conditions not met for preference workflow: ${workflow.name} - SKIPPING`);
+          
+          if (workflow.revert_trigger_on_condition_fail && !reverts.some(r => r.field_id === fieldId)) {
+            console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting custom field ${fieldId} from "${value}" back to "${previousValue}"`);
+            
+            try {
+              const prefTable = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+              const idCol = entityType === 'organization' ? 'organization_id' : 'member_id';
+              
+              const { error: revertError } = await supabase
+                .from(prefTable)
+                .update({ value: previousValue ?? null })
+                .eq(idCol, entityId)
+                .eq('field_id', fieldId);
+                
+              if (revertError) {
+                console.error(`[Workflows] Failed to revert custom field ${fieldId}:`, revertError);
+              } else {
+                console.log(`[Workflows] Successfully reverted custom field ${fieldId} to "${previousValue}"`);
+                reverts.push({
+                  workflow_name: workflow.name,
+                  field_id: fieldId,
+                  field_type: 'custom',
+                  reverted_from: value,
+                  reverted_to: previousValue,
+                  reason: `Conditions not met for workflow "${workflow.name}"`
+                });
+              }
+            } catch (revertErr) {
+              console.error(`[Workflows] Error reverting custom field trigger for "${workflow.name}":`, revertErr);
+            }
+          } else if (reverts.some(r => r.field_id === fieldId)) {
+            console.log(`[Workflows] Field ${fieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
+          }
+          
+          continue;
+        }
+      }
       
       if (await checkOncePerRecord(workflow, entityType, entityId)) {
         console.log(`[Workflows] Skipping "${workflow.name}" - trigger_mode=once_per_record and already executed for entity ${entityId}`);
         continue;
       }
       
-      // Check if this workflow requires user confirmation before executing
       if (cfg.requires_confirmation) {
         console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list`);
         pendingConfirmations.push({
@@ -1634,7 +1770,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
     console.error('[Workflows] Preference Error:', err.message, err.stack);
   }
   
-  return { pendingConfirmations };
+  return { pendingConfirmations, reverts };
 }
 
 // Execute a workflow that was pending user confirmation

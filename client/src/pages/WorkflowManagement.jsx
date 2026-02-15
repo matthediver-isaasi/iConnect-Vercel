@@ -1177,7 +1177,7 @@ export default function WorkflowManagementPage() {
                   </div>
                 )}
 
-                {formData.conditions.length > 0 && formData.trigger_type === 'field_change' && formData.trigger_config?.field_type !== 'custom' && (
+                {formData.conditions.length > 0 && formData.trigger_type === 'field_change' && (
                   <Card>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between gap-4">
