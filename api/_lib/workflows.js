@@ -1231,10 +1231,11 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   console.log(`[Workflows] afterData.tenant_id=${afterData?.tenant_id}, beforeData.tenant_id=${beforeData?.tenant_id}`);
   
   const pendingConfirmations = [];
+  const reverts = [];
   
   if (!supabase) {
     console.log(`[Workflows] No supabase client available, skipping`);
-    return { pendingConfirmations };
+    return { pendingConfirmations, reverts };
   }
   
   try {
@@ -1260,7 +1261,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
     if (!tenantId) {
       console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping workflow evaluation`);
-      return { pendingConfirmations };
+      return { pendingConfirmations, reverts };
     }
     
     console.log(`[Workflows] Querying workflows: entity_type=${entityType}, tenant_id=${tenantId}, is_active=true`);
@@ -1275,7 +1276,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     
     if (!workflows || workflows.length === 0) {
       console.log(`[Workflows] No matching workflows found for ${entityType} in tenant ${tenantId}`);
-      return { pendingConfirmations };
+      return { pendingConfirmations, reverts };
     }
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
@@ -1466,6 +1467,47 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         
         if (!allConditionsMet) {
           console.log(`[Workflows] Conditions not met for workflow: ${workflow.name} - SKIPPING`);
+          
+          if (workflow.revert_trigger_on_condition_fail && workflow.trigger_type === 'field_change' && workflow.trigger_config?.field_id) {
+            const revertFieldId = workflow.trigger_config.field_id;
+            const revertFieldType = workflow.trigger_config.field_type || 'core';
+            
+            if (revertFieldType === 'custom') {
+              console.log(`[Workflows] Revert trigger not supported for custom field workflows in this path - skipping revert for "${workflow.name}"`);
+            } else if (!reverts.some(r => r.field_id === revertFieldId)) {
+              const previousValue = beforeData?.[revertFieldId];
+              const currentValue = afterData?.[revertFieldId];
+              
+              console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting ${entityType}.${revertFieldId} from "${currentValue}" back to "${previousValue}"`);
+              
+              try {
+                const revertTable = entityType === 'job_posting' ? 'job_posting' : entityType;
+                const { error: revertError } = await supabase
+                  .from(revertTable)
+                  .update({ [revertFieldId]: previousValue ?? null })
+                  .eq('id', entityId);
+                  
+                if (revertError) {
+                  console.error(`[Workflows] Failed to revert ${revertFieldId}:`, revertError);
+                } else {
+                  console.log(`[Workflows] Successfully reverted ${revertFieldId} to "${previousValue}"`);
+                  reverts.push({
+                    workflow_name: workflow.name,
+                    field_id: revertFieldId,
+                    field_type: revertFieldType,
+                    reverted_from: currentValue,
+                    reverted_to: previousValue,
+                    reason: `Conditions not met for workflow "${workflow.name}"`
+                  });
+                }
+              } catch (revertErr) {
+                console.error(`[Workflows] Error reverting trigger for "${workflow.name}":`, revertErr);
+              }
+            } else {
+              console.log(`[Workflows] Field ${revertFieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
+            }
+          }
+          
           continue;
         }
       }
@@ -1495,10 +1537,10 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType }, results);
     }
     
-    return { pendingConfirmations };
+    return { pendingConfirmations, reverts };
   } catch (err) {
     console.error('[Workflows] Error:', err.message, err.stack);
-    return { pendingConfirmations: [] };
+    return { pendingConfirmations: [], reverts: [] };
   }
 }
 

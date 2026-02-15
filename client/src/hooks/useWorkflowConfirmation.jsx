@@ -8,6 +8,15 @@ export function useWorkflowConfirmation() {
   const [showDryRunModal, setShowDryRunModal] = useState(false);
 
   const checkForPendingWorkflows = useCallback((responseData) => {
+    if (responseData?._workflowReverts?.length > 0) {
+      for (const revert of responseData._workflowReverts) {
+        toast.warning(
+          `"${revert.workflow_name}" conditions were not met. The field "${revert.field_id}" has been reverted to its previous value.`,
+          { duration: 8000 }
+        );
+      }
+    }
+
     if (responseData?._pendingWorkflowConfirmations?.length > 0) {
       setPendingWorkflows(responseData._pendingWorkflowConfirmations);
       setShowConfirmationModal(true);

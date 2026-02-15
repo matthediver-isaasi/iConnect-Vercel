@@ -402,12 +402,16 @@ export default async function handler(req, res) {
 
       // Trigger workflow evaluation and check for pending confirmations
       let pendingWorkflowConfirmations = [];
+      let workflowReverts = [];
       if (isWorkflowEntity && data) {
         const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
         try {
           const workflowResult = await triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl);
           if (workflowResult?.pendingConfirmations?.length > 0) {
             pendingWorkflowConfirmations = workflowResult.pendingConfirmations;
+          }
+          if (workflowResult?.reverts?.length > 0) {
+            workflowReverts = workflowResult.reverts;
           }
         } catch (err) {
           console.error('Workflow error:', err);
@@ -437,15 +441,29 @@ export default async function handler(req, res) {
         }
       }
 
-      // If there are pending workflow confirmations, include them in the response
-      if (pendingWorkflowConfirmations.length > 0) {
+      // If a workflow reverted the trigger field, re-fetch the entity to get the reverted data
+      let responseData = data;
+      if (workflowReverts.length > 0) {
+        const { data: refreshedData } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('id', id)
+          .single();
+        if (refreshedData) {
+          responseData = refreshedData;
+        }
+      }
+
+      // If there are pending workflow confirmations or reverts, include them in the response
+      if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0) {
         return res.json({
-          ...data,
-          _pendingWorkflowConfirmations: pendingWorkflowConfirmations
+          ...responseData,
+          ...(pendingWorkflowConfirmations.length > 0 && { _pendingWorkflowConfirmations: pendingWorkflowConfirmations }),
+          ...(workflowReverts.length > 0 && { _workflowReverts: workflowReverts })
         });
       }
 
-      return res.json(data);
+      return res.json(responseData);
 
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships

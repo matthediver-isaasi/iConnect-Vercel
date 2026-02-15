@@ -165,6 +165,7 @@ export default function WorkflowManagementPage() {
     conditions: [],
     actions: [],
     is_active: true,
+    revert_trigger_on_condition_fail: false,
   });
 
   const navigate = useNavigate();
@@ -391,6 +392,7 @@ export default function WorkflowManagementPage() {
       conditions: [],
       actions: [],
       is_active: true,
+      revert_trigger_on_condition_fail: false,
     });
   };
 
@@ -407,6 +409,7 @@ export default function WorkflowManagementPage() {
       conditions: workflow.conditions || [],
       actions: workflow.actions || [],
       is_active: workflow.is_active !== false,
+      revert_trigger_on_condition_fail: workflow.revert_trigger_on_condition_fail || false,
     });
     setBuilderStep(1);
     setShowDialog(true);
@@ -425,6 +428,7 @@ export default function WorkflowManagementPage() {
       conditions: workflow.conditions ? JSON.parse(JSON.stringify(workflow.conditions)) : [],
       actions: workflow.actions ? JSON.parse(JSON.stringify(workflow.actions)) : [],
       is_active: workflow.is_active !== false,
+      revert_trigger_on_condition_fail: workflow.revert_trigger_on_condition_fail || false,
     });
     setBuilderStep(1);
     setShowDialog(true);
@@ -608,7 +612,7 @@ export default function WorkflowManagementPage() {
                             </span>
                             {workflow.conditions?.length > 0 && (
                               <span>
-                                {workflow.conditions.length} condition(s)
+                                {workflow.conditions.length} condition(s){workflow.revert_trigger_on_condition_fail ? ' (reverts trigger)' : ''}
                               </span>
                             )}
                             <span className={workflow.trigger_mode === 'once_per_record' ? 'text-amber-600 dark:text-amber-400 font-medium' : ''}>
@@ -1171,6 +1175,26 @@ export default function WorkflowManagementPage() {
                       </Card>
                     ))}
                   </div>
+                )}
+
+                {formData.conditions.length > 0 && formData.trigger_type === 'field_change' && formData.trigger_config?.field_type !== 'custom' && (
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-medium text-sm">Revert trigger if conditions not met</p>
+                          <p className="text-xs text-muted-foreground">
+                            If conditions fail, the field that triggered this workflow will be reverted to its previous value
+                          </p>
+                        </div>
+                        <Switch
+                          checked={formData.revert_trigger_on_condition_fail}
+                          onCheckedChange={(checked) => setFormData(prev => ({ ...prev, revert_trigger_on_condition_fail: checked }))}
+                          data-testid="switch-revert-trigger"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
                 )}
               </div>
             )}
