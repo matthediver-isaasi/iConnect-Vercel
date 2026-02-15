@@ -18,16 +18,16 @@
 8. [Record Fee](#record-fee)
 9. [Safeguards and Duplicate Prevention](#safeguards-and-duplicate-prevention)
 10. [Frontend UI — Organisation Membership Tab](#frontend-ui--organisation-membership-tab)
-11. [Database Tables](#database-tables)
-12. [Data Flow Diagrams](#data-flow-diagrams)
-13. [Xero Integration](#xero-integration)
-14. [Configuration Reference](#configuration-reference)
-15. [Troubleshooting](#troubleshooting)
-16. [Purchase Order Numbers](#purchase-order-numbers)
-17. [Email Fees & Member Payment Portal](#email-fees--member-payment-portal)
-18. [Portal Membership Fees Page](#portal-membership-fees-page)
-19. [Membership Settings](#membership-settings)
-20. [Fee Approval Workflow](#fee-approval-workflow)
+11. [Purchase Order Numbers](#purchase-order-numbers)
+12. [Email Fees & Member Payment Portal](#email-fees--member-payment-portal)
+13. [Portal Membership Fees Page](#portal-membership-fees-page)
+14. [Membership Settings](#membership-settings)
+15. [Fee Approval Workflow](#fee-approval-workflow)
+16. [Database Tables](#database-tables)
+17. [Data Flow Diagrams](#data-flow-diagrams)
+18. [Xero Integration](#xero-integration)
+19. [Configuration Reference](#configuration-reference)
+20. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -551,357 +551,6 @@ After any mutation, the following query keys are invalidated:
 
 ---
 
-## Database Tables
-
-### `membership_tier_config`
-
-The tier configuration for a tenant. Multiple configs can be active simultaneously if scoped to different organisation field values.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Primary key |
-| `tenant_id` | uuid | Tenant scope |
-| `name` | text | Config name |
-| `field_source` | text | `'core'` or `'custom'` |
-| `field_name` | text | Field used for band matching (e.g. `'member_count'`) |
-| `field_id` | uuid | Custom field ID (if field_source is custom) |
-| `membership_start_month` | int | Month the membership year begins |
-| `membership_start_day` | int | Day the membership year begins |
-| `currency` | text | e.g. `'GBP'` |
-| `billing_period` | text | e.g. `'annual'` |
-| `prorata_enabled` | boolean | Whether pro-rata calculations apply |
-| `free_period_amount` | int | Free period duration |
-| `free_period_unit` | text | `'months'`, `'weeks'`, or `'days'` |
-| `rollover_enabled` | boolean | Whether free period spillover applies |
-| `effective_from` | date | When this config became active |
-| `effective_to` | date | Null if currently active |
-| `structure_field_id` | uuid | Field used for config scoping (optional) |
-| `structure_match_value` | text | Value to match for scoped configs (optional) |
-| `pricing_model` | text | `'tiered'` or `'flat'` |
-| `start_mode` | text | `'fixed_date'` or `'immediate'` |
-| `flat_cost` | numeric | Cost for flat pricing model |
-
-### `membership_tier_band`
-
-Tier bands within a configuration.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Primary key |
-| `config_id` | uuid | FK to `membership_tier_config` |
-| `tenant_id` | uuid | Tenant scope |
-| `label` | text | Display label (e.g. `'Small (1-10)'`) |
-| `min_value` | numeric | Lower bound (inclusive) |
-| `max_value` | numeric | Upper bound (inclusive), null = unlimited |
-| `annual_cost` | numeric | Annual fee for this band |
-| `vat_rate` | text | VAT/tax configuration (JSON string or tax type) |
-
-### `organisation_membership_history`
-
-Records of membership renewals — one row per org per year.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Primary key |
-| `tenant_id` | uuid | Tenant scope |
-| `organization_id` | uuid | FK to organisation |
-| `membership_year` | text | Year label (e.g. `'2025/2026'`) |
-| `config_id` | uuid | Config used for calculation |
-| `band_id` | uuid | Band matched |
-| `tier_label` | text | Band label at time of creation |
-| `field_value` | numeric | Org's field value at time of creation |
-| `annual_cost` | numeric | Base annual cost |
-| `prorata_cost` | numeric | Pro-rata cost (null if not applicable) |
-| `free_period_discount` | numeric | Free period discount amount |
-| `rollover_discount` | numeric | Rollover/spillover discount |
-| `custom_discount_total` | numeric | Total custom discounts |
-| `custom_discount_details` | jsonb | Array of applied discount details |
-| `final_cost` | numeric | Amount charged |
-| `currency` | text | Currency code |
-| `billing_period` | text | e.g. `'annual'` |
-| `vat_rate` | text | VAT configuration snapshot |
-| `purchase_order_number` | text | PO number (from invoicing settings, member submission, or token page) |
-| `payment_method` | text | How payment was made: `'stripe'`, `'xero'`, or null (admin-initiated) |
-| `stripe_payment_intent_id` | text | Stripe PaymentIntent ID (if paid via Stripe) |
-| `status` | text | `'active'` |
-| `notes` | text | How the record was created |
-| `xero_invoice_id` | text | Linked Xero invoice ID |
-| `xero_invoice_number` | text | Linked Xero invoice number |
-
-### `organisation_membership_invoicing`
-
-Per-org, per-year invoicing mode settings.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Primary key |
-| `tenant_id` | uuid | Tenant scope |
-| `organization_id` | uuid | FK to organisation |
-| `membership_year` | text | Year label (null for legacy fallback) |
-| `invoicing_mode` | text | `'automatic'`, `'scheduled'`, or `'manual'` |
-| `invoice_date` | date | Scheduled invoice date (for scheduled mode) |
-| `purchase_order_number` | text | PO number for this year's membership |
-| `po_source` | text | `'member'` if PO was submitted by a member (via token page or portal), null if entered by admin |
-| `fees_approved` | boolean | Whether fees have been approved by an admin for this org/year (default `false`) |
-| `updated_at` | timestamp | Last modification |
-
-### `organisation_membership_override`
-
-Per-org overrides.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Primary key |
-| `tenant_id` | uuid | Tenant scope |
-| `organization_id` | uuid | FK to organisation |
-| `membership_year` | text | Year label (null for legacy fallback) |
-| `override_type` | text | `'structure'`, `'price'`, or `'discount'` |
-| `config_id` | uuid | Alt config (for structure override) |
-| `band_id` | uuid | Forced band (for structure override) |
-| `manual_price` | numeric | Fixed price (for price override) |
-| `discount_type` | text | `'percentage'` or `'fixed'` (for discount override) |
-| `discount_value` | numeric | Discount amount (for discount override) |
-| `note` | text | Admin note explaining the override |
-
-### `system_settings`
-
-Tenant-scoped key-value store for membership configuration settings. Used by the Membership Settings admin page to control approval workflow, Stripe enablement, and custom member-facing messages.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | Primary key |
-| `tenant_id` | uuid | Tenant scope |
-| `setting_key` | text | Setting identifier (e.g. `'membership_require_approval'`) |
-| `setting_value` | text | Setting value (stored as string) |
-
-**Membership-related keys:**
-
-| Key | Values | Default | Description |
-|-----|--------|---------|-------------|
-| `membership_require_approval` | `'true'` / `'false'` | `'false'` (not present) | When `'true'`, fees must be approved per org/year before any processing |
-| `membership_stripe_enabled` | `'true'` / `'false'` | `'true'` (not present) | When `'false'`, Stripe payment is hidden on member-facing pages |
-| `membership_custom_message` | text / `'none'` | `'none'` (not present) | Custom message shown to members when fees are pending approval |
-
----
-
-## Data Flow Diagrams
-
-### Automatic Renewal Flow
-
-```
-Go-live date set on org
-  → Workflow triggered
-    → create_membership action
-      → simulateMembershipForOrg(source: 'workflow')
-      → Check invoicing mode = 'automatic' ✓
-      → Check no existing record ✓
-      → Insert membership_history record (no invoice)
-      → Return success
-
-Daily cron runs
-  → Find orgs with 'automatic' invoicing
-  → For each org:
-    → simulateMembershipForOrg(source: 'cron')
-    → Go-live date set? ✓
-    → Year started? ✓
-    → Approval required? → Check fees_approved ✓ (skip if not approved)
-    → Existing record? → Skip entirely (record + invoice already handled or invoice not needed yet)
-    → No existing record? → Create record + invoice together
-```
-
-**Note on Automatic mode invoice timing:** In the typical flow, the workflow creates the record when the go-live date is set. The cron job then finds the existing record and skips. This means the invoice is generated by the cron only when it creates the record itself (i.e. when the workflow didn't run or was missed). If you need the workflow to trigger immediate invoicing for automatic mode, that would require a separate enhancement. Currently, for most automatic orgs, the cron job is the primary path that creates both the record and invoice together.
-
-### Scheduled Renewal Flow
-
-```
-Go-live date set on org
-  → Workflow triggered
-    → create_membership action
-      → simulateMembershipForOrg(source: 'workflow')
-      → Check invoicing mode = 'scheduled'
-      → SKIP: "Scheduled renewal job will handle this"
-
-Daily cron runs (before invoice date)
-  → Find orgs with 'scheduled' invoicing
-  → Year started? ✓
-  → No existing record? → Create record WITHOUT invoice
-  → Invoice date reached? ✗ → Skip invoicing
-
-Daily cron runs (on/after invoice date)
-  → Find orgs with 'scheduled' invoicing
-  → Existing record WITHOUT invoice? ✓
-  → Invoice date reached? ✓
-  → Generate Xero invoice from stored record data
-  → Link invoice to history record
-```
-
-### Manual Renewal Flow
-
-```
-Go-live date set on org
-  → Workflow triggered
-    → create_membership action
-      → simulateMembershipForOrg(source: 'workflow')
-      → Check invoicing mode = 'manual'
-      → SKIP: "Use admin UI Renew & Invoice Now button"
-
-Admin opens Organisation Membership tab
-  → Views current year cost breakdown
-  → Clicks "Renew & Invoice Now"
-    → POST /api/membership/org-membership-invoicing
-      → simulateMembershipForOrg(source: 'manual', targetYear: currentYear)
-      → Go-live date set? ✓
-      → No existing record? ✓
-      → Approval required? → Check fees_approved ✓ (400 error if not approved)
-      → Insert membership_history record
-      → Create Xero invoice immediately
-      → Add organisation note
-      → Return success
-```
-
----
-
-## Xero Integration
-
-### Invoice Creation
-
-When a renewal creates an invoice, it calls `createXeroMembershipInvoice()` with:
-
-| Field | Source |
-|-------|--------|
-| `appTenantId` | Tenant ID (for Xero connection lookup) |
-| `organizationName` | Organisation name (invoice contact) |
-| `membershipYear` | Year label (for reference) |
-| `tierLabel` | Matched band label |
-| `finalCost` | Calculated final cost |
-| `currency` | From tier config |
-| `reference` | `"Membership {yearLabel}"` |
-| `vatRate` | From matched band's `vat_rate` |
-
-### Xero Settings
-
-Two tenant-level settings control invoice behaviour:
-
-- `xero_sales_account_code`: Account code for the line item (default: `'200'`)
-- `xero_invoice_status`: Status of created invoices (default: `'DRAFT'`)
-
-### Invoice Linking
-
-After creating an invoice, the `xero_invoice_id` and `xero_invoice_number` are stored on the history record for tracking and to prevent duplicate invoicing.
-
-### VAT Handling for Scheduled Invoicing
-
-When the cron job invoices an existing record (scheduled mode), it derives VAT from:
-1. The stored record's `vat_rate` field (if populated at record creation time)
-2. Falling back to looking up the band's `vat_rate` by `record.band_id`
-
-This ensures the invoice matches the recorded cost, even if tier bands have changed since the record was created.
-
----
-
-## Configuration Reference
-
-### Tier Configuration Wizard
-
-The tier management UI uses a 6-step wizard:
-
-1. **Structure Scope**: Optional scoping by organisation field value
-2. **Tier Model**: Tiered (band-based) or flat cost
-3. **Period**: Fixed date (annual from start date) or immediate start
-4. **Discounts**: Custom discount rules based on organisation fields
-5. **Pricing**: Band definitions with costs and VAT
-6. **Summary**: Review and save
-
-### Go-Live Date Field
-
-The go-live date is stored as an organisation custom field with `name = 'go_live'`. The simulation looks up this field by:
-
-1. Finding the `preference_field` record with `name = 'go_live'` and `entity_scope = 'organization'` for the tenant
-2. Querying `organization_preference_value` for that field and organisation
-
-This field is typically set by a workflow action (e.g. as part of a Due Diligence completion workflow).
-
-### Free Period Configuration
-
-| Field | Description |
-|-------|-------------|
-| `free_period_amount` | Number of units |
-| `free_period_unit` | `'months'`, `'weeks'`, or `'days'` |
-
-Internally converted to days: months × 30.44, weeks × 7.
-
-### Rollover
-
-When `rollover_enabled` is true and a free period is configured, any unused free days from year 1 are carried forward as a discount in year 2.
-
----
-
-## Troubleshooting
-
-### Organisation doesn't match any tier band
-
-**Symptom**: Simulation returns "Organisation does not match any tier band"
-
-**Check**:
-- Does the organisation have a value set for the field used by the tier config?
-- Is the value within the range of any defined band?
-- If using scoped configs, does the org match the scope criteria?
-
-### Renewal was skipped unexpectedly
-
-**Check the invoicing mode**: If set to manual or scheduled, the workflow action will skip.
-
-**Check the go-live date**: If not set, automatic renewals are skipped.
-
-**Check for existing record**: If a record already exists for that year, all paths skip.
-
-**Check fee approval**: If `membership_require_approval` is enabled and `fees_approved` is false for the org/year, all processing paths (cron, manual, member payment) will be blocked.
-
-Use the **Simulate** button in the UI to see the step-by-step breakdown.
-
-### Member cannot pay or submit PO
-
-**Symptom**: Member sees an approval-pending message instead of payment/PO options on the membership fees page (portal or token-based).
-
-**Cause**: The tenant has `membership_require_approval` enabled, and the admin has not yet approved fees for that organisation/year.
-
-**Fix**: Admin navigates to the organisation's Membership tab and clicks the "Approve Fees" button on the relevant year card. Alternatively, disable the approval requirement in Membership Settings if it's no longer needed.
-
-### Stripe payment option not showing for members
-
-**Symptom**: Members see the fee breakdown but no "Pay Now" button on the portal or token-based payment page.
-
-**Cause**: The tenant has `membership_stripe_enabled` set to `'false'` in Membership Settings.
-
-**Fix**: Admin navigates to Membership Settings and enables the "Allow Stripe Payments" toggle.
-
-### Duplicate record error
-
-If you see error code 23505, this means the database constraint caught a race condition. The record already exists — this is the safeguard working correctly. No action needed.
-
-### Scheduled invoice not generating
-
-**Check**:
-- Is the invoice date set on the year's invoicing settings?
-- Has the invoice date been reached?
-- Does the membership history record exist but lack an `xero_invoice_id`?
-- Is the cron job running?
-
-### VAT mismatch on scheduled invoices
-
-Scheduled invoices use VAT from the stored record/band, not from re-simulation. If the tier band's VAT changed between record creation and invoice date, the original rate is used (by design — the invoice should match the recorded amount).
-
-### Cost showing differently in simulation vs. actual record
-
-The simulation and record creation use the exact same function (`simulateMembershipForOrg`). If values differ, check:
-- Was an override added or removed between simulation and creation?
-- Did the organisation's field value change?
-- Did the tier config change?
-
-The simulation is a point-in-time calculation — it reflects the state at the moment it runs.
-
----
-
 ## Purchase Order Numbers
 
 ### Overview
@@ -1303,3 +952,355 @@ Processing paths check approval:
 | `client/src/components/OrgMembershipTab.jsx` | Approve/Unapprove buttons, green card styling, disabled state logic |
 | `client/src/pages/MembershipFees.jsx` | Approval-pending message display for portal |
 | `client/src/pages/MembershipFeePage.jsx` | Approval-pending message display for public page |
+
+---
+
+## Database Tables
+
+### `membership_tier_config`
+
+The tier configuration for a tenant. Multiple configs can be active simultaneously if scoped to different organisation field values.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `tenant_id` | uuid | Tenant scope |
+| `name` | text | Config name |
+| `field_source` | text | `'core'` or `'custom'` |
+| `field_name` | text | Field used for band matching (e.g. `'member_count'`) |
+| `field_id` | uuid | Custom field ID (if field_source is custom) |
+| `membership_start_month` | int | Month the membership year begins |
+| `membership_start_day` | int | Day the membership year begins |
+| `currency` | text | e.g. `'GBP'` |
+| `billing_period` | text | e.g. `'annual'` |
+| `prorata_enabled` | boolean | Whether pro-rata calculations apply |
+| `free_period_amount` | int | Free period duration |
+| `free_period_unit` | text | `'months'`, `'weeks'`, or `'days'` |
+| `rollover_enabled` | boolean | Whether free period spillover applies |
+| `effective_from` | date | When this config became active |
+| `effective_to` | date | Null if currently active |
+| `structure_field_id` | uuid | Field used for config scoping (optional) |
+| `structure_match_value` | text | Value to match for scoped configs (optional) |
+| `pricing_model` | text | `'tiered'` or `'flat'` |
+| `start_mode` | text | `'fixed_date'` or `'immediate'` |
+| `flat_cost` | numeric | Cost for flat pricing model |
+
+### `membership_tier_band`
+
+Tier bands within a configuration.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `config_id` | uuid | FK to `membership_tier_config` |
+| `tenant_id` | uuid | Tenant scope |
+| `label` | text | Display label (e.g. `'Small (1-10)'`) |
+| `min_value` | numeric | Lower bound (inclusive) |
+| `max_value` | numeric | Upper bound (inclusive), null = unlimited |
+| `annual_cost` | numeric | Annual fee for this band |
+| `vat_rate` | text | VAT/tax configuration (JSON string or tax type) |
+
+### `organisation_membership_history`
+
+Records of membership renewals — one row per org per year.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `tenant_id` | uuid | Tenant scope |
+| `organization_id` | uuid | FK to organisation |
+| `membership_year` | text | Year label (e.g. `'2025/2026'`) |
+| `config_id` | uuid | Config used for calculation |
+| `band_id` | uuid | Band matched |
+| `tier_label` | text | Band label at time of creation |
+| `field_value` | numeric | Org's field value at time of creation |
+| `annual_cost` | numeric | Base annual cost |
+| `prorata_cost` | numeric | Pro-rata cost (null if not applicable) |
+| `free_period_discount` | numeric | Free period discount amount |
+| `rollover_discount` | numeric | Rollover/spillover discount |
+| `custom_discount_total` | numeric | Total custom discounts |
+| `custom_discount_details` | jsonb | Array of applied discount details |
+| `final_cost` | numeric | Amount charged |
+| `currency` | text | Currency code |
+| `billing_period` | text | e.g. `'annual'` |
+| `vat_rate` | text | VAT configuration snapshot |
+| `purchase_order_number` | text | PO number (from invoicing settings, member submission, or token page) |
+| `payment_method` | text | How payment was made: `'stripe'`, `'xero'`, or null (admin-initiated) |
+| `stripe_payment_intent_id` | text | Stripe PaymentIntent ID (if paid via Stripe) |
+| `status` | text | `'active'` |
+| `notes` | text | How the record was created |
+| `xero_invoice_id` | text | Linked Xero invoice ID |
+| `xero_invoice_number` | text | Linked Xero invoice number |
+
+### `organisation_membership_invoicing`
+
+Per-org, per-year invoicing mode settings.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `tenant_id` | uuid | Tenant scope |
+| `organization_id` | uuid | FK to organisation |
+| `membership_year` | text | Year label (null for legacy fallback) |
+| `invoicing_mode` | text | `'automatic'`, `'scheduled'`, or `'manual'` |
+| `invoice_date` | date | Scheduled invoice date (for scheduled mode) |
+| `purchase_order_number` | text | PO number for this year's membership |
+| `po_source` | text | `'member'` if PO was submitted by a member (via token page or portal), null if entered by admin |
+| `fees_approved` | boolean | Whether fees have been approved by an admin for this org/year (default `false`) |
+| `updated_at` | timestamp | Last modification |
+
+### `organisation_membership_override`
+
+Per-org overrides.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `tenant_id` | uuid | Tenant scope |
+| `organization_id` | uuid | FK to organisation |
+| `membership_year` | text | Year label (null for legacy fallback) |
+| `override_type` | text | `'structure'`, `'price'`, or `'discount'` |
+| `config_id` | uuid | Alt config (for structure override) |
+| `band_id` | uuid | Forced band (for structure override) |
+| `manual_price` | numeric | Fixed price (for price override) |
+| `discount_type` | text | `'percentage'` or `'fixed'` (for discount override) |
+| `discount_value` | numeric | Discount amount (for discount override) |
+| `note` | text | Admin note explaining the override |
+
+### `system_settings`
+
+Tenant-scoped key-value store for membership configuration settings. Used by the Membership Settings admin page to control approval workflow, Stripe enablement, and custom member-facing messages.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | Primary key |
+| `tenant_id` | uuid | Tenant scope |
+| `setting_key` | text | Setting identifier (e.g. `'membership_require_approval'`) |
+| `setting_value` | text | Setting value (stored as string) |
+
+**Membership-related keys:**
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `membership_require_approval` | `'true'` / `'false'` | `'false'` (not present) | When `'true'`, fees must be approved per org/year before any processing |
+| `membership_stripe_enabled` | `'true'` / `'false'` | `'true'` (not present) | When `'false'`, Stripe payment is hidden on member-facing pages |
+| `membership_custom_message` | text / `'none'` | `'none'` (not present) | Custom message shown to members when fees are pending approval |
+
+---
+
+## Data Flow Diagrams
+
+### Automatic Renewal Flow
+
+```
+Go-live date set on org
+  → Workflow triggered
+    → create_membership action
+      → simulateMembershipForOrg(source: 'workflow')
+      → Check invoicing mode = 'automatic' ✓
+      → Check no existing record ✓
+      → Insert membership_history record (no invoice)
+      → Return success
+
+Daily cron runs
+  → Find orgs with 'automatic' invoicing
+  → For each org:
+    → simulateMembershipForOrg(source: 'cron')
+    → Go-live date set? ✓
+    → Year started? ✓
+    → Approval required? → Check fees_approved ✓ (skip if not approved)
+    → Existing record? → Skip entirely (record + invoice already handled or invoice not needed yet)
+    → No existing record? → Create record + invoice together
+```
+
+**Note on Automatic mode invoice timing:** In the typical flow, the workflow creates the record when the go-live date is set. The cron job then finds the existing record and skips. This means the invoice is generated by the cron only when it creates the record itself (i.e. when the workflow didn't run or was missed). If you need the workflow to trigger immediate invoicing for automatic mode, that would require a separate enhancement. Currently, for most automatic orgs, the cron job is the primary path that creates both the record and invoice together.
+
+### Scheduled Renewal Flow
+
+```
+Go-live date set on org
+  → Workflow triggered
+    → create_membership action
+      → simulateMembershipForOrg(source: 'workflow')
+      → Check invoicing mode = 'scheduled'
+      → SKIP: "Scheduled renewal job will handle this"
+
+Daily cron runs (before invoice date)
+  → Find orgs with 'scheduled' invoicing
+  → Year started? ✓
+  → No existing record? → Create record WITHOUT invoice
+  → Invoice date reached? ✗ → Skip invoicing
+
+Daily cron runs (on/after invoice date)
+  → Find orgs with 'scheduled' invoicing
+  → Existing record WITHOUT invoice? ✓
+  → Invoice date reached? ✓
+  → Generate Xero invoice from stored record data
+  → Link invoice to history record
+```
+
+### Manual Renewal Flow
+
+```
+Go-live date set on org
+  → Workflow triggered
+    → create_membership action
+      → simulateMembershipForOrg(source: 'workflow')
+      → Check invoicing mode = 'manual'
+      → SKIP: "Use admin UI Renew & Invoice Now button"
+
+Admin opens Organisation Membership tab
+  → Views current year cost breakdown
+  → Clicks "Renew & Invoice Now"
+    → POST /api/membership/org-membership-invoicing
+      → simulateMembershipForOrg(source: 'manual', targetYear: currentYear)
+      → Go-live date set? ✓
+      → No existing record? ✓
+      → Approval required? → Check fees_approved ✓ (400 error if not approved)
+      → Insert membership_history record
+      → Create Xero invoice immediately
+      → Add organisation note
+      → Return success
+```
+
+---
+
+## Xero Integration
+
+### Invoice Creation
+
+When a renewal creates an invoice, it calls `createXeroMembershipInvoice()` with:
+
+| Field | Source |
+|-------|--------|
+| `appTenantId` | Tenant ID (for Xero connection lookup) |
+| `organizationName` | Organisation name (invoice contact) |
+| `membershipYear` | Year label (for reference) |
+| `tierLabel` | Matched band label |
+| `finalCost` | Calculated final cost |
+| `currency` | From tier config |
+| `reference` | `"Membership {yearLabel}"` |
+| `vatRate` | From matched band's `vat_rate` |
+
+### Xero Settings
+
+Two tenant-level settings control invoice behaviour:
+
+- `xero_sales_account_code`: Account code for the line item (default: `'200'`)
+- `xero_invoice_status`: Status of created invoices (default: `'DRAFT'`)
+
+### Invoice Linking
+
+After creating an invoice, the `xero_invoice_id` and `xero_invoice_number` are stored on the history record for tracking and to prevent duplicate invoicing.
+
+### VAT Handling for Scheduled Invoicing
+
+When the cron job invoices an existing record (scheduled mode), it derives VAT from:
+1. The stored record's `vat_rate` field (if populated at record creation time)
+2. Falling back to looking up the band's `vat_rate` by `record.band_id`
+
+This ensures the invoice matches the recorded cost, even if tier bands have changed since the record was created.
+
+---
+
+## Configuration Reference
+
+### Tier Configuration Wizard
+
+The tier management UI uses a 6-step wizard:
+
+1. **Structure Scope**: Optional scoping by organisation field value
+2. **Tier Model**: Tiered (band-based) or flat cost
+3. **Period**: Fixed date (annual from start date) or immediate start
+4. **Discounts**: Custom discount rules based on organisation fields
+5. **Pricing**: Band definitions with costs and VAT
+6. **Summary**: Review and save
+
+### Go-Live Date Field
+
+The go-live date is stored as an organisation custom field with `name = 'go_live'`. The simulation looks up this field by:
+
+1. Finding the `preference_field` record with `name = 'go_live'` and `entity_scope = 'organization'` for the tenant
+2. Querying `organization_preference_value` for that field and organisation
+
+This field is typically set by a workflow action (e.g. as part of a Due Diligence completion workflow).
+
+### Free Period Configuration
+
+| Field | Description |
+|-------|-------------|
+| `free_period_amount` | Number of units |
+| `free_period_unit` | `'months'`, `'weeks'`, or `'days'` |
+
+Internally converted to days: months × 30.44, weeks × 7.
+
+### Rollover
+
+When `rollover_enabled` is true and a free period is configured, any unused free days from year 1 are carried forward as a discount in year 2.
+
+---
+
+## Troubleshooting
+
+### Organisation doesn't match any tier band
+
+**Symptom**: Simulation returns "Organisation does not match any tier band"
+
+**Check**:
+- Does the organisation have a value set for the field used by the tier config?
+- Is the value within the range of any defined band?
+- If using scoped configs, does the org match the scope criteria?
+
+### Renewal was skipped unexpectedly
+
+**Check the invoicing mode**: If set to manual or scheduled, the workflow action will skip.
+
+**Check the go-live date**: If not set, automatic renewals are skipped.
+
+**Check for existing record**: If a record already exists for that year, all paths skip.
+
+**Check fee approval**: If `membership_require_approval` is enabled and `fees_approved` is false for the org/year, all processing paths (cron, manual, member payment) will be blocked.
+
+Use the **Simulate** button in the UI to see the step-by-step breakdown.
+
+### Member cannot pay or submit PO
+
+**Symptom**: Member sees an approval-pending message instead of payment/PO options on the membership fees page (portal or token-based).
+
+**Cause**: The tenant has `membership_require_approval` enabled, and the admin has not yet approved fees for that organisation/year.
+
+**Fix**: Admin navigates to the organisation's Membership tab and clicks the "Approve Fees" button on the relevant year card. Alternatively, disable the approval requirement in Membership Settings if it's no longer needed.
+
+### Stripe payment option not showing for members
+
+**Symptom**: Members see the fee breakdown but no "Pay Now" button on the portal or token-based payment page.
+
+**Cause**: The tenant has `membership_stripe_enabled` set to `'false'` in Membership Settings.
+
+**Fix**: Admin navigates to Membership Settings and enables the "Allow Stripe Payments" toggle.
+
+### Duplicate record error
+
+If you see error code 23505, this means the database constraint caught a race condition. The record already exists — this is the safeguard working correctly. No action needed.
+
+### Scheduled invoice not generating
+
+**Check**:
+- Is the invoice date set on the year's invoicing settings?
+- Has the invoice date been reached?
+- Does the membership history record exist but lack an `xero_invoice_id`?
+- Is the cron job running?
+
+### VAT mismatch on scheduled invoices
+
+Scheduled invoices use VAT from the stored record/band, not from re-simulation. If the tier band's VAT changed between record creation and invoice date, the original rate is used (by design — the invoice should match the recorded amount).
+
+### Cost showing differently in simulation vs. actual record
+
+The simulation and record creation use the exact same function (`simulateMembershipForOrg`). If values differ, check:
+- Was an override added or removed between simulation and creation?
+- Did the organisation's field value change?
+- Did the tier config change?
+
+The simulation is a point-in-time calculation — it reflects the state at the moment it runs.
+
