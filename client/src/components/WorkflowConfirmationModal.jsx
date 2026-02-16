@@ -92,31 +92,87 @@ function ActionStepList({ actions, results }) {
   );
 }
 
-function ConditionFailureBanner({ workflow }) {
-  if (workflow.conditions_met !== false) return null;
+function ConditionChecklist({ workflow }) {
+  const summaries = workflow.condition_summaries || [];
+  const results = workflow.condition_results || [];
   
-  const failedConditions = (workflow.condition_results || []).filter(c => !c.met);
+  if (summaries.length === 0 && results.length === 0) return null;
   
+  const allMet = workflow.conditions_met !== false;
+  
+  const items = summaries.length > 0
+    ? summaries.map((s, i) => {
+        const result = results[i];
+        const met = result?.met ?? null;
+        return { ...s, met, actual: result?.actual };
+      })
+    : results.map(r => ({
+        field_label: r.field_id,
+        operator_label: r.operator,
+        value: r.expected,
+        met: r.met,
+        actual: r.actual,
+        logic: 'AND',
+      }));
+
   return (
-    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2" data-testid={`conditions-failed-${workflow.workflow_id}`}>
+    <div
+      className={`rounded-md border p-3 space-y-2 ${allMet ? 'border-green-500/30 bg-green-500/5' : 'border-destructive/30 bg-destructive/5'}`}
+      data-testid={`conditions-checklist-${workflow.workflow_id}`}
+    >
       <div className="flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
-        <span className="text-sm font-medium text-destructive">Conditions not met</span>
+        {allMet ? (
+          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-500 shrink-0" />
+        ) : (
+          <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+        )}
+        <span className={`text-sm font-medium ${allMet ? 'text-green-700 dark:text-green-400' : 'text-destructive'}`}>
+          {allMet ? 'All conditions met' : 'Conditions not met'}
+        </span>
       </div>
-      {failedConditions.length > 0 && (
-        <div className="space-y-1 ml-6">
-          {failedConditions.map((c, i) => (
-            <p key={i} className="text-xs text-muted-foreground">
-              Field <span className="font-medium">{c.field_id.substring(0, 8)}...</span>
-              {' '}{c.operator} "{c.expected}" 
-              {c.actual !== undefined && <span> (current: "{c.actual}")</span>}
-            </p>
-          ))}
-        </div>
-      )}
-      {workflow.revert_on_fail && (
-        <p className="text-xs text-muted-foreground ml-6">
-          The triggering field will be reverted to its previous value when this dialog is dismissed.
+      <div className="space-y-1.5 ml-1">
+        {items.map((item, i) => {
+          const StatusIcon = item.met === true ? CheckCircle2 : item.met === false ? XCircle : Info;
+          const statusColor = item.met === true
+            ? 'text-green-600 dark:text-green-500'
+            : item.met === false
+            ? 'text-destructive'
+            : 'text-muted-foreground';
+          
+          const noValueOps = ['is_empty', 'is_not_empty', 'is empty', 'is not empty'];
+          const opKey = item.operator || item.operator_label;
+          const showValue = !noValueOps.includes(opKey) && !noValueOps.includes(item.operator_label) && item.value !== undefined && item.value !== '';
+
+          return (
+            <div key={i} className="flex items-start gap-2" data-testid={`condition-item-${i}`}>
+              <StatusIcon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${statusColor}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs">
+                  {i > 0 && (
+                    <span className="text-muted-foreground font-medium mr-1">
+                      {item.logic}
+                    </span>
+                  )}
+                  <span className="font-medium">{item.field_label}</span>
+                  {' '}
+                  <span className="text-muted-foreground">{item.operator_label}</span>
+                  {showValue && (
+                    <span className="font-medium"> "{item.value}"</span>
+                  )}
+                </p>
+                {item.met === false && item.actual !== undefined && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Current value: "{item.actual}"
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {!allMet && workflow.revert_on_fail && (
+        <p className="text-xs text-muted-foreground ml-5 mt-1">
+          The triggering field will be reverted when dismissed.
         </p>
       )}
     </div>
@@ -243,7 +299,7 @@ export function WorkflowConfirmationModal({
                     )}
                   </div>
 
-                  <ConditionFailureBanner workflow={workflow} />
+                  <ConditionChecklist workflow={workflow} />
 
                   <div className="border rounded-md bg-muted/20">
                     <ActionStepList actions={workflow.actions || []} />

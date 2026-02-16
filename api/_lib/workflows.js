@@ -395,6 +395,81 @@ async function buildActionSummary(action, tenantId) {
   return summary;
 }
 
+const CORE_FIELD_LABELS = {
+  member: {
+    id: 'ID', email: 'Email', first_name: 'First Name', last_name: 'Last Name',
+    full_name: 'Full Name', phone: 'Phone', mobile: 'Mobile', landline: 'Landline',
+    job_title: 'Job Title', status: 'Status', organization_id: 'Organisation ID',
+    role_id: 'Role ID', biography: 'Biography', profile_photo_url: 'Profile Photo URL',
+    show_in_directory: 'Show in Directory', is_admin: 'Is Admin', login_enabled: 'Login Enabled',
+  },
+  organization: {
+    id: 'ID', name: 'Name', status: 'Status', phone: 'Phone',
+    invoicing_email: 'Invoicing Email', invoicing_address: 'Invoicing Address',
+    website_url: 'Website URL', training_fund_balance: 'Training Fund Balance',
+    address_line_1: 'Address Line 1', address_line_2: 'Address Line 2',
+    city: 'City', region: 'Region', postcode: 'Postcode', country: 'Country',
+    description: 'Description', logo_url: 'Logo URL', account_owner_id: 'Account Owner ID',
+  },
+  job_posting: {
+    id: 'ID', title: 'Job Title', status: 'Status', company_name: 'Company Name',
+    contact_email: 'Contact Email', contact_name: 'Contact Name', location: 'Location',
+    job_type: 'Job Type', hours: 'Hours', salary_range: 'Salary Range',
+    is_member_post: 'Is Member Post', payment_status: 'Payment Status',
+    featured: 'Featured', closing_date: 'Closing Date', expiry_date: 'Expiry Date',
+  },
+};
+
+const OPERATOR_LABELS = {
+  equals: 'equals', not_equals: 'does not equal', contains: 'contains',
+  not_contains: 'does not contain', starts_with: 'starts with', ends_with: 'ends with',
+  is_empty: 'is empty', is_not_empty: 'is not empty', changed_to: 'changed to',
+  changed_from: 'changed from',
+};
+
+async function buildConditionSummaries(conditions, tenantId, entityType) {
+  if (!conditions || conditions.length === 0) return [];
+  
+  const summaries = [];
+  for (const condition of conditions) {
+    const fieldType = condition.field_type || 'core';
+    let fieldLabel = null;
+    
+    const isCustom = fieldType === 'custom' || fieldType === 'member_custom' || fieldType === 'org_custom' || fieldType === 'job_posting_custom';
+    
+    if (isCustom && condition.field_id && tenantId) {
+      try {
+        const { data: prefField } = await supabase
+          .from('preference_field')
+          .select('label')
+          .eq('id', condition.field_id)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (prefField?.label) fieldLabel = prefField.label;
+      } catch (e) {}
+    }
+    
+    if (!fieldLabel) {
+      const coreEntity = fieldType === 'org_core' ? 'organization'
+        : fieldType === 'job_posting_core' ? 'job_posting'
+        : fieldType === 'member_core' ? 'member'
+        : entityType;
+      fieldLabel = CORE_FIELD_LABELS[coreEntity]?.[condition.field_id] || condition.field_id;
+    }
+    
+    summaries.push({
+      field_id: condition.field_id,
+      field_type: fieldType,
+      field_label: fieldLabel,
+      operator: condition.operator,
+      operator_label: OPERATOR_LABELS[condition.operator] || condition.operator,
+      value: condition.value,
+      logic: condition.logic || 'AND',
+    });
+  }
+  return summaries;
+}
+
 async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl) {
   const results = [];
   const tenantId = workflow.tenant_id;
@@ -1483,6 +1558,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
         const revertFieldId = workflow.trigger_config?.field_id;
         const revertFieldType = workflow.trigger_config?.field_type || 'core';
+        const conditionSummaries = await buildConditionSummaries(workflow.conditions, workflow.tenant_id, entityType);
         const confirmationData = {
           workflow_id: workflow.id,
           workflow_name: workflow.name,
@@ -1491,6 +1567,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id))),
           conditions_met: allConditionsMet,
           condition_results: conditionResults.length > 0 ? conditionResults : undefined,
+          condition_summaries: conditionSummaries.length > 0 ? conditionSummaries : undefined,
           revert_on_fail: workflow.revert_trigger_on_condition_fail || false,
           revert_field_id: revertFieldId,
           revert_field_type: revertFieldType,
@@ -1731,6 +1808,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       
       if (cfg.requires_confirmation) {
         console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
+        const conditionSummaries = await buildConditionSummaries(workflow.conditions, workflow.tenant_id, entityType);
         const confirmationData = {
           workflow_id: workflow.id,
           workflow_name: workflow.name,
@@ -1739,6 +1817,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id))),
           conditions_met: allConditionsMet,
           condition_results: conditionResults.length > 0 ? conditionResults : undefined,
+          condition_summaries: conditionSummaries.length > 0 ? conditionSummaries : undefined,
           revert_on_fail: workflow.revert_trigger_on_condition_fail || false,
           revert_field_id: fieldId,
           revert_field_type: 'custom',
