@@ -29,6 +29,8 @@ export default function EmailCampaignEdit() {
   const isEditing = id && id !== 'new';
 
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [showSendConfirmDialog, setShowSendConfirmDialog] = useState(false);
   const [testSending, setTestSending] = useState(false);
   const [editorTab, setEditorTab] = useState('html');
   const [showVisualEditor, setShowVisualEditor] = useState(false);
@@ -402,6 +404,56 @@ export default function EmailCampaignEdit() {
     }
   };
 
+  const handleSendCampaign = async () => {
+    if (!isEditing) {
+      toast.error('Please save the campaign first');
+      return;
+    }
+
+    setSending(true);
+    setShowSendConfirmDialog(false);
+    try {
+      const payload = { campaignId: id };
+
+      if (scheduleMode === 'scheduled' && formData.scheduled_at) {
+        payload.scheduledAt = new Date(formData.scheduled_at).toISOString();
+      }
+
+      const response = await fetch('/api/email-campaigns/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to send campaign');
+      }
+
+      if (scheduleMode === 'scheduled') {
+        toast.success('Campaign scheduled successfully');
+      } else {
+        toast.success(`Campaign sent to ${result.sentCount || recipientPreviewCount || 0} recipients`);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['email-campaign', id] });
+      navigate('/CommunicationsManagement');
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const canSendCampaign = isEditing && 
+    formData.subject && 
+    formData.html_content && 
+    (formData.target_type === 'all_members' || formData.target_ids.length > 0) &&
+    (scheduleMode === 'immediate' || formData.scheduled_at);
+
   if (isEditing && campaignLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -475,6 +527,26 @@ export default function EmailCampaignEdit() {
               </>
             )}
           </Button>
+          {isEditing && (
+            <Button
+              onClick={() => setShowSendConfirmDialog(true)}
+              disabled={!canSendCampaign || sending}
+              className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+              data-testid="button-send-campaign"
+            >
+              {sending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  {scheduleMode === 'scheduled' ? 'Schedule' : 'Send'} Campaign
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -983,6 +1055,85 @@ export default function EmailCampaignEdit() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showSendConfirmDialog} onOpenChange={setShowSendConfirmDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {scheduleMode === 'scheduled' ? 'Schedule Campaign' : 'Send Campaign'}
+            </DialogTitle>
+            <DialogDescription>
+              {scheduleMode === 'scheduled' 
+                ? `This campaign will be scheduled to send on ${formData.scheduled_at ? new Date(formData.scheduled_at).toLocaleString() : 'the selected date'}.`
+                : 'This campaign will be sent immediately and cannot be undone.'
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Subject</span>
+              <span className="font-medium truncate max-w-[250px]">{formData.subject}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Recipients</span>
+              <span className="font-medium">
+                {loadingRecipientCount ? (
+                  <Loader2 className="w-4 h-4 animate-spin inline" />
+                ) : recipientPreviewCount !== null ? (
+                  `${recipientPreviewCount} recipient${recipientPreviewCount === 1 ? '' : 's'}`
+                ) : (
+                  'Calculating...'
+                )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">From</span>
+              <span className="font-medium">{formData.from_name || 'Not set'} &lt;{formData.from_email || 'Not set'}&gt;</span>
+            </div>
+            {scheduleMode === 'scheduled' && formData.scheduled_at && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Scheduled for</span>
+                <span className="font-medium">{new Date(formData.scheduled_at).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+          {recipientPreviewCount === 0 && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                No recipients found for the selected targeting. Please check your recipient settings.
+              </AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowSendConfirmDialog(false)}
+              data-testid="button-cancel-send"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendCampaign}
+              disabled={sending || recipientPreviewCount === 0}
+              className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+              data-testid="button-confirm-send"
+            >
+              {sending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {scheduleMode === 'scheduled' ? 'Scheduling...' : 'Sending...'}
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  {scheduleMode === 'scheduled' ? 'Schedule Campaign' : 'Send Now'}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showTestEmailDialog} onOpenChange={(open) => {
         setShowTestEmailDialog(open);
