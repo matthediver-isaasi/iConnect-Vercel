@@ -1619,9 +1619,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           const isOrgCustom = fieldType === 'org_custom';
           
           if (isMemberField) {
-            if (entityType === 'member') {
-              afterValue = entity?.[condition.field_id];
-            }
+            afterValue = entity?.[condition.field_id];
           } else if (isOrgField) {
             if (entityType === 'organization') {
               afterValue = entity?.[condition.field_id];
