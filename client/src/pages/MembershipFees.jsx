@@ -325,7 +325,13 @@ export default function MembershipFees() {
 
             {breakdown.freeDiscount > 0 && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Free Period Discount</span>
+                <span className="text-muted-foreground">
+                  {breakdown.freePeriodUnit === 'percent'
+                    ? `New Member Discount (${breakdown.freePeriodAmount}%)${breakdown.yearNumber === 2 ? ' (rollover from Y1)' : ''}`
+                    : breakdown.yearNumber === 2 && breakdown.freeDiscount > 0
+                      ? `New Member Discount (${breakdown.freePeriodDaysApplied} days rollover)`
+                      : `New Member Discount (${breakdown.freePeriodDaysApplied} free days${breakdown.dailyCost ? ` \u00d7 ${formatCurrency(breakdown.dailyCost, data?.currency)}` : ''})`}
+                </span>
                 <span className="text-green-600">-{formatCurrency(breakdown.freeDiscount, data?.currency)}</span>
               </div>
             )}

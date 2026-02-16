@@ -130,6 +130,11 @@ export default async function handler(req, res) {
           prorataCost: hasProRata ? recProrata : null,
           freeDiscount: recFreeDiscount,
           rolloverDiscount: recRollover,
+          freePeriodAmount: simResult.freePeriodAmount,
+          freePeriodUnit: simResult.freePeriodUnit,
+          freePeriodDaysApplied: simResult.freePeriodDaysApplied || 0,
+          yearNumber: simResult.yearNumber,
+          dailyCost: simResult.dailyCost,
         };
       } else {
         finalCost = simResult.finalCost;
@@ -148,6 +153,11 @@ export default async function handler(req, res) {
           prorataCost: simResult.prorataCost,
           freeDiscount: simResult.freeDiscount || 0,
           rolloverDiscount: simResult.rolloverDiscount || 0,
+          freePeriodAmount: simResult.freePeriodAmount,
+          freePeriodUnit: simResult.freePeriodUnit,
+          freePeriodDaysApplied: simResult.freePeriodDaysApplied || 0,
+          yearNumber: simResult.yearNumber,
+          dailyCost: simResult.dailyCost,
         };
       }
 
