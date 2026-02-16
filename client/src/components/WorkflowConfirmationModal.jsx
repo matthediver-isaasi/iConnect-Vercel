@@ -62,6 +62,18 @@ function ActionStepList({ actions, results }) {
               {action.detail && (
                 <p className="text-xs text-muted-foreground">{action.detail}</p>
               )}
+              {action.approval_warning && (
+                <div className="flex items-center gap-1.5 mt-1" data-testid={`action-approval-warning-${i}`}>
+                  <AlertTriangle className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-500 shrink-0" />
+                  <span className="text-xs font-medium text-yellow-600 dark:text-yellow-500">{action.approval_warning}</span>
+                </div>
+              )}
+              {action.requires_approval && action.fees_approved && (
+                <div className="flex items-center gap-1.5 mt-1" data-testid={`action-approval-ok-${i}`}>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-500 shrink-0" />
+                  <span className="text-xs text-green-600 dark:text-green-500">Fees approved for {action.membership_year}</span>
+                </div>
+              )}
               {result && (
                 <div className="flex items-center gap-1.5 mt-1">
                   {StatusIcon && <StatusIcon className={`h-3.5 w-3.5 ${statusCfg.color}`} />}

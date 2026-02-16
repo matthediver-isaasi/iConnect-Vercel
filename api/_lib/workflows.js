@@ -330,7 +330,7 @@ async function getMembersByRoleInOrganization(roleId, organizationId) {
   return validMembers;
 }
 
-async function buildActionSummary(action, tenantId) {
+async function buildActionSummary(action, tenantId, entityContext) {
   const summary = { type: action.type };
   const cfg = action.config || {};
 
@@ -378,6 +378,56 @@ async function buildActionSummary(action, tenantId) {
         ? 'Calculate membership tier, discounts, and cost without creating a record'
         : 'Determine tier band, apply discounts, and create the membership history record';
       summary.dry_run = !!cfg.dry_run;
+
+      if (!cfg.dry_run && tenantId && entityContext) {
+        try {
+          const { data: approvalSetting } = await supabase
+            .from('system_settings')
+            .select('setting_value')
+            .eq('setting_key', 'membership_require_approval')
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+
+          if (approvalSetting?.setting_value === 'true') {
+            summary.requires_approval = true;
+            let orgId = null;
+            if (entityContext.entityType === 'organization') {
+              orgId = entityContext.entityId;
+            } else if (entityContext.entityType === 'member' && entityContext.entityData?.organization_id) {
+              orgId = entityContext.entityData.organization_id;
+            }
+
+            if (orgId) {
+              const simResult = await simulateMembershipForOrg(tenantId, orgId, { source: 'preview' });
+              const yearLabel = simResult?.membershipYear?.label;
+
+              if (yearLabel) {
+                const { data: approvalRecord, error: approvalError } = await supabase
+                  .from('organisation_membership_invoicing')
+                  .select('fees_approved')
+                  .eq('tenant_id', tenantId)
+                  .eq('organization_id', orgId)
+                  .eq('membership_year', yearLabel)
+                  .maybeSingle();
+
+                if (approvalError) {
+                  console.error('[Workflows] Error querying fee approval in preview:', approvalError.message);
+                }
+
+                summary.fees_approved = !!approvalRecord?.fees_approved;
+                summary.membership_year = yearLabel;
+                if (!summary.fees_approved) {
+                  summary.approval_warning = `Fees for ${yearLabel} have not been approved`;
+                }
+              }
+            } else {
+              summary.approval_warning = 'Fee approval is required but organisation could not be determined';
+            }
+          }
+        } catch (e) {
+          console.error('[Workflows] Error checking approval in buildActionSummary:', e.message);
+        }
+      }
       break;
     }
     case 'create_contract': {
@@ -987,6 +1037,40 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       };
     }
 
+    try {
+      const { data: approvalSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'membership_require_approval')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+      if (approvalSetting?.setting_value === 'true') {
+        const { data: approvalRecord, error: approvalError } = await supabase
+          .from('organisation_membership_invoicing')
+          .select('fees_approved')
+          .eq('tenant_id', tenantId)
+          .eq('organization_id', organizationId)
+          .eq('membership_year', targetYearLabel)
+          .maybeSingle();
+
+        if (approvalError) {
+          console.error(`[Workflows] Error checking fee approval for org ${organizationId}:`, approvalError.message);
+        }
+
+        if (!approvalRecord?.fees_approved) {
+          console.log(`[Workflows] Skipping create_membership for org ${organizationId} - fees not approved for ${targetYearLabel}`);
+          return {
+            action_type: 'create_membership',
+            status: 'skipped',
+            message: `Fees for ${targetYearLabel} have not been approved. Approve fees on the Membership tab before the workflow can create a record.`,
+          };
+        }
+      }
+    } catch (approvalErr) {
+      console.error(`[Workflows] Fee approval check failed for org ${organizationId}:`, approvalErr.message);
+    }
+
     if (simResult.existingRecord) {
       console.log(`[Workflows] Membership record for ${targetYearLabel} already exists for org ${organizationId}`);
       return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${targetYearLabel} already exists` };
@@ -1564,7 +1648,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id))),
+          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id, { entityType, entityId, entityData: afterData }))),
           conditions_met: allConditionsMet,
           condition_results: conditionResults.length > 0 ? conditionResults : undefined,
           condition_summaries: conditionSummaries.length > 0 ? conditionSummaries : undefined,
@@ -1814,7 +1898,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id))),
+          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id, { entityType, entityId, entityData: entity }))),
           conditions_met: allConditionsMet,
           condition_results: conditionResults.length > 0 ? conditionResults : undefined,
           condition_summaries: conditionSummaries.length > 0 ? conditionSummaries : undefined,
