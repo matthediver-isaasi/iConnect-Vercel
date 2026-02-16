@@ -137,6 +137,9 @@ export default async function handler(req, res) {
       dailyCost: simResult.dailyCost,
       freeDiscount: simResult.freeDiscount || 0,
       freePeriodDaysApplied: simResult.freePeriodDaysApplied || 0,
+      freePeriodAmount: simResult.freePeriodAmount,
+      freePeriodUnit: simResult.freePeriodUnit,
+      yearNumber: simResult.yearNumber,
       rolloverDiscount: simResult.rolloverDiscount || 0,
       proRataEnabled: simResult.proRataEnabled,
       overrideType: simResult.overrideType || null,
@@ -214,11 +217,26 @@ export default async function handler(req, res) {
     }
 
     if (costBreakdown.freeDiscount > 0) {
-      breakdownRows.push({ label: `Free period (${costBreakdown.freePeriodDaysApplied || 0} days)`, value: `-${currencySymbol}${parseFloat(costBreakdown.freeDiscount).toFixed(2)}`, isDiscount: true });
+      let discountLabel;
+      if (costBreakdown.freePeriodUnit === 'percent') {
+        discountLabel = `New Member Discount (${costBreakdown.freePeriodAmount}%)`;
+        if (costBreakdown.yearNumber === 2) discountLabel += ' (rollover from Y1)';
+      } else if (costBreakdown.yearNumber === 2) {
+        discountLabel = `New Member Discount (${costBreakdown.freePeriodDaysApplied || 0} days rollover)`;
+      } else {
+        discountLabel = `New Member Discount (${costBreakdown.freePeriodDaysApplied || 0} free days)`;
+      }
+      breakdownRows.push({ label: discountLabel, value: `-${currencySymbol}${parseFloat(costBreakdown.freeDiscount).toFixed(2)}`, isDiscount: true });
     }
 
     if (costBreakdown.rolloverDiscount > 0) {
-      breakdownRows.push({ label: 'Rollover credit', value: `-${currencySymbol}${parseFloat(costBreakdown.rolloverDiscount).toFixed(2)}`, isDiscount: true });
+      let rolloverLabel;
+      if (costBreakdown.freePeriodUnit === 'percent') {
+        rolloverLabel = `New Member Discount (${costBreakdown.freePeriodAmount}%) (rollover from Y1)`;
+      } else {
+        rolloverLabel = `New Member Discount (${costBreakdown.freePeriodDaysApplied || 0} days rollover)`;
+      }
+      breakdownRows.push({ label: rolloverLabel, value: `-${currencySymbol}${parseFloat(costBreakdown.rolloverDiscount).toFixed(2)}`, isDiscount: true });
     }
 
     if (costBreakdown.overrideType) {

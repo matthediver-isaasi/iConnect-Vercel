@@ -86,6 +86,25 @@ export default async function handler(req, res) {
       } catch {}
 
       const breakdown = feeToken.cost_breakdown || {};
+
+      if (breakdown.freeDiscount > 0 && !breakdown.freePeriodUnit) {
+        try {
+          const { simulateMembershipForOrg } = await import('../../_lib/membershipSimulation.js');
+          const simResult = await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, {
+            source: 'token-enrich',
+            targetYear: feeToken.membership_year,
+          });
+          if (simResult.success) {
+            breakdown.freePeriodUnit = simResult.freePeriodUnit;
+            breakdown.freePeriodAmount = simResult.freePeriodAmount;
+            breakdown.yearNumber = simResult.yearNumber;
+            if (!breakdown.freePeriodDaysApplied) {
+              breakdown.freePeriodDaysApplied = simResult.freePeriodDaysApplied || 0;
+            }
+          }
+        } catch {}
+      }
+
       const tokenVatRate = breakdown.vatRatePercent || null;
       const tokenVatAmount = breakdown.vatAmount || 0;
       const tokenTotalWithVat = breakdown.totalWithVat || parseFloat(feeToken.final_cost);
