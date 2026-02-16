@@ -816,7 +816,7 @@ export default function EmailCampaigns() {
       </Dialog>
 
       <Dialog open={showStatsDialog} onOpenChange={setShowStatsDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Campaign Statistics</DialogTitle>
             <DialogDescription>
