@@ -37,7 +37,7 @@ The membership renewal system handles the full lifecycle of calculating, creatin
 
 Each organisation's membership year is determined by the tenant's tier configuration (configurable start month/day), and costs are calculated using a day-based approach that accounts for pro-rata periods, free periods, spillover discounts, custom discount rules, and three types of overrides.
 
-The system supports per-year invoicing controls, allowing admins to independently choose Automatic, Scheduled, or Manual invoicing for each membership year. An optional fee approval workflow allows admins to review and approve calculated fees per organisation/year before any processing (cron, manual renewal, or member payment) can proceed.
+The system supports per-year invoicing controls, allowing admins to independently choose Automatic, Scheduled, or Manual invoicing for each membership year. An optional fee approval workflow allows admins to review and approve calculated fees per organisation/year before any processing path (workflow action, cron job, manual renewal, portal member payment, or public token payment) can proceed.
 
 ---
 
@@ -69,7 +69,7 @@ The system supports per-year invoicing controls, allowing admins to independentl
 3. **Per-year independence**: Each membership year has its own invoicing mode, override, and simulation — they don't interfere with each other.
 4. **Tenant isolation**: All queries are scoped by `tenant_id` to ensure strict multi-tenant data separation.
 5. **Defensive coding**: Three layers of duplicate prevention ensure a membership record is never created twice.
-6. **Optional approval gate**: When enabled, fee approval adds a consistent check across all four processing paths (cron, manual, portal, public token) using the same pattern — query the tenant setting, then check the per-org/year flag.
+6. **Optional approval gate**: When enabled, fee approval adds a consistent check across all five processing paths (workflow, cron, manual renewal, portal, public token) using the same pattern — query the tenant setting, then check the per-org/year flag.
 
 ---
 
@@ -321,9 +321,13 @@ The `membership_year` column in `organisation_membership_invoicing` was added la
    - `manual` → skip with message to use admin UI
    - `scheduled` → skip with message about cron job
    - `automatic` (or no setting) → proceed
-6. If existing record found → skip (duplicate prevention)
-7. Insert membership history record
-8. Return success with full cost breakdown
+6. **Check fee approval** (if `membership_require_approval` enabled):
+   - Not approved → skip with message to approve fees first
+   - Approved or approval not required → proceed
+   - Query error → log and proceed (resilient fallback)
+7. If existing record found → skip (duplicate prevention)
+8. Insert membership history record
+9. Return success with full cost breakdown
 
 **Important:** The workflow action only creates the membership history record. It does NOT generate a Xero invoice. Invoicing is handled separately by the cron job (for automatic/scheduled modes) or the manual renewal path.
 
@@ -480,6 +484,7 @@ All automated renewal paths require a go-live date:
 
 When `membership_require_approval` is enabled in `system_settings`, all processing paths check the `fees_approved` flag on the org/year's invoicing record before proceeding:
 
+- **Workflow**: `executeCreateMembershipAction()` returns `status: 'skipped'` with a descriptive message (wrapped in try-catch for resilience)
 - **Cron**: `checkCronApproval()` skips the org with reason `'Fees not yet approved'`
 - **Manual renewal**: `checkApprovalRequired()` returns 400 error
 - **Member portal**: `checkMemberFeesApproval()` blocks payment actions and returns an approval-pending response
@@ -821,7 +826,7 @@ The `membership_stripe_enabled` setting is checked in two places to control Stri
 
 ### Overview
 
-The fee approval workflow adds an admin-controlled gate to the membership fee lifecycle. When enabled (via `membership_require_approval` in Membership Settings), fees for each organisation/year must be explicitly approved by an admin before any processing path — cron job, manual renewal, member payment, or PO submission — can proceed.
+The fee approval workflow adds an admin-controlled gate to the membership fee lifecycle. When enabled (via `membership_require_approval` in Membership Settings), fees for each organisation/year must be explicitly approved by an admin before any processing path — workflow action, cron job, manual renewal, member payment, or PO submission — can proceed.
 
 This gives admins the ability to review and verify calculated fees before they are sent to members or processed into invoices.
 
@@ -856,7 +861,7 @@ If no invoicing record exists for the org/year, the PATCH handler creates one wi
 
 ### Enforcement Points
 
-The approval check follows the same pattern across all four processing paths: query `system_settings` for `membership_require_approval`, and if enabled, query the org/year's `fees_approved` flag.
+The approval check follows the same pattern across all five processing paths: query `system_settings` for `membership_require_approval`, and if enabled, query the org/year's `fees_approved` flag.
 
 #### Path 1: Cron Job
 
@@ -887,6 +892,32 @@ The approval check follows the same pattern across all four processing paths: qu
 - **GET**: Returns `approvalPending` and `approvalMessage` inline. The frontend shows the approval message and hides payment/PO options.
 - **POST** (`submit_po`): Checks approval before saving PO. Returns 400 error if not approved.
 - **POST** (`create_payment`, `confirm_payment`): Checks approval before processing. Returns 400 error if not approved.
+
+#### Path 5: Workflow Action (`create_membership`)
+
+**File:** `api/_lib/workflows.js` → `executeCreateMembershipAction()`
+
+- Called after the invoicing mode check but before record creation
+- If approval required and not approved → action returns `status: 'skipped'` with message: `'Fees for {year} have not been approved. Approve fees on the Membership tab before the workflow can create a record.'`
+- The entire approval check is wrapped in a try-catch — if the query fails (e.g. `fees_approved` column not yet present), the error is logged and the workflow proceeds rather than crashing
+- This ensures workflows respect the same approval gate as all other processing paths
+
+**Preview/Modal display** (`buildActionSummary` in `workflows.js`):
+
+When a workflow with a `create_membership` action is about to fire and shows a confirmation modal, the preview checks approval status:
+
+1. Queries `system_settings` for `membership_require_approval`
+2. If enabled, resolves the organisation ID from entity context (organisation entity directly, or member's `organization_id`)
+3. Runs `simulateMembershipForOrg()` to determine the target year
+4. Queries `fees_approved` for that org/year
+5. Returns `requires_approval`, `fees_approved`, `membership_year`, and `approval_warning` in the action summary
+
+The confirmation modal (`WorkflowConfirmationModal.jsx`) displays:
+- A yellow warning triangle with "Fees for {year} have not been approved" when approval is required but not granted
+- A green checkmark with "Fees approved for {year}" when approved
+- "Fee approval is required but organisation could not be determined" when the org cannot be resolved from the entity context
+
+This gives admins visibility into the approval status before confirming or dismissing the workflow.
 
 ### Frontend Behaviour
 
@@ -934,10 +965,17 @@ Admin opens Organisation Membership tab
       → Year card turns green, "Approved" badge appears
 
 Processing paths check approval:
+  → Workflow action: executeCreateMembershipAction() → approved? ✓ proceed / ✗ skip (status: 'skipped')
   → Cron job: checkCronApproval() → approved? ✓ proceed / ✗ skip
   → Manual renewal: checkApprovalRequired() → approved? ✓ proceed / ✗ 400 error
   → Member portal: checkMemberFeesApproval() → approved? ✓ show payment / ✗ show message
   → Token page: inline check → approved? ✓ show payment / ✗ show message
+
+Workflow confirmation modal (preview):
+  → buildActionSummary() checks approval status
+    → Approved? ✓ Green checkmark: "Fees approved for {year}"
+    → Not approved? ✗ Yellow warning: "Fees for {year} have not been approved"
+    → Org unknown? ⚠ Warning: "Fee approval is required but organisation could not be determined"
 ```
 
 ### Key Files
@@ -946,10 +984,12 @@ Processing paths check approval:
 |------|---------|
 | `api/membership/membership-settings.js` | Manages `membership_require_approval` setting |
 | `api/membership/org-membership-invoicing.js` | PATCH handler for approve/unapprove; `checkApprovalRequired()` for manual renewal |
+| `api/_lib/workflows.js` | `executeCreateMembershipAction()` runtime check; `buildActionSummary()` preview check for confirmation modal |
 | `api/cron/process-membership-renewals.js` | `checkCronApproval()` for cron path |
 | `api/membership/member-fees.js` | `checkMemberFeesApproval()` for portal path |
 | `api/public/membership-fees/[token].js` | Inline approval checks for public token path |
 | `client/src/components/OrgMembershipTab.jsx` | Approve/Unapprove buttons, green card styling, disabled state logic |
+| `client/src/components/WorkflowConfirmationModal.jsx` | Displays approval status (warning/approved) in workflow confirmation modal |
 | `client/src/pages/MembershipFees.jsx` | Approval-pending message display for portal |
 | `client/src/pages/MembershipFeePage.jsx` | Approval-pending message display for public page |
 
@@ -1098,6 +1138,7 @@ Go-live date set on org
     → create_membership action
       → simulateMembershipForOrg(source: 'workflow')
       → Check invoicing mode = 'automatic' ✓
+      → Approval required? → Check fees_approved ✓ (skip if not approved)
       → Check no existing record ✓
       → Insert membership_history record (no invoice)
       → Return success
@@ -1124,6 +1165,7 @@ Go-live date set on org
       → simulateMembershipForOrg(source: 'workflow')
       → Check invoicing mode = 'scheduled'
       → SKIP: "Scheduled renewal job will handle this"
+      (Note: approval check is not reached — invoicing mode check skips first)
 
 Daily cron runs (before invoice date)
   → Find orgs with 'scheduled' invoicing
@@ -1148,6 +1190,7 @@ Go-live date set on org
       → simulateMembershipForOrg(source: 'workflow')
       → Check invoicing mode = 'manual'
       → SKIP: "Use admin UI Renew & Invoice Now button"
+      (Note: approval check is not reached — invoicing mode check skips first)
 
 Admin opens Organisation Membership tab
   → Views current year cost breakdown
@@ -1278,6 +1321,14 @@ Use the **Simulate** button in the UI to see the step-by-step breakdown.
 **Cause**: The tenant has `membership_stripe_enabled` set to `'false'` in Membership Settings.
 
 **Fix**: Admin navigates to Membership Settings and enables the "Allow Stripe Payments" toggle.
+
+### Workflow skipped due to unapproved fees
+
+**Symptom**: A workflow with a `create_membership` action completes but the action result shows `status: 'skipped'` with message "Fees for {year} have not been approved."
+
+**Cause**: The tenant has `membership_require_approval` enabled and the admin has not yet approved fees for that organisation/year. The workflow confirmation modal may have shown a yellow warning triangle indicating this before execution.
+
+**Fix**: Admin navigates to the organisation's Membership tab, clicks "Approve Fees" on the relevant year card, then re-triggers the workflow. Alternatively, if the workflow was triggered automatically (e.g. by setting a go-live date), the admin can use the "Renew & Invoice Now" button after approving fees.
 
 ### Duplicate record error
 
