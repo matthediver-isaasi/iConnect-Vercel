@@ -202,6 +202,13 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       }
     }
 
+    try {
+      const webhookResult = await registerMailgunWebhooks(mailgunDomain);
+      console.log(`[Email Domain] Webhook registration for ${mailgunDomain}:`, webhookResult.summary);
+    } catch (webhookError) {
+      console.error(`[Email Domain] Webhook registration failed for ${mailgunDomain} (non-blocking):`, webhookError.message);
+    }
+
     // Collect both sending (SPF, DKIM) and receiving (MX) DNS records
     const sendingRecords = mailgunDomainData.sending_dns_records || [];
     const receivingRecords = mailgunDomainData.receiving_dns_records || [];
@@ -538,4 +545,88 @@ export async function cleanupEmailDomain(tenantSlug, emailDomainConfig = null) {
   }
 
   return results;
+}
+
+export async function registerMailgunWebhooks(mailgunDomain) {
+  if (!MAILGUN_API_KEY) {
+    console.log('[Email Domain] MAILGUN_API_KEY not configured - skipping webhook registration');
+    return { success: false, error: 'MAILGUN_API_KEY not configured' };
+  }
+
+  const baseDomain = getBaseDomain();
+  const webhookUrl = `https://${baseDomain}/api/webhooks/mailgun`;
+
+  const apiBase = MAILGUN_REGION === 'eu'
+    ? 'https://api.eu.mailgun.net'
+    : 'https://api.mailgun.net';
+
+  const eventTypes = ['delivered', 'opened', 'clicked', 'permanent_fail', 'unsubscribed', 'complained'];
+  const authHeader = 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64');
+
+  const results = [];
+
+  for (const eventType of eventTypes) {
+    try {
+      const formBody = new URLSearchParams();
+      formBody.append('id', eventType);
+      formBody.append('url', webhookUrl);
+
+      const response = await fetch(
+        `${apiBase}/v3/domains/${mailgunDomain}/webhooks`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formBody.toString(),
+        }
+      );
+
+      if (response.ok) {
+        console.log(`[Email Domain] Webhook registered: ${eventType} -> ${webhookUrl} on ${mailgunDomain}`);
+        results.push({ event: eventType, status: 'created' });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 400 && JSON.stringify(errorData).includes('already exists')) {
+          const updateResponse = await fetch(
+            `${apiBase}/v3/domains/${mailgunDomain}/webhooks/${eventType}`,
+            {
+              method: 'PUT',
+              headers: {
+                'Authorization': authHeader,
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({ url: webhookUrl }).toString(),
+            }
+          );
+          if (updateResponse.ok) {
+            console.log(`[Email Domain] Webhook updated: ${eventType} -> ${webhookUrl} on ${mailgunDomain}`);
+            results.push({ event: eventType, status: 'updated' });
+          } else {
+            const updateError = await updateResponse.json().catch(() => ({}));
+            console.error(`[Email Domain] Failed to update webhook ${eventType} on ${mailgunDomain}:`, updateError);
+            results.push({ event: eventType, status: 'error', error: JSON.stringify(updateError) });
+          }
+        } else {
+          console.error(`[Email Domain] Failed to register webhook ${eventType} on ${mailgunDomain}:`, errorData);
+          results.push({ event: eventType, status: 'error', error: JSON.stringify(errorData) });
+        }
+      }
+    } catch (err) {
+      console.error(`[Email Domain] Error registering webhook ${eventType} on ${mailgunDomain}:`, err.message);
+      results.push({ event: eventType, status: 'error', error: err.message });
+    }
+  }
+
+  const successCount = results.filter(r => r.status === 'created' || r.status === 'updated').length;
+  console.log(`[Email Domain] Webhook registration complete for ${mailgunDomain}: ${successCount}/${eventTypes.length} successful`);
+
+  return {
+    success: successCount > 0,
+    domain: mailgunDomain,
+    webhookUrl,
+    results,
+    summary: `${successCount}/${eventTypes.length} webhooks registered`
+  };
 }
