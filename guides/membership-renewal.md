@@ -757,11 +757,13 @@ Admins manage these permissions via Role Management / Role Access Config Managem
 
 ### Overview
 
-The Membership Settings page (`/MembershipSettings`) provides tenant-level controls that affect how membership fees are processed and presented to members. Three settings are managed from this page:
+The Membership Settings page (`/MembershipSettings`) provides tenant-level controls that affect how membership fees are processed and presented to members. Five settings are managed from this page:
 
 1. **Require Fee Approval** — enables the fee approval workflow (see [Fee Approval Workflow](#fee-approval-workflow))
 2. **Allow Stripe Payments** — controls whether Stripe payment is offered on member-facing fee pages
 3. **Custom Approval Message** — a free-text message shown to members when their fees are pending approval
+4. **Invoice Processing Schedule** — the hour of day (UTC) when the automated cron job processes membership renewals for this tenant
+5. **Nominal Ledger Code** — the account code used specifically for membership invoices in Xero, overriding the system-wide default
 
 These settings are stored in the `system_settings` table as key-value pairs scoped by `tenant_id`.
 
@@ -769,11 +771,13 @@ These settings are stored in the `system_settings` table as key-value pairs scop
 
 **File:** `client/src/pages/MembershipSettings.jsx`
 
-The page is accessible from the Portal Menu Management dropdown (registered in the admin navigation). It displays three controls:
+The page is accessible from the Portal Menu Management dropdown (registered in the admin navigation). It displays five controls:
 
 - **Require Fee Approval** toggle — when enabled, fees for each org/year must be explicitly approved by an admin before any processing (cron, manual renewal, member payment) can proceed
 - **Allow Stripe Payments** toggle — when disabled, the "Pay Now" button and Stripe Elements are hidden from both the portal membership fees page and the public token-based payment page. Defaults to enabled
 - **Custom Message** text area — optional message displayed to members on fee pages when their fees are pending approval. If empty, a default message is shown: "Your membership fees are currently being reviewed. You will be notified when they are ready for payment."
+- **Invoice Processing Schedule** dropdown — selects the hour (UTC) at which the cron job processes this tenant's membership renewals. The cron fires every hour; each tenant is only processed when the current UTC hour matches their configured time. Defaults to `06:00 UTC`
+- **Nominal Ledger Code** text input — the Xero account code used on membership invoice line items. This is a membership-specific override that takes priority over the system-wide `xero_sales_account_code` setting. If blank, falls back to the system-wide setting, then to `'200'`. This allows different features (membership, events, etc.) to use different nominal ledger codes
 
 ### API
 
@@ -781,8 +785,8 @@ The page is accessible from the Portal Menu Management dropdown (registered in t
 
 | Method | Purpose |
 |--------|---------|
-| `GET` | Returns the three settings as a normalised object: `{ require_approval, stripe_enabled, custom_message }` |
-| `PUT` | Saves all three settings using upsert (`ON CONFLICT tenant_id, setting_key`) |
+| `GET` | Returns all five settings as a normalised object: `{ require_approval, stripe_enabled, custom_message, cron_time, nominal_ledger }` |
+| `PUT` | Saves all five settings using upsert (`ON CONFLICT tenant_id, setting_key`) |
 
 **GET response defaults:**
 
@@ -791,6 +795,8 @@ The page is accessible from the Portal Menu Management dropdown (registered in t
 | `require_approval` | `false` |
 | `stripe_enabled` | `true` |
 | `custom_message` | `''` (empty string) |
+| `cron_time` | `'06:00'` |
+| `nominal_ledger` | `''` (empty string — uses system-wide fallback) |
 
 **PUT body:**
 
@@ -798,7 +804,9 @@ The page is accessible from the Portal Menu Management dropdown (registered in t
 {
   require_approval: true,      // boolean
   stripe_enabled: true,        // boolean
-  custom_message: "..."        // string or empty
+  custom_message: "...",       // string or empty
+  cron_time: "09:00",          // HH:00 format, UTC hour
+  nominal_ledger: "200"        // string or empty (falls back to xero_sales_account_code then '200')
 }
 ```
 
@@ -811,11 +819,38 @@ The `membership_stripe_enabled` setting is checked in two places to control Stri
 
 **Important:** This setting does not prevent Stripe payments at the API level — it controls frontend visibility only. The approval workflow (if enabled) provides the backend enforcement layer that blocks payment processing.
 
+### Invoice Processing Schedule (Cron Time)
+
+The membership renewal cron job is configured in `vercel.json` to fire every hour (`0 * * * *`). Rather than processing all tenants on every invocation, the handler reads each tenant's `membership_cron_time` setting and only processes tenants whose configured hour matches the current UTC hour.
+
+**How it works:**
+
+1. Cron fires at the top of every hour
+2. Handler fetches all `membership_cron_time` settings for active tenants in a single batch query
+3. For each tenant, compares the configured hour against the current UTC hour
+4. If they match → process the tenant's renewals
+5. If they don't match → skip with a log message
+6. If no setting exists for a tenant → defaults to `06` (6 AM UTC)
+
+**Key detail:** The time setting uses `HH:00` format (hourly granularity). The UI provides a dropdown with all 24 hours. The cron handler parses just the hour portion for comparison.
+
+### Nominal Ledger Code (Membership-Specific)
+
+The `membership_nominal_ledger` setting provides a membership-specific Xero account code that overrides the system-wide `xero_sales_account_code`. This is the first step toward per-feature nominal ledger codes — eventually events, bookings, and other features can each have their own account code.
+
+**Lookup priority** (checked in both `membershipSimulation.js` and `xero.js`):
+
+1. `membership_nominal_ledger` — if set, used directly
+2. `xero_sales_account_code` — system-wide fallback (existing setting, unchanged)
+3. `'200'` — hardcoded default
+
+**Important:** The system-wide `xero_sales_account_code` setting is not modified or deprecated. Other parts of the system (events, etc.) continue to use it. Only membership invoice code paths check `membership_nominal_ledger` first.
+
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `api/membership/membership-settings.js` | Settings API — GET/PUT for all three settings |
+| `api/membership/membership-settings.js` | Settings API — GET/PUT for all five settings |
 | `client/src/pages/MembershipSettings.jsx` | Admin settings page |
 | `api/membership/member-fees.js` | Reads `membership_stripe_enabled` for portal fee page |
 | `api/public/membership-fees/[token].js` | Reads `membership_stripe_enabled` for public fee page |
@@ -1125,6 +1160,8 @@ Tenant-scoped key-value store for membership configuration settings. Used by the
 | `membership_require_approval` | `'true'` / `'false'` | `'false'` (not present) | When `'true'`, fees must be approved per org/year before any processing |
 | `membership_stripe_enabled` | `'true'` / `'false'` | `'true'` (not present) | When `'false'`, Stripe payment is hidden on member-facing pages |
 | `membership_custom_message` | text / `'none'` | `'none'` (not present) | Custom message shown to members when fees are pending approval |
+| `membership_cron_time` | `'HH:00'` | `'06:00'` (not present) | UTC hour when the cron job processes this tenant's renewals |
+| `membership_nominal_ledger` | text | `''` (not present) | Membership-specific Xero account code; overrides `xero_sales_account_code` for membership invoices |
 
 ---
 
@@ -1143,7 +1180,10 @@ Go-live date set on org
       → Insert membership_history record (no invoice)
       → Return success
 
-Daily cron runs
+Hourly cron runs
+  → Check tenant's membership_cron_time vs current UTC hour
+    → Hour doesn't match? → Skip tenant entirely
+    → Hour matches (or no setting, default 06:00)? → Proceed
   → Find orgs with 'automatic' invoicing
   → For each org:
     → simulateMembershipForOrg(source: 'cron')
@@ -1167,13 +1207,15 @@ Go-live date set on org
       → SKIP: "Scheduled renewal job will handle this"
       (Note: approval check is not reached — invoicing mode check skips first)
 
-Daily cron runs (before invoice date)
+Hourly cron runs (before invoice date)
+  → Check tenant's membership_cron_time vs current UTC hour → match? ✓
   → Find orgs with 'scheduled' invoicing
   → Year started? ✓
   → No existing record? → Create record WITHOUT invoice
   → Invoice date reached? ✗ → Skip invoicing
 
-Daily cron runs (on/after invoice date)
+Hourly cron runs (on/after invoice date)
+  → Check tenant's membership_cron_time vs current UTC hour → match? ✓
   → Find orgs with 'scheduled' invoicing
   → Existing record WITHOUT invoice? ✓
   → Invoice date reached? ✓
@@ -1227,10 +1269,13 @@ When a renewal creates an invoice, it calls `createXeroMembershipInvoice()` with
 
 ### Xero Settings
 
-Two tenant-level settings control invoice behaviour:
+Three settings control invoice behaviour (two system-wide, one membership-specific):
 
-- `xero_sales_account_code`: Account code for the line item (default: `'200'`)
+- `membership_nominal_ledger`: Membership-specific account code — checked first (see [Nominal Ledger Code](#nominal-ledger-code-membership-specific))
+- `xero_sales_account_code`: System-wide account code for line items — used as fallback if no membership-specific code is set (default: `'200'`)
 - `xero_invoice_status`: Status of created invoices (default: `'DRAFT'`)
+
+The account code lookup priority is: `membership_nominal_ledger` → `xero_sales_account_code` → `'200'`. This allows membership to have its own nominal ledger code while other features (events, etc.) continue using the system-wide setting.
 
 ### Invoice Linking
 

@@ -30,13 +30,32 @@ export default async function handler(req, res) {
     }
 
     const tenantIds = [];
+    const currentHourUTC = new Date().getUTCHours();
 
     if (!configs || configs.length === 0) {
       console.log('[cron/process-membership-renewals] No active tier configs found');
     } else {
       tenantIds.push(...new Set(configs.map(c => c.tenant_id)));
 
+      const { data: cronTimeSettings } = await supabase
+        .from('system_settings')
+        .select('tenant_id, setting_value')
+        .eq('setting_key', 'membership_cron_time')
+        .in('tenant_id', tenantIds);
+
+      const tenantCronHours = {};
+      for (const row of (cronTimeSettings || [])) {
+        const hour = parseInt(row.setting_value?.split(':')[0], 10);
+        tenantCronHours[row.tenant_id] = isNaN(hour) ? 6 : hour;
+      }
+
       for (const tenantId of tenantIds) {
+        const scheduledHour = tenantCronHours[tenantId] ?? 6;
+        if (scheduledHour !== currentHourUTC) {
+          console.log(`[cron/process-membership-renewals] Skipping tenant ${tenantId} — scheduled for ${String(scheduledHour).padStart(2, '0')}:00 UTC, current hour is ${String(currentHourUTC).padStart(2, '0')}:00 UTC`);
+          continue;
+        }
+
         try {
           await processTenantRenewals(tenantId, results);
         } catch (tenantErr) {

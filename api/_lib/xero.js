@@ -131,14 +131,23 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
   const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
   const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, organizationName);
 
-  const { data: accountCodeSetting } = await supabase
+  const { data: membershipLedgerSetting } = await supabase
     .from('system_settings')
     .select('setting_value')
-    .eq('setting_key', 'xero_sales_account_code')
+    .eq('setting_key', 'membership_nominal_ledger')
     .eq('tenant_id', appTenantId)
     .maybeSingle();
 
-  const xeroAccountCode = accountCodeSetting?.setting_value || '200';
+  let xeroAccountCode = membershipLedgerSetting?.setting_value;
+  if (!xeroAccountCode) {
+    const { data: accountCodeSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_sales_account_code')
+      .eq('tenant_id', appTenantId)
+      .maybeSingle();
+    xeroAccountCode = accountCodeSetting?.setting_value || '200';
+  }
 
   const { data: invoiceStatusSetting } = await supabase
     .from('system_settings')
