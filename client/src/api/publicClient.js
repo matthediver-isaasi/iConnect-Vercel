@@ -294,6 +294,11 @@ class PublicClient {
     if (!id) return null;
     return this._fetch(`/api/public/organisation/${id}`);
   }
+
+  async getPrefillMember(memberId, formSlug) {
+    if (!memberId || !formSlug) return null;
+    return this._fetch(`/api/public/form/prefill-member?member_id=${encodeURIComponent(memberId)}&form_slug=${encodeURIComponent(formSlug)}`);
+  }
   
   // Categories
   async listCategories() {

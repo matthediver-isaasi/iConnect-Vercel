@@ -240,14 +240,19 @@ export default function FormViewPage() {
     };
   }, [form?.entity_pipelines?.organisations]);
 
-  // Prefill: Fetch member entity when form has prefill_source = 'member'
-  const { data: prefillMember } = useQuery({
-    queryKey: ['prefill-member', prefillMemberId],
+  const { data: prefillMemberData } = useQuery({
+    queryKey: ['prefill-member', prefillMemberId, !!memberInfo],
     queryFn: async () => {
-      return base44.entities.Member.get(prefillMemberId);
+      if (memberInfo) {
+        const member = await base44.entities.Member.get(prefillMemberId);
+        return { member, customValues: null };
+      }
+      return publicClient.getPrefillMember(prefillMemberId, formSlug);
     },
     enabled: !!prefillMemberId && form?.prefill_source === 'member'
   });
+
+  const prefillMember = prefillMemberData?.member || null;
 
   // Prefill: Fetch member's organization when prefill_source = 'member'
   // This allows forms to prefill org fields even when primary source is member
@@ -383,16 +388,18 @@ export default function FormViewPage() {
     return selectedOrg || prefillOrg || organizationInfo;
   }, [selectedOrg, prefillOrg, organizationInfo]);
 
-  // Prefill: Fetch member custom field values
   const { data: prefillMemberCustomValues = [] } = useQuery({
-    queryKey: ['prefill-member-custom-values', prefillMemberId],
+    queryKey: ['prefill-member-custom-values', prefillMemberId, !!memberInfo],
     queryFn: async () => {
-      const values = await base44.entities.MemberPreferenceValue.list({
-        filter: { member_id: prefillMemberId }
-      });
-      return values || [];
+      if (memberInfo) {
+        const values = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: prefillMemberId }
+        });
+        return values || [];
+      }
+      return prefillMemberData?.customValues || [];
     },
-    enabled: !!prefillMemberId && form?.prefill_source === 'member'
+    enabled: !!prefillMemberId && form?.prefill_source === 'member' && (!!memberInfo || !!prefillMemberData)
   });
 
   // Prefill: Fetch org custom field values (either from direct org prefill or from member's org)
