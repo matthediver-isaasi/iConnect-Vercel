@@ -659,7 +659,8 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
           from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
           tenantId: tenantId,
           skipFooter: campaignSkipFooter,
-          contentWidth: campaignContentWidth
+          contentWidth: campaignContentWidth,
+          enableTracking: true
         });
 
         if (result.success) {

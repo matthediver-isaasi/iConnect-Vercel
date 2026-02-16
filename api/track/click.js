@@ -62,23 +62,45 @@ export default async function handler(req, res) {
             ip_address: ipAddress.substring(0, 45)
           });
 
+        const { data: existingRec } = await supabase
+          .from('email_campaign_recipient')
+          .select('click_count, clicked_at')
+          .eq('id', recipientId)
+          .single();
+
+        const newClickCount = (existingRec?.click_count || 0) + 1;
+        const clickUpdate = { click_count: newClickCount };
+        const isFirstClick = !existingRec?.clicked_at;
+
+        if (isFirstClick) {
+          clickUpdate.status = 'clicked';
+          clickUpdate.clicked_at = new Date().toISOString();
+        }
+
         await supabase
           .from('email_campaign_recipient')
-          .update({
-            status: 'clicked',
-            clicked_at: new Date().toISOString(),
-            click_count: supabase.raw ? supabase.raw('click_count + 1') : 1
-          })
+          .update(clickUpdate)
           .eq('id', recipientId);
 
-        await supabase.rpc('increment_campaign_clicks', { p_campaign_id: campaignId }).catch(() => {
-          supabase
-            .from('email_campaign')
-            .update({ clicked_count: supabase.raw ? supabase.raw('clicked_count + 1') : 1 })
-            .eq('id', campaignId)
-            .then(() => {})
-            .catch(() => {});
-        });
+        if (isFirstClick) {
+          try {
+            const { error: rpcErr } = await supabase.rpc('increment_campaign_counter', {
+              p_campaign_id: campaignId,
+              p_column_name: 'clicked_count'
+            });
+            if (rpcErr) throw rpcErr;
+          } catch {
+            const { data: camp } = await supabase
+              .from('email_campaign')
+              .select('clicked_count')
+              .eq('id', campaignId)
+              .single();
+            await supabase
+              .from('email_campaign')
+              .update({ clicked_count: (camp?.clicked_count || 0) + 1 })
+              .eq('id', campaignId);
+          }
+        }
       }
     }
   } catch (err) {

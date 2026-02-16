@@ -3,6 +3,28 @@ import crypto from 'crypto';
 
 const MAILGUN_WEBHOOK_SIGNING_KEY = process.env.MAILGUN_WEBHOOK_SIGNING_KEY;
 
+async function incrementCampaignColumn(campaignId, columnName) {
+  try {
+    const { error: rpcError } = await supabase.rpc('increment_campaign_counter', {
+      p_campaign_id: campaignId,
+      p_column_name: columnName
+    });
+    if (rpcError) throw rpcError;
+  } catch {
+    const { data: current } = await supabase
+      .from('email_campaign')
+      .select(columnName)
+      .eq('id', campaignId)
+      .single();
+
+    const currentVal = current?.[columnName] || 0;
+    await supabase
+      .from('email_campaign')
+      .update({ [columnName]: currentVal + 1 })
+      .eq('id', campaignId);
+  }
+}
+
 function verifyWebhookSignature(timestamp, token, signature) {
   if (!MAILGUN_WEBHOOK_SIGNING_KEY) {
     console.log('[Mailgun Webhook] No signing key configured, skipping verification');
@@ -97,40 +119,81 @@ export default async function handler(req, res) {
     });
 
     if (recipient) {
-      const updates = {};
-      const campaignUpdates = {};
+      const { data: existingRecipient } = await supabase
+        .from('email_campaign_recipient')
+        .select('status, opened_at, clicked_at, open_count, click_count')
+        .eq('id', recipient.id)
+        .single();
 
       switch (eventType) {
-        case 'delivered':
-          updates.status = 'delivered';
-          updates.delivered_at = timestamp;
-          campaignUpdates.delivered_count = supabase.raw ? supabase.raw('delivered_count + 1') : 1;
-          break;
+        case 'delivered': {
+          await supabase
+            .from('email_campaign_recipient')
+            .update({ status: 'delivered', delivered_at: timestamp })
+            .eq('id', recipient.id);
 
-        case 'opened':
-          updates.open_count = supabase.raw ? supabase.raw('open_count + 1') : 1;
-          if (!updates.opened_at) {
-            updates.status = 'opened';
-            updates.opened_at = timestamp;
-            campaignUpdates.opened_count = supabase.raw ? supabase.raw('opened_count + 1') : 1;
+          if (campaign) {
+            await incrementCampaignColumn(campaign.id, 'delivered_count');
           }
           break;
+        }
 
-        case 'clicked':
-          updates.click_count = supabase.raw ? supabase.raw('click_count + 1') : 1;
-          if (!updates.clicked_at) {
-            updates.status = 'clicked';
-            updates.clicked_at = timestamp;
-            campaignUpdates.clicked_count = supabase.raw ? supabase.raw('clicked_count + 1') : 1;
+        case 'opened': {
+          const newOpenCount = (existingRecipient?.open_count || 0) + 1;
+          const recipientUpdate = { open_count: newOpenCount };
+          const isFirstOpen = !existingRecipient?.opened_at;
+
+          if (isFirstOpen) {
+            recipientUpdate.status = 'opened';
+            recipientUpdate.opened_at = timestamp;
+          }
+
+          await supabase
+            .from('email_campaign_recipient')
+            .update(recipientUpdate)
+            .eq('id', recipient.id);
+
+          if (isFirstOpen && campaign) {
+            await incrementCampaignColumn(campaign.id, 'opened_count');
           }
           break;
+        }
+
+        case 'clicked': {
+          const newClickCount = (existingRecipient?.click_count || 0) + 1;
+          const clickUpdate = { click_count: newClickCount };
+          const isFirstClick = !existingRecipient?.clicked_at;
+
+          if (isFirstClick) {
+            clickUpdate.status = 'clicked';
+            clickUpdate.clicked_at = timestamp;
+          }
+
+          await supabase
+            .from('email_campaign_recipient')
+            .update(clickUpdate)
+            .eq('id', recipient.id);
+
+          if (isFirstClick && campaign) {
+            await incrementCampaignColumn(campaign.id, 'clicked_count');
+          }
+          break;
+        }
 
         case 'failed':
-        case 'bounced':
-          updates.status = 'bounced';
-          updates.bounced_at = timestamp;
-          updates.error_message = eventData.reason || eventData['delivery-status']?.message;
-          campaignUpdates.bounced_count = supabase.raw ? supabase.raw('bounced_count + 1') : 1;
+        case 'bounced': {
+          await supabase
+            .from('email_campaign_recipient')
+            .update({
+              status: 'bounced',
+              bounced_at: timestamp,
+              error_message: eventData.reason || eventData['delivery-status']?.message
+            })
+            .eq('id', recipient.id);
+
+          if (campaign) {
+            await incrementCampaignColumn(campaign.id, 'bounced_count');
+          }
 
           if (eventData.severity === 'permanent') {
             await supabase
@@ -142,11 +205,17 @@ export default async function handler(req, res) {
               .eq('id', recipient.member_id);
           }
           break;
+        }
 
-        case 'complained':
-          updates.status = 'complained';
-          updates.complained_at = timestamp;
-          campaignUpdates.complained_count = supabase.raw ? supabase.raw('complained_count + 1') : 1;
+        case 'complained': {
+          await supabase
+            .from('email_campaign_recipient')
+            .update({ status: 'complained', complained_at: timestamp })
+            .eq('id', recipient.id);
+
+          if (campaign) {
+            await incrementCampaignColumn(campaign.id, 'complained_count');
+          }
 
           await supabase.from('email_unsubscribe').upsert({
             tenant_id: campaign?.tenant_id,
@@ -160,11 +229,17 @@ export default async function handler(req, res) {
             onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id' 
           });
           break;
+        }
 
-        case 'unsubscribed':
-          updates.status = 'unsubscribed';
-          updates.unsubscribed_at = timestamp;
-          campaignUpdates.unsubscribed_count = supabase.raw ? supabase.raw('unsubscribed_count + 1') : 1;
+        case 'unsubscribed': {
+          await supabase
+            .from('email_campaign_recipient')
+            .update({ status: 'unsubscribed', unsubscribed_at: timestamp })
+            .eq('id', recipient.id);
+
+          if (campaign) {
+            await incrementCampaignColumn(campaign.id, 'unsubscribed_count');
+          }
 
           await supabase.from('email_unsubscribe').upsert({
             tenant_id: campaign?.tenant_id,
@@ -177,20 +252,7 @@ export default async function handler(req, res) {
             onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id' 
           });
           break;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await supabase
-          .from('email_campaign_recipient')
-          .update(updates)
-          .eq('id', recipient.id);
-      }
-
-      if (Object.keys(campaignUpdates).length > 0 && campaign) {
-        await supabase
-          .from('email_campaign')
-          .update(campaignUpdates)
-          .eq('id', campaign.id);
+        }
       }
     }
 
