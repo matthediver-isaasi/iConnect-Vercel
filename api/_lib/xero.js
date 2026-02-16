@@ -125,7 +125,8 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'xero-tenant-id': xeroTenantId,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
     },
     body: JSON.stringify({ Contacts: [newContact] })
   });
@@ -218,7 +219,8 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'xero-tenant-id': xeroTenantId,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
     },
     body: JSON.stringify(invoicePayload)
   });
