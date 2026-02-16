@@ -272,7 +272,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
         const { data: batch } = await supabase
           .from('member_group_assignment')
           .select('member_id')
-          .in('member_group_id', targetIds)
+          .in('group_id', targetIds)
           .range(assignmentOffset, assignmentOffset + assignmentBatchSize - 1);
 
         if (batch && batch.length > 0) {
