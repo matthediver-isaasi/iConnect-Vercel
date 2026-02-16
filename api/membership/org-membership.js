@@ -1,6 +1,5 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from '../_lib/discountHelper.js';
 import { getConfigForOrganisation } from '../_lib/membershipConfigResolver.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 
@@ -131,24 +130,6 @@ function getFreeMonths(config) {
   return 0;
 }
 
-function calculateFreePeriodDiscount(annualCost, config) {
-  if (!config.free_period_amount || !config.free_period_unit) return 0;
-
-  const amount = config.free_period_amount;
-  const unit = config.free_period_unit;
-
-  if (unit === 'percent') {
-    return parseFloat((annualCost * amount / 100).toFixed(2));
-  }
-
-  let freeMonths = 0;
-  if (unit === 'months') freeMonths = amount;
-  else if (unit === 'weeks') freeMonths = amount / 4.33;
-  else if (unit === 'days') freeMonths = amount / 30.44;
-
-  return parseFloat((annualCost * freeMonths / 12).toFixed(2));
-}
-
 async function getOrgFieldValue(orgId, tenantId, config) {
   if (!config) return null;
 
@@ -242,6 +223,36 @@ function determineMembershipYearNumber(goLiveDate, targetYear, config) {
   return yearNumber;
 }
 
+function mapSimResultToYearData(sim, startDate) {
+  const effectiveFreeDiscount = sim.yearNumber === 2 ? sim.rolloverDiscount : sim.freeDiscount;
+  return {
+    membershipYear: sim.membershipYear?.label || null,
+    yearNumber: sim.yearNumber,
+    startDate,
+    tierLabel: sim.tierLabel || null,
+    fieldValue: sim.fieldValue,
+    annualCost: sim.annualCost,
+    annualCostBeforeDiscounts: sim.annualCostBeforeDiscounts,
+    customDiscountTotal: sim.customDiscountTotal || 0,
+    customDiscountDetails: sim.customDiscountDetails || [],
+    dailyCost: sim.dailyCost,
+    totalDaysInYear: sim.totalDaysInYear,
+    proRataEnabled: sim.proRataEnabled,
+    prorataDays: sim.prorataDays,
+    prorataCost: sim.prorataCost,
+    freeDiscount: effectiveFreeDiscount,
+    freePeriodDaysApplied: sim.freePeriodDaysApplied || 0,
+    freePeriodAmount: sim.freePeriodAmount,
+    freePeriodUnit: sim.freePeriodUnit,
+    billableDays: sim.billableDays,
+    finalCost: sim.finalCost,
+    goLiveDate: sim.goLiveDate,
+    isNewOrg: sim.isNewOrg,
+    currency: sim.currency || 'GBP',
+    billingPeriod: sim.billingPeriod || 'annual',
+  };
+}
+
 async function handleGet(req, res, tenantId) {
   const { organizationId, action } = req.query;
 
@@ -287,24 +298,6 @@ async function handleGet(req, res, tenantId) {
   const nextYear = calculateNextMembershipYear(config);
 
   const annualCostRaw = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
-  let annualCost = annualCostRaw;
-  let freeDiscount = 0;
-  let adjustedAnnual = annualCost;
-  let customDiscountTotal = 0;
-  let customDiscountDetails = [];
-
-  if (annualCost !== null) {
-    const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
-    if (discountResult.discountDetails.length > 0) {
-      const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
-      customDiscountTotal = applied.totalDiscount;
-      customDiscountDetails = applied.appliedDiscounts;
-      annualCost = applied.discountedCost;
-    }
-
-    freeDiscount = calculateFreePeriodDiscount(annualCost, config);
-    adjustedAnnual = annualCost - freeDiscount;
-  }
 
   const { data: historyRecords } = await supabase
     .from('organisation_membership_history')
@@ -317,14 +310,11 @@ async function handleGet(req, res, tenantId) {
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const yearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, currentYear, config) : 1;
 
-  const nextYearNumber = goLiveDate ? determineMembershipYearNumber(goLiveDate, nextYear, config) : 2;
-
   const currentYearRecord = (historyRecords || []).find(h => h.membership_year === currentYear.label);
   const hasCurrentYearRecord = !!currentYearRecord;
 
   const isNewOrg = (yearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
 
-  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : new Date();
   const currentYearStartDate = goLiveDate
     ? currentYear.start.toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
@@ -333,13 +323,12 @@ async function handleGet(req, res, tenantId) {
   let nextYearPreview = null;
   let currentYearCost = null;
 
-  if (annualCost !== null) {
+  if (annualCostRaw !== null) {
     const yearStartMidnight = new Date(currentYear.start);
     yearStartMidnight.setHours(0, 0, 0, 0);
     const yearEndMidnight = new Date(currentYear.end);
     yearEndMidnight.setHours(0, 0, 0, 0);
     const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
-    const dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
 
     if (currentYearRecord) {
       const recAnnual = parseFloat(currentYearRecord.annual_cost);
@@ -406,154 +395,26 @@ async function handleGet(req, res, tenantId) {
         recordedFromHistory: true,
       };
     } else {
-      let prorataDays = totalDaysInYear;
-      let prorataCost = annualCost;
-      let freePeriodDaysApplied = 0;
-      let freeDiscount = 0;
-      let billableDays = totalDaysInYear;
-      let finalCost = annualCost;
-
-      const isPercentIncentive = config.free_period_unit === 'percent';
-
-      if (config.prorata_enabled && isNewOrg) {
-        const joinMidnight = new Date(effectiveJoinDate);
-        joinMidnight.setHours(0, 0, 0, 0);
-        prorataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-        prorataCost = parseFloat((dailyCost * prorataDays).toFixed(2));
-
-        if (config.free_period_amount && config.free_period_unit) {
-          if (isPercentIncentive) {
-            const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
-            const proportionUsed = prorataDays / totalDaysInYear;
-            freeDiscount = parseFloat((fullDiscountAmount * proportionUsed).toFixed(2));
-            freeDiscount = Math.min(freeDiscount, prorataCost);
-          } else {
-            const freePeriodMonths = getFreeMonths(config);
-            const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-            const freePeriodEnd = new Date(joinMidnight);
-            freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
-            const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
-            freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-            freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
-            freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-          }
-        }
-
-        if (isPercentIncentive) {
-          finalCost = parseFloat(Math.max(0, prorataCost - freeDiscount).toFixed(2));
-        } else {
-          billableDays = prorataDays - freePeriodDaysApplied;
-          finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
-        }
-      } else if (isNewOrg && config.free_period_amount && config.free_period_unit) {
-        if (isPercentIncentive) {
-          freeDiscount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
-          finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
-        } else {
-          const freePeriodMonths = getFreeMonths(config);
-          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-          freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
-          freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-          finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
-        }
-      }
-
-      currentYearCost = {
-        membershipYear: currentYear.label,
-        yearNumber,
-        startDate: currentYearStartDate,
-        tierLabel: matchedBand?.label || null,
-        fieldValue,
-        annualCost: annualCost,
-        annualCostBeforeDiscounts: annualCostRaw,
-        customDiscountTotal,
-        customDiscountDetails,
-        dailyCost,
-        totalDaysInYear,
-        proRataEnabled: !!config.prorata_enabled && isNewOrg,
-        prorataDays: config.prorata_enabled && isNewOrg ? prorataDays : null,
-        prorataCost: config.prorata_enabled && isNewOrg ? prorataCost : null,
-        freeDiscount: isNewOrg ? freeDiscount : 0,
-        freePeriodDaysApplied: isNewOrg ? freePeriodDaysApplied : 0,
-        freePeriodAmount: config.free_period_amount,
-        freePeriodUnit: config.free_period_unit,
-        billableDays: config.prorata_enabled && isNewOrg ? (isPercentIncentive ? null : billableDays) : null,
-        finalCost,
-        goLiveDate,
-        isNewOrg,
-        currency: config.currency || 'GBP',
-        billingPeriod: config.billing_period || 'annual',
-      };
-    }
-
-    const nextYearFull = annualCost;
-    let nextYearFreePeriodDaysApplied = 0;
-
-    const nextYearStartMidnight = new Date(nextYear.start);
-    nextYearStartMidnight.setHours(0, 0, 0, 0);
-    const nextYearEndMidnight = new Date(nextYear.end);
-    nextYearEndMidnight.setHours(0, 0, 0, 0);
-    const nextYearTotalDays = Math.floor((nextYearEndMidnight - nextYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
-    const nextYearDailyCost = parseFloat((nextYearFull / nextYearTotalDays).toFixed(4));
-
-    let nextYearFreeDiscount = 0;
-    const isPercentIncentiveNext = config.free_period_unit === 'percent';
-
-    if (isNewOrg && config.free_period_amount && config.free_period_unit) {
-      if (isPercentIncentiveNext) {
-        const y1AnnualCost = currentYearCost?.annualCost || annualCost;
-        const fullDiscountAmount = parseFloat((y1AnnualCost * config.free_period_amount / 100).toFixed(2));
-        const startMonth = config.membership_start_month || 1;
-        const startDay = config.membership_start_day || 1;
-        const joinMidnight = new Date(effectiveJoinDate);
-        joinMidnight.setHours(0, 0, 0, 0);
-        const joinYear = joinMidnight.getFullYear();
-        const y1Start = new Date(joinYear, startMonth - 1, startDay);
-        const firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinYear - 1, startMonth - 1, startDay);
-        const firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
-        const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
-        const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
-
-        let y1ProportionUsed = 1;
-        if (config.prorata_enabled) {
-          y1ProportionUsed = Math.min(1, remainingDaysInFirstYear / firstYearTotalDays);
-        }
-
-        const y1DiscountApplied = parseFloat((fullDiscountAmount * y1ProportionUsed).toFixed(2));
-        const spilloverDiscount = parseFloat(Math.max(0, fullDiscountAmount - y1DiscountApplied).toFixed(2));
-        nextYearFreeDiscount = Math.min(spilloverDiscount, nextYearFull);
+      const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
+        source: 'tab',
+        targetYear: currentYear.label,
+      });
+      if (simResult.success) {
+        currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
       } else {
-        const freePeriodMonths = getFreeMonths(config);
-        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-        const freeDaysInCurrentYear = currentYearCost?.freePeriodDaysApplied || 0;
-        const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
-        nextYearFreePeriodDaysApplied = Math.min(spilloverDays, nextYearTotalDays);
-        nextYearFreeDiscount = parseFloat((nextYearDailyCost * nextYearFreePeriodDaysApplied).toFixed(2));
+        console.warn('[Org Membership] Current year simulation failed:', simResult.error);
       }
     }
 
-    const nextYearFinal = parseFloat(Math.max(0, nextYearFull - nextYearFreeDiscount).toFixed(2));
-
-    nextYearPreview = {
-      membershipYear: nextYear.label,
-      yearNumber: nextYearNumber,
-      startDate: nextYearStartDate,
-      tierLabel: matchedBand?.label || null,
-      fieldValue,
-      annualCost: nextYearFull,
-      annualCostBeforeDiscounts: annualCostRaw,
-      customDiscountTotal,
-      customDiscountDetails,
-      dailyCost: nextYearDailyCost,
-      totalDaysInYear: nextYearTotalDays,
-      freeDiscount: nextYearFreeDiscount,
-      freePeriodDaysApplied: nextYearFreePeriodDaysApplied,
-      freePeriodAmount: nextYearFreeDiscount > 0 ? config.free_period_amount : null,
-      freePeriodUnit: nextYearFreeDiscount > 0 ? config.free_period_unit : null,
-      finalCost: nextYearFinal,
-      currency: config.currency || 'GBP',
-      billingPeriod: config.billing_period || 'annual',
-    };
+    const nextSimResult = await simulateMembershipForOrg(tenantId, organizationId, {
+      source: 'tab',
+      targetYear: nextYear.label,
+    });
+    if (nextSimResult.success) {
+      nextYearPreview = mapSimResultToYearData(nextSimResult, nextYearStartDate);
+    } else {
+      console.warn('[Org Membership] Next year simulation failed:', nextSimResult.error);
+    }
   }
 
   const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
@@ -690,10 +551,10 @@ async function handleGet(req, res, tenantId) {
       label: matchedBand.label,
       minValue: parseFloat(matchedBand.min_value),
       maxValue: matchedBand.max_value !== null ? parseFloat(matchedBand.max_value) : null,
-      annualCost,
-      annualCostBeforeDiscounts: annualCostRaw,
-      customDiscountTotal,
-      customDiscountDetails,
+      annualCost: currentYearCost?.annualCost ?? annualCostRaw,
+      annualCostBeforeDiscounts: currentYearCost?.annualCostBeforeDiscounts ?? annualCostRaw,
+      customDiscountTotal: currentYearCost?.customDiscountTotal ?? 0,
+      customDiscountDetails: currentYearCost?.customDiscountDetails ?? [],
     } : null,
     fieldValue,
     fieldLabel,
