@@ -718,7 +718,7 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
             .update({
               status: 'sent',
               sent_at: new Date().toISOString(),
-              mailgun_message_id: result.messageId
+              mailgun_message_id: result.messageId ? result.messageId.replace(/^<|>$/g, '') : result.messageId
             })
             .eq('id', recipient.id);
 

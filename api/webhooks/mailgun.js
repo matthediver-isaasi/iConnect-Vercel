@@ -67,7 +67,8 @@ export default async function handler(req, res) {
 
   try {
     const eventType = eventData.event;
-    const messageId = eventData.message?.headers?.['message-id'] || eventData['message-id'];
+    const rawMessageId = eventData.message?.headers?.['message-id'] || eventData['message-id'];
+    const messageId = rawMessageId ? rawMessageId.replace(/^<|>$/g, '') : rawMessageId;
     const recipientEmail = eventData.recipient;
     const timestamp = eventData.timestamp ? new Date(eventData.timestamp * 1000).toISOString() : new Date().toISOString();
 
