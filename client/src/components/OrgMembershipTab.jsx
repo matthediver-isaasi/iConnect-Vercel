@@ -237,7 +237,9 @@ function YearCostSection({
             {yearData.freeDiscount > 0 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
-                  Free Period ({yearData.freePeriodDaysApplied} days {'\u00d7'} {formatCost(yearData.dailyCost, currency)})
+                  {yearData.freePeriodUnit === 'percent'
+                    ? `${yearData.freePeriodAmount}% Discount${yearData.yearNumber === 2 ? ' (rollover from Y1)' : ''}`
+                    : `Free Period (${yearData.freePeriodDaysApplied} days ${'\u00d7'} ${formatCost(yearData.dailyCost, currency)})`}
                 </span>
                 <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
               </div>

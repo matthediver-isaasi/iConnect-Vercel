@@ -1007,9 +1007,9 @@ export default function MembershipTierManagement() {
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <Label>Free Period for New Members</Label>
+              <Label>New Member Incentive</Label>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Deduct a free period from the annual fee for new members
+                Offer new members a free period or a percentage discount when they join
               </p>
             </div>
             <Switch
@@ -1033,52 +1033,140 @@ export default function MembershipTierManagement() {
             />
           </div>
           {!!config.free_period_amount && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-4 border-l-2 border-muted">
-              <div className="space-y-2">
-                <Label>Duration</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min="1"
-                    value={config.free_period_amount ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? 1 : Math.max(1, parseInt(e.target.value) || 1);
-                      handleConfigChange('free_period_amount', val);
-                    }}
-                    className="w-24"
-                    disabled={!isEditable}
-                    data-testid="input-free-period-amount"
-                  />
-                  <Select
-                    value={config.free_period_unit || 'months'}
-                    onValueChange={(v) => handleConfigChange('free_period_unit', v)}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger className="w-28" data-testid="select-free-period-unit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FREE_PERIOD_UNITS.map(u => (
-                        <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            <div className="space-y-4 pl-4 border-l-2 border-muted">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Card
+                  className={`cursor-pointer transition-colors ${config.free_period_unit !== 'percent' ? 'border-primary ring-1 ring-primary' : ''}`}
+                  onClick={() => {
+                    if (!isEditable) return;
+                    if (config.free_period_unit === 'percent') {
+                      handleConfigChange('free_period_unit', 'months');
+                      handleConfigChange('free_period_amount', 3);
+                    }
+                  }}
+                  data-testid="radio-incentive-free-period"
+                >
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${config.free_period_unit !== 'percent' ? 'border-primary' : 'border-muted-foreground'}`}>
+                      {config.free_period_unit !== 'percent' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <p className="font-medium">Free Period</p>
+                      <p className="text-sm text-muted-foreground mt-1">Give new members a set number of days, weeks, or months free</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card
+                  className={`cursor-pointer transition-colors ${config.free_period_unit === 'percent' ? 'border-primary ring-1 ring-primary' : ''}`}
+                  onClick={() => {
+                    if (!isEditable) return;
+                    if (config.free_period_unit !== 'percent') {
+                      handleConfigChange('free_period_unit', 'percent');
+                      handleConfigChange('free_period_amount', 30);
+                    }
+                  }}
+                  data-testid="radio-incentive-percentage"
+                >
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${config.free_period_unit === 'percent' ? 'border-primary' : 'border-muted-foreground'}`}>
+                      {config.free_period_unit === 'percent' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <p className="font-medium">Percentage Discount</p>
+                      <p className="text-sm text-muted-foreground mt-1">Give new members a percentage off for a full year, pro-rated if they join mid-year</p>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <Label>Rollover Discount</Label>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    If free period extends beyond the current year, apply remaining discount to the next full year
-                  </p>
+
+              {config.free_period_unit !== 'percent' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Duration</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        value={config.free_period_amount ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 1 : Math.max(1, parseInt(e.target.value) || 1);
+                          handleConfigChange('free_period_amount', val);
+                        }}
+                        className="w-24"
+                        disabled={!isEditable}
+                        data-testid="input-free-period-amount"
+                      />
+                      <Select
+                        value={config.free_period_unit || 'months'}
+                        onValueChange={(v) => handleConfigChange('free_period_unit', v)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger className="w-28" data-testid="select-free-period-unit">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FREE_PERIOD_UNITS.map(u => (
+                            <SelectItem key={u.value} value={u.value}>{u.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Rollover Discount</Label>
+                      <p className="text-sm text-muted-foreground mt-0.5">
+                        If free period extends beyond the current year, apply remaining discount to the next full year
+                      </p>
+                    </div>
+                    <Switch
+                      checked={config.rollover_enabled}
+                      onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
+                      disabled={!isEditable || config.start_mode === 'immediate'}
+                      data-testid="switch-rollover"
+                    />
+                  </div>
                 </div>
-                <Switch
-                  checked={config.rollover_enabled}
-                  onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
-                  disabled={!isEditable || config.start_mode === 'immediate'}
-                  data-testid="switch-rollover"
-                />
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Discount Percentage</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={config.free_period_amount ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 1 : Math.min(100, Math.max(1, parseInt(e.target.value) || 1));
+                          handleConfigChange('free_period_amount', val);
+                        }}
+                        className="w-24"
+                        disabled={!isEditable}
+                        data-testid="input-incentive-discount-percent"
+                      />
+                      <Percent className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      This discount covers a full year. If the member joins mid-year, only the proportional amount is applied in year 1 and the remainder rolls into year 2.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Rollover Discount</Label>
+                      <p className="text-sm text-muted-foreground mt-0.5">
+                        If joining mid-year, carry the unused portion of the discount into the next year
+                      </p>
+                    </div>
+                    <Switch
+                      checked={config.rollover_enabled}
+                      onCheckedChange={(v) => handleConfigChange('rollover_enabled', v)}
+                      disabled={!isEditable || config.start_mode === 'immediate'}
+                      data-testid="switch-rollover-percent"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1533,10 +1621,12 @@ export default function MembershipTierManagement() {
           {renderSummarySection('Discounts', 4, (
             <>
               <div className="flex justify-between gap-2">
-                <span className="text-muted-foreground">Free Period</span>
+                <span className="text-muted-foreground">New Member Incentive</span>
                 <span className="font-medium">
                   {config.free_period_amount
-                    ? `${config.free_period_amount} ${config.free_period_unit || 'months'}`
+                    ? config.free_period_unit === 'percent'
+                      ? `${config.free_period_amount}% discount (pro-rated over year)`
+                      : `${config.free_period_amount} ${config.free_period_unit || 'months'} free`
                     : 'None'}
                 </span>
               </div>

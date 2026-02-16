@@ -137,6 +137,10 @@ function calculateFreePeriodDiscount(annualCost, config) {
   const amount = config.free_period_amount;
   const unit = config.free_period_unit;
 
+  if (unit === 'percent') {
+    return parseFloat((annualCost * amount / 100).toFixed(2));
+  }
+
   let freeMonths = 0;
   if (unit === 'months') freeMonths = amount;
   else if (unit === 'weeks') freeMonths = amount / 4.33;

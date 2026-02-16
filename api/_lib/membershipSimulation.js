@@ -283,6 +283,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log('Price Override', `Final cost set to manual price: ${finalCost.toFixed(2)}, all calculation lines suppressed`);
   } else if (yearNumber === 1) {
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+    const isPercentIncentive = config.free_period_unit === 'percent';
 
     if (config.prorata_enabled && isNewOrg) {
       proRataEnabled = true;
@@ -293,67 +294,118 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
       log('Pro-Rata', `${prorataDays} days × ${dailyCost.toFixed(4)} = ${prorataCost.toFixed(2)}`);
 
       if (config.free_period_amount && config.free_period_unit) {
-        const freePeriodMonths = getFreeMonths(config);
-        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-        const freePeriodEnd = new Date(joinMidnight);
-        freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
-        const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
-        freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-        freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
-        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-        log('Free Period', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}`);
+        if (isPercentIncentive) {
+          const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+          const proportionUsed = prorataDays / totalDaysInYear;
+          freeDiscount = parseFloat((fullDiscountAmount * proportionUsed).toFixed(2));
+          freeDiscount = Math.min(freeDiscount, prorataCost);
+          log('Percentage Discount', `${config.free_period_amount}% of ${annualCost.toFixed(2)} = ${fullDiscountAmount.toFixed(2)} full year discount, pro-rated: ${(proportionUsed * 100).toFixed(1)}% (${prorataDays}/${totalDaysInYear} days) = ${freeDiscount.toFixed(2)} applied in year 1`);
+        } else {
+          const freePeriodMonths = getFreeMonths(config);
+          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+          const freePeriodEnd = new Date(joinMidnight);
+          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+          const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+          freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
+          freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+          log('Free Period', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}`);
+        }
       }
 
-      billableDays = prorataDays - freePeriodDaysApplied;
-      finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
-      log('Final Cost', `${billableDays} billable days × ${dailyCost.toFixed(4)} = ${finalCost.toFixed(2)}`);
+      if (isPercentIncentive) {
+        finalCost = parseFloat(Math.max(0, prorataCost - freeDiscount).toFixed(2));
+        log('Final Cost', `Pro-rata ${prorataCost.toFixed(2)} - discount ${freeDiscount.toFixed(2)} = ${finalCost.toFixed(2)}`);
+      } else {
+        billableDays = prorataDays - freePeriodDaysApplied;
+        finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
+        log('Final Cost', `${billableDays} billable days × ${dailyCost.toFixed(4)} = ${finalCost.toFixed(2)}`);
+      }
     } else if (isNewOrg && config.free_period_amount && config.free_period_unit) {
       dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
-      const freePeriodMonths = getFreeMonths(config);
-      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
-      freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-      finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
-      log('Free Period (no pro-rata)', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}, final: ${finalCost.toFixed(2)}`);
+      if (isPercentIncentive) {
+        freeDiscount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+        log('Percentage Discount (no pro-rata)', `${config.free_period_amount}% of ${annualCost.toFixed(2)} = ${freeDiscount.toFixed(2)}, final: ${finalCost.toFixed(2)}`);
+      } else {
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
+        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
+        log('Free Period (no pro-rata)', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}, final: ${finalCost.toFixed(2)}`);
+      }
     } else {
       log('Year 1', `No pro-rata or free period applicable. Final cost: ${finalCost.toFixed(2)}`);
     }
   } else if (yearNumber === 2) {
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+    const isPercentIncentive = config.free_period_unit === 'percent';
 
     if (isNewOrg && config.free_period_amount && config.free_period_unit) {
-      const freePeriodMonths = getFreeMonths(config);
-      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      const currentYear = calculateMembershipYear(config);
-      const currentYearStartMidnight = new Date(currentYear.start);
-      currentYearStartMidnight.setHours(0, 0, 0, 0);
-      const currentYearEndMidnight = new Date(currentYear.end);
-      currentYearEndMidnight.setHours(0, 0, 0, 0);
-      const currentYearTotalDays = Math.floor((currentYearEndMidnight - currentYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+      if (isPercentIncentive) {
+        const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
 
-      let freeDaysInCurrentYear = 0;
-      if (config.prorata_enabled) {
+        const startMonth = config.membership_start_month || 1;
+        const startDay = config.membership_start_day || 1;
         const joinMidnight = new Date(effectiveJoinDate);
         joinMidnight.setHours(0, 0, 0, 0);
-        const currentProrataDays = Math.max(0, Math.floor((currentYearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-        const freePeriodEnd = new Date(joinMidnight);
-        freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
-        const lastFreeDay = freePeriodEnd < currentYearEndMidnight ? freePeriodEnd : currentYearEndMidnight;
-        freeDaysInCurrentYear = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-        freeDaysInCurrentYear = Math.min(freeDaysInCurrentYear, currentProrataDays);
-      } else {
-        freeDaysInCurrentYear = Math.min(freePeriodTotalDays, currentYearTotalDays);
-      }
+        const joinYear = joinMidnight.getFullYear();
+        const y1Start = new Date(joinYear, startMonth - 1, startDay);
+        const firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinYear - 1, startMonth - 1, startDay);
+        const firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
+        const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
 
-      const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
-      freePeriodDaysApplied = Math.min(spilloverDays, totalDaysInYear);
-      freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-      finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+        let y1ProportionUsed = 1;
+        if (config.prorata_enabled) {
+          y1ProportionUsed = Math.min(1, remainingDaysInFirstYear / firstYearTotalDays);
+        }
 
-      if (freePeriodDaysApplied > 0) {
-        log('Free Period Spillover', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)} (spillover from year 1)`);
+        const y1DiscountApplied = parseFloat((fullDiscountAmount * y1ProportionUsed).toFixed(2));
+        const spilloverDiscount = parseFloat(Math.max(0, fullDiscountAmount - y1DiscountApplied).toFixed(2));
+        freeDiscount = Math.min(spilloverDiscount, annualCost);
+        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+
+        if (freeDiscount > 0) {
+          log('Percentage Discount Rollover', `Full discount: ${fullDiscountAmount.toFixed(2)} (${config.free_period_amount}%), applied in Y1: ${y1DiscountApplied.toFixed(2)} (${remainingDaysInFirstYear}/${firstYearTotalDays} days), rollover to Y2: ${freeDiscount.toFixed(2)}`);
+        } else {
+          log('Percentage Discount Rollover', `No rollover - full ${config.free_period_amount}% discount was used in year 1`);
+        }
       } else {
-        log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        const currentYear = calculateMembershipYear(config);
+        const currentYearStartMidnight = new Date(currentYear.start);
+        currentYearStartMidnight.setHours(0, 0, 0, 0);
+        const currentYearEndMidnight = new Date(currentYear.end);
+        currentYearEndMidnight.setHours(0, 0, 0, 0);
+        const currentYearTotalDays = Math.floor((currentYearEndMidnight - currentYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+
+        let freeDaysInCurrentYear = 0;
+        if (config.prorata_enabled) {
+          const joinMidnight = new Date(effectiveJoinDate);
+          joinMidnight.setHours(0, 0, 0, 0);
+          const currentProrataDays = Math.max(0, Math.floor((currentYearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          const freePeriodEnd = new Date(joinMidnight);
+          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+          const lastFreeDay = freePeriodEnd < currentYearEndMidnight ? freePeriodEnd : currentYearEndMidnight;
+          freeDaysInCurrentYear = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          freeDaysInCurrentYear = Math.min(freeDaysInCurrentYear, currentProrataDays);
+        } else {
+          freeDaysInCurrentYear = Math.min(freePeriodTotalDays, currentYearTotalDays);
+        }
+
+        const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
+        freePeriodDaysApplied = Math.min(spilloverDays, totalDaysInYear);
+        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+
+        if (freePeriodDaysApplied > 0) {
+          log('Free Period Spillover', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)} (spillover from year 1)`);
+        } else {
+          log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
+        }
       }
     } else {
       log('Year 2', `Full annual cost applies. Final cost: ${finalCost.toFixed(2)}`);
@@ -635,6 +687,9 @@ function calculateFreePeriodDiscount(annualCost, config) {
   if (!config.free_period_amount || !config.free_period_unit) return 0;
   const amount = config.free_period_amount;
   const unit = config.free_period_unit;
+  if (unit === 'percent') {
+    return parseFloat((annualCost * amount / 100).toFixed(2));
+  }
   let freeMonths = 0;
   if (unit === 'months') freeMonths = amount;
   else if (unit === 'weeks') freeMonths = amount / 4.33;
@@ -658,8 +713,16 @@ function calculateRolloverDiscount(annualCost, config, goLiveDate) {
 
   const totalDaysInFirstYear = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
   const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - goLive) / (1000 * 60 * 60 * 24)));
-  const remainingMonths = (remainingDaysInFirstYear / totalDaysInFirstYear) * 12;
 
+  if (config.free_period_unit === 'percent') {
+    const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+    const y1Proportion = Math.min(1, remainingDaysInFirstYear / totalDaysInFirstYear);
+    const y1DiscountApplied = parseFloat((fullDiscountAmount * y1Proportion).toFixed(2));
+    const spillover = parseFloat(Math.max(0, fullDiscountAmount - y1DiscountApplied).toFixed(2));
+    return Math.min(spillover, annualCost);
+  }
+
+  const remainingMonths = (remainingDaysInFirstYear / totalDaysInFirstYear) * 12;
   const freeMonths = getFreeMonths(config);
   const unusedFreeMonths = Math.max(0, freeMonths - remainingMonths);
 
