@@ -312,10 +312,12 @@ export default function EmailCampaigns() {
 
       if (!statsResponse.ok) throw new Error('Failed to fetch campaign stats');
 
-      const statsData = await statsResponse.json();
+      const result = await statsResponse.json();
+      const stats = result.stats || {};
+      const campaignData = result.campaign || campaign;
       
       let heatmapData = [];
-      if (statsData.clicked_count > 0) {
+      if (stats.clicked > 0) {
         const heatmapResponse = await fetch(`/api/email-campaigns/${campaign.id}?heatmap=true`, {
           credentials: 'include'
         });
@@ -325,7 +327,21 @@ export default function EmailCampaigns() {
         }
       }
 
-      setStatsData({ ...statsData, heatmapData });
+      setStatsData({
+        name: campaignData.name,
+        sent: stats.sent || 0,
+        delivered: stats.delivered || 0,
+        opened: stats.opened || 0,
+        clicked: stats.clicked || 0,
+        bounced: stats.bounced || 0,
+        unsubscribed: stats.unsubscribed || 0,
+        complained: stats.complained || 0,
+        openRate: stats.openRate || 0,
+        clickRate: stats.clickRate || 0,
+        bounceRate: stats.bounceRate || 0,
+        total: stats.total || 0,
+        heatmapData
+      });
       setShowStatsDialog(true);
     } catch (error) {
       toast.error(error.message);
@@ -813,29 +829,29 @@ export default function EmailCampaigns() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
                   <Send className="w-5 h-5 mx-auto mb-1 text-blue-600" />
-                  <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
-                    {statsData.sent_count || 0}
+                  <div data-testid="text-stats-sent" className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+                    {statsData.sent}
                   </div>
                   <div className="text-xs text-blue-600">Sent</div>
                 </div>
                 <div className="text-center p-4 bg-green-50 dark:bg-green-950 rounded-lg">
                   <CheckCircle2 className="w-5 h-5 mx-auto mb-1 text-green-600" />
-                  <div className="text-2xl font-bold text-green-700 dark:text-green-300">
-                    {statsData.delivered_count || 0}
+                  <div data-testid="text-stats-delivered" className="text-2xl font-bold text-green-700 dark:text-green-300">
+                    {statsData.delivered}
                   </div>
                   <div className="text-xs text-green-600">Delivered</div>
                 </div>
                 <div className="text-center p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
                   <Eye className="w-5 h-5 mx-auto mb-1 text-purple-600" />
-                  <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">
-                    {statsData.opened_count || 0}
+                  <div data-testid="text-stats-opened" className="text-2xl font-bold text-purple-700 dark:text-purple-300">
+                    {statsData.opened}
                   </div>
                   <div className="text-xs text-purple-600">Opened</div>
                 </div>
                 <div className="text-center p-4 bg-amber-50 dark:bg-amber-950 rounded-lg">
                   <MousePointerClick className="w-5 h-5 mx-auto mb-1 text-amber-600" />
-                  <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">
-                    {statsData.clicked_count || 0}
+                  <div data-testid="text-stats-clicked" className="text-2xl font-bold text-amber-700 dark:text-amber-300">
+                    {statsData.clicked}
                   </div>
                   <div className="text-xs text-amber-600">Clicked</div>
                 </div>
@@ -843,20 +859,20 @@ export default function EmailCampaigns() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="text-center p-3 border rounded-lg">
-                  <div className="text-lg font-semibold text-red-600">
-                    {statsData.bounced_count || 0}
+                  <div data-testid="text-stats-bounced" className="text-lg font-semibold text-red-600">
+                    {statsData.bounced}
                   </div>
                   <div className="text-xs text-muted-foreground">Bounced</div>
                 </div>
                 <div className="text-center p-3 border rounded-lg">
-                  <div className="text-lg font-semibold text-orange-600">
-                    {statsData.unsubscribed_count || 0}
+                  <div data-testid="text-stats-unsubscribed" className="text-lg font-semibold text-orange-600">
+                    {statsData.unsubscribed}
                   </div>
                   <div className="text-xs text-muted-foreground">Unsubscribed</div>
                 </div>
                 <div className="text-center p-3 border rounded-lg">
-                  <div className="text-lg font-semibold text-rose-600">
-                    {statsData.complained_count || 0}
+                  <div data-testid="text-stats-complained" className="text-lg font-semibold text-rose-600">
+                    {statsData.complained}
                   </div>
                   <div className="text-xs text-muted-foreground">Complaints</div>
                 </div>
