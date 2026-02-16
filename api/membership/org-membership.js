@@ -400,6 +400,7 @@ async function handleGet(req, res, tenantId) {
         rolloverDiscount: recRollover,
         finalCost: recFinal,
         goLiveDate,
+        isNewOrg,
         currency: currentYearRecord.currency || config.currency || 'GBP',
         billingPeriod: currentYearRecord.billing_period || config.billing_period || 'annual',
         recordedFromHistory: true,
@@ -412,6 +413,8 @@ async function handleGet(req, res, tenantId) {
       let billableDays = totalDaysInYear;
       let finalCost = annualCost;
 
+      const isPercentIncentive = config.free_period_unit === 'percent';
+
       if (config.prorata_enabled && isNewOrg) {
         const joinMidnight = new Date(effectiveJoinDate);
         joinMidnight.setHours(0, 0, 0, 0);
@@ -419,24 +422,40 @@ async function handleGet(req, res, tenantId) {
         prorataCost = parseFloat((dailyCost * prorataDays).toFixed(2));
 
         if (config.free_period_amount && config.free_period_unit) {
-          const freePeriodMonths = getFreeMonths(config);
-          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-          const freePeriodEnd = new Date(joinMidnight);
-          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
-          const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
-          freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-          freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
-          freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+          if (isPercentIncentive) {
+            const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+            const proportionUsed = prorataDays / totalDaysInYear;
+            freeDiscount = parseFloat((fullDiscountAmount * proportionUsed).toFixed(2));
+            freeDiscount = Math.min(freeDiscount, prorataCost);
+          } else {
+            const freePeriodMonths = getFreeMonths(config);
+            const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+            const freePeriodEnd = new Date(joinMidnight);
+            freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+            const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+            freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+            freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
+            freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+          }
         }
 
-        billableDays = prorataDays - freePeriodDaysApplied;
-        finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
+        if (isPercentIncentive) {
+          finalCost = parseFloat(Math.max(0, prorataCost - freeDiscount).toFixed(2));
+        } else {
+          billableDays = prorataDays - freePeriodDaysApplied;
+          finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
+        }
       } else if (isNewOrg && config.free_period_amount && config.free_period_unit) {
-        const freePeriodMonths = getFreeMonths(config);
-        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-        freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
-        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
-        finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
+        if (isPercentIncentive) {
+          freeDiscount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+          finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+        } else {
+          const freePeriodMonths = getFreeMonths(config);
+          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+          freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
+          freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+          finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
+        }
       }
 
       currentYearCost = {
@@ -458,9 +477,10 @@ async function handleGet(req, res, tenantId) {
         freePeriodDaysApplied: isNewOrg ? freePeriodDaysApplied : 0,
         freePeriodAmount: config.free_period_amount,
         freePeriodUnit: config.free_period_unit,
-        billableDays: config.prorata_enabled && isNewOrg ? billableDays : null,
+        billableDays: config.prorata_enabled && isNewOrg ? (isPercentIncentive ? null : billableDays) : null,
         finalCost,
         goLiveDate,
+        isNewOrg,
         currency: config.currency || 'GBP',
         billingPeriod: config.billing_period || 'annual',
       };
@@ -476,15 +496,42 @@ async function handleGet(req, res, tenantId) {
     const nextYearTotalDays = Math.floor((nextYearEndMidnight - nextYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
     const nextYearDailyCost = parseFloat((nextYearFull / nextYearTotalDays).toFixed(4));
 
+    let nextYearFreeDiscount = 0;
+    const isPercentIncentiveNext = config.free_period_unit === 'percent';
+
     if (isNewOrg && config.free_period_amount && config.free_period_unit) {
-      const freePeriodMonths = getFreeMonths(config);
-      const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-      const freeDaysInCurrentYear = currentYearCost?.freePeriodDaysApplied || 0;
-      const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
-      nextYearFreePeriodDaysApplied = Math.min(spilloverDays, nextYearTotalDays);
+      if (isPercentIncentiveNext) {
+        const y1AnnualCost = currentYearCost?.annualCost || annualCost;
+        const fullDiscountAmount = parseFloat((y1AnnualCost * config.free_period_amount / 100).toFixed(2));
+        const startMonth = config.membership_start_month || 1;
+        const startDay = config.membership_start_day || 1;
+        const joinMidnight = new Date(effectiveJoinDate);
+        joinMidnight.setHours(0, 0, 0, 0);
+        const joinYear = joinMidnight.getFullYear();
+        const y1Start = new Date(joinYear, startMonth - 1, startDay);
+        const firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinYear - 1, startMonth - 1, startDay);
+        const firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
+        const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
+
+        let y1ProportionUsed = 1;
+        if (config.prorata_enabled) {
+          y1ProportionUsed = Math.min(1, remainingDaysInFirstYear / firstYearTotalDays);
+        }
+
+        const y1DiscountApplied = parseFloat((fullDiscountAmount * y1ProportionUsed).toFixed(2));
+        const spilloverDiscount = parseFloat(Math.max(0, fullDiscountAmount - y1DiscountApplied).toFixed(2));
+        nextYearFreeDiscount = Math.min(spilloverDiscount, nextYearFull);
+      } else {
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        const freeDaysInCurrentYear = currentYearCost?.freePeriodDaysApplied || 0;
+        const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
+        nextYearFreePeriodDaysApplied = Math.min(spilloverDays, nextYearTotalDays);
+        nextYearFreeDiscount = parseFloat((nextYearDailyCost * nextYearFreePeriodDaysApplied).toFixed(2));
+      }
     }
 
-    const nextYearFreeDiscount = parseFloat((nextYearDailyCost * nextYearFreePeriodDaysApplied).toFixed(2));
     const nextYearFinal = parseFloat(Math.max(0, nextYearFull - nextYearFreeDiscount).toFixed(2));
 
     nextYearPreview = {
@@ -501,8 +548,8 @@ async function handleGet(req, res, tenantId) {
       totalDaysInYear: nextYearTotalDays,
       freeDiscount: nextYearFreeDiscount,
       freePeriodDaysApplied: nextYearFreePeriodDaysApplied,
-      freePeriodAmount: nextYearFreePeriodDaysApplied > 0 ? config.free_period_amount : null,
-      freePeriodUnit: nextYearFreePeriodDaysApplied > 0 ? config.free_period_unit : null,
+      freePeriodAmount: nextYearFreeDiscount > 0 ? config.free_period_amount : null,
+      freePeriodUnit: nextYearFreeDiscount > 0 ? config.free_period_unit : null,
       finalCost: nextYearFinal,
       currency: config.currency || 'GBP',
       billingPeriod: config.billing_period || 'annual',

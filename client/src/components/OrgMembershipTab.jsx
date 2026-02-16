@@ -208,16 +208,18 @@ function YearCostSection({
               <span className="text-muted-foreground">{periodLabel} Cost (Gross)</span>
               <span className="font-medium">{formatCost(yearData.annualCostBeforeDiscounts ?? yearData.annualCost, currency)}</span>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                {hasOverride && yearData.overrideType === 'discount' ? (
-                  <><Badge variant="outline" className="mr-1 text-xs">Override</Badge>Discount</>
-                ) : 'Discount'}
-              </span>
-              <span className={yearData.customDiscountTotal > 0 ? 'text-green-600' : 'font-medium'}>
-                {yearData.customDiscountTotal > 0 ? `-${formatCost(yearData.customDiscountTotal, currency)}` : formatCost(0, currency)}
-              </span>
-            </div>
+            {(yearData.customDiscountTotal > 0 || (hasOverride && yearData.overrideType === 'discount')) && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {hasOverride && yearData.overrideType === 'discount' ? (
+                    <><Badge variant="outline" className="mr-1 text-xs">Override</Badge>Custom Discount</>
+                  ) : 'Custom Discount'}
+                </span>
+                <span className={yearData.customDiscountTotal > 0 ? 'text-green-600' : 'font-medium'}>
+                  {yearData.customDiscountTotal > 0 ? `-${formatCost(yearData.customDiscountTotal, currency)}` : formatCost(0, currency)}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">{periodLabel} Cost (Net)</span>
               <span className="font-medium">{formatCost(yearData.annualCost, currency)}</span>
@@ -234,14 +236,18 @@ function YearCostSection({
                 <span className="font-medium">{formatCost(yearData.prorataCost, currency)}</span>
               </div>
             )}
-            {yearData.freeDiscount > 0 && (
+            {(yearData.freeDiscount > 0 || (yearData.isNewOrg && yearData.freePeriodAmount && yearData.freePeriodUnit)) && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
                   {yearData.freePeriodUnit === 'percent'
-                    ? `${yearData.freePeriodAmount}% Discount${yearData.yearNumber === 2 ? ' (rollover from Y1)' : ''}`
-                    : `Free Period (${yearData.freePeriodDaysApplied} days ${'\u00d7'} ${formatCost(yearData.dailyCost, currency)})`}
+                    ? `New Member Discount (${yearData.freePeriodAmount}%)${yearData.yearNumber === 2 ? ' (rollover from Y1)' : ''}`
+                    : yearData.yearNumber === 2 && yearData.freeDiscount > 0
+                      ? `New Member Discount (${yearData.freePeriodDaysApplied} days rollover)`
+                      : `New Member Discount (${yearData.freePeriodDaysApplied} free days${yearData.dailyCost ? ` ${'\u00d7'} ${formatCost(yearData.dailyCost, currency)}` : ''})`}
                 </span>
-                <span className="text-green-600">-{formatCost(yearData.freeDiscount, currency)}</span>
+                <span className={yearData.freeDiscount > 0 ? 'text-green-600' : 'font-medium'}>
+                  {yearData.freeDiscount > 0 ? `-${formatCost(yearData.freeDiscount, currency)}` : formatCost(0, currency)}
+                </span>
               </div>
             )}
             <div className="flex items-center justify-between text-sm border-t pt-1">
