@@ -20,7 +20,8 @@ import {
   Loader2,
   Info,
   Mail,
-  Settings
+  Settings,
+  Webhook
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -137,6 +138,35 @@ export default function DomainSettings() {
     },
     onError: (error) => {
       toast.error("Failed to provision email domain", {
+        description: error.message || "Please try again.",
+      });
+    },
+  });
+
+  const registerWebhooksMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/functions/backfill-mailgun-webhooks', {
+        method: 'POST',
+      });
+    },
+    onSuccess: (data) => {
+      const result = data.results?.[0];
+      if (result?.status === 'success') {
+        toast.success("Webhooks registered", {
+          description: `${result.summary} for ${result.domain}`,
+        });
+      } else if (result?.status === 'skipped') {
+        toast.info("No email domain configured", {
+          description: "Provision an email domain first.",
+        });
+      } else {
+        toast.error("Webhook registration had issues", {
+          description: result?.error || "Some webhooks may not have been registered.",
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to register webhooks", {
         description: error.message || "Please try again.",
       });
     },
@@ -456,7 +486,7 @@ export default function DomainSettings() {
                   </div>
                 )}
                 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
                     onClick={() => verifyEmailDomainMutation.mutate()}
@@ -478,6 +508,19 @@ export default function DomainSettings() {
                       <Settings className="w-4 h-4 mr-2" />
                     )}
                     Re-provision Domain
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => registerWebhooksMutation.mutate()}
+                    disabled={registerWebhooksMutation.isPending}
+                    data-testid="button-register-webhooks"
+                  >
+                    {registerWebhooksMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Webhook className="w-4 h-4 mr-2" />
+                    )}
+                    Register Webhooks
                   </Button>
                 </div>
                 
