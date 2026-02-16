@@ -35,7 +35,7 @@
 
 The membership renewal system handles the full lifecycle of calculating, creating, and invoicing annual membership fees for organisations within a tenant. It is designed around a single source of truth — the shared simulation function — that all three renewal paths (workflow, cron job, manual) use to ensure consistent cost calculations everywhere.
 
-Each organisation's membership year is determined by the tenant's tier configuration (configurable start month/day), and costs are calculated using a day-based approach that accounts for pro-rata periods, free periods, spillover discounts, custom discount rules, and three types of overrides.
+Each organisation's membership year is determined by the tenant's tier configuration (configurable start month/day), and costs are calculated using a day-based approach that accounts for pro-rata periods, new member incentive discounts (either time-based free periods or percentage-based discounts), rollover/spillover credits, custom discount rules, and three types of overrides.
 
 The system supports per-year invoicing controls, allowing admins to independently choose Automatic, Scheduled, or Manual invoicing for each membership year. An optional fee approval workflow allows admins to review and approve calculated fees per organisation/year before any processing path (workflow action, cron job, manual renewal, portal member payment, or public token payment) can proceed.
 
@@ -65,7 +65,7 @@ The system supports per-year invoicing controls, allowing admins to independentl
 ### Design Principles
 
 1. **Single source of truth**: `simulateMembershipForOrg()` is the only function that performs cost calculations. No renewal path implements its own calculation logic.
-2. **Day-based calculations**: Pro-rata and billable-day calculations use actual calendar days between dates. Free period durations are first converted from their configured unit (months, weeks, or days) into an approximate day count using standard conversion factors (months × 30.44, weeks × 7), then applied as calendar days within the membership year.
+2. **Day-based calculations**: Pro-rata and billable-day calculations use actual calendar days between dates. The system supports two incentive types: (a) time-based free periods, where durations are converted from their configured unit (months, weeks, or days) into an approximate day count using standard conversion factors (months × 30.44, weeks × 7), then applied as calendar days; and (b) percentage-based discounts, where a percentage of the annual cost is calculated and pro-rated in year 1 based on remaining days, with any unused portion rolling over to year 2.
 3. **Per-year independence**: Each membership year has its own invoicing mode, override, and simulation — they don't interfere with each other.
 4. **Tenant isolation**: All queries are scoped by `tenant_id` to ensure strict multi-tenant data separation.
 5. **Defensive coding**: Three layers of duplicate prevention ensure a membership record is never created twice.
@@ -176,6 +176,17 @@ Before any time-based calculations, custom discount rules are evaluated:
 4. Multiple rules stack (applied sequentially)
 5. The discounted cost becomes the basis for all subsequent calculations
 
+### New Member Incentive Types
+
+The system supports two types of new member incentives, configured per tier configuration. Both types use the same database columns (`free_period_amount` and `free_period_unit`) but produce different calculation logic:
+
+| Type | `free_period_unit` | `free_period_amount` | Description |
+|------|-------------------|---------------------|-------------|
+| Time-based free period | `'months'`, `'weeks'`, or `'days'` | Number of time units | A period of free membership starting from the go-live date |
+| Percentage discount | `'percent'` | Percentage value (e.g. `10` for 10%) | A percentage off the annual cost, pro-rated in year 1 |
+
+Both types only apply in years 1 and 2 (for rollover). Year 3+ always uses the full annual cost.
+
 ### Day-Based Calculations (Year 1)
 
 When an organisation is in their first membership year and pro-rata is enabled:
@@ -187,26 +198,50 @@ prorataDays = days from go-live date to year end (inclusive)
 prorataCost = dailyCost × prorataDays
 ```
 
-### Free Period (Year 1)
+### Time-Based Free Period (Year 1)
 
-If the configuration has a free period:
+If the configuration has a time-based free period (`free_period_unit` is `'months'`, `'weeks'`, or `'days'`):
 
 ```
-freePeriodTotalDays = free period converted to days
+freePeriodTotalDays = free period converted to days (months × 30.44, weeks × 7)
 freePeriodDaysApplied = min(freePeriodTotalDays, prorataDays)  // can't exceed remaining days
 freeDiscount = dailyCost × freePeriodDaysApplied
 ```
 
-### Final Cost (Year 1)
+#### Final Cost (Year 1 — Time-Based)
 
 ```
 billableDays = prorataDays - freePeriodDaysApplied
 finalCost = dailyCost × billableDays
 ```
 
-### Free Period Spillover (Year 2)
+### Percentage Discount (Year 1)
 
-If the free period wasn't fully consumed in year 1 (because the org joined late in the year), the remaining free days spill over into year 2:
+If the configuration has a percentage-based discount (`free_period_unit` is `'percent'`):
+
+**With pro-rata enabled:**
+
+```
+fullDiscountAmount = annualCost × free_period_amount / 100
+proportionUsed = prorataDays / totalDaysInYear
+freeDiscount = min(fullDiscountAmount × proportionUsed, prorataCost)
+finalCost = prorataCost - freeDiscount
+```
+
+The percentage discount is pro-rated the same way as the membership cost — if the org is only in membership for 60% of the year, they receive 60% of the full discount amount in year 1.
+
+**Without pro-rata:**
+
+```
+freeDiscount = annualCost × free_period_amount / 100
+finalCost = annualCost - freeDiscount
+```
+
+When pro-rata is not enabled, the full percentage discount applies against the full annual cost.
+
+### Time-Based Free Period Spillover (Year 2)
+
+If the time-based free period wasn't fully consumed in year 1 (because the org joined late in the year), the remaining free days spill over into year 2:
 
 ```
 spilloverDays = freePeriodTotalDays - freeDaysUsedInYear1
@@ -214,9 +249,40 @@ year2FreeDiscount = year2DailyCost × min(spilloverDays, totalDaysInYear2)
 finalCost = annualCost - year2FreeDiscount
 ```
 
+### Percentage Discount Rollover (Year 2)
+
+If a percentage discount was pro-rated in year 1, the unused portion rolls over to year 2 as a fixed-amount deduction. The rollover calculation derives year 1 boundaries from the go-live date (not the current year) to ensure accuracy regardless of when the simulation runs.
+
+```
+fullDiscountAmount = annualCost × free_period_amount / 100
+
+// Derive Year 1 boundaries from go-live date
+y1Start = membership year start date containing go-live date
+y1End = y1Start + 1 year
+firstYearTotalDays = days from y1Start to y1End
+
+// Calculate what was used in Year 1
+y1ProportionUsed = remainingDaysInFirstYear / firstYearTotalDays   (if pro-rata enabled)
+y1ProportionUsed = 1                                                (if pro-rata disabled)
+y1DiscountApplied = fullDiscountAmount × y1ProportionUsed
+
+// Rollover = unused portion
+rolloverDiscount = max(0, fullDiscountAmount - y1DiscountApplied)
+finalCost = max(0, annualCost - rolloverDiscount)
+```
+
+**Example:** An org has a 10% discount and an annual cost of £1,000. They join halfway through year 1 (pro-rata enabled).
+
+- Full discount = £100
+- Year 1 proportion used = 50% → Year 1 discount applied = £50
+- Rollover to year 2 = £100 - £50 = £50
+- Year 2 final cost = £1,000 - £50 = £950
+
+If the org had joined at the start of the year (proportion = 100%), there would be no rollover.
+
 ### Year 3+
 
-No pro-rata, free period, or spillover discounts. The full annual cost applies (after custom discounts and any overrides).
+No pro-rata, free period, percentage discount, or rollover/spillover. The full annual cost applies (after custom discounts and any overrides).
 
 ### Price Override
 
@@ -1049,8 +1115,8 @@ The tier configuration for a tenant. Multiple configs can be active simultaneous
 | `currency` | text | e.g. `'GBP'` |
 | `billing_period` | text | e.g. `'annual'` |
 | `prorata_enabled` | boolean | Whether pro-rata calculations apply |
-| `free_period_amount` | int | Free period duration |
-| `free_period_unit` | text | `'months'`, `'weeks'`, or `'days'` |
+| `free_period_amount` | int | Incentive value: number of time units (for time-based) or percentage value (for percentage-based) |
+| `free_period_unit` | text | `'months'`, `'weeks'`, `'days'`, or `'percent'` |
 | `rollover_enabled` | boolean | Whether free period spillover applies |
 | `effective_from` | date | When this config became active |
 | `effective_to` | date | Null if currently active |
@@ -1334,18 +1400,25 @@ The go-live date is stored as an organisation custom field with `name = 'go_live
 
 This field is typically set by a workflow action (e.g. as part of a Due Diligence completion workflow).
 
-### Free Period Configuration
+### New Member Incentive Configuration
+
+The system supports two incentive types using the same database fields:
 
 | Field | Description |
 |-------|-------------|
-| `free_period_amount` | Number of units |
-| `free_period_unit` | `'months'`, `'weeks'`, or `'days'` |
+| `free_period_amount` | Number of units (time) or percentage value (e.g. `10` for 10%) |
+| `free_period_unit` | `'months'`, `'weeks'`, `'days'`, or `'percent'` |
 
-Internally converted to days: months × 30.44, weeks × 7.
+**Time-based free period** (`'months'`, `'weeks'`, `'days'`): The amount is converted to days (months × 30.44, weeks × 7) and applied as calendar days of free membership starting from the go-live date.
+
+**Percentage discount** (`'percent'`): The amount is a percentage of the annual cost. In year 1 with pro-rata enabled, the discount is proportionally reduced based on how many days remain in the membership year (remainingDays / totalDays × fullDiscount). Without pro-rata, the full percentage applies.
 
 ### Rollover
 
-When `rollover_enabled` is true and a free period is configured, any unused free days from year 1 are carried forward as a discount in year 2.
+When `rollover_enabled` is true and an incentive is configured, any unused portion from year 1 is carried forward as a discount in year 2:
+
+- **Time-based**: Unused free days spill over and are applied at year 2's daily cost rate.
+- **Percentage**: The unused monetary amount (fullDiscount − year1DiscountApplied) rolls over as a fixed-amount deduction from year 2's annual cost. The year 1 boundaries are derived from the go-live date to ensure accurate calculations regardless of when the simulation runs.
 
 ---
 
@@ -1395,6 +1468,14 @@ Use the **Simulate** button in the UI to see the step-by-step breakdown.
 **Cause**: The tenant has `membership_require_approval` enabled and the admin has not yet approved fees for that organisation/year. The workflow confirmation modal may have shown a yellow warning triangle indicating this before execution.
 
 **Fix**: Admin navigates to the organisation's Membership tab, clicks "Approve Fees" on the relevant year card, then re-triggers the workflow. Alternatively, if the workflow was triggered automatically (e.g. by setting a go-live date), the admin can use the "Renew & Invoice Now" button after approving fees.
+
+### Discount showing as "Free Period (0 days)" instead of percentage
+
+**Symptom**: The member-facing fees page (portal or token-based) shows "Free Period Discount (0 free days)" instead of "New Member Discount (X%)".
+
+**Cause**: The token's stored cost breakdown is missing the `freePeriodUnit`, `freePeriodAmount`, and `yearNumber` fields needed to display the correct label. This can happen with tokens created before the label fix was deployed.
+
+**Fix**: The public endpoint (`api/public/membership-fees/[token].js`) automatically enriches legacy tokens by running a lightweight simulation to fill in the missing fields. If the issue persists, re-send the fees email to generate a new token with the correct data.
 
 ### Duplicate record error
 
