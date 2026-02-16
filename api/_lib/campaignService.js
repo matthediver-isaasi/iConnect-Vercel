@@ -214,6 +214,10 @@ export function rewriteLinksForTracking(html, campaignId, recipientId, tenantSlu
         return match;
       }
 
+      if (url.includes('/email-preferences')) {
+        return match;
+      }
+
       const token = generateTrackingToken(campaignId, recipientId, linkIndex);
       const trackUrl = `${baseUrl}/api/track/click?t=${token}&url=${encodeURIComponent(url)}`;
       linkIndex++;
@@ -684,17 +688,17 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
         html = html.replace(/\{\{email\}\}/gi, recipient.email || '');
         subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
 
-        html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug, requestHost);
-
         const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
         const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
         const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
-        
+
         const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
-        
+
         html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
         html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
-        
+
+        html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug, requestHost);
+
         if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
           html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
             <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
