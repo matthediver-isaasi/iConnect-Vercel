@@ -61,7 +61,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     }
     return { success: false, steps, error: 'No active membership tier configuration found' };
   }
-  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}`);
+  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'}`);
 
   if (config.structure_field_id && config.structure_match_value) {
     let structureFieldLabel = config.structure_field_id;
