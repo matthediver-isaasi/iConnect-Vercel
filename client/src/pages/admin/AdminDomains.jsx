@@ -21,7 +21,8 @@ import {
   ExternalLink,
   Info,
   Mail,
-  Settings
+  Settings,
+  Webhook
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -259,6 +260,27 @@ export default function AdminDomains() {
       });
     } finally {
       setActionLoading(prev => ({ ...prev, verifyEmail: false }));
+    }
+  };
+
+  const handleRegisterWebhooks = async () => {
+    setActionLoading(prev => ({ ...prev, registerWebhooks: true }));
+    try {
+      const data = await apiRequest('/api/functions/backfill-mailgun-webhooks', {
+        method: 'POST',
+      });
+      toast({
+        title: "Webhooks registered",
+        description: data.message || "Mailgun webhooks have been registered for your email domain."
+      });
+    } catch (err) {
+      toast({
+        title: "Webhook registration failed",
+        description: err.message || "Please try again later.",
+        variant: "destructive"
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, registerWebhooks: false }));
     }
   };
 
@@ -606,6 +628,20 @@ export default function AdminDomains() {
                       >
                         <RefreshCw className={`w-4 h-4 mr-2 ${actionLoading.verifyEmail ? 'animate-spin' : ''}`} />
                         Verify Status
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleRegisterWebhooks}
+                        disabled={actionLoading.registerWebhooks}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-register-webhooks"
+                      >
+                        {actionLoading.registerWebhooks ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Webhook className="w-4 h-4 mr-2" />
+                        )}
+                        Register Webhooks
                       </Button>
                       <Button
                         variant="outline"
