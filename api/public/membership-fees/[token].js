@@ -268,7 +268,7 @@ export default async function handler(req, res) {
           }
         } catch {}
 
-        const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
+        const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
 
         const stripeCredentials = await getStripeCredentials(feeToken.tenant_id);
@@ -293,9 +293,19 @@ export default async function handler(req, res) {
           .eq('id', feeToken.organization_id)
           .single();
 
+        const stripeCustomer = feeToken.recipient_email
+          ? await findOrCreateStripeCustomer(stripe, {
+              email: feeToken.recipient_email,
+              name: org?.name || undefined,
+              metadata: { tenant_id: feeToken.tenant_id, organization_id: feeToken.organization_id, organization_name: org?.name || '' },
+            })
+          : null;
+
         const paymentIntent = await stripe.paymentIntents.create({
           amount,
           currency: (feeToken.currency || 'GBP').toLowerCase(),
+          customer: stripeCustomer?.id || undefined,
+          receipt_email: feeToken.recipient_email || undefined,
           metadata: {
             token_id: feeToken.id,
             organization_id: feeToken.organization_id,

@@ -70,3 +70,41 @@ export async function getStripeCredentials(tenantId) {
     is_enabled: integration.is_enabled
   };
 }
+
+export async function findOrCreateStripeCustomer(stripe, { email, name, metadata = {} }) {
+  if (!email) return null;
+
+  try {
+    const existing = await stripe.customers.list({
+      email: email.toLowerCase(),
+      limit: 1,
+    });
+
+    if (existing.data.length > 0) {
+      const customer = existing.data[0];
+      const updates = {};
+      if (name && !customer.name) {
+        updates.name = name;
+      }
+      if (metadata && Object.keys(metadata).length > 0) {
+        const mergedMeta = { ...customer.metadata, ...metadata };
+        updates.metadata = mergedMeta;
+      }
+      if (Object.keys(updates).length > 0) {
+        return await stripe.customers.update(customer.id, updates);
+      }
+      return customer;
+    }
+
+    const newCustomer = await stripe.customers.create({
+      email: email.toLowerCase(),
+      name: name || undefined,
+      metadata,
+    });
+
+    return newCustomer;
+  } catch (err) {
+    console.error('[Stripe] Error finding/creating customer:', err.message);
+    return null;
+  }
+}

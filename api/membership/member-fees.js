@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   try {
     const { data: member } = await supabase
       .from('member')
-      .select('id, organization_id, tenant_id')
+      .select('id, organization_id, tenant_id, email, first_name, last_name')
       .eq('id', sessionMember.id)
       .single();
 
@@ -263,7 +263,7 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: approvalStatus.message });
         }
 
-        const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
+        const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
         const Stripe = (await import('stripe')).default;
 
         const stripeCredentials = await getStripeCredentials(tenantId);
@@ -287,9 +287,18 @@ export default async function handler(req, res) {
           .eq('id', organizationId)
           .single();
 
+        const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined;
+        const stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+          email: member.email,
+          name: memberName,
+          metadata: { tenant_id: tenantId, organization_id: organizationId, organization_name: org?.name || '' },
+        });
+
         const paymentIntent = await stripe.paymentIntents.create({
           amount,
           currency,
+          customer: stripeCustomer?.id || undefined,
+          receipt_email: member.email || undefined,
           metadata: {
             member_id: sessionMember.id,
             organization_id: organizationId,

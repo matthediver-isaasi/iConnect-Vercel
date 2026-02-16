@@ -7,7 +7,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getZoomAccessToken } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
-import { getStripeCredentials } from '../_lib/stripeCredentials.js';
+import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 
 // Helper: Get Stripe client for a tenant
 async function getStripeClient(tenantId) {
@@ -743,10 +743,34 @@ const functionHandlers = {
     const stripe = await getStripeClient(tenantId);
     if (!stripe) throw new Error('Stripe not configured for this tenant');
     
-    const { amount, currency = 'gbp', metadata } = params;
+    const { amount, currency = 'gbp', metadata, memberEmail } = params;
+
+    let stripeCustomer = null;
+    if (memberEmail) {
+      let customerName;
+      if (supabase) {
+        const { data: memberData } = await supabase
+          .from('member')
+          .select('first_name, last_name, organization:organization_id(name)')
+          .ilike('email', memberEmail)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (memberData) {
+          customerName = [memberData.first_name, memberData.last_name].filter(Boolean).join(' ') || undefined;
+        }
+      }
+      stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+        email: memberEmail,
+        name: customerName,
+        metadata: { tenant_id: tenantId },
+      });
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),
       currency,
+      customer: stripeCustomer?.id || undefined,
+      receipt_email: memberEmail || undefined,
       metadata
     });
 
@@ -2907,9 +2931,20 @@ const functionHandlers = {
     // Frontend sends: amount, currency, metadata: { job_posting_id, contact_email, company_name, job_title }
     const { amount, currency = 'gbp', metadata = {} } = params;
 
+    let stripeCustomer = null;
+    if (metadata.contact_email) {
+      stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+        email: metadata.contact_email,
+        name: metadata.company_name || undefined,
+        metadata: { tenant_id: tenantId, type: 'job_posting' },
+      });
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(amount * 100),
       currency: currency,
+      customer: stripeCustomer?.id || undefined,
+      receipt_email: metadata.contact_email || undefined,
       metadata: {
         type: 'job_posting',
         job_posting_id: String(metadata.job_posting_id || ''),

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getStripeCredentials } from '../../_lib/stripeCredentials.js';
+import { getStripeCredentials, findOrCreateStripeCustomer } from '../../_lib/stripeCredentials.js';
 import Stripe from 'stripe';
 
 export default async function handler(req, res) {
@@ -79,9 +79,19 @@ export default async function handler(req, res) {
 
     const amountInPence = Math.round(parseFloat(amount) * 100);
 
+    const stripeCustomer = donor_email
+      ? await findOrCreateStripeCustomer(stripe, {
+          email: donor_email,
+          name: is_anonymous ? undefined : donor_name,
+          metadata: { type: 'fundraising_donor', tenant_id: teamMember.tenant_id },
+        })
+      : null;
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountInPence,
       currency: (campaign.currency || 'GBP').toLowerCase(),
+      customer: stripeCustomer?.id || undefined,
+      receipt_email: donor_email || undefined,
       metadata: {
         campaign_id: campaign.id,
         campaign_name: campaign.name,
