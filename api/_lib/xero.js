@@ -123,7 +123,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, membershipYear, tierLabel, finalCost, currency, reference, vatRate }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -156,7 +156,8 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     .eq('tenant_id', appTenantId)
     .maybeSingle();
 
-  const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+  const configuredInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+  const xeroInvoiceStatus = markAsPaid ? 'AUTHORISED' : configuredInvoiceStatus;
 
   let taxType = null;
   let taxLabel = null;
@@ -213,13 +214,84 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
   }
 
   const invoice = invoiceData.Invoices[0];
-  console.log(`[Xero] Membership invoice created: ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
+  console.log(`[Xero] Membership invoice created: ${invoice.InvoiceNumber} (${invoice.InvoiceID}) - Status: ${invoice.Status}`);
+
+  let paymentRecorded = false;
+  let paymentId = null;
+
+  if (markAsPaid && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
+    try {
+      const { data: stripeBankCodeSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'xero_stripe_bank_account_code')
+        .eq('tenant_id', appTenantId)
+        .maybeSingle();
+
+      const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+
+      if (stripeBankAccountCode) {
+        const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Accept': 'application/json'
+          }
+        });
+
+        const accountsData = await accountsResponse.json();
+        const bankAccount = accountsData?.Accounts?.[0];
+
+        if (bankAccount?.AccountID) {
+          const paymentPayload = {
+            Invoice: { InvoiceID: invoice.InvoiceID },
+            Account: { AccountID: bankAccount.AccountID },
+            Date: new Date().toISOString().split('T')[0],
+            Amount: parseFloat(invoice.Total),
+            Reference: stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'
+          };
+
+          console.log(`[Xero] Recording Stripe payment for membership invoice ${invoice.InvoiceNumber} - Amount: ${parseFloat(invoice.Total).toFixed(2)}, Bank Account: ${stripeBankAccountCode}`);
+
+          const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'xero-tenant-id': xeroTenantId,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({ Payments: [paymentPayload] })
+          });
+
+          const paymentData = await paymentResponse.json();
+
+          if (paymentData?.Payments?.[0]?.PaymentID) {
+            paymentRecorded = true;
+            paymentId = paymentData.Payments[0].PaymentID;
+            console.log(`[Xero] Membership payment recorded - PaymentID: ${paymentId}`);
+          } else {
+            console.error(`[Xero] Failed to record membership payment: ${JSON.stringify(paymentData).substring(0, 500)}`);
+          }
+        } else {
+          console.warn(`[Xero] Bank account not found for code: ${stripeBankAccountCode} - invoice created but payment not recorded`);
+        }
+      } else {
+        console.log(`[Xero] xero_stripe_bank_account_code not configured - membership invoice created as AUTHORISED but payment not recorded`);
+      }
+    } catch (paymentError) {
+      console.error(`[Xero] Error recording membership payment (non-fatal): ${paymentError.message}`);
+    }
+  }
 
   return {
     invoice_id: invoice.InvoiceID,
     invoice_number: invoice.InvoiceNumber,
     total: invoice.Total,
-    status: invoice.Status
+    status: paymentRecorded ? 'PAID' : invoice.Status,
+    payment_recorded: paymentRecorded,
+    payment_id: paymentId
   };
 }
 

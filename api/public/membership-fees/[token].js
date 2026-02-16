@@ -439,8 +439,8 @@ export default async function handler(req, res) {
               .single();
 
             const reference = feeToken.po_number
-              ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number} (PAID)`
-              : `Membership ${feeToken.membership_year} (PAID)`;
+              ? `Membership ${feeToken.membership_year} - PO: ${feeToken.po_number}`
+              : `Membership ${feeToken.membership_year}`;
 
             xeroInvoice = await createXeroMembershipInvoice({
               appTenantId: feeToken.tenant_id,
@@ -451,6 +451,8 @@ export default async function handler(req, res) {
               currency: feeToken.currency || 'GBP',
               reference,
               vatRate: simResult.matchedBand?.vat_rate || null,
+              markAsPaid: true,
+              stripePaymentIntentId: paymentIntentId,
             });
           } catch (xeroErr) {
             console.error('[Public Fee] Xero invoice failed (non-fatal):', xeroErr.message);

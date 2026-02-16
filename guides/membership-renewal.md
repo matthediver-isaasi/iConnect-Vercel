@@ -663,7 +663,7 @@ When the member clicks "Pay Now":
 6. Backend:
    - Verifies the PaymentIntent status is `succeeded` and the amount matches
    - Creates `organisation_membership_history` record with `status: 'active'`, `payment_method: 'stripe'`, and the Stripe `payment_intent_id`
-   - Creates Xero invoice with "(PAID)" in the reference
+   - Creates Xero invoice with `markAsPaid: true` — invoice is created as AUTHORISED and a Payment is recorded via the Xero Payments API, resulting in a PAID invoice
    - Updates token status to `paid`
    - Creates an organisation note with payment details
 
@@ -728,7 +728,7 @@ Admins manage these permissions via Role Management / Role Access Config Managem
    - Stripe Elements captures card details
    - `POST` with `action: confirm_payment` validates payment, then:
      - Creates `organisation_membership_history` record with `status: 'active'`, `payment_method: 'stripe'`, and the Stripe `payment_intent_id`
-     - Creates Xero invoice with "(PAID)" in the reference
+     - Creates Xero invoice with `markAsPaid: true` — invoice is created as AUTHORISED and a Payment is recorded against it via the Xero Payments API (using the tenant's `xero_stripe_bank_account_code`), resulting in a PAID invoice
      - Creates an organisation note with payment details
    - This immediately marks the membership as paid, preventing the cron job from re-invoicing (see [Stripe Payment as Invoicing Override](#stripe-payment-as-invoicing-override))
 
@@ -1280,6 +1280,27 @@ The account code lookup priority is: `membership_nominal_ledger` → `xero_sales
 ### Invoice Linking
 
 After creating an invoice, the `xero_invoice_id` and `xero_invoice_number` are stored on the history record for tracking and to prevent duplicate invoicing.
+
+### Stripe Payment → Xero Invoice as Paid
+
+When a member pays via Stripe (either through the authenticated portal or the public token page), the system creates the Xero invoice and immediately records a payment against it so the invoice appears as **PAID** in Xero.
+
+**How it works:**
+
+1. `createXeroMembershipInvoice()` is called with `markAsPaid: true` and `stripePaymentIntentId`
+2. The invoice status is forced to `AUTHORISED` (overriding the tenant's configured `xero_invoice_status`), because Xero requires invoices to be authorised before a payment can be applied
+3. After the invoice is created, the function looks up the tenant's `xero_stripe_bank_account_code` setting
+4. If the bank account code is configured:
+   - Looks up the bank account ID via the Xero Accounts API
+   - Creates a Payment via `POST /api.xro/2.0/Payments` with the invoice ID, bank account ID, total amount, and a reference containing the Stripe payment intent ID
+   - The invoice status becomes `PAID` in Xero
+5. If the bank account code is **not** configured:
+   - The invoice is still created as `AUTHORISED` but no payment is recorded
+   - A warning is logged
+
+**Prerequisite:** The tenant must have the `xero_stripe_bank_account_code` system setting configured with the account code of their Stripe bank account in Xero's chart of accounts. This is the same setting used by other Stripe payment paths (e.g. event bookings).
+
+**Non-fatal:** Payment recording errors are caught and logged but do not fail the overall Stripe payment confirmation. The member still receives their confirmation and the membership history record is created.
 
 ### VAT Handling for Scheduled Invoicing
 
