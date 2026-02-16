@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+
 const SOCIAL_SVG_PATHS = {
   facebook: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h5.047V9.43c0-4.985 2.97-7.74 7.513-7.74 2.177 0 4.454.389 4.454.389v4.89h-2.509c-2.473 0-3.245 1.534-3.245 3.109v3.73h5.51l-.881 3.47h-4.63v8.385C19.612 23.027 24 18.062 24 12.073z',
   twitter: 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
@@ -11,7 +13,7 @@ const SOCIAL_SVG_PATHS = {
   email: 'M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z',
 };
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -24,12 +26,25 @@ export default function handler(req, res) {
 
   const fillColor = color || '#333333';
   const iconSize = parseInt(size || '24', 10);
+  const renderSize = iconSize * 2;
   const svgPath = SOCIAL_SVG_PATHS[key];
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${iconSize}" height="${iconSize}" fill="${fillColor}"><path d="${svgPath}"/></svg>`;
+  const svg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${renderSize}" height="${renderSize}" fill="${fillColor}"><path d="${svgPath}"/></svg>`
+  );
 
-  res.setHeader('Content-Type', 'image/svg+xml');
-  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  return res.status(200).send(svg);
+  try {
+    const pngBuffer = await sharp(svg)
+      .resize(renderSize, renderSize)
+      .png()
+      .toBuffer();
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(200).send(pngBuffer);
+  } catch (err) {
+    console.error('Social icon PNG generation error:', err);
+    return res.status(500).json({ error: 'Failed to generate icon' });
+  }
 }
