@@ -130,14 +130,16 @@ const buildSocialIconHtml = (block) => {
   const alignMap = { left: 'left', center: 'center', right: 'right' };
   const textAlign = alignMap[align] || 'center';
 
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://iconn.app';
+
   const platformCells = enabledPlatforms.map((p, idx) => {
-    const svgPath = SOCIAL_SVG_PATHS[p.key] || SOCIAL_SVG_PATHS.website;
-    const dataUri = buildSvgDataUri(svgPath, svgFill, innerSvgSize);
+    const iconKey = SOCIAL_SVG_PATHS[p.key] ? p.key : 'website';
+    const iconSrc = `${baseUrl}/api/public/social-icon?key=${iconKey}&color=${encodeURIComponent(svgFill)}&size=${innerSvgSize}`;
     const href = p.url || '#';
     const label = SOCIAL_LABELS[p.key] || p.key;
     const spacing = idx > 0 ? `padding-left:${gap}px;` : '';
 
-    const iconImg = `<a href="${escapeHtml(href)}" target="_blank" style="text-decoration:none;display:inline-block;"><span style="display:inline-block;width:${iconSize}px;height:${iconSize}px;${getIconBgStyle()}text-align:center;line-height:${iconSize}px;vertical-align:middle;"><img src="${dataUri}" width="${innerSvgSize}" height="${innerSvgSize}" alt="${escapeHtml(label)}" style="display:inline-block;vertical-align:middle;border:0;outline:none;" /></span></a>`;
+    const iconImg = `<a href="${escapeHtml(href)}" target="_blank" style="text-decoration:none;display:inline-block;"><span style="display:inline-block;width:${iconSize}px;height:${iconSize}px;${getIconBgStyle()}text-align:center;line-height:${iconSize}px;vertical-align:middle;"><img src="${iconSrc}" width="${innerSvgSize}" height="${innerSvgSize}" alt="${escapeHtml(label)}" style="display:inline-block;vertical-align:middle;border:0;outline:none;" /></span></a>`;
 
     const labelStyle = `font-size:${labelFontSize}px;color:${iconColor};font-family:${escapeHtml(labelFontFamily)};line-height:1.2;white-space:nowrap;`;
     const labelHtml = displayMode === 'icon-label'
