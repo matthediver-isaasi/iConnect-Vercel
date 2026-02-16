@@ -71,9 +71,9 @@ export async function getValidXeroAccessToken(appTenantId) {
     }).toString(),
   });
 
-  const tokenData = await tokenResponse.json();
+  const tokenData = await safeXeroJson(tokenResponse, 'token-refresh');
 
-  if (!tokenResponse.ok || tokenData.error) {
+  if (tokenData.error) {
     throw new Error(`Failed to refresh Xero token: ${JSON.stringify(tokenData)}`);
   }
 
@@ -110,7 +110,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
     }
   );
 
-  const contactData = await contactSearchResponse.json();
+  const contactData = await safeXeroJson(contactSearchResponse, 'contact-search');
   if (contactData.Contacts && contactData.Contacts.length > 0) {
     console.log(`[Xero] Found existing contact: ${contactData.Contacts[0].ContactID}`);
     return contactData.Contacts[0].ContactID;
@@ -130,7 +130,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
     body: JSON.stringify({ Contacts: [newContact] })
   });
 
-  const newContactData = await createContactResponse.json();
+  const newContactData = await safeXeroJson(createContactResponse, 'contact-create');
   if (newContactData.Contacts && newContactData.Contacts.length > 0) {
     console.log(`[Xero] Created new contact: ${newContactData.Contacts[0].ContactID}`);
     return newContactData.Contacts[0].ContactID;
@@ -223,9 +223,9 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     body: JSON.stringify(invoicePayload)
   });
 
-  const invoiceData = await invoiceResponse.json();
+  const invoiceData = await safeXeroJson(invoiceResponse, 'invoice-create');
 
-  if (!invoiceResponse.ok || !invoiceData.Invoices || invoiceData.Invoices.length === 0) {
+  if (!invoiceData.Invoices || invoiceData.Invoices.length === 0) {
     console.error(`[Xero] Failed to create membership invoice:`, JSON.stringify(invoiceData).substring(0, 500));
     throw new Error(`Failed to create Xero invoice: ${JSON.stringify(invoiceData)}`);
   }
@@ -257,7 +257,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
           }
         });
 
-        const accountsData = await accountsResponse.json();
+        const accountsData = await safeXeroJson(accountsResponse, 'accounts-lookup');
         const bankAccount = accountsData?.Accounts?.[0];
 
         if (bankAccount?.AccountID) {
@@ -282,7 +282,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
             body: JSON.stringify({ Payments: [paymentPayload] })
           });
 
-          const paymentData = await paymentResponse.json();
+          const paymentData = await safeXeroJson(paymentResponse, 'payment-create');
 
           if (paymentData?.Payments?.[0]?.PaymentID) {
             paymentRecorded = true;
