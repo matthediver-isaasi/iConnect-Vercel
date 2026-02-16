@@ -15,6 +15,7 @@ import {
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search
 } from "lucide-react";
 import { toast } from "sonner";
+import { base44 } from "@/api/base44Client";
 
 export default function EmailCampaigns() {
   const navigate = useNavigate();
@@ -51,27 +52,33 @@ export default function EmailCampaigns() {
   const { data: categories = [] } = useQuery({
     queryKey: ['communication-categories'],
     queryFn: async () => {
-      const response = await fetch('/api/communication-categories', { credentials: 'include' });
-      if (!response.ok) return [];
-      return response.json();
+      try {
+        return await base44.entities.CommunicationCategory.list();
+      } catch (e) {
+        return [];
+      }
     }
   });
 
   const { data: memberGroups = [] } = useQuery({
     queryKey: ['member-groups'],
     queryFn: async () => {
-      const response = await fetch('/api/member-groups', { credentials: 'include' });
-      if (!response.ok) return [];
-      return response.json();
+      try {
+        return await base44.entities.MemberGroup.list();
+      } catch (e) {
+        return [];
+      }
     }
   });
 
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
     queryFn: async () => {
-      const response = await fetch('/api/roles', { credentials: 'include' });
-      if (!response.ok) return [];
-      return response.json();
+      try {
+        return await base44.entities.Role.list();
+      } catch (e) {
+        return [];
+      }
     }
   });
 
