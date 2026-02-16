@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users, Wifi } from "lucide-react";
+import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users, Wifi, LogIn, Lock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -1131,62 +1131,89 @@ export default function PaymentOptions({
             </Button>
           )}
 
-          {/* Terms and Conditions Checkbox */}
-          {hasBookingTerms && setTermsAccepted && (
-            <div className="flex items-start gap-2">
-              <Checkbox
-                id="terms-payment"
-                checked={termsAccepted}
-                onCheckedChange={setTermsAccepted}
-                data-testid="checkbox-terms-payment"
-              />
-              <label 
-                htmlFor="terms-payment" 
-                className="text-sm text-slate-600 leading-tight cursor-pointer"
-              >
-                I agree to the{' '}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (onShowTermsModal) onShowTermsModal();
-                  }}
-                  className="text-blue-600 hover:text-blue-800 underline"
-                  data-testid="link-terms-payment"
-                >
-                  terms and conditions
-                </button>
-              </label>
+          {/* Member only event message for unauthenticated users with no public tickets */}
+          {isGuestCheckout && noTicketsForRole ? (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <Lock className="h-4 w-4 text-blue-600 shrink-0" />
+              <span className="text-sm text-blue-800 font-medium">Member only event</span>
             </div>
+          ) : (
+            <>
+              {/* Terms and Conditions Checkbox */}
+              {hasBookingTerms && setTermsAccepted && (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="terms-payment"
+                    checked={termsAccepted}
+                    onCheckedChange={setTermsAccepted}
+                    data-testid="checkbox-terms-payment"
+                  />
+                  <label 
+                    htmlFor="terms-payment" 
+                    className="text-sm text-slate-600 leading-tight cursor-pointer"
+                  >
+                    I agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (onShowTermsModal) onShowTermsModal();
+                      }}
+                      className="text-blue-600 hover:text-blue-800 underline"
+                      data-testid="link-terms-payment"
+                    >
+                      terms and conditions
+                    </button>
+                  </label>
+                </div>
+              )}
+            </>
           )}
 
-          <Button
-            id="confirm-booking-button"
-            onClick={handleSubmit}
-            disabled={!canProceed || checkingDuplicates}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-            size="lg"
-          >
-            {checkingDuplicates ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Checking...
-              </>
-            ) : submitting ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : isRegistrationClosed ? (
-              'Registration Closed'
-            ) : isSoldOut ? (
-              'Sold Out'
-            ) : isOneOffEvent ? (
-              totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : 'Confirm Booking'
-            ) : (
-              'Confirm Booking'
-            )}
-          </Button>
+          {/* Login to register button for unauthenticated users on member-only events */}
+          {isGuestCheckout && noTicketsForRole ? (
+            <Button
+              id="confirm-booking-button"
+              onClick={() => {
+                const currentPath = window.location.pathname + window.location.search;
+                window.location.href = '/login?returnTo=' + encodeURIComponent(currentPath);
+              }}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+              size="lg"
+              data-testid="button-login-to-register"
+            >
+              <LogIn className="w-5 h-5 mr-2" />
+              Login to register
+            </Button>
+          ) : (
+            <Button
+              id="confirm-booking-button"
+              onClick={handleSubmit}
+              disabled={!canProceed || checkingDuplicates}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+              size="lg"
+            >
+              {checkingDuplicates ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : submitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : isRegistrationClosed ? (
+                'Registration Closed'
+              ) : isSoldOut ? (
+                'Sold Out'
+              ) : isOneOffEvent ? (
+                totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : 'Confirm Booking'
+              ) : (
+                'Confirm Booking'
+              )}
+            </Button>
+          )}
 
           {ticketsRequired === 0 && registrationMode === 'colleagues' && (
             <p className="text-xs text-center text-slate-500">

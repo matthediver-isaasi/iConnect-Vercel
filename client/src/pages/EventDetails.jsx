@@ -14,7 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import DOMPurify from "dompurify";
@@ -1704,16 +1704,30 @@ export default function EventDetailsPage() {
 
             {/* No tickets available for role message */}
             {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && (
-              <Card className="border-amber-200 bg-amber-50 shadow-sm mb-4">
+              <Card className={`shadow-sm mb-4 ${isGuestCheckout ? 'border-blue-200 bg-blue-50' : 'border-amber-200 bg-amber-50'}`}>
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <h3 className="font-medium text-amber-800">No Tickets Available</h3>
-                      <p className="text-sm text-amber-700 mt-1">
-                        There are no ticket classes available for your role. Please contact the event organizer for assistance.
-                      </p>
-                    </div>
+                    {isGuestCheckout ? (
+                      <>
+                        <Lock className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-medium text-blue-800">Member Only Event</h3>
+                          <p className="text-sm text-blue-700 mt-1">
+                            This event is available to members only. Please log in to register.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-medium text-amber-800">No Tickets Available</h3>
+                          <p className="text-sm text-amber-700 mt-1">
+                            There are no ticket classes available for your role. Please contact the event organizer for assistance.
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>
