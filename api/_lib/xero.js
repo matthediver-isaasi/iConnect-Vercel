@@ -1,6 +1,23 @@
 import { supabase } from './database.js';
 import { getXeroCredentials } from './xeroCredentials.js';
 
+async function safeXeroJson(response, context) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!response.ok) {
+    if (contentType.includes('application/json')) {
+      const errorData = await response.json();
+      throw new Error(`[Xero ${context}] HTTP ${response.status}: ${JSON.stringify(errorData).substring(0, 500)}`);
+    }
+    const text = await response.text();
+    throw new Error(`[Xero ${context}] HTTP ${response.status} (non-JSON response): ${text.substring(0, 300)}`);
+  }
+  if (!contentType.includes('application/json')) {
+    const text = await response.text();
+    throw new Error(`[Xero ${context}] Unexpected content-type '${contentType}': ${text.substring(0, 300)}`);
+  }
+  return response.json();
+}
+
 export async function getValidXeroAccessToken(appTenantId) {
   if (!supabase) throw new Error('Supabase not configured');
   
