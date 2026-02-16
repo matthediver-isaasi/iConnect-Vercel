@@ -67,12 +67,14 @@ export default async function handler(req, res) {
 
   try {
     const eventType = eventData.event;
-    const rawMessageId = eventData.message?.headers?.['message-id'] || eventData['message-id'];
+    const headerMessageId = eventData.message?.headers?.['message-id'];
+    const topLevelMessageId = eventData['message-id'];
+    const rawMessageId = headerMessageId || topLevelMessageId;
     const messageId = rawMessageId ? rawMessageId.replace(/^<|>$/g, '') : rawMessageId;
     const recipientEmail = eventData.recipient;
     const timestamp = eventData.timestamp ? new Date(eventData.timestamp * 1000).toISOString() : new Date().toISOString();
 
-    console.log(`[Mailgun Webhook] Received ${eventType} event for ${recipientEmail}`);
+    console.log(`[Mailgun Webhook] Received ${eventType} event for ${recipientEmail}, messageId: ${messageId || 'none'} (header: ${headerMessageId || 'none'}, top-level: ${topLevelMessageId || 'none'})`);
 
     let recipient = null;
     let campaign = null;
@@ -86,13 +88,36 @@ export default async function handler(req, res) {
 
       if (data) {
         recipient = data;
-        const { data: campaignData } = await supabase
-          .from('email_campaign')
-          .select('id, tenant_id')
-          .eq('id', data.campaign_id)
-          .single();
-        campaign = campaignData;
+        console.log(`[Mailgun Webhook] Matched recipient ${data.id} for campaign ${data.campaign_id} via messageId`);
+      } else {
+        console.log(`[Mailgun Webhook] No recipient found for messageId: ${messageId}`);
       }
+    }
+
+    if (!recipient && recipientEmail) {
+      const { data: fallbackRecipients } = await supabase
+        .from('email_campaign_recipient')
+        .select('id, campaign_id, member_id, mailgun_message_id')
+        .eq('email', recipientEmail)
+        .in('status', ['sent', 'delivered', 'opened', 'clicked'])
+        .order('sent_at', { ascending: false })
+        .limit(5);
+
+      if (fallbackRecipients && fallbackRecipients.length > 0) {
+        recipient = fallbackRecipients[0];
+        console.log(`[Mailgun Webhook] Fallback: matched recipient ${recipient.id} for campaign ${recipient.campaign_id} via email ${recipientEmail} (stored msgId: ${recipient.mailgun_message_id})`);
+      } else {
+        console.log(`[Mailgun Webhook] No recipient found via email fallback for ${recipientEmail}`);
+      }
+    }
+
+    if (recipient) {
+      const { data: campaignData } = await supabase
+        .from('email_campaign')
+        .select('id, tenant_id')
+        .eq('id', recipient.campaign_id)
+        .single();
+      campaign = campaignData;
     }
 
     await supabase.from('email_event').insert({
