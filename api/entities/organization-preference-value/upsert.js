@@ -50,6 +50,17 @@ export default async function handler(req, res) {
       }
     }
 
+    let previousValue = undefined;
+    const { data: existingPref } = await supabase
+      .from('organization_preference_value')
+      .select('value')
+      .eq('organization_id', targetOrgId)
+      .eq('field_id', field_id)
+      .single();
+    if (existingPref) {
+      previousValue = existingPref.value;
+    }
+
     const { data, error } = await supabase
       .from('organization_preference_value')
       .upsert(
@@ -82,7 +93,7 @@ export default async function handler(req, res) {
 
     let pendingWorkflowConfirmations = [];
     try {
-      const prefResult = await triggerPreferenceWorkflows('organization', targetOrgId, field_id, storedValue, baseUrl);
+      const prefResult = await triggerPreferenceWorkflows('organization', targetOrgId, field_id, storedValue, baseUrl, previousValue);
       if (prefResult?.pendingConfirmations?.length > 0) {
         pendingWorkflowConfirmations = prefResult.pendingConfirmations;
       }

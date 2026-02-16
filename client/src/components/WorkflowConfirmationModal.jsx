@@ -205,8 +205,24 @@ export function WorkflowConfirmationModal({
   };
 
   const handleSkip = (workflow) => {
-    setProcessedWorkflows(prev => [...prev, { id: workflow.workflow_id, action: 'skipped' }]);
     onSkip?.(workflow);
+    setProcessedWorkflows(prev => {
+      const newProcessed = [...prev, { id: workflow.workflow_id, action: 'skipped' }];
+      const newRemaining = pendingWorkflows.filter(
+        w => !newProcessed.find(p => p.id === w.workflow_id)
+      );
+      const stillNeedsRevert = newRemaining.some(
+        w => w.conditions_met === false && w.revert_on_fail && w.revert_field_id
+      );
+      if (!stillNeedsRevert && newRemaining.length === 0) {
+        setTimeout(() => {
+          setProcessedWorkflows([]);
+          setWorkflowResults({});
+          onOpenChange(false);
+        }, 0);
+      }
+      return newProcessed;
+    });
   };
 
   const handleSkipAll = () => {
@@ -229,7 +245,12 @@ export function WorkflowConfirmationModal({
 
   const allProcessed = remainingWorkflows.length === 0 && pendingWorkflows.length > 0;
 
+  const hasRevertRequired = remainingWorkflows.some(
+    w => w.conditions_met === false && w.revert_on_fail && w.revert_field_id
+  );
+
   const handleClose = () => {
+    if (hasRevertRequired) return;
     if (!allProcessed && remainingWorkflows.length > 0) {
       for (const w of remainingWorkflows) {
         onSkip?.(w);
@@ -241,8 +262,18 @@ export function WorkflowConfirmationModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      if (!isOpen) {
+        if (hasRevertRequired) return;
+        handleClose();
+      }
+    }}>
+      <DialogContent
+        className="sm:max-w-lg"
+        hideCloseButton={hasRevertRequired}
+        onPointerDownOutside={hasRevertRequired ? (e) => e.preventDefault() : undefined}
+        onEscapeKeyDown={hasRevertRequired ? (e) => e.preventDefault() : undefined}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
@@ -346,7 +377,7 @@ export function WorkflowConfirmationModal({
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
-          {!allProcessed && remainingWorkflows.length > 1 && (
+          {!allProcessed && remainingWorkflows.length > 1 && !hasRevertRequired && (
             <Button
               variant="ghost"
               onClick={handleSkipAll}
@@ -356,14 +387,16 @@ export function WorkflowConfirmationModal({
               Skip All
             </Button>
           )}
-          <Button
-            variant={allProcessed ? "default" : "outline"}
-            onClick={handleClose}
-            className="w-full sm:w-auto"
-            data-testid="button-close-workflow-modal"
-          >
-            {allProcessed ? 'Done' : 'Close'}
-          </Button>
+          {!hasRevertRequired && (
+            <Button
+              variant={allProcessed ? "default" : "outline"}
+              onClick={handleClose}
+              className="w-full sm:w-auto"
+              data-testid="button-close-workflow-modal"
+            >
+              {allProcessed ? 'Done' : 'Close'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
