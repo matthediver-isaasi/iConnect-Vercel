@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
-  Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, 
+  Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search
 } from "lucide-react";
@@ -38,6 +38,7 @@ export default function EmailCampaigns() {
   const [memberSearchResults, setMemberSearchResults] = useState([]);
   const [searchingMembers, setSearchingMembers] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
+  const [duplicating, setDuplicating] = useState(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -170,6 +171,32 @@ export default function EmailCampaigns() {
       setCampaignToDelete(null);
     } catch (error) {
       toast.error(error.message);
+    }
+  };
+
+  const handleDuplicateCampaign = async (campaign) => {
+    setDuplicating(campaign.id);
+    try {
+      const response = await fetch(`/api/email-campaigns/${campaign.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'duplicate' })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to duplicate campaign');
+      }
+
+      const newCampaign = await response.json();
+      toast.success('Campaign duplicated');
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+      navigate(`/EmailCampaignEdit/${newCampaign.id}`);
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setDuplicating(null);
     }
   };
 
@@ -585,6 +612,20 @@ export default function EmailCampaigns() {
                                 <BarChart3 className="w-4 h-4" />
                               </Button>
                             )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDuplicateCampaign(campaign)}
+                              disabled={duplicating === campaign.id}
+                              title="Duplicate"
+                              data-testid={`button-duplicate-${campaign.id}`}
+                            >
+                              {duplicating === campaign.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"

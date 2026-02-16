@@ -1,5 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getCampaign, updateCampaign, deleteCampaign, getCampaignStats, getClickHeatmapData } from '../_lib/campaignService.js';
+import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, getCampaignStats, getClickHeatmapData } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
@@ -39,6 +39,18 @@ export default async function handler(req, res) {
     }
 
     return res.json(result.campaign);
+  }
+
+  if (req.method === 'POST') {
+    const { action } = req.body || {};
+    if (action === 'duplicate') {
+      const result = await duplicateCampaign(id, tenantId, tenantContext.memberId);
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+      return res.status(201).json(result.campaign);
+    }
+    return res.status(400).json({ error: 'Invalid action' });
   }
 
   if (req.method === 'PATCH' || req.method === 'PUT') {

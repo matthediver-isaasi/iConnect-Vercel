@@ -127,6 +127,55 @@ export async function updateCampaign(campaignId, updates, tenantId) {
   }
 }
 
+export async function duplicateCampaign(campaignId, tenantId, createdBy) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { data: original, error: fetchError } = await supabase
+      .from('email_campaign')
+      .select('*')
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (!original) return { success: false, error: 'Campaign not found' };
+
+    const {
+      id, created_at, updated_at, status, sent_at, scheduled_at,
+      sent_count, delivered_count, opened_count, clicked_count,
+      bounced_count, complained_count, unsubscribed_count,
+      ...cloneFields
+    } = original;
+
+    const { data: newCampaign, error: insertError } = await supabase
+      .from('email_campaign')
+      .insert({
+        ...cloneFields,
+        name: `${original.name} (Copy)`,
+        status: 'draft',
+        created_by: createdBy || original.created_by,
+        sent_count: 0,
+        delivered_count: 0,
+        opened_count: 0,
+        clicked_count: 0,
+        bounced_count: 0,
+        complained_count: 0,
+        unsubscribed_count: 0
+      })
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+    return { success: true, campaign: newCampaign };
+  } catch (err) {
+    console.error('[Campaign Service] Error duplicating campaign:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function deleteCampaign(campaignId, tenantId) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
