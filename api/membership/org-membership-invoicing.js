@@ -134,7 +134,7 @@ async function handlePut(req, res, tenantId, tenantContext) {
 
   const { data: org } = await supabase
     .from('organization')
-    .select('id, name, tenant_id')
+    .select('id, name, tenant_id, invoicing_address')
     .eq('id', organizationId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -312,6 +312,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
+      invoicingAddress: org.invoicing_address,
       membershipYear: membershipYear.label,
       tierLabel,
       finalCost,

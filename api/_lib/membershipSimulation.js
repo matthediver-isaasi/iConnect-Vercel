@@ -22,7 +22,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   const { data: org } = await supabase
     .from('organization')
-    .select('id, name, tenant_id')
+    .select('id, name, tenant_id, invoicing_address')
     .eq('id', organizationId)
     .eq('tenant_id', tenantId)
     .maybeSingle();

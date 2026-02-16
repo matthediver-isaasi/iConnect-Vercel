@@ -91,12 +91,38 @@ export async function getValidXeroAccessToken(appTenantId) {
   return { accessToken: tokenData.access_token, tenantId: token.tenant_id };
 }
 
+function parseAddressLines(addressText) {
+  if (!addressText) return null;
+  const lines = addressText.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  const address = { AddressType: 'POBOX' };
+  if (lines.length === 1) {
+    address.AddressLine1 = lines[0];
+  } else if (lines.length === 2) {
+    address.AddressLine1 = lines[0];
+    address.City = lines[1];
+  } else if (lines.length === 3) {
+    address.AddressLine1 = lines[0];
+    address.City = lines[1];
+    address.PostalCode = lines[2];
+  } else {
+    address.AddressLine1 = lines[0];
+    address.AddressLine2 = lines[1];
+    address.City = lines[2];
+    address.PostalCode = lines[3];
+    if (lines[4]) address.Country = lines[4];
+  }
+  return address;
+}
+
 export async function findOrCreateXeroContact(accessToken, xeroTenantId, contactInfo) {
   const info = typeof contactInfo === 'string'
-    ? { name: contactInfo, email: null, isOrganization: true }
+    ? { name: contactInfo, email: null, isOrganization: true, address: null }
     : contactInfo;
 
   console.log(`[Xero] Finding/creating contact: ${info.name}`);
+
+  const parsedAddress = parseAddressLines(info.address);
 
   const escapedName = info.name.replace(/"/g, '\\"');
   const contactSearchResponse = await fetch(
@@ -112,13 +138,41 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
 
   const contactData = await safeXeroJson(contactSearchResponse, 'contact-search');
   if (contactData.Contacts && contactData.Contacts.length > 0) {
-    console.log(`[Xero] Found existing contact: ${contactData.Contacts[0].ContactID}`);
-    return contactData.Contacts[0].ContactID;
+    const existingContact = contactData.Contacts[0];
+    console.log(`[Xero] Found existing contact: ${existingContact.ContactID}`);
+
+    if (parsedAddress) {
+      try {
+        const updatePayload = {
+          Contacts: [{
+            ContactID: existingContact.ContactID,
+            Addresses: [parsedAddress]
+          }]
+        };
+        const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+        await safeXeroJson(updateResponse, 'contact-address-update');
+        console.log(`[Xero] Updated contact address for: ${info.name}`);
+      } catch (addrErr) {
+        console.warn(`[Xero] Failed to update contact address (non-fatal): ${addrErr.message}`);
+      }
+    }
+
+    return existingContact.ContactID;
   }
 
   console.log(`[Xero] Creating new contact...`);
   const newContact = { Name: info.name };
   if (info.email) newContact.EmailAddress = info.email;
+  if (parsedAddress) newContact.Addresses = [parsedAddress];
 
   const createContactResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
     method: 'POST',
@@ -141,13 +195,16 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
 
   const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
-  const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, organizationName);
+  const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, {
+    name: organizationName,
+    address: invoicingAddress || null,
+  });
 
   const { data: membershipLedgerSetting } = await supabase
     .from('system_settings')
