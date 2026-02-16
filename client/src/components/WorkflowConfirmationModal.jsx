@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Zap, Mail, Settings, Check, X, Loader2, PlayCircle,
   CheckCircle2, XCircle, AlertTriangle, Info,
-  FileText, SkipForward, Database
+  FileText, SkipForward, Database, Undo2
 } from "lucide-react";
 
 const ACTION_ICONS = {
@@ -92,6 +92,37 @@ function ActionStepList({ actions, results }) {
   );
 }
 
+function ConditionFailureBanner({ workflow }) {
+  if (workflow.conditions_met !== false) return null;
+  
+  const failedConditions = (workflow.condition_results || []).filter(c => !c.met);
+  
+  return (
+    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2" data-testid={`conditions-failed-${workflow.workflow_id}`}>
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
+        <span className="text-sm font-medium text-destructive">Conditions not met</span>
+      </div>
+      {failedConditions.length > 0 && (
+        <div className="space-y-1 ml-6">
+          {failedConditions.map((c, i) => (
+            <p key={i} className="text-xs text-muted-foreground">
+              Field <span className="font-medium">{c.field_id.substring(0, 8)}...</span>
+              {' '}{c.operator} "{c.expected}" 
+              {c.actual !== undefined && <span> (current: "{c.actual}")</span>}
+            </p>
+          ))}
+        </div>
+      )}
+      {workflow.revert_on_fail && (
+        <p className="text-xs text-muted-foreground ml-6">
+          The triggering field will be reverted to its previous value when this dialog is dismissed.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function WorkflowConfirmationModal({
   open,
   onOpenChange,
@@ -123,7 +154,12 @@ export function WorkflowConfirmationModal({
   };
 
   const handleSkipAll = () => {
-    onSkipAll?.();
+    const unprocessedWorkflows = pendingWorkflows.filter(
+      w => !processedWorkflows.find(p => p.id === w.workflow_id)
+    );
+    if (unprocessedWorkflows.length > 0) {
+      onSkipAll?.(unprocessedWorkflows);
+    }
     onOpenChange(false);
   };
 
@@ -138,11 +174,13 @@ export function WorkflowConfirmationModal({
   const allProcessed = remainingWorkflows.length === 0 && pendingWorkflows.length > 0;
 
   const handleClose = () => {
+    if (!allProcessed && remainingWorkflows.length > 0) {
+      for (const w of remainingWorkflows) {
+        onSkip?.(w);
+      }
+    }
     setProcessedWorkflows([]);
     setWorkflowResults({});
-    if (allProcessed || remainingWorkflows.length === 0) {
-      onSkipAll?.();
-    }
     onOpenChange(false);
   };
 
@@ -194,9 +232,18 @@ export function WorkflowConfirmationModal({
               <div key={workflow.workflow_id}>
                 {index > 0 && <Separator className="my-3" />}
                 <div className="space-y-3">
-                  <p className="font-medium" data-testid={`text-workflow-name-${workflow.workflow_id}`}>
-                    {workflow.workflow_name}
-                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium" data-testid={`text-workflow-name-${workflow.workflow_id}`}>
+                      {workflow.workflow_name}
+                    </p>
+                    {workflow.conditions_met === false && (
+                      <Badge variant="destructive" className="text-xs">
+                        Conditions Not Met
+                      </Badge>
+                    )}
+                  </div>
+
+                  <ConditionFailureBanner workflow={workflow} />
 
                   <div className="border rounded-md bg-muted/20">
                     <ActionStepList actions={workflow.actions || []} />
@@ -210,13 +257,22 @@ export function WorkflowConfirmationModal({
                       disabled={processingWorkflowId === workflow.workflow_id}
                       data-testid={`button-skip-workflow-${workflow.workflow_id}`}
                     >
-                      <X className="h-4 w-4 mr-1" />
-                      Skip
+                      {workflow.conditions_met === false && workflow.revert_on_fail ? (
+                        <>
+                          <Undo2 className="h-4 w-4 mr-1" />
+                          Revert & Dismiss
+                        </>
+                      ) : (
+                        <>
+                          <X className="h-4 w-4 mr-1" />
+                          Skip
+                        </>
+                      )}
                     </Button>
                     <Button
                       size="sm"
                       onClick={() => handleConfirm(workflow)}
-                      disabled={processingWorkflowId === workflow.workflow_id}
+                      disabled={processingWorkflowId === workflow.workflow_id || workflow.conditions_met === false}
                       data-testid={`button-confirm-workflow-${workflow.workflow_id}`}
                     >
                       {processingWorkflowId === workflow.workflow_id ? (

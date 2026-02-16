@@ -1323,8 +1323,8 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         continue;
       }
 
-      // Evaluate additional conditions (if any)
       let allConditionsMet = true;
+      const conditionResults = [];
       console.log(`[Workflows] ${workflow.name} - conditions array:`, JSON.stringify(workflow.conditions));
       console.log(`[Workflows] ${workflow.name} - afterData keys:`, afterData ? Object.keys(afterData) : 'null');
       console.log(`[Workflows] ${workflow.name} - afterData.login_enabled:`, afterData?.login_enabled, 'type:', typeof afterData?.login_enabled);
@@ -1447,6 +1447,14 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
               conditionMet = false;
           }
           
+          conditionResults.push({
+            field_id: condition.field_id,
+            operator: condition.operator,
+            expected: condition.value,
+            actual: actualValue,
+            met: conditionMet
+          });
+          
           console.log(`[Workflows] Condition ${i}: field="${condition.field_id}", op="${condition.operator}", value="${condition.value}", actual="${actualValue}", met=${conditionMet}, logic=${condition.logic || 'AND'}`);
           
           if (i === 0) {
@@ -1464,52 +1472,6 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         }
         
         console.log(`[Workflows] Final allConditionsMet for ${workflow.name}: ${allConditionsMet}`);
-        
-        if (!allConditionsMet) {
-          console.log(`[Workflows] Conditions not met for workflow: ${workflow.name} - SKIPPING`);
-          
-          if (workflow.revert_trigger_on_condition_fail && workflow.trigger_type === 'field_change' && workflow.trigger_config?.field_id) {
-            const revertFieldId = workflow.trigger_config.field_id;
-            const revertFieldType = workflow.trigger_config.field_type || 'core';
-            
-            if (revertFieldType === 'custom') {
-              console.log(`[Workflows] Revert trigger not supported for custom field workflows in this path - skipping revert for "${workflow.name}"`);
-            } else if (!reverts.some(r => r.field_id === revertFieldId)) {
-              const previousValue = beforeData?.[revertFieldId];
-              const currentValue = afterData?.[revertFieldId];
-              
-              console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting ${entityType}.${revertFieldId} from "${currentValue}" back to "${previousValue}"`);
-              
-              try {
-                const revertTable = entityType === 'job_posting' ? 'job_posting' : entityType;
-                const { error: revertError } = await supabase
-                  .from(revertTable)
-                  .update({ [revertFieldId]: previousValue ?? null })
-                  .eq('id', entityId);
-                  
-                if (revertError) {
-                  console.error(`[Workflows] Failed to revert ${revertFieldId}:`, revertError);
-                } else {
-                  console.log(`[Workflows] Successfully reverted ${revertFieldId} to "${previousValue}"`);
-                  reverts.push({
-                    workflow_name: workflow.name,
-                    field_id: revertFieldId,
-                    field_type: revertFieldType,
-                    reverted_from: currentValue,
-                    reverted_to: previousValue,
-                    reason: `Conditions not met for workflow "${workflow.name}"`
-                  });
-                }
-              } catch (revertErr) {
-                console.error(`[Workflows] Error reverting trigger for "${workflow.name}":`, revertErr);
-              }
-            } else {
-              console.log(`[Workflows] Field ${revertFieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
-            }
-          }
-          
-          continue;
-        }
       }
 
       if (await checkOncePerRecord(workflow, entityType, entityId)) {
@@ -1517,17 +1479,70 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         continue;
       }
 
-      // Check if this workflow requires user confirmation before executing
       if (workflow.trigger_type === 'field_change' && workflow.trigger_config?.requires_confirmation) {
-        console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list`);
-        // Only include minimal non-sensitive data needed for confirmation UI
-        pendingConfirmations.push({
+        console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
+        const revertFieldId = workflow.trigger_config?.field_id;
+        const revertFieldType = workflow.trigger_config?.field_type || 'core';
+        const confirmationData = {
           workflow_id: workflow.id,
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id)))
-        });
+          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id))),
+          conditions_met: allConditionsMet,
+          condition_results: conditionResults.length > 0 ? conditionResults : undefined,
+          revert_on_fail: workflow.revert_trigger_on_condition_fail || false,
+          revert_field_id: revertFieldId,
+          revert_field_type: revertFieldType,
+          revert_previous_value: revertFieldType === 'custom' ? undefined : beforeData?.[revertFieldId]
+        };
+        pendingConfirmations.push(confirmationData);
+        continue;
+      }
+      
+      if (!allConditionsMet) {
+        console.log(`[Workflows] Conditions not met for workflow: ${workflow.name} - SKIPPING`);
+        
+        if (workflow.revert_trigger_on_condition_fail && workflow.trigger_type === 'field_change' && workflow.trigger_config?.field_id) {
+          const revertFieldId = workflow.trigger_config.field_id;
+          const revertFieldType = workflow.trigger_config.field_type || 'core';
+          
+          if (revertFieldType === 'custom') {
+            console.log(`[Workflows] Revert trigger not supported for custom field workflows in this path - skipping revert for "${workflow.name}"`);
+          } else if (!reverts.some(r => r.field_id === revertFieldId)) {
+            const previousValue = beforeData?.[revertFieldId];
+            const currentValue = afterData?.[revertFieldId];
+            
+            console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting ${entityType}.${revertFieldId} from "${currentValue}" back to "${previousValue}"`);
+            
+            try {
+              const revertTable = entityType === 'job_posting' ? 'job_posting' : entityType;
+              const { error: revertError } = await supabase
+                .from(revertTable)
+                .update({ [revertFieldId]: previousValue ?? null })
+                .eq('id', entityId);
+                
+              if (revertError) {
+                console.error(`[Workflows] Failed to revert ${revertFieldId}:`, revertError);
+              } else {
+                console.log(`[Workflows] Successfully reverted ${revertFieldId} to "${previousValue}"`);
+                reverts.push({
+                  workflow_name: workflow.name,
+                  field_id: revertFieldId,
+                  field_type: revertFieldType,
+                  reverted_from: currentValue,
+                  reverted_to: previousValue,
+                  reason: `Conditions not met for workflow "${workflow.name}"`
+                });
+              }
+            } catch (revertErr) {
+              console.error(`[Workflows] Error reverting trigger for "${workflow.name}":`, revertErr);
+            }
+          } else {
+            console.log(`[Workflows] Field ${revertFieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
+          }
+        }
+        
         continue;
       }
 
@@ -1604,6 +1619,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       if (!triggerMatches) continue;
 
       let allConditionsMet = true;
+      const conditionResults = [];
       if (workflow.conditions && workflow.conditions.length > 0) {
         console.log(`[Workflows] Evaluating ${workflow.conditions.length} conditions for preference workflow ${workflow.name}`);
         
@@ -1684,6 +1700,14 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
             default: conditionMet = false;
           }
           
+          conditionResults.push({
+            field_id: condition.field_id,
+            operator: condition.operator,
+            expected: condition.value,
+            actual: actualValue,
+            met: conditionMet
+          });
+          
           console.log(`[Workflows] Pref condition ${i}: field="${condition.field_id}", op="${condition.operator}", value="${condition.value}", actual="${actualValue}", before="${beforeStr}", met=${conditionMet}`);
           
           if (i === 0) {
@@ -1698,45 +1722,6 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
         }
         
         console.log(`[Workflows] Final allConditionsMet for preference workflow ${workflow.name}: ${allConditionsMet}`);
-        
-        if (!allConditionsMet) {
-          console.log(`[Workflows] Conditions not met for preference workflow: ${workflow.name} - SKIPPING`);
-          
-          if (workflow.revert_trigger_on_condition_fail && !reverts.some(r => r.field_id === fieldId)) {
-            console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting custom field ${fieldId} from "${value}" back to "${previousValue}"`);
-            
-            try {
-              const prefTable = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
-              const idCol = entityType === 'organization' ? 'organization_id' : 'member_id';
-              
-              const { error: revertError } = await supabase
-                .from(prefTable)
-                .update({ value: previousValue ?? null })
-                .eq(idCol, entityId)
-                .eq('field_id', fieldId);
-                
-              if (revertError) {
-                console.error(`[Workflows] Failed to revert custom field ${fieldId}:`, revertError);
-              } else {
-                console.log(`[Workflows] Successfully reverted custom field ${fieldId} to "${previousValue}"`);
-                reverts.push({
-                  workflow_name: workflow.name,
-                  field_id: fieldId,
-                  field_type: 'custom',
-                  reverted_from: value,
-                  reverted_to: previousValue,
-                  reason: `Conditions not met for workflow "${workflow.name}"`
-                });
-              }
-            } catch (revertErr) {
-              console.error(`[Workflows] Error reverting custom field trigger for "${workflow.name}":`, revertErr);
-            }
-          } else if (reverts.some(r => r.field_id === fieldId)) {
-            console.log(`[Workflows] Field ${fieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
-          }
-          
-          continue;
-        }
       }
       
       if (await checkOncePerRecord(workflow, entityType, entityId)) {
@@ -1745,14 +1730,60 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       }
       
       if (cfg.requires_confirmation) {
-        console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list`);
-        pendingConfirmations.push({
+        console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list (conditions_met=${allConditionsMet})`);
+        const confirmationData = {
           workflow_id: workflow.id,
           workflow_name: workflow.name,
           entity_type: entityType,
           entity_id: entityId,
-          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id)))
-        });
+          actions: await Promise.all((workflow.actions || []).map(a => buildActionSummary(a, workflow.tenant_id))),
+          conditions_met: allConditionsMet,
+          condition_results: conditionResults.length > 0 ? conditionResults : undefined,
+          revert_on_fail: workflow.revert_trigger_on_condition_fail || false,
+          revert_field_id: fieldId,
+          revert_field_type: 'custom',
+          revert_previous_value: previousValue
+        };
+        pendingConfirmations.push(confirmationData);
+        continue;
+      }
+      
+      if (!allConditionsMet) {
+        console.log(`[Workflows] Conditions not met for preference workflow: ${workflow.name} - SKIPPING`);
+        
+        if (workflow.revert_trigger_on_condition_fail && !reverts.some(r => r.field_id === fieldId)) {
+          console.log(`[Workflows] Revert trigger enabled for "${workflow.name}" - reverting custom field ${fieldId} from "${value}" back to "${previousValue}"`);
+          
+          try {
+            const prefTable = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+            const idCol = entityType === 'organization' ? 'organization_id' : 'member_id';
+            
+            const { error: revertError } = await supabase
+              .from(prefTable)
+              .update({ value: previousValue ?? null })
+              .eq(idCol, entityId)
+              .eq('field_id', fieldId);
+              
+            if (revertError) {
+              console.error(`[Workflows] Failed to revert custom field ${fieldId}:`, revertError);
+            } else {
+              console.log(`[Workflows] Successfully reverted custom field ${fieldId} to "${previousValue}"`);
+              reverts.push({
+                workflow_name: workflow.name,
+                field_id: fieldId,
+                field_type: 'custom',
+                reverted_from: value,
+                reverted_to: previousValue,
+                reason: `Conditions not met for workflow "${workflow.name}"`
+              });
+            }
+          } catch (revertErr) {
+            console.error(`[Workflows] Error reverting custom field trigger for "${workflow.name}":`, revertErr);
+          }
+        } else if (reverts.some(r => r.field_id === fieldId)) {
+          console.log(`[Workflows] Field ${fieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
+        }
+        
         continue;
       }
       

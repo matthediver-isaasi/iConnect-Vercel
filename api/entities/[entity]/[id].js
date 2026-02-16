@@ -204,7 +204,23 @@ export default async function handler(req, res) {
       const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting';
       const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       
-      if (isWorkflowEntity || isPreferenceValueEntity) {
+      let prefValueBefore = undefined;
+      if (isPreferenceValueEntity) {
+        try {
+          const { data: prevRecord } = await supabase
+            .from(tableName)
+            .select('value, field_id, organization_id, member_id')
+            .eq('id', id)
+            .single();
+          if (prevRecord) {
+            prefValueBefore = prevRecord.value;
+          }
+        } catch (e) {
+          console.error('[Entity PATCH] Error fetching preference value before data:', e);
+        }
+      }
+
+      if (isWorkflowEntity) {
         try {
           let beforeQuery = supabase
             .from(tableName)
@@ -424,7 +440,7 @@ export default async function handler(req, res) {
         const fieldId = data.field_id;
         
         const newValue = req.body.value !== undefined ? req.body.value : data.value;
-        const prevValue = beforeData?.value;
+        const prevValue = prefValueBefore;
         
         if (entityId && fieldId) {
           try {

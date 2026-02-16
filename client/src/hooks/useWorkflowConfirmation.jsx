@@ -60,15 +60,74 @@ export function useWorkflowConfirmation() {
     }
   }, []);
 
-  const handleSkipWorkflow = useCallback((workflow) => {
-    toast.info(`Skipped workflow "${workflow.workflow_name}"`);
+  const handleSkipWorkflow = useCallback(async (workflow) => {
+    if (workflow.conditions_met === false && workflow.revert_on_fail && workflow.revert_field_id) {
+      try {
+        const response = await fetch('/api/functions/execute-workflow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            workflow_id: workflow.workflow_id,
+            entity_type: workflow.entity_type,
+            entity_id: workflow.entity_id,
+            action: 'revert',
+            revert_field_id: workflow.revert_field_id,
+            revert_field_type: workflow.revert_field_type,
+            revert_previous_value: workflow.revert_previous_value
+          }),
+        });
+        const result = await response.json();
+        if (result.success) {
+          toast.warning(
+            `"${workflow.workflow_name}" conditions were not met. The triggering field has been reverted to its previous value.`,
+            { duration: 6000 }
+          );
+        } else {
+          toast.error('Failed to revert field change');
+        }
+      } catch (error) {
+        console.error('Error reverting workflow trigger:', error);
+        toast.error('Failed to revert field change');
+      }
+    } else {
+      toast.info(`Skipped workflow "${workflow.workflow_name}"`);
+    }
   }, []);
 
-  const handleSkipAllWorkflows = useCallback(() => {
-    toast.info('All pending workflows skipped');
+  const handleSkipAllWorkflows = useCallback(async (unprocessedWorkflows) => {
+    const workflowsToProcess = unprocessedWorkflows || pendingWorkflows;
+    const revertWorkflows = workflowsToProcess.filter(
+      w => w.conditions_met === false && w.revert_on_fail && w.revert_field_id
+    );
+    for (const workflow of revertWorkflows) {
+      try {
+        await fetch('/api/functions/execute-workflow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            workflow_id: workflow.workflow_id,
+            entity_type: workflow.entity_type,
+            entity_id: workflow.entity_id,
+            action: 'revert',
+            revert_field_id: workflow.revert_field_id,
+            revert_field_type: workflow.revert_field_type,
+            revert_previous_value: workflow.revert_previous_value
+          }),
+        });
+      } catch (e) {
+        console.error('Error reverting on skip all:', e);
+      }
+    }
+    if (revertWorkflows.length > 0) {
+      toast.warning('Conditions not met - triggering fields have been reverted.', { duration: 6000 });
+    } else if (workflowsToProcess.length > 0) {
+      toast.info('All pending workflows skipped');
+    }
     setPendingWorkflows([]);
     setShowConfirmationModal(false);
-  }, []);
+  }, [pendingWorkflows]);
 
   const clearPendingWorkflows = useCallback(() => {
     setPendingWorkflows([]);
