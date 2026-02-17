@@ -474,13 +474,25 @@ async function handleGet(req, res, tenantId) {
       yearData.annualCost = netCost;
       const totalDays = yearData.totalDaysInYear || 365;
       yearData.dailyCost = parseFloat((netCost / totalDays).toFixed(4));
+      const isPercentIncentive = yearData.freePeriodUnit === 'percent';
       if (yearData.proRataEnabled && yearData.prorataDays != null) {
         yearData.prorataCost = parseFloat((yearData.dailyCost * yearData.prorataDays).toFixed(2));
-        if (yearData.freePeriodDaysApplied > 0) {
+        if (isPercentIncentive && yearData.freePeriodAmount) {
+          const fullDiscountAmount = parseFloat((netCost * yearData.freePeriodAmount / 100).toFixed(2));
+          const proportionUsed = yearData.prorataDays / totalDays;
+          yearData.freeDiscount = parseFloat((fullDiscountAmount * proportionUsed).toFixed(2));
+          yearData.freeDiscount = Math.min(yearData.freeDiscount, yearData.prorataCost);
+          yearData.finalCost = parseFloat(Math.max(0, yearData.prorataCost - yearData.freeDiscount).toFixed(2));
+        } else if (yearData.freePeriodDaysApplied > 0) {
           yearData.freeDiscount = parseFloat((yearData.dailyCost * yearData.freePeriodDaysApplied).toFixed(2));
+          yearData.billableDays = yearData.prorataDays - yearData.freePeriodDaysApplied;
+          yearData.finalCost = parseFloat((yearData.dailyCost * yearData.billableDays).toFixed(2));
+        } else {
+          yearData.finalCost = yearData.prorataCost;
         }
-        yearData.billableDays = yearData.prorataDays - (yearData.freePeriodDaysApplied || 0);
-        yearData.finalCost = parseFloat((yearData.dailyCost * yearData.billableDays).toFixed(2));
+      } else if (isPercentIncentive && yearData.freePeriodAmount) {
+        yearData.freeDiscount = parseFloat((netCost * yearData.freePeriodAmount / 100).toFixed(2));
+        yearData.finalCost = parseFloat(Math.max(0, netCost - yearData.freeDiscount).toFixed(2));
       } else if (yearData.freePeriodDaysApplied > 0) {
         yearData.freeDiscount = parseFloat((yearData.dailyCost * yearData.freePeriodDaysApplied).toFixed(2));
         yearData.finalCost = parseFloat((netCost - yearData.freeDiscount).toFixed(2));
