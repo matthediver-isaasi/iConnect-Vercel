@@ -337,6 +337,18 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'paymentIntentId is required' });
         }
 
+        // Idempotency: check if a membership record already exists for this PaymentIntent
+        const { data: existingByPI } = await supabase
+          .from('organisation_membership_history')
+          .select('id')
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .maybeSingle();
+
+        if (existingByPI) {
+          console.log(`[Member Fees] Idempotent return: record already exists for PI ${paymentIntentId}`);
+          return res.json({ success: true, already_processed: true, recordCreated: true, message: 'Payment already confirmed' });
+        }
+
         const confirmApprovalCheck = await checkMemberFeesApproval(tenantId, organizationId, confirmYear);
         if (confirmApprovalCheck.blocked) {
           return res.status(400).json({ error: confirmApprovalCheck.message || 'Fees have not yet been approved for payment. Please contact your administrator.' });
@@ -421,10 +433,25 @@ export default async function handler(req, res) {
               notes: `Payment received via Stripe (member portal). PI: ${paymentIntentId}. Member: ${sessionMember.id}`,
             });
 
-          if (!insertError || insertError.code === '23505') {
-            recordCreated = !insertError;
+          if (!insertError) {
+            recordCreated = true;
+          } else if (insertError.code === '23505') {
+            console.log(`[Member Fees] Duplicate constraint hit for PI ${paymentIntentId} - already processed`);
+            recordCreated = true;
           } else {
             console.error('[Member Fees] Error creating history record:', insertError);
+            // Auto-refund: record creation failed after payment succeeded
+            try {
+              await stripe.refunds.create({
+                payment_intent: paymentIntentId,
+                reason: 'requested_by_customer',
+                metadata: { reason: 'membership_record_creation_failed', member_id: sessionMember.id, organization_id: organizationId }
+              });
+              console.log(`[Member Fees] Auto-refund issued for PI ${paymentIntentId} after record creation failure`);
+            } catch (refundErr) {
+              console.error(`[Member Fees] Auto-refund FAILED for PI ${paymentIntentId}:`, refundErr.message);
+            }
+            return res.status(500).json({ error: 'Failed to create membership record. A refund has been initiated. Please contact support if you do not see it within 5-10 business days.' });
           }
         }
 

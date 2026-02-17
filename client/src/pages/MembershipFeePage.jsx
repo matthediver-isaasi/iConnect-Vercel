@@ -39,10 +39,12 @@ export default function MembershipFeePage() {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
+  const [completingRedirectPayment, setCompletingRedirectPayment] = useState(false);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
   const cardRef = useRef(null);
+  const redirectHandled = useRef(false);
 
   useEffect(() => {
     if (!token) return;
@@ -69,6 +71,58 @@ export default function MembershipFeePage() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  }, [token]);
+
+  // Handle 3D Secure redirect return
+  useEffect(() => {
+    if (!token || redirectHandled.current) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentIntentFromUrl = urlParams.get('payment_intent');
+    const redirectStatus = urlParams.get('redirect_status');
+
+    if (!paymentIntentFromUrl) return;
+
+    redirectHandled.current = true;
+    console.log('[MembershipFeePage] Detected 3D Secure return:', { paymentIntentFromUrl, redirectStatus });
+
+    // Clean Stripe params from URL
+    const cleanParams = new URLSearchParams(window.location.search);
+    cleanParams.delete('payment_intent');
+    cleanParams.delete('payment_intent_client_secret');
+    cleanParams.delete('redirect_status');
+    const cleanSearch = cleanParams.toString();
+    window.history.replaceState({}, '', window.location.pathname + (cleanSearch ? '?' + cleanSearch : ''));
+
+    if (redirectStatus !== 'succeeded') {
+      setPaymentError('Payment was not completed. Please try again.');
+      return;
+    }
+
+    setCompletingRedirectPayment(true);
+
+    const completePayment = async () => {
+      try {
+        const confirmRes = await fetch(`/api/public/membership-fees/${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'confirm_payment', paymentIntentId: paymentIntentFromUrl }),
+        });
+
+        if (!confirmRes.ok) {
+          const err = await confirmRes.json().catch(() => ({}));
+          throw new Error(err.error || 'Payment was taken but confirmation failed. Please contact support.');
+        }
+
+        setPaymentComplete(true);
+      } catch (err) {
+        setPaymentError(err.message);
+      } finally {
+        setCompletingRedirectPayment(false);
+      }
+    };
+
+    completePayment();
   }, [token]);
 
   const handleSubmitPo = async () => {
@@ -158,6 +212,9 @@ export default function MembershipFeePage() {
 
       const { error: confirmError, paymentIntent } = await stripeRef.current.confirmPayment({
         elements: elementsRef.current,
+        confirmParams: {
+          return_url: window.location.href,
+        },
         redirect: 'if_required',
       });
 
@@ -187,6 +244,20 @@ export default function MembershipFeePage() {
   };
 
   const primaryColor = data?.tenant?.primaryColor || '#5C0085';
+
+  if (completingRedirectPayment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <Loader2 className="w-10 h-10 mx-auto mb-4 animate-spin text-blue-600" />
+            <h2 className="text-lg font-semibold mb-2">Completing Your Payment</h2>
+            <p className="text-sm text-gray-500">Your payment has been verified. We're confirming your membership now...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

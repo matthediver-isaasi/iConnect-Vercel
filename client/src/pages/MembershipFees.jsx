@@ -43,9 +43,11 @@ export default function MembershipFees() {
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
+  const [completingRedirectPayment, setCompletingRedirectPayment] = useState(false);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
+  const redirectHandled = useRef(false);
 
   const fetchFees = (year) => {
     setLoading(true);
@@ -77,6 +79,66 @@ export default function MembershipFees() {
 
   useEffect(() => {
     fetchFees(null);
+  }, []);
+
+  // Handle 3D Secure redirect return
+  useEffect(() => {
+    if (redirectHandled.current) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentIntentFromUrl = urlParams.get('payment_intent');
+    const redirectStatus = urlParams.get('redirect_status');
+
+    if (!paymentIntentFromUrl) return;
+
+    redirectHandled.current = true;
+    console.log('[MembershipFees] Detected 3D Secure return:', { paymentIntentFromUrl, redirectStatus });
+
+    // Clean Stripe params from URL
+    const cleanParams = new URLSearchParams(window.location.search);
+    cleanParams.delete('payment_intent');
+    cleanParams.delete('payment_intent_client_secret');
+    cleanParams.delete('redirect_status');
+    const cleanSearch = cleanParams.toString();
+    window.history.replaceState({}, '', window.location.pathname + (cleanSearch ? '?' + cleanSearch : ''));
+
+    if (redirectStatus !== 'succeeded') {
+      setPaymentError('Payment was not completed. Please try again.');
+      return;
+    }
+
+    // Retrieve saved membership year from sessionStorage
+    const savedYear = sessionStorage.getItem('pending_membership_payment_year');
+    setCompletingRedirectPayment(true);
+
+    const completePayment = async () => {
+      try {
+        const confirmRes = await fetch('/api/membership/member-fees', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            action: 'confirm_payment',
+            paymentIntentId: paymentIntentFromUrl,
+            membershipYear: savedYear || null,
+          }),
+        });
+
+        if (!confirmRes.ok) {
+          const err = await confirmRes.json().catch(() => ({}));
+          throw new Error(err.error || 'Payment was taken but confirmation failed. Please contact support.');
+        }
+
+        sessionStorage.removeItem('pending_membership_payment_year');
+        setPaymentComplete(true);
+      } catch (err) {
+        setPaymentError(err.message);
+      } finally {
+        setCompletingRedirectPayment(false);
+      }
+    };
+
+    completePayment();
   }, []);
 
   const handleSubmitPo = async () => {
@@ -128,6 +190,10 @@ export default function MembershipFees() {
       }
       const { clientSecret, membershipYear: yr } = await res.json();
       setPaymentYear(yr);
+      // Save membership year for 3D Secure redirect recovery
+      if (yr) {
+        sessionStorage.setItem('pending_membership_payment_year', yr);
+      }
 
       if (!window.Stripe) {
         const script = document.createElement('script');
@@ -176,6 +242,9 @@ export default function MembershipFees() {
 
       const { error: confirmError, paymentIntent } = await stripeRef.current.confirmPayment({
         elements: elementsRef.current,
+        confirmParams: {
+          return_url: window.location.href,
+        },
         redirect: 'if_required',
       });
 
@@ -184,6 +253,9 @@ export default function MembershipFees() {
       }
 
       if (paymentIntent?.status === 'succeeded') {
+        // Clean up sessionStorage since payment completed without redirect
+        sessionStorage.removeItem('pending_membership_payment_year');
+        
         const confirmRes = await fetch('/api/membership/member-fees', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -210,6 +282,20 @@ export default function MembershipFees() {
   };
 
   const primaryColor = data?.tenant?.primaryColor || '#5C0085';
+
+  if (completingRedirectPayment) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Card className="max-w-md w-full">
+          <CardContent className="pt-6 text-center">
+            <Loader2 className="w-10 h-10 mx-auto mb-4 animate-spin text-blue-600" />
+            <h2 className="text-lg font-semibold mb-2">Completing Your Payment</h2>
+            <p className="text-sm text-muted-foreground">Your payment has been verified. We're confirming your membership now...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
