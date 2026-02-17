@@ -1,0 +1,3299 @@
+Received: from VI2PR05MB11573.eurprd05.prod.outlook.com
+ (2603:10a6:800:273::13) by MI3PR05MB12313.eurprd05.prod.outlook.com with
+ HTTPS; Tue, 17 Feb 2026 14:59:33 +0000
+Received: from CWLP265CA0486.GBRP265.PROD.OUTLOOK.COM (2603:10a6:400:18a::16)
+ by VI2PR05MB11573.eurprd05.prod.outlook.com (2603:10a6:800:273::13) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.9611.16; Tue, 17 Feb
+ 2026 14:59:28 +0000
+Received: from AMS1EPF0000003F.eurprd04.prod.outlook.com
+ (2603:10a6:400:18a:cafe::ea) by CWLP265CA0486.outlook.office365.com
+ (2603:10a6:400:18a::16) with Microsoft SMTP Server (version=TLS1_3,
+ cipher=TLS_AES_256_GCM_SHA384) id 15.20.9632.13 via Frontend Transport; Tue,
+ 17 Feb 2026 14:59:28 +0000
+Authentication-Results: spf=pass (sender IP is 185.250.239.5)
+ smtp.mailfrom=mail.graduatefutures.org; dkim=pass (signature was verified)
+ header.d=mail.graduatefutures.org;dmarc=pass action=none
+ header.from=graduatefutures.org;compauth=pass reason=100
+Received-SPF: Pass (protection.outlook.com: domain of mail.graduatefutures.org
+ designates 185.250.239.5 as permitted sender)
+ receiver=protection.outlook.com; client-ip=185.250.239.5;
+ helo=v55.v54282eed.euw1.send.eu.mailgun.net; pr=C
+Received: from v55.v54282eed.euw1.send.eu.mailgun.net (185.250.239.5) by
+ AMS1EPF0000003F.mail.protection.outlook.com (10.167.16.36) with Microsoft
+ SMTP Server (version=TLS1_2, cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id
+ 15.20.9632.12 via Frontend Transport; Tue, 17 Feb 2026 14:59:28 +0000
+DKIM-Signature: a=rsa-sha256; v=1; c=relaxed/relaxed; d=mail.graduatefutures.org; q=dns/txt; s=mta; t=1771340366; x=1771347566;
+ h=Message-Id: List-Unsubscribe-Post: List-Unsubscribe: To: To: From: From: Subject: Subject: Content-Type: Mime-Version: Date: Sender: Sender;
+ bh=s/AlG3+aPGgofFD/uyvhPZdoJWVMP0L881U7daHelzo=;
+ b=Gld7z4xB6HapskeCpxQA1WcEHWlRyeV5CFGERZM6atTubTEp+67Nej6TM4kdkBS4K4m+TO1NAi5yVDD22JKtScrdqa9+okMQo7wcFveZYlHaXYQIgI+fNJGApeegW3UimgJpPuSXwT4PpWaViCtvqJOP1y59stvMA+W/2Ko5iZ4=
+X-Mailgun-Sid: WyI3YzY5YyIsIm1hdEBpc2Fhc2kuY28udWsiLCI5YTM2NmQiXQ==
+Received: by eb525e68d25020a5f6f5503fae5504af4c92df69c0929cf61941ea9eeef0c884 with HTTP
+ id 6994824e001511e6b51d9ca7; Tue, 17 Feb 2026 14:59:26 GMT
+X-Mailgun-Sending-Ip: 185.250.239.5
+Sender: membership=graduatefutures.org@mail.graduatefutures.org
+Date: Tue, 17 Feb 2026 14:59:26 +0000
+Content-Type: multipart/alternative;
+ boundary="ce2f7faddc52acc90dbe7767f6a0af2aa04865648c8f2bb5fd585e8a6da7"
+Subject: ems test
+From: test <membership@graduatefutures.org>
+To: mat@isaasi.co.uk
+X-Mailgun-Track: true
+X-Mailgun-Track-Opens: true
+X-Mailgun-Track-Clicks: htmlonly
+List-Unsubscribe: <mailto:unsubscribe@mail.graduatefutures.org>,
+ <https://gfi.dev.iconn.app/api/email-campaigns/unsubscribe?t=MWYwYjZkYjEtOWQ1My00YTE1LWFlMWUtNzBmYjhjY2NlZjJkOjZjZTVlNDNmLWQ4YzktNDlmOS04YTU2LTg4YzJjNzllMjU1Nzow&confirm=true>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+Message-Id: <20260217145926.877a91c807257e66@mail.graduatefutures.org>
+Return-Path: bounce+7f58e3.9a366d-mat=isaasi.co.uk@mail.graduatefutures.org
+X-MS-Exchange-Organization-ExpirationStartTime: 17 Feb 2026 14:59:28.3753
+ (UTC)
+X-MS-Exchange-Organization-ExpirationStartTimeReason: OriginalSubmit
+X-MS-Exchange-Organization-ExpirationInterval: 1:00:00:00.0000000
+X-MS-Exchange-Organization-ExpirationIntervalReason: OriginalSubmit
+X-MS-Exchange-Organization-Network-Message-Id: cf1c0634-2d42-461d-cf47-08de6e35260a
+X-EOPAttributedMessage: 0
+X-EOPTenantAttributedMessage: f6ea630b-ca09-493b-961d-fddb60f6f1f3:0
+X-MS-Exchange-Organization-MessageDirectionality: Incoming
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: AMS1EPF0000003F:EE_|VI2PR05MB11573:EE_|MI3PR05MB12313:EE_
+X-MS-Exchange-Organization-AuthSource: AMS1EPF0000003F.eurprd04.prod.outlook.com
+X-MS-Exchange-Organization-AuthAs: Anonymous
+X-MS-Office365-Filtering-Correlation-Id: cf1c0634-2d42-461d-cf47-08de6e35260a
+X-MS-Exchange-Organization-SCL: 1
+X-Microsoft-Antispam: BCL:0;ARA:13230040|1032899013|69100299015|29132699027|4022899009|7049299003|3109299003|20203002999009|13003099007|2066899003|4076899003|20204042999004|8096899003|43062017;
+X-Forefront-Antispam-Report: CIP:185.250.239.5;CTRY:GB;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:v55.v54282eed.euw1.send.eu.mailgun.net;PTR:v55.v54282eed.euw1.send.eu.mailgun.net;CAT:NONE;SFS:(13230040)(1032899013)(69100299015)(29132699027)(4022899009)(7049299003)(3109299003)(20203002999009)(13003099007)(2066899003)(4076899003)(20204042999004)(8096899003)(43062017);DIR:INB;
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 17 Feb 2026 14:59:28.2957
+ (UTC)
+X-MS-Exchange-CrossTenant-Network-Message-Id: cf1c0634-2d42-461d-cf47-08de6e35260a
+X-MS-Exchange-CrossTenant-Id: f6ea630b-ca09-493b-961d-fddb60f6f1f3
+X-MS-Exchange-CrossTenant-AuthSource: AMS1EPF0000003F.eurprd04.prod.outlook.com
+X-MS-Exchange-CrossTenant-AuthAs: Anonymous
+X-MS-Exchange-CrossTenant-FromEntityHeader: Internet
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: VI2PR05MB11573
+X-MS-Exchange-Transport-EndToEndLatency: 00:00:05.1630829
+X-MS-Exchange-Processed-By-BccFoldering: 15.20.9611.011
+X-Microsoft-Antispam-Mailbox-Delivery:
+	ucf:0;jmr:0;auth:0;dest:I;ENG:(910005)(944490095)(944506478)(944626604)(920097)(930201)(20251009189)(140003);
+X-Microsoft-Antispam-Message-Info:
+	=?utf-8?B?UFJoWkMzR1UwV0ZYdzcvR05MaTNqVzkrUG1acW82cWw5NnhXakROMklBbWVv?=
+ =?utf-8?B?YWRmaFRpOTFsT09qZ1JPa2ZEdmZEWDFLdE1ta0UyNld5bHMxamNJMlpJL2tR?=
+ =?utf-8?B?ZmJoektUR3FlQjVSSlphNGV6MjNsZ3plSzZvSEh2OFBPNytFUExCUmNKdGsw?=
+ =?utf-8?B?ZXlMSTFna2c5NmFWZ2FENlFRc3c2OTNpQk5wZnBOWHdOb3c5Z3duemVnT21n?=
+ =?utf-8?B?VzA4dDBRNVJwaHJrUFFZRUJZZzVvay8vL3VOd2tKN1BjNVRzL1BnM2xQRUw5?=
+ =?utf-8?B?R3NWVTNHcXNLNmJkd0lqZEh1d1Q0Wkx0V2dxQWc4cTdCRlIyMWdZM25oNTdM?=
+ =?utf-8?B?anNtREQ5djlJeURFNmZ1Rlo2S3ZRZUdiK2s5SjZMZHBSMXhsK0JONS9hdTJJ?=
+ =?utf-8?B?NUNId2xCa1J4dUdoVUNpTGp1MVpZYzRtd0YydjZUVGFRU3dQNElQdWkyRGpw?=
+ =?utf-8?B?RVdnWUdaNnpTOWh2SVhSODRvTllhZHZWNXZ2aWlSNW1Zb1VUOFBEd1BQeklz?=
+ =?utf-8?B?ZFZuYlBNMkNjckc4TjNMbFl4Wkw1TkdMSm9PNXN4NXpXTzd5by9aUW9INGZ3?=
+ =?utf-8?B?ankxM25LUWVZVlIvSURraERrekZtTFpWRi9MSjNLZDVHUWE1TndiVzRrTVJ0?=
+ =?utf-8?B?VW0rWVdXRU43Q256N0p2M2dCdzBMWUtKWklMZTYzMWJ4MnJNb25JbG1IejlZ?=
+ =?utf-8?B?c1NIdi9qSzNxL2xtMGJMZE5QSm9yVndJYThpbXpqR1M5azJYYk9GNk8rb09p?=
+ =?utf-8?B?V1dZcS9DQ1R2TVltTW54MUxOSzZaa3kvZ3crVWowcG9GdlpBREwxV2xUYzc4?=
+ =?utf-8?B?RUdvdTU2K014TEhMYytSY3NlWmtMWUh1dlBmQ0JzZURIall0T3JPOEc0MjdS?=
+ =?utf-8?B?VDlBTXowak9VbG9ZMGhscDczQm8zVXRQVUM1UzRwRUozbVQ4ZnZoWWNWSWI5?=
+ =?utf-8?B?R2ttOVE2eFl4YUVra2VpN0gvbEJLRUNqTkYzWkVJakFJUEFGb08rZEp4T3lI?=
+ =?utf-8?B?d2d6RmkyNXpVWWltTFVseEJtQ25udDV0V2c0aUg3NzZRSXdJclNCTWlqbHlC?=
+ =?utf-8?B?aU1jQ3NqSVptUXNpblBFSHZSOXVXbmdaSkFOQTY2dERKWnlhTnZSbUF4ajg0?=
+ =?utf-8?B?L3IydXRZdkdsMldGaysrS09wcVBxTHg0OTM3eUdIQnQ5U0gyaWJxUUtkN1hL?=
+ =?utf-8?B?ZS9oTVkydDZwSm5qL2ZHdGlKeUhrTUthaVV4bUlkMzF6U050VjBwMExlUDd5?=
+ =?utf-8?B?WnBIRWtsdk9JbDZLcFREUk1FRHNYVE05YVdsVk9WbllrZXdRZzNnZUhIQXpk?=
+ =?utf-8?B?cmRqNVE0U3UvSFRzL2x2NW01SGF1MHVlUXRsdUdHdEVOeDNCellCMzB3dmYv?=
+ =?utf-8?B?clBxYXBWT2c1dHJ1WVVlczFPN2JWQXd0R05RSDBvdDJGL2dVaHFRM1crYis3?=
+ =?utf-8?B?QnBtNWtsdXpWZmpiMUloMHZUL1gvaFprbzAxWkdQOE1qVU5vU1pQd1hsZDZt?=
+ =?utf-8?B?UzFSVmxlbGNkWXFJWnYvOWhoem1QNG9XemN4eVlNY1doQ0FuSEdXbmNYZzBv?=
+ =?utf-8?B?Y0tQV0Jnc0EzSVpMQnVEaXpyb2QwTElnWkFPQzdBbTdCcVZNV0lsUFFHUVlS?=
+ =?utf-8?B?dXp2ZzJsaGlqM245L3AvQy9QYlg3bUdJRi83c0REa0sxZjFEcWVweWh6dy81?=
+ =?utf-8?B?ZC9aa04xTDVzTVJKU0o0WnoxZ2tncjdENEc2VlRUcWZVaEVxYUZWa3dOMGJ6?=
+ =?utf-8?B?YlVyd1BHQ3kxQlJ2RDlzY0VXZ3JlaTBQWThqNEVxbWwwNTR2YW1KaXJqYzBs?=
+ =?utf-8?B?VEZvbVJXblhtL0NEY0djM0U3MDlIRXpVcTJ4K1QrNDBlREhDSS9kcHg0clNE?=
+ =?utf-8?B?NWNmNjdZMUJKamg0YUpRWE1BSktsYkQrOFJHb2JETDhrQmhickZjSjduSVZ4?=
+ =?utf-8?B?aFI4R2NZZis1b3B0eGxhdTBhZ0piRzNLeDUwaWQ3NGRmUGpDZlZoYmYrSDFr?=
+ =?utf-8?B?aFZyLzloNlQ1REFqQW1rdjI2TDFNdTBxamdyL1BJZzVVQy9ObnhzQ0RCVVMy?=
+ =?utf-8?B?aVBuUGJQUHRCdEdqMTBmMHc2Y3BFRkVlQVBrcjZFWnI1SEVQZmZKTzI3Qkls?=
+ =?utf-8?B?KzhqRm83UVlGVG1SbUpSaktCdUQ0dVJsS29yT2xCaG5ucVl1bVRJalR0UE9j?=
+ =?utf-8?B?b1lhbXVWUmJkVzltZlJwTTFxbG1QbEtVMTNzaUpWYVhBb0l2K0dxVUJOUlJT?=
+ =?utf-8?B?aUw3OUVtenJNRkdrRmxWVWwzSVpsNTV3SUttVUNDOHZicis4djdycmFOdkJo?=
+ =?utf-8?B?VGg1K3Rxa01vcVp6UkFhODVKU0lmSkR0NWNRQ1dMOVB0Z0Y0bFdCNm9WclRF?=
+ =?utf-8?B?TTdRQ1lPUHViNDFKMmtnYjdWVWFEeDNQVm1pdk5OSlRGTStKMFpQQTN1SHR3?=
+ =?utf-8?B?QlZEdFdDdi94VzJ2NmcwNUxveFUzdEROWTdsN2tJSzVCRDFpQ2FQL1VwaWdU?=
+ =?utf-8?B?MHQ5TmF1SUIrMFJCQkNibTFZd3FmSTZxdDRjQW44bHRWSHpGRWROem9QUEV2?=
+ =?utf-8?B?WTRtZE1qNlJmWUVCV2hnMHNPcTUwanBBdkthc1p2RnBzbTkzWlJiNjhTYTNJ?=
+ =?utf-8?B?Mk9PUi91NjF1V0hDZWU2dE04NHVjcFlRaTV1NnBUOUFlRGJxUEN0eFlUVTk0?=
+ =?utf-8?B?VU94M25iUXdua0k1ZG5PL2pJbFFSYjlSaUpDWExzeXdVajVFYVdFamdCaU5q?=
+ =?utf-8?B?RTFMemF1UUNyZVRiR3dVQ0E2QWtOdkliei9yZE4vaU1uRmtMUzM0S3RVM00r?=
+ =?utf-8?B?OHUvOFpYVHc4RVNjWkF3RlZEcE00WHVMZHY0RnZsTnljbm9Ga1l0OXN6SWZF?=
+ =?utf-8?B?WVU3NHFxdlM1TzRsa0tncnRKVnp6V210Vm81S3NlQ1U1Rm1xTHB4VTJsL2Zs?=
+ =?utf-8?B?bVozUUU4bFd6czVhMkNGeTBuRDM2a09WSDNWbitHUVB0QmhHOXQwSXZZd3Nu?=
+ =?utf-8?B?K0JsYlFZakIzSGZoTVdBaXdwcVEwZFExQzI1bFlvUzhqL05pV2Ftd2Mvd0VG?=
+ =?utf-8?B?Y2hYM21ERzhSelpYV3B6ZEh2dlFsckVZNDRNdGlNUXJJRzdHVDRRYjlEWUdu?=
+ =?utf-8?B?WXVwdUJmOFNWdDhQekgxNHBkSWg5SXg5OCtBS1lBTUVxN1JFVlptL1lrbWRx?=
+ =?utf-8?B?aVJZOEE3VXpVNXVuQ3Ric1NQT3NpNDd6SkgwdFZ6VHNxYkFaNG4yZmx2VVgr?=
+ =?utf-8?B?UURWWlVtdzRMTFlpS0FBWnFtR002aFFNdC9oUVBDMTJpaW02b0I2Vk5uWG1U?=
+ =?utf-8?B?NjM0MGxIMXNLM0dNbyt4OVUrL1RnTkJLd2NzeFdGckordVJtVS93bXd2dG85?=
+ =?utf-8?B?TGdFL3ZwSHBhekx0NWFUREM4bkwrazJ0ZXk5NXdhekhGUmZNMWViRGpqM0VG?=
+ =?utf-8?B?a0tEY2IyVnUwWGd4eDhPOFUrYWxhVDlTVE4zMTJDdFNIWmxWd0hHa2xUaFJk?=
+ =?utf-8?B?eDZQbG1CV2YrRXJSNWUwN0lteTFrNFJoakd1WnhKaU1tTmhwRnc3c3E3Q1FJ?=
+ =?utf-8?B?MXUxTll1eHFMazhYK0pCT29CRXppYTM4N2h3b2RqOWZCazRBPT0=?=
+MIME-Version: 1.0
+
+--ce2f7faddc52acc90dbe7767f6a0af2aa04865648c8f2bb5fd585e8a6da7
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/plain; charset="utf-8"
+
+
+
+ =20
+   =20
+   =20
+   =20
+   =20
+   =20
+   =20
+   =20
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size=
+-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-r=
+space:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decora=
+tion:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+   =20
+   =20
+   =20
+   =20
+   =20
+     =20
+      96
+   =20
+   =20
+   =20
+   =20
+   =20
+   =20
+      .mj-outlook-group-fix { width:100% !important; }
+   =20
+   =20
+   =20
+     =20
+       =20
+       =20
+          @import url(https://fonts.googleapis.com/css2?family=3DLato:wght@=
+400;700&display=3Dswap);
+       =20
+     =20
+
+   =20
+   =20
+   =20
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+=2Emj-column-per-60 { width:60% !important; max-width: 60%; }
+=2Emj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+   =20
+   =20
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width:=
+ 100%; }
+=2Emoz-text-html .mj-column-per-60 { wid=
+th:60% !important; max-width: 60%; }
+=2Emoz-text-html .mj-column-per-40 { wid=
+th:40% !important; max-width: 40%; }
+   =20
+   =20
+   =20
+ =20
+   =20
+   =20
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+ =20
+   =20
+    =20
+   =20
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: au=
+to !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+   =20
+   =20
+ =20
+ =20
+   =20
+   =20
+     =20
+       =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+       =20
+         =20
+           =20
+             =20
+     =20
+   =20
+           =20
+         =20
+       =20
+     =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      2 February 2026By Jeremy Swan, Head of Policy and Advocacy, Graduate =
+Futures Institute
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+     =20
+     =20
+       &nbsp;
+
+   =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Shaping the future of our sector, together
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Welcome to the very first issue of The Fast Track from the Graduate F=
+utures Institute.Each week, we'll bring you the key insights and opportunit=
+ies you need to know, so you can stay ahead and act fast. Whatever your rol=
+e in careers and employability around higher education, we're here to help =
+you do your best work.Money worriesA report from the Institute of Fiscal St=
+udies (IFS) shows that total public spending on education in the UK has fal=
+len by 10% since 2010-11, with drop mostly due to shifting the cost of high=
+er education from the taxpayer onto graduates. When you look at public spen=
+ding on education as a share of national income, we're now at historic lows=
+ last seen in the late 1990s.Meanwhile, research published by the Office fo=
+r Students (OfS) shows that many students are aware of cost-cutting measure=
+s at their universities. Around half of the c.1,200 students polled said th=
+ey had noticed changes, with one-fifth (20%) specifically highlighting care=
+ers and employability services. Interestingly though, when asked about the =
+changes to student support services overall (which includes careers), stude=
+nts were more likely to report positive changes (37% positive, 34% negative=
+, 27% no change, 2% don't know).Students are feeling the pinch too, with ma=
+ny taking on paid work to ease financial pressure. A new article on HEPI hi=
+ghlights that academic performance declines once working hours exceed 10 pe=
+r week, while job quality also has a big impact on academic results. The au=
+thors call for careers services to be 'rebalanced' and links with local emp=
+loyers strengthened to help students find good work that will help the loca=
+l economy while preparing them for graduate roles.Championing university ca=
+reers servicesCareers and employability services do outstanding work across=
+ the sector, but too often it goes unseen by policy makers and the public. =
+That=E2=80=99s why we launched the Quarterly Data Barometer last month: to =
+build a credible evidence base that shows the impact of our community. The =
+first results are already cutting through, helping us secure coverage in Ti=
+mes Higher Education and informing a letter we wrote to skills minister Jac=
+qui Smith last week.Now we need your help to keep the momentum.We=E2=80=99r=
+e collecting responses to our Q2 survey on work-based learning and the find=
+ings will be used in a public campaign to celebrate university careers serv=
+ices later this spring (more on this coming soon...). The more responses we=
+ receive, the more robust (and useful) the data will be =E2=80=94 helping u=
+s represent the scale and impact of your work with employers, and make the =
+strongest possible case in that campaign. We=E2=80=99ve sent the survey lin=
+k to all heads of careers, and we=E2=80=99d really appreciate your help to =
+make sure it=E2=80=99s completed by 13 February. If you're able to fill thi=
+s out on behalf of your institution, email hello@graduatefutures.org and we=
+'ll resend a copy of the survey to you, copied to your head of careers.
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      &#8202;
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+       =20
+         =20
+           =20
+             =20
+       =20
+         =20
+     =20
+   =20
+       =20
+     =20
+           =20
+         =20
+       =20
+     =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      &#8202;
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+     =20
+     =20
+       &nbsp;
+
+   =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Worth reading
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Preparing one billion people for tomorrow's economy (World Economic F=
+orum)If you=E2=80=99re keeping an eye on how large scale skills and employa=
+bility work is evolving, this is a useful read.Looking at the campaign on s=
+tudent loan interest (HEPI)Nick Hillman argues that the current campaign ag=
+ainst student loan interest payments is aiming at the wrong target. Extra i=
+nterest is deliberately the most progressive part of England's student loan=
+ system, making higher-earning graduates pay more and helping to fund debt =
+write-offs for those who earn less.Retail sales bulletin latest (ONS)Latest=
+ figures show retail sales fell 0.3% in the three months to December 2025, =
+indicating falling consumer demand and difficult economic conditions.High F=
+liers report on the graduate labour market (High Fliers)The report suggests=
+ the UK graduate jobs squeeze is persisting: the top 100 employers cut hire=
+s again in 2025 (-5.1%) and are planning a further dip in 2026 (-0.5%), tak=
+ing vacancies to their lowest level since 2012. Yet competition is intensif=
+ying as applications rise a further 23% year-on-year (now doubled since 202=
+3). Starting pay for leading employers is flattening at a =C2=A335,000 medi=
+an (with big premiums in investment banking, law and consulting), while emp=
+loyers continue to narrow on-campus targeting to an average of 23 universit=
+ies.Vice-Chancellor from London South Bank University to chair the Academic=
+ Employability Awards 2026 (Graduate Futures)Paul Kett has been unveiled as=
+ the head judge for this year's awards, which are accepting entries until M=
+onday 16 February.
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+     =20
+     =20
+       &nbsp;
+
+   =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Signals
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      950,000The number of students who accessed online careers resources p=
+rovided by their university in 2024/25. (QDB, Q1)215,000University students=
+ attended a one-to-one careers guidance appointment in 2024/25. (QDB, Q1)20=
+,640Careers events took place in universities during 2024/25. (QDB, Q1)
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+     =20
+     =20
+       &nbsp;
+
+   =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      On the Graduate Futures Blog
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+           =20
+             =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Road trip: University of Edinburgh
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+      How do you deliver personalised careers support at scale without stre=
+tching resources to breaking point? Edinburgh=E2=80=99s approach blends ear=
+ly engagement, data-led targeting, and alumni-powered programmes.
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+      Read blog
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+           =20
+         =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+           =20
+             =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+       =20
+         =20
+           =20
+             =20
+     =20
+   =20
+           =20
+         =20
+       =20
+     =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+           =20
+         =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Something to say? We=E2=80=99d love to publish it.
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+      Have an opinion, a practical how-to, a case study from your instituti=
+on, or a new angle we should all be debating? If it helps move the conversa=
+tion on (and helps students and graduates succeed), we want to hear it. Sim=
+ply pitch your idea to media@graduatefutures.org
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+       =20
+         =20
+           =20
+             =20
+       =20
+         =20
+     =20
+   =20
+       =20
+     =20
+           =20
+         =20
+       =20
+     =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Recent vacancies
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+      Careers Consultant (0.8 FTE), Imperial College London=C2=A357,785 - =
+=C2=A369,365 (Actual 0.8 salary =C2=A346,228)Head of Careers and Employabil=
+ity, University of Huddersfield=C2=A360,521 - =C2=A370,130
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+       =20
+         =20
+           =20
+             =20
+       =20
+         =20
+     =20
+   =20
+       =20
+     =20
+           =20
+         =20
+       =20
+     =20
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+      Connect with us
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+     =20
+        LinkedIn
+     =20
+        YouTube
+     =20
+        Email
+     =20
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+      You are receiving this email as you signed up for our newsletters.&nb=
+sp;Want to change how you receive these emails?
+   =20
+               =20
+             =20
+           =20
+             =20
+               =20
+                 =20
+      Update your preferences
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+     =20
+     =20
+       =20
+       =20
+         =20
+           =20
+             =20
+               =20
+           =20
+     =20
+       =20
+     =20
+       =20
+         =20
+             =20
+               =20
+                 =20
+     =20
+
+ =20
+ =20
+ =20
+ =20
+   =20
+     =20
+     =20
+       =20
+         =20
+           =20
+         =20
+       =20
+     =20
+     =20
+  =20
+     =20
+     =20
+     =20
+       =20
+         =20
+       =20
+     =20
+     =20
+     =20
+     =20
+       =20
+         =20
+           =20
+              The Association of Graduate Careers Advisory Services (Gradua=
+te Futures Institute) is a registered charity in England and Wales (1078508=
+) and Scotland (SC038805) Company No. 03884685.
+           =20
+         =20
+       =20
+     =20
+   =20
+ =20
+
+   =20
+               =20
+             =20
+           =20
+       =20
+     =20
+   =20
+     =20
+   =20
+         =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+             =20
+           =20
+         =20
+       =20
+       =20
+     =20
+   =20
+     =20
+     =20
+   =20
+   =20
+     =20
+   =20
+ =20
+
+ =20
+--ce2f7faddc52acc90dbe7767f6a0af2aa04865648c8f2bb5fd585e8a6da7
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<!doctype html><html lang=3D"und" dir=3D"auto" xmlns=3D"http://www.w3.org/1=
+999/xhtml" xmlns:v=3D"urn:schemas-microsoft-com:vml" xmlns:o=3D"urn:schemas=
+-microsoft-com:office:office"><head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3Dutf-8"><t=
+itle></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv=3D"X-UA-Compatible" content=3D"IE=3Dedge">
+    <!--<![endif]-->
+   =20
+    <meta name=3D"viewport" content=3D"width=3Ddevice-width, initial-scale=
+=3D1">
+    <style type=3D"text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size=
+-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-r=
+space:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decora=
+tion:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type=3D"text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+   =20
+      <!--[if !mso]><!-->
+        <link href=3D"https://fonts.googleapis.com/css2?family=3DLato:wght@=
+400;700&amp;display=3Dswap" rel=3D"stylesheet" type=3D"text/css">
+        <style type=3D"text/css">
+          @import url(https://fonts.googleapis.com/css2?family=3DLato:wght@=
+400;700&display=3Dswap);
+        </style>
+      <!--<![endif]-->
+
+   =20
+   =20
+    <style type=3D"text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media=3D"screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width:=
+ 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+   =20
+   =20
+ =20
+   =20
+    <style type=3D"text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+ =20
+    </style>
+    =20
+    <style type=3D"text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: au=
+to !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+   =20
+  </head>
+  <body style=3D"word-spacing:normal;background-color:#ffffff;">
+   =20
+   =20
+      <div aria-roledescription=3D"email" style=3D"background-color:#ffffff=
+;" role=3D"article" lang=3D"und" dir=3D"auto">
+       =20
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px=
+;" width=3D"700" bgcolor=3D"#ffffff" ><tr><td style=3D"line-height:0px;font=
+-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"background:#ffffff;background-color:#ffffff;margin:0px =
+auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"background:#ffffff;background-color:#=
+ffffff;width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" width=3D"700px" ><t=
+able align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" clas=
+s=3D"" role=3D"presentation" style=3D"width:700px;" width=3D"700" ><tr><td =
+style=3D"line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![en=
+dif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:0px 0px=
+ 0px 0px;word-break:break-word;">
+                 =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"border-collapse:collapse;border-spacing:0px;">
+        <tbody>
+          <tr>
+            <td style=3D"width:700px;">
+             =20
+      <img alt=3D"Image" src=3D"https://vault.iconn.app/storage/v1/object/p=
+ublic/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770889149=
+798-wsm7600-248430000000595536_zc_v1_1766178426495_6.png" style=3D"border:0=
+;display:block;outline:none;text-decoration:none;height:auto;width:100%;fon=
+t-size:13px;" width=3D"700" height=3D"auto">
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><p><span style=3D"font-family: Lato,=
+ sans-serif;"><strong>2 February 2026</strong></span><br><span style=3D"col=
+or: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jer=
+emy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p=
+></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:0px 0px=
+ 0px 0px;word-break:break-word;">
+                 =20
+      <p style=3D"border-top:solid 2px #ff0000;font-size:1px;margin:0px aut=
+o;width:100%;">
+      </p>
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" style=3D"border-top:solid 2px #ff0000;font-size:1px;m=
+argin:0px auto;width:700px;" role=3D"presentation" width=3D"700px" ><tr><td=
+ style=3D"height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+   =20
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><h1><span style=3D"font-family: Lato=
+, sans-serif; font-size: 24px;">Shaping the future of our sector, together<=
+/span></h1></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.75;text-align:left;color:#333333;"><p><span style=3D"font-family: Lato=
+, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>=
+The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><=
+span style=3D"font-family: Lato, sans-serif; font-size: 16px;">Each week, w=
+e'll bring you the key insights and opportunities you need to know, so you =
+can stay ahead and act fast. Whatever your role in careers and employabilit=
+y around higher education, we're here to help you do your best work.</span>=
+</p><p><span style=3D"color: rgb(255, 0, 0); font-family: Lato, sans-serif;=
+ font-size: 16px;"><strong>Money worries</strong></span><span style=3D"font=
+-size: 16px;"><br></span><span style=3D"font-family: Lato, sans-serif; font=
+-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows tha=
+t total public spending on education in the UK has <u>fallen by 10%</u> sin=
+ce 2010-11, with drop mostly due to shifting the cost of higher education f=
+rom the taxpayer onto graduates. When you look at public spending on educat=
+ion as a share of national income, we're now at historic lows last seen in =
+the late 1990s.</span></p><p><span style=3D"font-family: Lato, sans-serif; =
+font-size: 16px;">Meanwhile, research published by the Office for Students =
+(OfS) shows that <u>many students are aware of cost-cutting measures</u> at=
+ their universities. Around half of the c.1,200 students polled said they h=
+ad noticed changes, with one-fifth (20%) specifically highlighting careers =
+and employability services. Interestingly though, when asked about the chan=
+ges to student support services overall (which includes careers), students =
+were more likely to report positive changes (37% positive, 34% negative, 27=
+% no change, 2% don't know).</span></p><p><span style=3D"font-family: Lato,=
+ sans-serif; font-size: 16px;">Students are feeling the pinch too, with man=
+y taking on paid work to ease financial pressure. A new article on HEPI hig=
+hlights that <u>academic performance declines once working hours exceed 10 =
+per week</u>, while job quality also has a big impact on academic results. =
+The authors call for careers services to be 'rebalanced' and links with loc=
+al employers strengthened to help students find good work that will help th=
+e local economy while preparing them for graduate roles.</span></p><p><span=
+ style=3D"color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: =
+16px;"><strong>Championing university careers services</strong></span><span=
+ style=3D"font-size: 16px;"><br></span><span style=3D"font-family: Lato, sa=
+ns-serif; font-size: 16px;">Careers and employability services do outstandi=
+ng work across the sector, but too often it goes unseen by policy makers an=
+d the public. That=E2=80=99s why we launched the Quarterly Data Barometer l=
+ast month: to build a credible evidence base that shows the impact of our c=
+ommunity. The first results are already cutting through, helping us secure =
+coverage in Times Higher Education and informing a letter we wrote to skill=
+s minister Jacqui Smith last week.</span></p><p><span style=3D"font-family:=
+ Lato, sans-serif; font-size: 16px;">Now we need your help to keep the mome=
+ntum.</span></p><p><span style=3D"font-family: Lato, sans-serif; font-size:=
+ 16px;">We=E2=80=99re collecting responses to our Q2 survey on work-based l=
+earning and the findings will be used in a public campaign to celebrate uni=
+versity careers services later this spring (more on this coming soon...). T=
+he more responses we receive, the more robust (and useful) the data will be=
+ =E2=80=94 helping us represent the scale and impact of your work with empl=
+oyers, and make the strongest possible case in that campaign. We=E2=80=99ve=
+ sent the survey link to all heads of careers, and we=E2=80=99d really appr=
+eciate your help to make sure it=E2=80=99s completed by 13 February. If you=
+'re able to fill this out on behalf of your institution, email </span><a ta=
+rget=3D"_blank" rel=3D"noopener noreferrer" href=3D"mailto:hello@graduatefu=
+tures.org"><span style=3D"font-family: Lato, sans-serif; font-size: 16px;">=
+hello@graduatefutures.org</span></a><span style=3D"font-family: Lato, sans-=
+serif; font-size: 16px;"> and we'll resend a copy of the survey to you, cop=
+ied to your head of careers.</span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0;text-align=
+:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td style=3D"font-size:0px;word-break:break-word;">
+                 =20
+      <div style=3D"height:10px;line-height:10px;">=E2=80=8A</div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:0px 0px=
+ 0px 0px;word-break:break-word;">
+                 =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"border-collapse:collapse;border-spacing:0px;">
+        <tbody>
+          <tr>
+            <td style=3D"width:700px;">
+             =20
+        <a href=3D"http://email.mail.graduatefutures.org/c/eJxsz8HOojAcBPCn=
+KTdJ-6e09MBhN9jDF8V8WV1Sb4UWbSlqsEiWp9_oXvc0h8kkvzGl0BljJrEl4ZxkFGeMJdfSYGp=
+yYMT0xgjbgjGUGdxnQHHbmoImrgQMDAPhhOYCWFpwrgXpCswh55YxRPGoXUgvkzazjraf4zzZZ3=
+qfLkkorzE-nij7gUAikJfepca-Utfdb7dUPx4IpH44BDJOuhsQyC64bkCZjCir9o1alD8Pym_jo=
+fkm-z8Yq-OW7BoZ9s0p1uvPUfmrV1CHs_8aDv7sz8ffoa7qcdd8U7UOsa7CePiFqTqeYHe8ULV-=
+-XoNYe9PpF7vCwI2TwFl1T8o5G9q_sbmIJdl-d-tT7d92VusbNQufGbSmXdUxOJe2FxsoG3JhrY=
+cb4QVYlMQW1jDMSnaNpnKUUdEsXtq_XRpd0_nIXmV8DcAAP__7ACC6A" target=3D"_blank">
+         =20
+      <img alt=3D"Image" src=3D"https://vault.iconn.app/storage/v1/object/p=
+ublic/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770898612=
+918-w05dyac-248430000000595536_zc_v1_1768911277925_group_work.png" style=3D=
+"border:0;display:block;outline:none;text-decoration:none;height:auto;width=
+:100%;font-size:13px;" width=3D"700" height=3D"auto">
+   =20
+        </a>
+     =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0;text-align=
+:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td style=3D"font-size:0px;word-break:break-word;">
+                 =20
+      <div style=3D"height:10px;line-height:10px;">=E2=80=8A</div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:0px 0px=
+ 0px 0px;word-break:break-word;">
+                 =20
+      <p style=3D"border-top:solid 2px #ff0000;font-size:1px;margin:0px aut=
+o;width:100%;">
+      </p>
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" style=3D"border-top:solid 2px #ff0000;font-size:1px;m=
+argin:0px auto;width:700px;" role=3D"presentation" width=3D"700px" ><tr><td=
+ style=3D"height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+   =20
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:Arial, sans-serif;font-size:13px;line-heigh=
+t:1.5;text-align:left;color:#333333;"><h1><span style=3D"font-family: Lato,=
+ sans-serif; font-size: 24px;">Worth reading</span></h1></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.75;text-align:left;color:#333333;"><p><span style=3D"color: rgb(255, 0=
+, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Preparing on=
+e billion people for tomorrow's economy (<u>World Economic Forum</u>)</stro=
+ng></span><span style=3D"font-family: Lato, sans-serif; font-size: 16px;"><=
+br>If you=E2=80=99re keeping an eye on how large scale skills and employabi=
+lity work is evolving, this is a useful read.</span></p><p><span style=3D"c=
+olor: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><str=
+ong>Looking at the campaign on student loan interest (<u>HEPI</u>)</strong>=
+</span><span style=3D"font-size: 16px;"><strong><br></strong></span><span s=
+tyle=3D"font-family: Lato, sans-serif; font-size: 16px;">Nick Hillman argue=
+s that the current campaign against student loan interest payments is aimin=
+g at the wrong target. Extra interest is deliberately the most progressive =
+part of England's student loan system, making higher-earning graduates pay =
+more and helping to fund debt write-offs for those who earn less.</span></p=
+><p><span style=3D"color: rgb(255, 0, 0); font-family: Lato, sans-serif; fo=
+nt-size: 16px;"><strong>Retail sales bulletin latest (<u>ONS</u>)</strong><=
+/span><span style=3D"font-size: 16px;"><br></span><span style=3D"font-famil=
+y: Lato, sans-serif; font-size: 16px;">Latest figures show retail sales fel=
+l 0.3% in the three months to December 2025, indicating falling consumer de=
+mand and difficult economic conditions.</span></p><p><span style=3D"color: =
+rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Hi=
+gh Fliers report on the graduate labour market (<u>High Fliers</u>)</strong=
+></span><span style=3D"font-size: 16px;"><br></span><span style=3D"font-fam=
+ily: Lato, sans-serif; font-size: 16px;">The report suggests the UK graduat=
+e jobs squeeze is persisting: the top 100 employers cut hires again in 2025=
+ (-5.1%) and are planning a further dip in 2026 (-0.5%), taking vacancies t=
+o their lowest level since 2012. Yet competition is intensifying as applica=
+tions rise a further 23% year-on-year (now doubled since 2023). Starting pa=
+y for leading employers is flattening at a =C2=A335,000 median (with big pr=
+emiums in investment banking, law and consulting), while employers continue=
+ to narrow on-campus targeting to an average of 23 universities.</span></p>=
+<p><span style=3D"color: rgb(255, 0, 0); font-family: Lato, sans-serif; fon=
+t-size: 16px;"><strong>Vice-Chancellor from London South Bank University to=
+ chair the Academic Employability Awards 2026 (<u>Graduate Futures</u>)</st=
+rong></span><span style=3D"font-size: 16px;"><br></span><span style=3D"font=
+-family: Lato, sans-serif; font-size: 16px;">Paul Kett has been unveiled as=
+ the head judge for this year's awards, which are accepting entries until M=
+onday 16 February.</span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:20px 0p=
+x 0px 0px;word-break:break-word;">
+                 =20
+      <p style=3D"border-top:solid 2px #ff0000;font-size:1px;margin:0px aut=
+o;width:100%;">
+      </p>
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" style=3D"border-top:solid 2px #ff0000;font-size:1px;m=
+argin:0px auto;width:700px;" role=3D"presentation" width=3D"700px" ><tr><td=
+ style=3D"height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+   =20
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><h1><span style=3D"font-family: Lato=
+, sans-serif; font-size: 24px;">Signals</span></h1></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.75;text-align:left;color:#333333;"><p><span style=3D"color: rgb(255, 0=
+, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>950,000</str=
+ong></span><br><span style=3D"font-family: Lato, sans-serif; font-size: 16p=
+x;">The number of students who accessed online careers resources provided b=
+y their university in 2024/25. (</span><a target=3D"_blank" rel=3D"noopener=
+ noreferrer" href=3D"http://email.mail.graduatefutures.org/c/eJwkzr2OozAUhu=
+GrMd1Y9jHYSUGxowzFKCGKNtmINCMDBmycgPyT2XD1q2Gr8-joK94230rGeZuonApBWUoY58mQZ=
+7ROqaRZvUmhS7e14KxlHVVAMgU1yETnQIAToIKm2RY43gght7TZEAGZUJyjlNyltrh3so0yqC6G=
+6JTHk-sTmw8hzB6xXwgKBEXfadyqJ9bN9HhgOc8ICjlrBEVwshkRFI3VzYhYERDbHa7Vd2VuY2U=
+-wvF6oocXIdX5g-6vhT1cL6Fc3u-VGUwFpb2Zz_FobuZ2_mPLXXnfX09ptYyh3Nn78TdJq_MF9u=
+c-rZZPUy7WHsyFlsv0FwGPziK2-x8K2U9q9hObQbGMz35pXBweuo3Rf9fda8A-zrKWXuFmWkc-T=
+E72avWTrmeqjWrCyjnWVjcrO23Vm1Pz5HWY3Gv9xdlOsvWrqeBCiIwQzoh4Y4bWRg1vp93714l-=
+QQYcz22XuPwuA0qJ9lJ6jZsJxzF55vAvAAD___5rlks"><span style=3D"font-family: La=
+to, sans-serif; font-size: 16px;">QDB, Q1</span></a><span style=3D"font-fam=
+ily: Lato, sans-serif; font-size: 16px;">)</span></p><p><span style=3D"colo=
+r: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong=
+>215,000</strong></span><br><span style=3D"font-family: Lato, sans-serif; f=
+ont-size: 16px;">University students attended a one-to-one careers guidance=
+ appointment in 2024/25. (QDB, Q1)</span></p><p><span style=3D"color: rgb(2=
+55, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>20,640<=
+/strong></span><br><span style=3D"font-family: Lato, sans-serif; font-size:=
+ 16px;">Careers events took place in universities during 2024/25. (QDB, Q1)=
+</span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:20px 0p=
+x 0px 0px;word-break:break-word;">
+                 =20
+      <p style=3D"border-top:solid 2px #ff0000;font-size:1px;margin:0px aut=
+o;width:100%;">
+      </p>
+     =20
+      <!--[if mso | IE]><table align=3D"center" border=3D"0" cellpadding=3D=
+"0" cellspacing=3D"0" style=3D"border-top:solid 2px #ff0000;font-size:1px;m=
+argin:0px auto;width:700px;" role=3D"presentation" width=3D"700px" ><tr><td=
+ style=3D"height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+   =20
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" bgcolor=3D"#f4f4f4" ><tr><td style=3D"line-height:0px;font-size:0px;m=
+so-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"background:#f4f4f4;background-color:#f4f4f4;margin:0px =
+auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"background:#f4f4f4;background-color:#=
+f4f4f4;width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><h1><span style=3D"font-family: Lato=
+, sans-serif; font-size: 24px;">On the Graduate Futures Blog</span></h1></d=
+iv>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" bgcolor=3D"#f4f4f4" ><tr><td style=3D"line-height:0px;font-size:0px;m=
+so-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"background:#f4f4f4;background-color:#f4f4f4;margin:0px =
+auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"background:#f4f4f4;background-color:#=
+f4f4f4;width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 10px=
+ 0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:420px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-60 mj-outlook-group-fix" style=3D"font-si=
+ze:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:to=
+p;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" width=3D"100%">
+        <tbody>
+          <tr>
+            <td style=3D"vertical-align:top;padding-right:0px;padding-left:=
+0px;">
+             =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><p><span style=3D"font-size: 18px;">=
+<strong>Road trip: University of Edinburgh</strong></span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:0px 20px =
+10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.75;text-align:left;color:#333333;"><p><span style=3D"font-family: Lato=
+, sans-serif; font-size: 16px;">How do you deliver personalised careers sup=
+port at scale without stretching resources to breaking point? Edinburgh=E2=
+=80=99s approach blends early engagement, data-led targeting, and alumni-po=
+wered programmes.</span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:0px 20px =
+10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:Arial, sans-serif;font-size:13px;line-heigh=
+t:1;text-align:left;color:#000000;"><table border=3D"0" cellpadding=3D"0" c=
+ellspacing=3D"0" role=3D"presentation" style=3D"border-collapse:separate;li=
+ne-height:100%;"><tr><td bgcolor=3D"#ff0000" role=3D"presentation" style=3D=
+"border:none;border-radius:8px;cursor:auto;mso-padding-alt:12px 24px 12px 2=
+4px;background:#ff0000;"><a href=3D"http://email.mail.graduatefutures.org/c=
+/eJxsz72OozAcBPCnMR3I_tvYSUFxpyzFKiFaXXLI6RwMxMZ8yJig8PSn3bTXjWaa3-hsryjnOq=
+ozIgShDFPOo0d2p1yzHfBUs0YRxoW4N6KiQHCla0ppZDLAwDEQQVi6B57shFB7Uu2wgFTUnCOGe=
+2Vc0nqlFxXqZgmLr-dk9G3kskcI04zoLwQ5grxtTKLrZ2KqcRgSNU0IcjUZBHnwquoQ5JUzVYdo=
+HhA9nEq5SnvrpP0I5_KLnF4Yy8sHOZa5O5XXUGy_e2kfVkLhbvazO9ubvV3-uuJQ9Mfyi8mtC8X=
+B9ec_mMnLFY6Xlsnt0xabcyd7JcU2vhDwxTtED28opN_U9BubQr6u6_9u_Wx3N7bzT3LKq7gzw7=
+v3o9Jx8GaKl8E8az-b8IrHJq61Ge6Lbx-Rz3oVEMNmVmo2STUmSxc9M_gXAAD__wOiha0" targ=
+et=3D"_blank" style=3D"display:inline-block;background:#ff0000;color:#fffff=
+f;font-size:16px;font-weight:bold;line-height:120%;margin:0;text-decoration=
+:none;text-transform:none;padding:12px 24px 12px 24px;mso-padding-alt:0;bor=
+der-radius:8px;">Read blog</a></td></tr></table></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td><td class=3D"" style=3D"vertical-align:top=
+;width:280px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-40 mj-outlook-group-fix" style=3D"font-si=
+ze:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:to=
+p;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" width=3D"100%">
+        <tbody>
+          <tr>
+            <td style=3D"vertical-align:top;padding-right:0px;padding-left:=
+0px;">
+             =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:10px 20=
+px 0px 0px;word-break:break-word;">
+                 =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"border-collapse:collapse;border-spacing:0px;">
+        <tbody>
+          <tr>
+            <td style=3D"width:260px;">
+             =20
+      <img alt=3D"Image" src=3D"https://vault.iconn.app/storage/v1/object/p=
+ublic/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770900515=
+544-wse58fy-248430000000595536_zc_v1_1766006975185_1765810359750_qsa85vx_ca=
+reers_team.jpg" style=3D"border:0;display:block;outline:none;text-decoratio=
+n:none;height:auto;width:100%;font-size:13px;" width=3D"260" height=3D"auto=
+">
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" bgcolor=3D"#f5f5f5" ><tr><td style=3D"line-height:0px;font-size:0px;m=
+so-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"background:#f5f5f5;background-color:#f5f5f5;margin:0px =
+auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"background:#f5f5f5;background-color:#=
+f5f5f5;width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 20px 20p=
+x 10px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:670px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:0px 20px =
+0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><p><span style=3D"font-family: Lato,=
+ sans-serif; font-size: 24px;"><strong>Something to say? We=E2=80=99d love =
+to publish it.</strong></span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.75;text-align:left;color:#333333;"><p><span style=3D"font-family: Lato=
+, sans-serif; font-size: 16px;">Have an opinion, a practical how-to, a case=
+ study from your institution, or a new angle we should all be debating? If =
+it helps move the conversation on (and helps students and graduates succeed=
+), we want to hear it. Simply pitch your idea to </span><a target=3D"_blank=
+" rel=3D"noopener noreferrer" href=3D"mailto:media@graduatefutures.org"><sp=
+an style=3D"font-family: Lato, sans-serif; font-size: 16px;">media@graduate=
+futures.org</span></a></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:20px 0p=
+x 20px 0px;word-break:break-word;">
+                 =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"border-collapse:collapse;border-spacing:0px;">
+        <tbody>
+          <tr>
+            <td style=3D"width:700px;">
+             =20
+        <a href=3D"http://email.mail.graduatefutures.org/c/eJxs0DGPmzAYxvFP=
+Y7Yg8xrsMDC0ynk4JUSnJkXO9p7tEBtzIDCHwqev0q6dn-X3_E1VIuPcJLbKhMhYThnnyaMSpaB=
+7QUvAvRDacGtA4B3YHZgwvPxMXAUUOIVMZHlRAk_3QmCZ6T0VUAjLOclpjy6k7YRmwWjvS1wmO6=
+fD1CahesQ4zoT9ICAJyPbuUmO_U6eHr68Ux5GAxNERkHFC3RGQOjjdESYjYYdTo1blb53yb_Hcf=
+GSnJ6Xq8pYdGxlOzTXW289e-YdXUIebf-_O_uZvl9-hPtT9sfnI1dbF-hD68y-aq8sVjpc2V9u7=
+r7cQTv6a1duwEeDLFAg7_INC8aIWL2wBcl3X_936u6FGY3und7Yfw_DETxdcfO5wxcnMu1ezZKp=
+6jCSnbkacXaqHdOmS7wr-BAAA__9Xpn18" target=3D"_blank">
+         =20
+      <img alt=3D"Image" src=3D"https://vault.iconn.app/storage/v1/object/p=
+ublic/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770901098=
+675-3djd5kv-248430000000595536_zc_v1_1768908564374_aea_2026.png" style=3D"b=
+order:0;display:block;outline:none;text-decoration:none;height:auto;width:1=
+00%;font-size:13px;" width=3D"700" height=3D"auto">
+   =20
+        </a>
+     =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" bgcolor=3D"#f5f5f5" ><tr><td style=3D"line-height:0px;font-size:0px;m=
+so-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"background:#f5f5f5;background-color:#f5f5f5;margin:0px =
+auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"background:#f5f5f5;background-color:#=
+f5f5f5;width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:20px 20px 20=
+px 20px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:660px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:0px 20px =
+0px 10px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.5;text-align:left;color:#333333;"><p><span style=3D"font-family: Lato,=
+ sans-serif; font-size: 24px;"><strong>Recent vacancies</strong></span></p>=
+</div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 10px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:13px;line-heig=
+ht:1.75;text-align:left;color:#333333;"><ul><li><p><a target=3D"_blank" rel=
+=3D"noopener noreferrer" href=3D"http://email.mail.graduatefutures.org/c/eJ=
+xsz72OozAcBPCnMV2Q_ccfuKC4E-tilRCtLjnkdMaYxMYsETEbHU9_yl571RSjkX7TV9IUnPeZq=
+4gQpKC44Dy7VYKVQhojrJQD5YwYYvsBM1EMrpOcl5mvAAPHQAShTALPSyGMJLbEAphwnCOKJ-Nj=
+fl1Mv5rkhjWti3vk83LNYnVL6f5AxQ8ECoG6Dj7v3Vfu7fz5mZv7HYEyd49ApcXYEYGy0dsRFSq=
+hoj60-qnDZdThLR3bD3L4g7E-vZF9q-KhPadm-znpcAsamngJ7-MxXMLl9Ds2dTPt2w-qtzE1dZ=
+yOvzDVpzPsT1eqt_fQbDEewpk024wR8HWJqKj_QYG9qOyFZaCez-f_bn1373NXu2R8_B4p37-it=
+p3tCFC-w1h2O8oc23UlMzviuKRcsB4cyZZqMglR7B_GPHxu53wds68K_gYAAP__vLOA4A"><spa=
+n style=3D"font-family: Lato, sans-serif; font-size: 16px;"><strong>Careers=
+ Consultant (0.8 FTE)</strong></span></a><span style=3D"font-family: Lato, =
+sans-serif; font-size: 16px;"><strong>, Imperial College London</strong><br=
+>=C2=A357,785 - =C2=A369,365 (Actual 0.8 salary =C2=A346,228)</span><br><br=
+></p></li><li><p><a target=3D"_blank" rel=3D"noopener noreferrer" href=3D"h=
+ttp://email.mail.graduatefutures.org/c/eJxsz72O4jAcBPCncToi-x9_UaS4U9YFgqDV=
+wUWmc2wv2HE2KDiLLk9_Yq-9aorRSL9x9dZUnLvC10QIUlFccV7caiO8c9ADlg4zwNstsz0GaYS=
+kknrpi1ADBo6BCELZFngphTBbYiUWwITnHFE8mpDK62zcYrL_WPIy-0c5zdci1bec7w9U_UCgEK=
+jrRyid_yqDnT4_S3O_I1DmHhCoPBs7IFA2BTugSmVUNYdOP3W8DDq-5WP3Tg5_MNanN7LvVDp05=
+9yuP0cdb1FDmy5xNxzjJV5Ov1PbtOO-e6d6HXLbpPH4C1N9OsP-dKV63cV2TekQz6RdJ4KAL3NC=
+VfMPCuxFZS8sA_V8Pv9367vbTX3jswnpe6SCe0XTC2uIxHSDmcUb6ojc9MyxjbGADeGCUuqLuR5=
+NRhSHhzGPUNqpXIbiq4a_AQAA__-WZoC0"><span style=3D"font-family: Lato, sans-s=
+erif; font-size: 16px;"><strong>Head of Careers and Employability</strong><=
+/span></a><span style=3D"font-family: Lato, sans-serif; font-size: 16px;"><=
+strong>, University of Huddersfield</strong><br>=C2=A360,521 - =C2=A370,130=
+</span></p></li></ul></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" ><tr><td style=3D"line-height:0px;font-size:0px;mso-line-height-rule:=
+exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"margin:0px auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0px 0px 0px =
+0px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:20px 0p=
+x 20px 0px;word-break:break-word;">
+                 =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"border-collapse:collapse;border-spacing:0px;">
+        <tbody>
+          <tr>
+            <td style=3D"width:700px;">
+             =20
+        <a href=3D"http://email.mail.graduatefutures.org/c/eJxs0DGPmzAYxvFP=
+Y7Yg-7Wxj4GhVY7hlBCdmhQ521sbEhtzIDBB4dNXadebn-X3_G2RI5fSJk3BlGJcUC5lci8sz6h=
+Qlrcsb7GlrULBrcpzKmyrhFKJK4CCpMAUE1kOMn1TCnNm3qiCTDVSEkF7dCG9TWgXjE27xGVq5n=
+SYbkko7jGOM-E_CJQEylvrUts8UmeGr68Ux5FAiaMjUMYJTUegNMGZjvAyEr4_1nrV_tpp_x5P9=
+Sc7PinV53d2qMtwrC-x2n722t-9hipc_Ud38ld_Pf8O1b7qD_Wn0FsXq33oT7-o0OcLHM43obcP=
+X20hHP2FVdsABOQyBcL3_6GQvajZC5tBua7rd7f-bWjQNr0zu6Yfw_DEPy64-NzhipOdd69myVT=
+0GImgbkacXWqGdOmSRwF_AwAA__95-H1e" target=3D"_blank">
+         =20
+      <img alt=3D"Image" src=3D"https://vault.iconn.app/storage/v1/object/p=
+ublic/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770901399=
+966-zm352to-248430000000595536_zc_v1_1769703953757_phoenix_papers_1_.png" s=
+tyle=3D"border:0;display:block;outline:none;text-decoration:none;height:aut=
+o;width:100%;font-size:13px;" width=3D"700" height=3D"auto">
+   =20
+        </a>
+     =20
+            </td>
+          </tr>
+        </tbody>
+      </table>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"" widt=
+h=3D"700px" ><table align=3D"center" border=3D"0" cellpadding=3D"0" cellspa=
+cing=3D"0" class=3D"" role=3D"presentation" style=3D"width:700px;" width=3D=
+"700" bgcolor=3D"#ff0000" ><tr><td style=3D"line-height:0px;font-size:0px;m=
+so-line-height-rule:exactly;"><![endif]-->
+   =20
+     =20
+      <div style=3D"background:#ff0000;background-color:#ff0000;margin:0px =
+auto;max-width:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"background:#ff0000;background-color:#=
+ff0000;width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:20px 20px 20=
+px 20px;text-align:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:660px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:Arial, sans-serif;font-size:13px;line-heigh=
+t:1.5;text-align:left;color:#333333;"><p style=3D"text-align: center;"><spa=
+n style=3D"color: rgb(255, 255, 255); font-family: Lato, sans-serif; font-s=
+ize: 16px;"><strong>Connect with us</strong></span></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 10px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:Arial, sans-serif;font-size:13px;line-heigh=
+t:1;text-align:left;color:#000000;"><table role=3D"presentation" cellpaddin=
+g=3D"0" cellspacing=3D"0" border=3D"0" align=3D"center" style=3D"margin:0 a=
+uto;"><tr><td style=3D"vertical-align:middle;text-align:center;">
+        <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" bo=
+rder=3D"0" style=3D"margin:0 auto;"><tr><td style=3D"text-align:center;"><a=
+ href=3D"http://email.mail.graduatefutures.org/c/eJwkzk2PoyAYAOBfg0cCLwp68L=
+CbDodJazPZdg29vYO0BfEjirNZf_2mO9fn9HR1hULKLnM1V4qLnAkps2eNrrTIXOk-RVeKShXIP=
+-GOTFToJOdV5mtgIBlwxfOiAklLpbDitmQKCuWkJDkb0Ef6WLDbMLn7lrbFrXRaHlmsnynNKxE_=
+CGgC-nH3tHNf1NtpHCnOMwGNsyeg04K2J6Bt9LYnQiciDqfW_DHh1pvwls7tBz_9Zcxc3vix1fH=
+UXlOz_xxMeAYDTbyF9_4cbuF2-R2bQzMc24_c7H1qDnE4_2K5uVzheHnkZn8PzR7jKVx5s0-CgN=
+yWSMThOwrFq1q8sgXo6MfedX6kdhr-Q7bUAyaSM78irp7aiW599lXDvwAAAP__IUhssQ" targe=
+t=3D"_blank" style=3D"text-decoration:none;display:inline-block;"><span sty=
+le=3D"display:inline-block;width:40px;height:40px;border:2px solid #ffffff;=
+border-radius:20px;text-align:center;line-height:40px;vertical-align:middle=
+;"><img src=3D"https://gfi.dev.iconn.app/api/public/social-icon?key=3Dlinke=
+din&amp;color=3D%23ffffff&amp;size=3D22" width=3D"22" height=3D"22" alt=3D"=
+LinkedIn" style=3D"display:inline-block;vertical-align:middle;border:0;outl=
+ine:none;"></span></a></td></tr><tr><td style=3D"text-align:center;padding-=
+top:2px;color:#ffffff;font-family:'Lato', sans-serif;font-size:14px;"><span=
+ style=3D"font-size:14px;color:#ffffff;font-family:'Lato', sans-serif;line-=
+height:1.2;white-space:nowrap;">LinkedIn</span></td></tr></table>
+      </td><td style=3D"padding-left:16px;vertical-align:middle;text-align:=
+center;">
+        <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" bo=
+rder=3D"0" style=3D"margin:0 auto;"><tr><td style=3D"text-align:center;"><a=
+ href=3D"http://email.mail.graduatefutures.org/c/eJwkzs9umzAcAOCnMUfL_vlfcu=
+CwKfWhCkTVyJC5OcYlNqYgMJ3K00_djt_t68uzZVL2hS-pUpRxwqQsniVz1AEnsj95kMIT5cRJS=
+PYQD06F7PsilEBAEqCKcnEGiU9K2TN1J6JAKC8l4mSyIeFhtf1us3_f8776Dc_rUKTymfOyIfYD=
+gUagh_eAe_-Jg5s_PrBdFgTaLgGBzqt1IwLtUnAjYjojdqla88fEbjTxJd_aN1p9EWKaF3ptdar=
+ae66Pn5OJz2igTl18HW-xi13zO9WXerq2b9wcY64vabr9Itw0d7g2AzfHa6yPlKp4p_UxcwRyXx=
+Nil_9REN9V8Z0VoL_mPe8Pj908_XOxlpPNiJOwWbsF7Ga8j8VnCX8DAAD__8dqa7M" target=
+=3D"_blank" style=3D"text-decoration:none;display:inline-block;"><span styl=
+e=3D"display:inline-block;width:40px;height:40px;border:2px solid #ffffff;b=
+order-radius:20px;text-align:center;line-height:40px;vertical-align:middle;=
+"><img src=3D"https://gfi.dev.iconn.app/api/public/social-icon?key=3Dyoutub=
+e&amp;color=3D%23ffffff&amp;size=3D22" width=3D"22" height=3D"22" alt=3D"Yo=
+uTube" style=3D"display:inline-block;vertical-align:middle;border:0;outline=
+:none;"></span></a></td></tr><tr><td style=3D"text-align:center;padding-top=
+:2px;color:#ffffff;font-family:'Lato', sans-serif;font-size:14px;"><span st=
+yle=3D"font-size:14px;color:#ffffff;font-family:'Lato', sans-serif;line-hei=
+ght:1.2;white-space:nowrap;">YouTube</span></td></tr></table>
+      </td><td style=3D"padding-left:16px;vertical-align:middle;text-align:=
+center;">
+        <table role=3D"presentation" cellpadding=3D"0" cellspacing=3D"0" bo=
+rder=3D"0" style=3D"margin:0 auto;"><tr><td style=3D"text-align:center;"><a=
+ href=3D"mailto:" target=3D"_blank" style=3D"text-decoration:none;display:i=
+nline-block;"><span style=3D"display:inline-block;width:40px;height:40px;bo=
+rder:2px solid #ffffff;border-radius:20px;text-align:center;line-height:40p=
+x;vertical-align:middle;"><img src=3D"https://gfi.dev.iconn.app/api/public/=
+social-icon?key=3Demail&amp;color=3D%23ffffff&amp;size=3D22" width=3D"22" h=
+eight=3D"22" alt=3D"Email" style=3D"display:inline-block;vertical-align:mid=
+dle;border:0;outline:none;"></span></a></td></tr><tr><td style=3D"text-alig=
+n:center;padding-top:2px;color:#ffffff;font-family:'Lato', sans-serif;font-=
+size:14px;"><span style=3D"font-size:14px;color:#ffffff;font-family:'Lato',=
+ sans-serif;line-height:1.2;white-space:nowrap;">Email</span></td></tr></ta=
+ble>
+      </td></tr></table></div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:10px 20px=
+ 0px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:Arial, sans-serif;font-size:13px;line-heigh=
+t:1;text-align:left;color:#333333;"><p style=3D"text-align: center;"><span =
+style=3D"color: rgb(255, 255, 255); font-family: Lato, sans-serif; font-siz=
+e: 16px;"><strong>You are receiving this email as you signed up for our new=
+sletters.</strong></span></p><p style=3D"text-align: center;"><span style=
+=3D"color: rgb(255, 255, 255); font-family: Lato, sans-serif; font-size: 16=
+px;"><strong>&nbsp;Want to change how you receive these emails?</strong></s=
+pan></p></div>
+   =20
+                </td>
+              </tr>
+           =20
+              <tr>
+                <td align=3D"center" style=3D"font-size:0px;padding:10px 20=
+px 20px 20px;word-break:break-word;">
+                 =20
+      <div style=3D"font-family:'Lato', sans-serif;font-size:16px;line-heig=
+ht:1;text-align:center;color:#ffffff;"><a href=3D"http://email.mail.graduat=
+efutures.org/c/eJwUy0GuoyAYAODT4G4IIP7owsVMWhdNpWnGjsEdI2hFrEaxzfP0L-8An8kz=
+HQOYyOZUCBpzEgNEz1wAaUETyDgRJoHOUppmJgMQ7L9JeBoNOSMMCKOC8iRjgFMhdEbblAiWCAu=
+AOJn04HG_arPrYLs97Kvd8Lz2kc-fISwbin8jViBW9N2AjX3joZ1fL6yXBbHC_uhfy2o7u9pXaz=
+cUFwHFp7JWH-WaUblzuNV3Wn4RoqozvdaFL-tHkMefSbmnU0z6xl3Gm2tcU_3z8iSna33n6hiDP=
+Pnp9pdwVT3Yteq5Oi5OHt6X7kHlMX-iNZ90QJwMm9bbgNsZ72P0ztl3AAAA__-h-V6x" style=
+=3D"color: #ffffff; text-decoration: underline;">Update your preferences</a=
+></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class=3D"tenant=
+-email-footer-outlook" width=3D"700px" ><table align=3D"center" border=3D"0=
+" cellpadding=3D"0" cellspacing=3D"0" class=3D"tenant-email-footer-outlook"=
+ role=3D"presentation" style=3D"width:700px;" width=3D"700" ><tr><td style=
+=3D"line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-=
+->
+   =20
+     =20
+      <div class=3D"tenant-email-footer" style=3D"margin:0px auto;max-width=
+:700px;">
+       =20
+        <table align=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" role=3D"presentation" style=3D"width:100%;">
+          <tbody>
+            <tr>
+              <td style=3D"direction:ltr;font-size:0px;padding:0;text-align=
+:center;">
+                <!--[if mso | IE]><table role=3D"presentation" border=3D"0"=
+ cellpadding=3D"0" cellspacing=3D"0"><tr><td class=3D"" style=3D"vertical-a=
+lign:top;width:700px;" ><![endif]-->
+           =20
+      <div class=3D"mj-column-per-100 mj-outlook-group-fix" style=3D"font-s=
+ize:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:t=
+op;width:100%;">
+       =20
+      <table border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"prese=
+ntation" style=3D"vertical-align:top;" width=3D"100%">
+        <tbody>
+         =20
+              <tr>
+                <td align=3D"left" style=3D"font-size:0px;padding:0;word-br=
+eak:break-word;">
+                 =20
+      <div style=3D"font-family:Arial, sans-serif;font-size:12px;line-heigh=
+t:1.5;text-align:left;color:#666666;"><!-- Email Footer - GFI Branded -->
+<table width=3D"100%" cellpadding=3D"0" cellspacing=3D"0" border=3D"0" styl=
+e=3D"margin-top: 0px;">
+  <!-- Gradient Bar -->
+ =20
+  <!-- Main Footer Content -->
+  <tr>
+    <td style=3D"background-color: #000000; padding: 40px 30px; text-align:=
+ center;">
+      <!-- Logo -->
+      <table align=3D"center" cellpadding=3D"0" cellspacing=3D"0" border=3D=
+"0" style=3D"margin-bottom: 24px;">
+        <tr>
+          <td>
+            <a href=3D"http://email.mail.graduatefutures.org/c/eJxsz89umzAc=
+AOCnMUfL_vlffOCwKfWhSoiqkSFzcw0hNqYgMJ3G00_Vrn2D7-tK7ZiUXdGXVCnKOGFSFs-S03c=
+pmZNSuxNR74Jr3z9OwjPWCa21LkIJBCQBqigXGiQ-KeU09SeiQKheSsTJ5ELCw-q63eX-sed97T=
+c8r0ORymfOy4bYDwQGgRkeAXf9Jw5-_vjAblkQGLcEBCavzo8IjE_Bj4iZjNj52tg_NrajjS_51=
+rzR619CbP1CL41J1-aeq-PnZOMzWqhSG1_HW2xjW_9O1bmaLs0bt8eYq3Oabr8It_UdLvXA7fEa=
+qyOla7zT6pgFArmvCbHzfyiIL6r4wgow35XWcnIZcRI257aA_Yz3sfgs4V8AAAD__yVWbfk"><i=
+mg width=3D"1000" src=3D"https://lvmzliemqnieeoruhkik.supabase.co/storage/v=
+1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fupload=
+s%2F1767106645198-si4l7l5-Graduate_Futures_Institute_-_Shaping_futures_toge=
+ther.jpg"></a>
+          </td>
+        </tr>
+      </table>
+     =20
+  =20
+     =20
+      <!-- Divider Line -->
+      <table width=3D"100%" cellpadding=3D"0" cellspacing=3D"0" border=3D"0=
+" style=3D"margin-bottom: 20px;">
+        <tr>
+          <td style=3D"height: 1px; background-color: rgba(255,255,255,0.3)=
+;"></td>
+        </tr>
+      </table>
+     =20
+      <!-- Registration Details -->
+      <table align=3D"center" cellpadding=3D"0" cellspacing=3D"0" border=3D=
+"0">
+        <tr>
+          <td style=3D"text-align: center;">
+            <p style=3D"color: #ffffff; font-family: 'Poppins', Arial, sans=
+-serif; font-size: 12px; line-height: 1.6; margin: 0;">
+              The Association of Graduate Careers Advisory Services (Gradua=
+te Futures Institute) is a registered charity in England and Wales (1078508=
+) and Scotland (SC038805) Company No. 03884685.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table></div>
+   =20
+                </td>
+              </tr>
+           =20
+        </tbody>
+      </table>
+   =20
+      </div>
+   =20
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+       =20
+      </div>
+   =20
+     =20
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+   =20
+   =20
+      </div>
+   =20
+  <img width=3D"1" height=3D"1" alt=3D"" src=3D"http://email.mail.graduatef=
+utures.org/o/eJwEwEGuhCAMBuDTyJKUAn9hwWGqoI-8MSYIc_75asnqgWpacSLOB_KA-SvIKS=
+DFndLJtUU5EHRHrgRu3idvemFiEDtxIWaGTSKa3ZFIOEoDtkC39o-9htals51rrtFe-4zLjHLr3=
+AL1V_Xt9njs-jffwr8AAAD__03dKCc"></body>
+</html>
+ =20
+
+--ce2f7faddc52acc90dbe7767f6a0af2aa04865648c8f2bb5fd585e8a6da7--
