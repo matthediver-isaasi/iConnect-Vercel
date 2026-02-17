@@ -127,6 +127,8 @@ const PLACEHOLDER_GROUPS = [
     label: 'System',
     placeholders: [
       { value: '{{set_password_url}}', label: 'Set Password URL' },
+      { value: '{{communication_preferences_link}}', label: 'Communication Preferences Link (HTML)' },
+      { value: '{{communication_preferences_url}}', label: 'Communication Preferences URL' },
     ]
   }
 ];
