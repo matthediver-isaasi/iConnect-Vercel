@@ -274,6 +274,7 @@ function FieldMappingSection({
                       onValueChange={(value) => updateMapping(mapping.id, { 
                         source_type: value, 
                         source_field_id: '',
+                        source_category_id: '',
                         static_value: value === 'clear' ? '__clear__' : '',
                         transformation: value === 'current_date' ? 'current_date' : 'none'
                       })}
@@ -292,6 +293,7 @@ function FieldMappingSection({
 
                   {/* Source Field or Static Value or Clear indicator */}
                   {sourceType === 'field' ? (
+                    <>
                     <div className="space-y-1 min-w-[160px] flex-1">
                       <Label className="text-xs">Form Field</Label>
                       <Select
@@ -299,7 +301,12 @@ function FieldMappingSection({
                         onValueChange={(value) => {
                           console.log('[FieldMapping] Source field changed to:', value);
                           if (value) {
-                            updateMapping(mapping.id, { source_field_id: value });
+                            const selectedField = fields.find(f => f.id === value);
+                            const updates = { source_field_id: value };
+                            if (selectedField?.type !== 'communication_preferences') {
+                              updates.source_category_id = '';
+                            }
+                            updateMapping(mapping.id, updates);
                           }
                         }}
                       >
@@ -315,6 +322,35 @@ function FieldMappingSection({
                         </SelectContent>
                       </Select>
                     </div>
+                    {(() => {
+                      const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
+                      if (selectedSourceField?.type === 'communication_preferences' && communicationCategories.length > 0) {
+                        return (
+                          <div className="space-y-1 min-w-[140px]">
+                            <Label className="text-xs">Source Category</Label>
+                            <Select
+                              value={mapping.source_category_id || undefined}
+                              onValueChange={(value) => {
+                                if (value) {
+                                  updateMapping(mapping.id, { source_category_id: value });
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-9" data-testid={`select-source-category-${index}`}>
+                                <SelectValue placeholder="Select category..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {communicationCategories.map(cat => (
+                                  <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                    </>
                   ) : sourceType === 'current_date' ? (
                     <div className="space-y-1 min-w-[160px] flex-1">
                       <Label className="text-xs">Value</Label>
@@ -4164,6 +4200,12 @@ export default function FormBuilderPage() {
         if (!m.source_field_id) {
           console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_field_id`);
           toast.error(`Field mapping #${i + 1} is missing a source field. Please select a source field or use "Current Date" source.`);
+          return;
+        }
+        const sourceField = formData.fields.find(f => f.id === m.source_field_id);
+        if (sourceField?.type === 'communication_preferences' && !m.source_category_id) {
+          console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_category_id for communication_preferences field`);
+          toast.error(`Field mapping #${i + 1} uses a Communication Preferences field — please select which category to map.`);
           return;
         }
       }

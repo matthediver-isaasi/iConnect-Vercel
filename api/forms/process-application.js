@@ -464,7 +464,7 @@ export default async function handler(req, res) {
       console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
       
       for (const mapping of field_mappings) {
-        const { source_type, source_field_id, static_value, target_type, target_entity, target_field, transformation } = mapping;
+        const { source_type, source_field_id, source_category_id, static_value, target_type, target_entity, target_field, transformation } = mapping;
         
         // Skip if no target field
         if (!target_field) continue;
@@ -496,6 +496,12 @@ export default async function handler(req, res) {
           // Form field mapping (default)
           if (!source_field_id) continue;
           value = form_values[source_field_id];
+          
+          // If source_category_id is set, extract the specific category value from a communication_preferences object
+          if (source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
+            value = value[source_category_id] !== undefined ? value[source_category_id] : null;
+            console.log(`[AppProcessor] Extracted category ${source_category_id} from communication_preferences: ${value}`);
+          }
           
           // For boolean fields in member entities, allow empty/false through (they mean false)
           const isMemberBooleanField = target_type === 'core' && target_entity === 'member' && BOOLEAN_CORE_FIELDS.includes(target_field);
@@ -612,6 +618,11 @@ export default async function handler(req, res) {
             value = new Date().toISOString().split('T')[0];
           } else if (mapping.source_field_id) {
             value = form_values[mapping.source_field_id];
+            
+            if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
+              value = value[mapping.source_category_id] !== undefined ? value[mapping.source_category_id] : null;
+              console.log(`[AppProcessor] Extracted category ${mapping.source_category_id} from communication_preferences: ${value}`);
+            }
           }
           
           // Handle __clear__ sentinel value
@@ -1547,6 +1558,11 @@ export default async function handler(req, res) {
               value = mapping.static_value;
             } else if (mapping.source_field_id) {
               value = form_values[mapping.source_field_id];
+              
+              if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
+                value = value[mapping.source_category_id] !== undefined ? value[mapping.source_category_id] : null;
+                console.log(`[AppProcessor] Extracted category ${mapping.source_category_id} from communication_preferences: ${value}`);
+              }
             }
             
             // Handle __clear__ sentinel value
