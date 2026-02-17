@@ -957,6 +957,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "membership.organisation-preferences": "organisation.field-permissions",
   "page_CRMOrganisations": "crm.organisations",
   "page_CRMMembers": "crm.members",
+  "page_organisations": "crm.organisations",
+  "page_members": "crm.members",
   "page_AdminSetup": "system.admin-setup",
   "page_admin_AdminSetup": "system.admin-setup",
   "page_RoleAccessConfigManagement": "system.role-access-config",

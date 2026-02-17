@@ -149,8 +149,7 @@ export default function OrganisationsListPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      // Admin-only page, also check OrganisationDirectory feature exclusion for consistency
-      if (isFeatureExcluded('page_OrganisationsList') || isFeatureExcluded('page_OrganisationDirectory')) {
+      if (isFeatureExcluded('crm.organisations')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
