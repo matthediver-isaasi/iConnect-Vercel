@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle, Send, Search, User } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -279,6 +279,83 @@ export default function EmailTemplateManagement() {
   const [footerCodeView, setFooterCodeView] = useState(true); // Default to code view to preserve complex HTML
   const [footerPreviewOpen, setFooterPreviewOpen] = useState(false);
   const footerQuillRef = useRef(null);
+
+  const [testSendOpen, setTestSendOpen] = useState(false);
+  const [testSendTemplate, setTestSendTemplate] = useState(null);
+  const [testSendMode, setTestSendMode] = useState('manual');
+  const [testSendEmail, setTestSendEmail] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberResults, setMemberResults] = useState([]);
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const searchTimeoutRef = useRef(null);
+
+  const handleMemberSearch = (query) => {
+    setMemberSearch(query);
+    setSelectedMember(null);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (query.length < 2) {
+      setMemberResults([]);
+      return;
+    }
+    setIsSearching(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/members/search?q=${encodeURIComponent(query)}&limit=8`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          setMemberResults(data);
+        }
+      } catch (err) {
+        console.error('Member search error:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+  };
+
+  const handleTestSend = async () => {
+    const emailToSend = testSendMode === 'member' ? selectedMember?.email : testSendEmail;
+    if (!emailToSend) {
+      toast.error(testSendMode === 'member' ? 'Please select a member' : 'Please enter an email address');
+      return;
+    }
+    setIsSendingTest(true);
+    try {
+      const res = await fetch('/api/email-templates/test-send', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateId: testSendTemplate?.id,
+          memberId: testSendMode === 'member' ? selectedMember?.id : undefined,
+          email: emailToSend,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`Test email sent to ${emailToSend}`);
+        setTestSendOpen(false);
+      } else {
+        toast.error(data.error || 'Failed to send test email');
+      }
+    } catch (err) {
+      toast.error('Failed to send test email');
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
+  const openTestSendDialog = (template) => {
+    setTestSendTemplate(template);
+    setTestSendMode('manual');
+    setTestSendEmail('');
+    setMemberSearch('');
+    setMemberResults([]);
+    setSelectedMember(null);
+    setTestSendOpen(true);
+  };
 
   // Get all [[placeholder]] patterns (core DB values) detected in the current template
   const detectedDbPlaceholders = [...new Set([
@@ -741,6 +818,14 @@ export default function EmailTemplateManagement() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => openTestSendDialog(template)}
+                        data-testid={`button-test-send-${template.id}`}
+                      >
+                        <Send className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => duplicateMutation.mutate(template)}
                         data-testid={`button-duplicate-${template.id}`}
                       >
@@ -1195,6 +1280,163 @@ export default function EmailTemplateManagement() {
             <DialogFooter className="p-6 pt-4">
               <Button variant="outline" onClick={() => setFooterPreviewOpen(false)}>
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={testSendOpen} onOpenChange={setTestSendOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Send className="w-5 h-5" />
+                Send Test Email
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Send a test of <span className="font-medium text-foreground">{testSendTemplate?.name}</span> to preview how it looks. Subject will be prefixed with [TEST].
+              </div>
+
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Send to</Label>
+                <div className="flex gap-2">
+                  <Button
+                    variant={testSendMode === 'manual' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTestSendMode('manual')}
+                    data-testid="button-test-mode-manual"
+                  >
+                    <Mail className="w-4 h-4 mr-1" />
+                    Email Address
+                  </Button>
+                  <Button
+                    variant={testSendMode === 'member' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTestSendMode('member')}
+                    data-testid="button-test-mode-member"
+                  >
+                    <User className="w-4 h-4 mr-1" />
+                    Search Member
+                  </Button>
+                </div>
+              </div>
+
+              {testSendMode === 'manual' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="test-email">Email address</Label>
+                  <Input
+                    id="test-email"
+                    type="email"
+                    placeholder="recipient@example.com"
+                    value={testSendEmail}
+                    onChange={(e) => setTestSendEmail(e.target.value)}
+                    data-testid="input-test-email"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Placeholders will not be resolved without a member selected.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="member-search">Search for a member</Label>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="member-search"
+                      placeholder="Search by name or email..."
+                      value={memberSearch}
+                      onChange={(e) => handleMemberSearch(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-member-search"
+                    />
+                  </div>
+
+                  {selectedMember && (
+                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                      <User className="w-4 h-4 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate" data-testid="text-selected-member">
+                          {selectedMember.first_name} {selectedMember.last_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">{selectedMember.email}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setSelectedMember(null);
+                          setMemberSearch('');
+                        }}
+                        data-testid="button-clear-member"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {!selectedMember && memberSearch.length >= 2 && (
+                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                      {isSearching ? (
+                        <div className="flex items-center justify-center p-4">
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          <span className="text-sm text-muted-foreground">Searching...</span>
+                        </div>
+                      ) : memberResults.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          No members found
+                        </div>
+                      ) : (
+                        memberResults.map((member) => (
+                          <button
+                            key={member.id}
+                            className="w-full text-left px-3 py-2 hover-elevate flex items-center gap-2 border-b last:border-b-0"
+                            onClick={() => {
+                              setSelectedMember(member);
+                              setMemberSearch(`${member.first_name} ${member.last_name}`);
+                              setMemberResults([]);
+                            }}
+                            data-testid={`button-select-member-${member.id}`}
+                          >
+                            <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{member.first_name} {member.last_name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {selectedMember && (
+                    <p className="text-xs text-muted-foreground">
+                      The test email will be sent to this member's email with their data filling in the placeholders.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTestSendOpen(false)} data-testid="button-cancel-test-send">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleTestSend}
+                disabled={isSendingTest || (testSendMode === 'manual' ? !testSendEmail : !selectedMember)}
+                data-testid="button-send-test"
+              >
+                {isSendingTest ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Send Test
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
