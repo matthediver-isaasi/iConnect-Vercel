@@ -185,12 +185,13 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
     staleTime: 5 * 60 * 1000
   });
 
-  // Initialize all categories to subscribed (true) when categories load
+  // Initialize all categories to unsubscribed (false) when categories load
+  // Members must explicitly opt-in to each communication category
   useEffect(() => {
     if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
       const initialPrefs = {};
       categories.forEach(cat => {
-        initialPrefs[cat.id] = true;
+        initialPrefs[cat.id] = false;
       });
       onChange(initialPrefs);
     }
@@ -225,7 +226,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   return (
     <div className="space-y-3">
       {categories.map((category) => {
-        const isSubscribed = currentPrefs[category.id] !== false;
+        const isSubscribed = currentPrefs[category.id] === true;
         return (
           <div 
             key={category.id} 

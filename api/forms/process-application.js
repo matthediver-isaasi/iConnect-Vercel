@@ -1336,6 +1336,7 @@ export default async function handler(req, res) {
     // Handle communication_preferences field values - save to member_communication_preference table
     // Only update categories that are explicitly included in the form submission
     // Do NOT auto-subscribe missing categories - this preserves existing opt-outs
+    // Note: Pipeline mappings (memberCommunicationPrefsMap) run AFTER this and will override these values
     if (createdMemberId && fields) {
       const commPrefFields = fields.filter(f => f.type === 'communication_preferences');
       if (commPrefFields.length > 0) {
@@ -1348,6 +1349,7 @@ export default async function handler(req, res) {
         
         for (const field of commPrefFields) {
           const prefValues = form_values[field.id];
+          console.log(`[AppProcessor] Communication preferences field ${field.id} raw values:`, JSON.stringify(prefValues));
           if (prefValues && typeof prefValues === 'object') {
             // prefValues is an object: { categoryId: boolean }
             for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
