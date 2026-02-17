@@ -45,7 +45,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PUT' || req.method === 'PATCH') {
     try {
-      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, max_days_ahead } = req.body;
+      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, max_days_ahead, zoom_user_id, zoom_user_email } = req.body;
 
       const updates = {};
       if (name !== undefined) {
@@ -69,6 +69,18 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'Booking window must be between 1 and 365 days' });
         }
         updates.max_days_ahead = validatedMaxDays;
+      }
+      if (zoom_user_id !== undefined) {
+        const effectiveMeetingType = meeting_type !== undefined ? meeting_type : undefined;
+        updates.zoom_user_id = (effectiveMeetingType === 'zoom' || (effectiveMeetingType === undefined)) ? (zoom_user_id || null) : null;
+      }
+      if (zoom_user_email !== undefined) {
+        const effectiveMeetingType = meeting_type !== undefined ? meeting_type : undefined;
+        updates.zoom_user_email = (effectiveMeetingType === 'zoom' || (effectiveMeetingType === undefined)) ? (zoom_user_email || null) : null;
+      }
+      if (meeting_type !== undefined && meeting_type !== 'zoom') {
+        updates.zoom_user_id = null;
+        updates.zoom_user_email = null;
       }
 
       const { data, error } = await supabase

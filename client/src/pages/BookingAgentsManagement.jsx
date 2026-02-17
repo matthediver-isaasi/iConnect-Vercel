@@ -104,7 +104,9 @@ export default function BookingAgentsManagement() {
     meeting_type: 'phone',
     is_active: true,
     email_template_id: '',
-    max_days_ahead: 30
+    max_days_ahead: 30,
+    zoom_user_id: '',
+    zoom_user_email: ''
   });
 
   const { data: emailTemplatesData } = useQuery({
@@ -112,6 +114,16 @@ export default function BookingAgentsManagement() {
     queryFn: () => base44.entities.EmailTemplate.list()
   });
   const emailTemplates = emailTemplatesData || [];
+
+  const { data: zoomUsersData, isLoading: zoomUsersLoading } = useQuery({
+    queryKey: ['zoom-users'],
+    queryFn: async () => {
+      const response = await fetch('/api/zoom/users', { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: templateForm.meeting_type === 'zoom' && templateDialogOpen
+  });
 
   const { data: agentsData, isLoading: agentsLoading } = useQuery({
     queryKey: ['booking-agents'],
@@ -284,7 +296,9 @@ export default function BookingAgentsManagement() {
       meeting_type: 'phone',
       is_active: true,
       email_template_id: '',
-      max_days_ahead: 30
+      max_days_ahead: 30,
+      zoom_user_id: '',
+      zoom_user_email: ''
     });
   };
 
@@ -297,7 +311,9 @@ export default function BookingAgentsManagement() {
       meeting_type: template.meeting_type,
       is_active: template.is_active,
       email_template_id: template.email_template_id || '',
-      max_days_ahead: template.max_days_ahead || 30
+      max_days_ahead: template.max_days_ahead || 30,
+      zoom_user_id: template.zoom_user_id || '',
+      zoom_user_email: template.zoom_user_email || ''
     });
     setTemplateDialogOpen(true);
   };
@@ -679,6 +695,53 @@ export default function BookingAgentsManagement() {
                           </SelectContent>
                         </Select>
                       </div>
+                      {templateForm.meeting_type === 'zoom' && (
+                        <div className="space-y-2">
+                          <Label>Zoom Host</Label>
+                          {zoomUsersLoading ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Loading Zoom users...
+                            </div>
+                          ) : (zoomUsersData && zoomUsersData.length > 0) ? (
+                            <Select
+                              value={templateForm.zoom_user_id || ''}
+                              onValueChange={(v) => {
+                                const selectedUser = zoomUsersData.find(u => u.id === v);
+                                setTemplateForm(prev => ({
+                                  ...prev,
+                                  zoom_user_id: v,
+                                  zoom_user_email: selectedUser?.email || ''
+                                }));
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-zoom-user">
+                                <SelectValue placeholder="Select Zoom host..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {zoomUsersData.map(user => (
+                                  <SelectItem key={user.id} value={user.id}>
+                                    <div className="flex items-center gap-2">
+                                      <Video className="h-4 w-4" />
+                                      <span>{user.first_name} {user.last_name}</span>
+                                      <span className="text-muted-foreground text-xs">({user.email})</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              No Zoom users found. Please check your Zoom integration settings.
+                            </p>
+                          )}
+                          {templateForm.zoom_user_email && (
+                            <p className="text-xs text-muted-foreground">
+                              Meetings will be created under: {templateForm.zoom_user_email}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <div className="space-y-2">
                         <Label>Booking Window</Label>
                         <Select

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
 import { deleteCalendarEvent, getOutlookConnectionForIdentity } from '../outlook/calendar.js';
+import { deleteZoomMeeting } from '../_lib/zoomClient.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -75,35 +76,38 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to update booking' });
       }
 
-      // If booking was cancelled and has an Outlook event, delete it
       let calendarEventDeleted = false;
+      let zoomMeetingDeleted = false;
       if (status === 'cancelled') {
-        console.log('[Booking Update] Cancellation requested, outlook_event_id:', booking.outlook_event_id);
         if (booking.outlook_event_id) {
           try {
             const outlookConnection = await getOutlookConnectionForIdentity(session.identityId, session.tenantId);
-            console.log('[Booking Update] Outlook connection found:', !!outlookConnection);
             if (outlookConnection) {
               await deleteCalendarEvent(outlookConnection, booking.outlook_event_id);
               console.log('[Booking Update] Deleted Outlook calendar event for cancelled booking');
               calendarEventDeleted = true;
-            } else {
-              console.log('[Booking Update] No Outlook connection found for identity:', session.identityId);
             }
           } catch (calendarError) {
             console.error('[Booking Update] Failed to delete calendar event:', calendarError.message);
-            // Don't fail the cancellation if calendar deletion fails
           }
-        } else {
-          console.log('[Booking Update] No outlook_event_id stored for this booking');
+        }
+
+        if (booking.zoom_meeting_id) {
+          try {
+            zoomMeetingDeleted = await deleteZoomMeeting(session.tenantId, booking.zoom_meeting_id);
+            if (zoomMeetingDeleted) {
+              console.log('[Booking Update] Deleted Zoom meeting for cancelled booking');
+            }
+          } catch (zoomError) {
+            console.error('[Booking Update] Failed to delete Zoom meeting:', zoomError.message);
+          }
         }
       }
 
-      return res.json({ booking: updated, calendarEventDeleted });
+      return res.json({ booking: updated, calendarEventDeleted, zoomMeetingDeleted });
     }
 
     if (req.method === 'DELETE') {
-      // Delete associated Outlook calendar event first
       if (booking.outlook_event_id) {
         try {
           const outlookConnection = await getOutlookConnectionForIdentity(session.identityId, session.tenantId);
@@ -113,7 +117,15 @@ export default async function handler(req, res) {
           }
         } catch (calendarError) {
           console.error('[Booking Delete] Failed to delete calendar event:', calendarError.message);
-          // Don't fail the deletion if calendar deletion fails
+        }
+      }
+
+      if (booking.zoom_meeting_id) {
+        try {
+          await deleteZoomMeeting(session.tenantId, booking.zoom_meeting_id);
+          console.log('[Booking Delete] Deleted Zoom meeting');
+        } catch (zoomError) {
+          console.error('[Booking Delete] Failed to delete Zoom meeting:', zoomError.message);
         }
       }
 

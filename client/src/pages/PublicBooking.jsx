@@ -32,12 +32,14 @@ import { publicClient } from '@/api/publicClient';
 const MEETING_TYPE_ICONS = {
   phone: PhoneIcon,
   google_meet: Video,
+  zoom: Video,
   in_person: MapPin
 };
 
 const MEETING_TYPE_LABELS = {
   phone: 'Phone Call',
   google_meet: 'Google Meet',
+  zoom: 'Zoom Meeting',
   in_person: 'In Person'
 };
 
@@ -153,9 +155,12 @@ export default function PublicBooking() {
     maxDaysAhead
   });
 
+  const [bookingResult, setBookingResult] = useState(null);
+
   const bookingMutation = useMutation({
     mutationFn: (bookingData) => publicClient.submitBooking(slug, bookingData),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setBookingResult(data);
       setStep('confirmed');
     },
     onError: (error) => {
@@ -253,6 +258,23 @@ export default function PublicBooking() {
                 </span>
               </div>
             </div>
+            {bookingResult?.booking?.zoom_join_url && (
+              <div className="bg-muted rounded-lg p-4 w-full">
+                <div className="flex items-center gap-2 justify-center mb-2">
+                  <Video className="h-4 w-4" />
+                  <span className="font-medium">Zoom Meeting</span>
+                </div>
+                <a
+                  href={bookingResult.booking.zoom_join_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary underline break-all"
+                  data-testid="link-zoom-join"
+                >
+                  {bookingResult.booking.zoom_join_url}
+                </a>
+              </div>
+            )}
             <p className="text-sm text-muted-foreground">
               A confirmation email has been sent to {formData.email}
             </p>

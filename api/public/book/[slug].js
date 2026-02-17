@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
+import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
 import { formatInTimeZone } from 'date-fns-tz';
 
 export default async function handler(req, res) {
@@ -102,7 +103,7 @@ export default async function handler(req, res) {
         is_active,
         custom_duration_minutes,
         template:meeting_template_id(
-          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order, max_days_ahead
+          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order, max_days_ahead, zoom_user_id, zoom_user_email
         )
       `)
       .eq('tenant_id', tenantId)
@@ -120,7 +121,9 @@ export default async function handler(req, res) {
         duration_minutes: at.custom_duration_minutes || at.template.duration_minutes,
         meeting_type: at.template.meeting_type,
         sort_order: at.template.sort_order,
-        max_days_ahead: at.template.max_days_ahead || 30
+        max_days_ahead: at.template.max_days_ahead || 30,
+        zoom_user_id: at.template.zoom_user_id || null,
+        zoom_user_email: at.template.zoom_user_email || null
       }))
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
@@ -233,6 +236,68 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to create booking' });
       }
 
+      // Create Zoom meeting if meeting type is zoom
+      let zoomMeetingData = null;
+      if (meetingType === 'zoom' && selectedTemplate?.zoom_user_id) {
+        try {
+          const zoomToken = await getZoomAccessTokenForTenant(tenantId);
+          const zoomUserId = selectedTemplate.zoom_user_id;
+          const agentTimezone = profile.timezone || 'Europe/London';
+
+          const zoomPayload = {
+            topic: meetingTitle,
+            type: 2,
+            start_time: formatInTimeZone(startTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss"),
+            duration: duration,
+            timezone: agentTimezone,
+            agenda: `Booking with ${attendee_name} (${attendee_email})${attendee_notes ? '\n\nNotes: ' + attendee_notes : ''}`,
+            settings: {
+              host_video: true,
+              participant_video: true,
+              join_before_host: false,
+              mute_upon_entry: false,
+              waiting_room: true,
+              audio: 'both',
+              auto_recording: 'none'
+            }
+          };
+
+          console.log('[Public Booking] Creating Zoom meeting for user:', zoomUserId);
+          const zoomResponse = await fetch(`https://api.zoom.us/v2/users/${zoomUserId}/meetings`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${zoomToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(zoomPayload)
+          });
+
+          if (zoomResponse.ok) {
+            zoomMeetingData = await zoomResponse.json();
+            console.log('[Public Booking] Zoom meeting created:', zoomMeetingData.id);
+
+            const { error: zoomUpdateError } = await supabase
+              .from('agent_booking')
+              .update({
+                zoom_meeting_id: String(zoomMeetingData.id),
+                zoom_join_url: zoomMeetingData.join_url,
+                zoom_start_url: zoomMeetingData.start_url,
+                zoom_password: zoomMeetingData.password || null
+              })
+              .eq('id', booking.id);
+
+            if (zoomUpdateError) {
+              console.error('[Public Booking] Failed to save Zoom meeting details:', zoomUpdateError);
+            }
+          } else {
+            const errorText = await zoomResponse.text();
+            console.error('[Public Booking] Zoom meeting creation failed:', zoomResponse.status, errorText);
+          }
+        } catch (zoomError) {
+          console.error('[Public Booking] Zoom meeting creation error:', zoomError);
+        }
+      }
+
       // Create calendar event in agent's Outlook calendar if connected
       let calendarEventId = null;
       try {
@@ -243,18 +308,24 @@ export default async function handler(req, res) {
           const startLocalStr = formatInTimeZone(startTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
           const endLocalStr = formatInTimeZone(endTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
           
+          const zoomSection = zoomMeetingData
+            ? `<p><strong>Zoom Meeting:</strong> <a href="${zoomMeetingData.join_url}">${zoomMeetingData.join_url}</a></p>
+               ${zoomMeetingData.password ? `<p><strong>Meeting Password:</strong> ${zoomMeetingData.password}</p>` : ''}`
+            : '';
+
           const calendarEvent = await createCalendarEvent(outlookConnection, {
             subject: `Meeting with ${attendee_name}`,
             body: `<p>Booking via ${tenant?.name || 'iconn.app'}</p>
                    <p><strong>Attendee:</strong> ${attendee_name}</p>
                    <p><strong>Email:</strong> ${attendee_email}</p>
                    ${attendee_phone ? `<p><strong>Phone:</strong> ${attendee_phone}</p>` : ''}
-                   ${attendee_notes ? `<p><strong>Notes:</strong> ${attendee_notes}</p>` : ''}`,
+                   ${attendee_notes ? `<p><strong>Notes:</strong> ${attendee_notes}</p>` : ''}
+                   ${zoomSection}`,
             startDateTime: startLocalStr,
             endDateTime: endLocalStr,
             timeZone: agentTimezone,
             attendees: [{ email: attendee_email, name: attendee_name }],
-            isOnlineMeeting: false
+            isOnlineMeeting: !!zoomMeetingData
           });
           
           calendarEventId = calendarEvent?.id;
@@ -407,7 +478,9 @@ export default async function handler(req, res) {
           ends_at: booking.ends_at,
           status: booking.status,
           calendarEventCreated: !!calendarEventId,
-          linkedMeetingRequestId
+          linkedMeetingRequestId,
+          zoom_join_url: zoomMeetingData?.join_url || null,
+          zoom_meeting_id: zoomMeetingData?.id ? String(zoomMeetingData.id) : null
         },
         agent: {
           name: `${identity.first_name || ''} ${identity.last_name || ''}`.trim(),

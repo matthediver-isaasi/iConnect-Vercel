@@ -191,6 +191,26 @@ export async function getZoomAccessToken(req, options = {}) {
   return getZoomTokenWithCredentials('__global__', accountId, clientId, clientSecret);
 }
 
+export async function deleteZoomMeeting(tenantId, meetingId) {
+  if (!meetingId) return false;
+  try {
+    const token = await getZoomAccessTokenForTenant(tenantId);
+    const response = await fetch(`https://api.zoom.us/v2/meetings/${meetingId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (response.ok || response.status === 204) {
+      console.log('[ZoomClient] Deleted Zoom meeting:', meetingId);
+      return true;
+    }
+    console.error('[ZoomClient] Failed to delete meeting:', response.status, await response.text());
+    return false;
+  } catch (error) {
+    console.error('[ZoomClient] Error deleting meeting:', error.message);
+    return false;
+  }
+}
+
 export function clearTenantZoomTokenCache(tenantId) {
   tokenCacheByTenant.delete(tenantId);
 }
