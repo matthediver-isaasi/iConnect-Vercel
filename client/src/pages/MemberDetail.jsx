@@ -1698,7 +1698,7 @@ export default function MemberDetail() {
                       <div className={`space-y-4 ${isOptedOutAll ? 'opacity-50' : ''}`}>
                         {availableCommCategories.map((category) => {
                           const pref = communicationPreferences.find(p => p.category_id === category.id);
-                          const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : true);
+                          const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
 
                           return (
                             <div

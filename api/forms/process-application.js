@@ -1382,19 +1382,25 @@ export default async function handler(req, res) {
             
             if (existingPref) {
               // Update existing preference
-              await supabase
+              const { error: updateErr } = await supabase
                 .from('member_communication_preference')
                 .update({ is_subscribed: pref.is_subscribed })
                 .eq('id', existingPref.id);
+              if (updateErr) {
+                console.error(`[AppProcessor] Failed to update communication preference ${pref.category_id}:`, updateErr);
+              }
             } else {
               // Insert new preference
-              await supabase
+              const { error: insertErr } = await supabase
                 .from('member_communication_preference')
                 .insert({
                   member_id: createdMemberId,
                   category_id: pref.category_id,
                   is_subscribed: pref.is_subscribed
                 });
+              if (insertErr) {
+                console.error(`[AppProcessor] Failed to insert communication preference ${pref.category_id}:`, insertErr);
+              }
             }
           }
           console.log(`[AppProcessor] Saved communication preferences for member:`, createdMemberId);

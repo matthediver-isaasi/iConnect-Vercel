@@ -112,7 +112,7 @@ export default async function handler(req, res) {
       const pref = memberPreferences.find(p => p.category_id === cat.id);
       return {
         ...cat,
-        isSubscribed: pref ? pref.is_subscribed : true
+        isSubscribed: pref ? pref.is_subscribed : false
       };
     });
 

@@ -2626,8 +2626,8 @@ export default function PreferencesPage() {
                 <div className={`space-y-4 ${isOptedOutAll ? 'opacity-50' : ''}`}>
                   {availableCategories.map((category) => {
                     const pref = communicationPreferences.find(p => p.category_id === category.id);
-                    // When opted out all, show as unsubscribed; otherwise use preference or default true
-                    const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : true);
+                    // When opted out all, show as unsubscribed; otherwise use preference or default to unsubscribed
+                    const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
                     
                     return (
                       <div 

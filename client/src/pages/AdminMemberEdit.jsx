@@ -1097,7 +1097,7 @@ export default function AdminMemberEdit() {
               <div className="space-y-4">
                 {availableCategories.map((category) => {
                   const pref = communicationPreferences.find(p => p.category_id === category.id);
-                  const isSubscribed = pref ? pref.is_subscribed : true;
+                  const isSubscribed = pref ? pref.is_subscribed : false;
                   
                   return (
                     <div 
