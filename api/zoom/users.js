@@ -1,8 +1,9 @@
 import { supabase } from '../_lib/database.js';
-import { getZoomAccessToken, getTenantIdFromSession } from '../_lib/zoomClient.js';
+import { getZoomAccessTokenForTenant, getTenantIdFromSession } from '../_lib/zoomClient.js';
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -19,21 +20,8 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  // Debug mode - show token scopes
-  if (req.query.debug === 'true') {
-    try {
-      const token = await getZoomAccessToken(req);
-      return res.json({ 
-        success: true, 
-        message: 'Token generated successfully'
-      });
-    } catch (error) {
-      return res.status(500).json({ error: error.message });
-    }
-  }
-
   try {
-    const token = await getZoomAccessToken(req);
+    const token = await getZoomAccessTokenForTenant(tenantId);
     
     const response = await fetch('https://api.zoom.us/v2/users?status=active', {
       headers: {

@@ -21,15 +21,11 @@ export default async function handler(req, res) {
 
   try {
     const credentials = await getTenantZoomCredentials(tenantId);
-    const hasGlobalFallback = !!(process.env.ZOOM_ACCOUNT_ID && process.env.ZOOM_CLIENT_ID && process.env.ZOOM_CLIENT_SECRET);
-    const connected = !!(credentials || hasGlobalFallback);
+    const connected = !!credentials;
 
-    return res.json({
-      connected,
-      source: credentials ? 'tenant' : hasGlobalFallback ? 'global' : 'none'
-    });
+    return res.json({ connected });
   } catch (error) {
     console.error('[Zoom Status] Error:', error.message);
-    return res.json({ connected: false, source: 'none' });
+    return res.json({ connected: false });
   }
 }
