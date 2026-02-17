@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2, Wallet, Gift, Search, ChevronLeft, ChevronRight, ArrowUpDown, X } from "lucide-react";
+import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2, Wallet, Gift, Search, ChevronLeft, ChevronRight, ArrowUpDown, X, Crown } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -119,6 +119,23 @@ export default function HistoryPage({ hasBanner }) {
     },
     enabled: !!organizationInfo?.id,
     staleTime: 0,
+  });
+
+  const { data: membershipHistory = [], isLoading: membershipHistoryLoading } = useQuery({
+    queryKey: ['membership-history', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const response = await fetch('/api/membership/member-history', { credentials: 'include' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch membership history');
+      }
+      return response.json();
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+    retry: false,
   });
 
   // Group bookings by booking_group_reference for display
@@ -257,6 +274,14 @@ export default function HistoryPage({ hasBanner }) {
     );
   }, [voucherTransactions, searchQuery, sortOrder, typeFilter]);
 
+  const filteredMembershipHistory = useMemo(() => {
+    return filterAndSortData(
+      membershipHistory,
+      ['membership_year', 'tier_name', 'band_label', 'xero_invoice_number', 'purchase_order_number'],
+      'created_at'
+    );
+  }, [membershipHistory, searchQuery, sortOrder]);
+
   // Pagination helper
   const paginateData = (data) => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -292,7 +317,7 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const isLoading = transactionsLoading || bookingsLoading || trainingFundLoading || voucherTransactionsLoading;
+  const isLoading = transactionsLoading || bookingsLoading || trainingFundLoading || voucherTransactionsLoading || membershipHistoryLoading;
 
   if (!memberInfo || !organizationInfo) {
     return (
@@ -464,6 +489,69 @@ export default function HistoryPage({ hasBanner }) {
       toast.error(error.message || 'Failed to download invoice');
     } finally {
       setLoadingBookingInvoice(null);
+    }
+  };
+
+  const [loadingMembershipInvoice, setLoadingMembershipInvoice] = useState(null);
+
+  const handleViewMembershipInvoice = async (recordId, invoiceNumber) => {
+    setLoadingMembershipInvoice(recordId);
+    
+    try {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?inline=true`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(error.error || 'Failed to load invoice');
+      }
+      
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+      
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber);
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error loading membership invoice:', error);
+      toast.error(error.message || 'Failed to load invoice');
+    } finally {
+      setLoadingMembershipInvoice(null);
+    }
+  };
+
+  const handleDownloadMembershipInvoice = async (recordId, invoiceNumber) => {
+    setLoadingMembershipInvoice(recordId);
+    
+    try {
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(error.error || 'Failed to download invoice');
+      }
+      
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `membership-invoice-${invoiceNumber || recordId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      console.error('Error downloading membership invoice:', error);
+      toast.error(error.message || 'Failed to download invoice');
+    } finally {
+      setLoadingMembershipInvoice(null);
     }
   };
 
@@ -942,6 +1030,115 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
+  const MembershipHistoryCard = ({ record }) => {
+    const hasInvoice = !!(record.xero_invoice_number || record.xero_invoice_id);
+    const transactionDate = record.created_at ? new Date(record.created_at) : null;
+    const totalAmount = record.total_with_vat != null ? parseFloat(record.total_with_vat) : parseFloat(record.final_cost || 0);
+    const vatAmount = record.vat_amount != null ? parseFloat(record.vat_amount) : 0;
+    const finalCost = parseFloat(record.final_cost || 0);
+
+    return (
+      <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="flex items-start gap-4">
+          <div className="w-20 shrink-0 text-center">
+            {transactionDate ? (
+              <div className="flex flex-col">
+                <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
+                <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
+                <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
+              </div>
+            ) : (
+              <span className="text-xs text-slate-400">No date</span>
+            )}
+          </div>
+          
+          <div className="p-3 rounded-lg bg-indigo-100 text-indigo-600">
+            <Crown className="w-5 h-5" />
+          </div>
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="font-semibold text-slate-900">Membership {record.membership_year}</h3>
+              <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
+                Membership
+              </Badge>
+              {record.payment_method && (
+                <Badge variant="outline" className="text-xs">
+                  {record.payment_method === 'stripe' ? 'Card Payment' : record.payment_method === 'invoice' ? 'Invoiced' : record.payment_method}
+                </Badge>
+              )}
+            </div>
+            
+            <div className="space-y-1">
+              {record.tier_name && (
+                <p className="text-sm text-slate-600">
+                  {record.tier_name}{record.band_label ? ` - ${record.band_label}` : ''}
+                </p>
+              )}
+              <p className="text-sm text-slate-600">
+                Net: £{finalCost.toFixed(2)}
+                {vatAmount > 0 && ` + VAT: £${vatAmount.toFixed(2)}`}
+              </p>
+              {record.purchase_order_number && (
+                <p className="text-xs text-slate-500">
+                  PO: {record.purchase_order_number}
+                </p>
+              )}
+              {hasInvoice && record.xero_invoice_number && (
+                <p className="text-xs text-slate-500">
+                  Invoice: {record.xero_invoice_number}
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-semibold text-indigo-600">
+              £{totalAmount.toFixed(2)}
+            </span>
+          </div>
+        </div>
+        
+        {canAccessInvoices && hasInvoice && (
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewMembershipInvoice(record.id, record.xero_invoice_number || record.id)}
+              disabled={loadingMembershipInvoice === record.id}
+              data-testid={`button-view-membership-invoice-${record.id}`}
+            >
+              {loadingMembershipInvoice === record.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 mr-1" />
+                  View Invoice
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownloadMembershipInvoice(record.id, record.xero_invoice_number || record.id)}
+              disabled={loadingMembershipInvoice === record.id}
+              data-testid={`button-download-membership-invoice-${record.id}`}
+            >
+              {loadingMembershipInvoice === record.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Search and Filter Bar Component
   const SearchFilterBar = () => {
     const typeFilterOptions = getTypeFilterOptions();
@@ -1040,7 +1237,7 @@ export default function HistoryPage({ hasBanner }) {
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading transactions...</div>
-            ) : (transactions.length === 0 && bookingGroups.length === 0 && trainingFundTransactions.length === 0 && voucherTransactions.length === 0) ? (
+            ) : (transactions.length === 0 && bookingGroups.length === 0 && trainingFundTransactions.length === 0 && voucherTransactions.length === 0 && membershipHistory.length === 0) ? (
               <div className="text-center py-8">
                 <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600">No transactions yet</p>
@@ -1060,6 +1257,9 @@ export default function HistoryPage({ hasBanner }) {
                   </TabsTrigger>
                   <TabsTrigger value="vouchers" data-testid="tab-vouchers">
                     Vouchers ({voucherTransactions.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="membership" data-testid="tab-membership">
+                    Membership ({membershipHistory.length})
                   </TabsTrigger>
                 </TabsList>
 
@@ -1175,11 +1375,37 @@ export default function HistoryPage({ hasBanner }) {
                     </div>
                   )}
 
+                  {/* Membership History Section */}
+                  {filteredMembershipHistory.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Crown className="w-4 h-4" />
+                        Membership ({filteredMembershipHistory.length})
+                      </h3>
+                      {filteredMembershipHistory.slice(0, 5).map((record) => (
+                        <MembershipHistoryCard
+                          key={record.id}
+                          record={record}
+                        />
+                      ))}
+                      {filteredMembershipHistory.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('membership')}
+                          className="text-sm"
+                        >
+                          View all {filteredMembershipHistory.length} membership records
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
                   {/* No results message */}
                   {filteredBookingGroups.length === 0 && 
                    filteredTransactions.length === 0 && 
                    filteredTrainingFundTransactions.length === 0 && 
                    filteredVoucherTransactions.length === 0 && 
+                   filteredMembershipHistory.length === 0 &&
                    searchQuery.trim() && (
                     <div className="text-center py-8">
                       <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -1310,6 +1536,36 @@ export default function HistoryPage({ hasBanner }) {
                           <VoucherTransactionCard
                             key={transaction.id}
                             transaction={transaction}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+
+                {/* Membership Tab */}
+                <TabsContent value="membership" className="space-y-3">
+                  {(() => {
+                    const pagination = paginateData(filteredMembershipHistory);
+                    return filteredMembershipHistory.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Crown className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() ? 'No matching membership records' : 'No membership records'}
+                        </p>
+                        {searchQuery.trim() && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((record) => (
+                          <MembershipHistoryCard
+                            key={record.id}
+                            record={record}
                           />
                         ))}
                         <PaginationControls pagination={pagination} />
