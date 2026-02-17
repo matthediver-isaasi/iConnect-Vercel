@@ -115,6 +115,16 @@ export default function BookingAgentsManagement() {
   });
   const emailTemplates = emailTemplatesData || [];
 
+  const { data: zoomStatus } = useQuery({
+    queryKey: ['zoom-status'],
+    queryFn: async () => {
+      const response = await fetch('/api/zoom/status', { credentials: 'include' });
+      if (!response.ok) return { connected: false };
+      return response.json();
+    }
+  });
+  const zoomConnected = zoomStatus?.connected ?? false;
+
   const { data: zoomUsersData, isLoading: zoomUsersLoading } = useQuery({
     queryKey: ['zoom-users'],
     queryFn: async () => {
@@ -684,14 +694,20 @@ export default function BookingAgentsManagement() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {MEETING_TYPES.map(opt => (
-                              <SelectItem key={opt.value} value={opt.value}>
-                                <div className="flex items-center gap-2">
-                                  <opt.icon className="h-4 w-4" />
-                                  {opt.label}
-                                </div>
-                              </SelectItem>
-                            ))}
+                            {MEETING_TYPES.map(opt => {
+                              const isZoomDisabled = opt.value === 'zoom' && !zoomConnected;
+                              return (
+                                <SelectItem key={opt.value} value={opt.value} disabled={isZoomDisabled}>
+                                  <div className="flex items-center gap-2">
+                                    <opt.icon className={`h-4 w-4 ${isZoomDisabled ? 'opacity-50' : ''}`} />
+                                    <span className={isZoomDisabled ? 'opacity-50' : ''}>{opt.label}</span>
+                                    {isZoomDisabled && (
+                                      <span className="text-xs text-muted-foreground ml-1">(not connected)</span>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
                           </SelectContent>
                         </Select>
                       </div>
