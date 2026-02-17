@@ -387,11 +387,17 @@ export function replacePlaceholders(template, entityType, entityData, context) {
   result = result.replace(/\[\[(\w+(?:\.\w+)?)\]\]/g, (match, path) => {
     const parts = path.split('.');
     console.log(`[replacePlaceholders] [[]] match="${match}", path="${path}", parts=${JSON.stringify(parts)}, parts[0]="${parts[0]}", entityType="${entityType}"`);
-    // Handle patterns like [[organization.id]], [[member.email]], [[record.field]]
     if (parts[0] === entityType || parts[0] === 'record' || parts[0] === 'organization' || parts[0] === 'member') {
       const fieldName = parts[1] || parts[0];
-      const value = entityData?.[fieldName];
-      console.log(`[replacePlaceholders] [[]] prefix match: fieldName="${fieldName}", value="${value}"`);
+      let value;
+      if (parts[0] !== entityType && parts[1]) {
+        const prefixedFieldName = `${parts[0]}_${parts[1]}`;
+        value = entityData?.[prefixedFieldName] || entityData?.[fieldName];
+        console.log(`[replacePlaceholders] [[]] cross-entity lookup: prefixedFieldName="${prefixedFieldName}", fieldName="${fieldName}", value="${value}"`);
+      } else {
+        value = entityData?.[fieldName];
+        console.log(`[replacePlaceholders] [[]] prefix match: fieldName="${fieldName}", value="${value}"`);
+      }
       return value || match;
     }
     const directValue = entityData?.[path];
