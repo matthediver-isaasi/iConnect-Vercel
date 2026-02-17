@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { createXeroMembershipInvoice } from '../_lib/xero.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -316,6 +317,25 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     console.error(`[cron/process-membership-renewals] Scheduled Xero invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
   }
 
+  if (xeroInvoice) {
+    try {
+      await sendMembershipInvoiceEmail({
+        tenantId,
+        organizationId: orgId,
+        organizationName: org.name,
+        membershipYear: record.membership_year,
+        finalCost: parseFloat(record.final_cost),
+        currency: record.currency || 'GBP',
+        tierLabel: record.tier_label,
+        xeroInvoiceNumber: xeroInvoice.invoice_number,
+        xeroInvoiceId: xeroInvoice.invoice_id,
+        historyRecordId: existingRecord.id,
+      });
+    } catch (emailErr) {
+      console.error(`[cron/process-membership-renewals] Invoice email failed for org ${orgId} (non-fatal):`, emailErr.message);
+    }
+  }
+
   try {
     const invoiceNote = xeroInvoice
       ? ` Xero invoice ${xeroInvoice.invoice_number} created.`
@@ -479,6 +499,25 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       }
     } catch (xeroErr) {
       console.error(`[cron/process-membership-renewals] Xero invoice failed for org ${orgId} (non-fatal):`, xeroErr.message);
+    }
+  }
+
+  if (xeroInvoice) {
+    try {
+      await sendMembershipInvoiceEmail({
+        tenantId,
+        organizationId: orgId,
+        organizationName: org.name,
+        membershipYear: membershipYear.label,
+        finalCost,
+        currency,
+        tierLabel,
+        xeroInvoiceNumber: xeroInvoice.invoice_number,
+        xeroInvoiceId: xeroInvoice.invoice_id,
+        historyRecordId: record.id,
+      });
+    } catch (emailErr) {
+      console.error(`[cron/process-membership-renewals] Invoice email failed for org ${orgId} (non-fatal):`, emailErr.message);
     }
   }
 

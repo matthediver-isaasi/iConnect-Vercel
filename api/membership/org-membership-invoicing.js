@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { createXeroMembershipInvoice } from '../_lib/xero.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -338,6 +339,27 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     }
   } catch (xeroErr) {
     console.error('[Invoicing] Xero invoice creation failed (non-fatal):', xeroErr.message);
+  }
+
+  if (xeroInvoice) {
+    try {
+      await sendMembershipInvoiceEmail({
+        tenantId,
+        organizationId,
+        organizationName: org.name,
+        membershipYear: membershipYear.label,
+        finalCost,
+        currency,
+        tierLabel,
+        xeroInvoiceNumber: xeroInvoice.invoice_number,
+        xeroInvoiceId: xeroInvoice.invoice_id,
+        historyRecordId: record.id,
+        vatAmount: simResult.vatAmount || 0,
+        totalWithVat: simResult.totalWithVat || finalCost,
+      });
+    } catch (emailErr) {
+      console.error('[Invoicing] Invoice email failed (non-fatal):', emailErr.message);
+    }
   }
 
   try {

@@ -438,8 +438,9 @@ export default async function handler(req, res) {
         });
 
         let recordCreated = false;
+        let historyRecord = null;
         if (simResult.success && !simResult.existingRecord) {
-          const { error: insertError } = await supabase
+          const { data: insertedRecord, error: insertError } = await supabase
             .from('organisation_membership_history')
             .insert({
               tenant_id: feeToken.tenant_id,
@@ -463,10 +464,13 @@ export default async function handler(req, res) {
               stripe_payment_intent_id: paymentIntentId,
               status: 'active',
               notes: `Payment received via Stripe (${paymentIntentId}). Fee link: ${token.substring(0, 8)}...`,
-            });
+            })
+            .select()
+            .single();
 
           if (!insertError) {
             recordCreated = true;
+            historyRecord = insertedRecord;
           } else if (insertError.code === '23505') {
             console.log(`[Public Fee] Duplicate constraint hit for PI ${paymentIntentId} - already processed`);
             recordCreated = true;
@@ -517,6 +521,35 @@ export default async function handler(req, res) {
             });
           } catch (xeroErr) {
             console.error('[Public Fee] Xero invoice failed (non-fatal):', xeroErr.message);
+          }
+
+          if (xeroInvoice && historyRecord) {
+            try {
+              const { sendMembershipInvoiceEmail } = await import('../../_lib/membershipInvoiceEmail.js');
+              const { data: emailOrg } = await supabase
+                .from('organization')
+                .select('name')
+                .eq('id', feeToken.organization_id)
+                .single();
+
+              const tokenBreakdownForEmail = feeToken.cost_breakdown || {};
+              await sendMembershipInvoiceEmail({
+                tenantId: feeToken.tenant_id,
+                organizationId: feeToken.organization_id,
+                organizationName: emailOrg?.name || 'Organisation',
+                membershipYear: feeToken.membership_year,
+                finalCost: parseFloat(feeToken.final_cost),
+                currency: feeToken.currency || 'GBP',
+                tierLabel: feeToken.tier_label,
+                xeroInvoiceNumber: xeroInvoice.invoice_number,
+                xeroInvoiceId: xeroInvoice.invoice_id,
+                historyRecordId: historyRecord.id,
+                vatAmount: tokenBreakdownForEmail.vatAmount || 0,
+                totalWithVat: tokenBreakdownForEmail.totalWithVat || parseFloat(feeToken.final_cost),
+              });
+            } catch (emailErr) {
+              console.error('[Public Fee] Invoice email failed (non-fatal):', emailErr.message);
+            }
           }
         }
 
