@@ -113,12 +113,24 @@ export default async function handler(req, res) {
 
       return res.json(data);
     } else {
+      const { data: memberRecord } = await supabase
+        .from('member')
+        .select('tenant_id')
+        .eq('id', memberId)
+        .single();
+
+      if (!memberRecord?.tenant_id) {
+        console.error('[Admin Create Comm Pref] Could not resolve tenant_id for member:', memberId);
+        return res.status(500).json({ error: 'Could not resolve tenant context for member' });
+      }
+
       const { data, error: insertError } = await supabase
         .from('member_communication_preference')
         .insert({
           member_id: memberId,
           category_id: categoryId,
-          is_subscribed
+          is_subscribed,
+          tenant_id: memberRecord?.tenant_id
         })
         .select()
         .single();

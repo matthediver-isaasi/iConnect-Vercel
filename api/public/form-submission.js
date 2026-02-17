@@ -551,7 +551,8 @@ export default async function handler(req, res) {
               .upsert({
                 member_id: member.id,
                 category_id: form.communication_category_id,
-                is_subscribed: true
+                is_subscribed: true,
+                tenant_id: tenantData.id
               }, {
                 onConflict: 'member_id,category_id'
               });

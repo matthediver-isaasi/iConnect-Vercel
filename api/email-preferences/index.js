@@ -177,7 +177,7 @@ async function handlePreferenceUpdate(req, res, context) {
       if (optOutAll) {
         if (member) {
           for (const cat of (categories || [])) {
-            await upsertPreference(member.id, cat.id, false);
+            await upsertPreference(member.id, cat.id, false, tenantId);
           }
         }
 
@@ -224,7 +224,7 @@ async function handlePreferenceUpdate(req, res, context) {
       
       const newValue = !currentlySubscribed;
 
-      await upsertPreference(member.id, categoryId, newValue);
+      await upsertPreference(member.id, categoryId, newValue, tenantId);
 
       if (!newValue) {
         await supabase
@@ -262,7 +262,7 @@ async function handlePreferenceUpdate(req, res, context) {
   }
 }
 
-async function upsertPreference(memberId, categoryId, isSubscribed) {
+async function upsertPreference(memberId, categoryId, isSubscribed, tenantId) {
   const { data: existing } = await supabase
     .from('member_communication_preference')
     .select('id')
@@ -276,13 +276,15 @@ async function upsertPreference(memberId, categoryId, isSubscribed) {
       .update({ is_subscribed: isSubscribed })
       .eq('id', existing[0].id);
   } else {
+    const insertData = {
+      member_id: memberId,
+      category_id: categoryId,
+      is_subscribed: isSubscribed
+    };
+    if (tenantId) insertData.tenant_id = tenantId;
     await supabase
       .from('member_communication_preference')
-      .insert({
-        member_id: memberId,
-        category_id: categoryId,
-        is_subscribed: isSubscribed
-      });
+      .insert(insertData);
   }
 }
 

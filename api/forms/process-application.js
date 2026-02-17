@@ -1393,7 +1393,8 @@ export default async function handler(req, res) {
                 .insert({
                   member_id: createdMemberId,
                   category_id: pref.category_id,
-                  is_subscribed: pref.is_subscribed
+                  is_subscribed: pref.is_subscribed,
+                  tenant_id: tenant_id
                 })
                 .select('id');
               if (insertErr) {
@@ -1438,14 +1439,19 @@ export default async function handler(req, res) {
           }
         } else {
           // Create new preference
-          await supabase
+          const { error: commInsertErr } = await supabase
             .from('member_communication_preference')
             .insert({
               member_id: createdMemberId,
               category_id: categoryId,
-              is_subscribed: isSubscribed
+              is_subscribed: isSubscribed,
+              tenant_id: tenant_id
             });
-          console.log(`[AppProcessor] Created communication preference: category=${categoryId}, subscribed=${isSubscribed}`);
+          if (commInsertErr) {
+            console.error(`[AppProcessor] Failed to insert communication preference ${categoryId}:`, JSON.stringify(commInsertErr));
+          } else {
+            console.log(`[AppProcessor] Created communication preference: category=${categoryId}, subscribed=${isSubscribed}`);
+          }
         }
       }
     }

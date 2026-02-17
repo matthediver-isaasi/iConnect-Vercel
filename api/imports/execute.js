@@ -96,6 +96,18 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   
+  let importTenantId = null;
+  try {
+    const { data: sessionMember } = await supabase
+      .from('member')
+      .select('tenant_id')
+      .eq('id', session.data.memberId)
+      .single();
+    importTenantId = sessionMember?.tenant_id || null;
+  } catch (e) {
+    console.log('[Import] Could not resolve tenant_id from session member:', e.message);
+  }
+  
   try {
     const { file, fields } = await parseMultipartForm(req);
     
@@ -778,10 +790,15 @@ export default async function handler(req, res) {
           
           // Only upsert if we have a valid boolean value
           if (optedIn !== null) {
+            if (!importTenantId) {
+              console.log('[Import] Skipping comm pref upsert - no tenant_id available');
+              continue;
+            }
             commPrefsToUpsert.push({
               member_id: entityId,
               category_id: categoryId,
-              opted_in: optedIn
+              opted_in: optedIn,
+              tenant_id: importTenantId
             });
           }
         }
