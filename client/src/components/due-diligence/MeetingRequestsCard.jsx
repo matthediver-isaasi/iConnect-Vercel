@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Calendar, Clock, Check, User, Loader2, Send, Info, Settings } from "lucide-react";
+import { Calendar, Clock, Check, User, Loader2, Send, Info, Settings, UserPlus } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/components/ui/use-toast";
@@ -20,9 +20,13 @@ const STATUS_CONFIG = {
   not_sent: { label: 'Not sent', color: '#94a3b8', icon: Send }
 };
 
-function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBookedRequest }) {
+function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBookedRequest, onAddAlternative, isAddingAlternative }) {
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [overrideDateTime, setOverrideDateTime] = useState('');
+  const [isAddAltOpen, setIsAddAltOpen] = useState(false);
+  const [altFirstName, setAltFirstName] = useState('');
+  const [altLastName, setAltLastName] = useState('');
+  const [altEmail, setAltEmail] = useState('');
   
   const statusConfig = STATUS_CONFIG[request.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
@@ -30,6 +34,7 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
   const agentName = request.agent ? 
     [request.agent.first_name, request.agent.last_name].filter(Boolean).join(' ') : 'Unknown Agent';
   const canOverride = (request.status === 'pending' || request.status === 'not_sent') && !hasBookedRequest;
+  const canAddAlt = request.status === 'pending' && !hasBookedRequest;
   const isBooked = request.status === 'booked';
   
   const handleOverrideSubmit = () => {
@@ -37,6 +42,21 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
     onOverride(request.id, overrideDateTime);
     setIsOverrideOpen(false);
     setOverrideDateTime('');
+  };
+
+  const handleAltSubmit = () => {
+    if (!altEmail.trim()) return;
+    onAddAlternative({
+      meetingTemplateId: request.meeting_template_id,
+      agentIdentityId: request.agent_identity_id || request.agent?.id,
+      firstName: altFirstName.trim(),
+      lastName: altLastName.trim(),
+      email: altEmail.trim()
+    });
+    setAltFirstName('');
+    setAltLastName('');
+    setAltEmail('');
+    setIsAddAltOpen(false);
   };
 
   return (
@@ -76,22 +96,109 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
           </p>
         )}
       </div>
-      {canOverride && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsOverrideOpen(true);
-          }}
-          className="flex-shrink-0"
-          data-testid={`button-override-${request.id}`}
-        >
-          <Settings className="w-4 h-4 mr-1" />
-          Override
-        </Button>
-      )}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {canAddAlt && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsAddAltOpen(true);
+            }}
+            data-testid={`button-add-alt-${request.id}`}
+          >
+            <UserPlus className="w-4 h-4 mr-1" />
+            Add Alternative
+          </Button>
+        )}
+        {canOverride && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsOverrideOpen(true);
+            }}
+            data-testid={`button-override-${request.id}`}
+          >
+            <Settings className="w-4 h-4 mr-1" />
+            Override
+          </Button>
+        )}
+      </div>
       
+      <Dialog open={isAddAltOpen} onOpenChange={(open) => {
+        setIsAddAltOpen(open);
+        if (!open) { setAltFirstName(''); setAltLastName(''); setAltEmail(''); }
+      }}>
+        <DialogContent className="max-w-sm" data-testid="add-alternative-dialog" onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Add Alternative Contact</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-muted-foreground">
+              Send this meeting invitation to another person. The first person to book wins.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="card-alt-first-name" className="text-xs">First Name</Label>
+                <Input
+                  id="card-alt-first-name"
+                  value={altFirstName}
+                  onChange={(e) => setAltFirstName(e.target.value)}
+                  placeholder="First name"
+                  data-testid="input-card-alt-first-name"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="card-alt-last-name" className="text-xs">Last Name</Label>
+                <Input
+                  id="card-alt-last-name"
+                  value={altLastName}
+                  onChange={(e) => setAltLastName(e.target.value)}
+                  placeholder="Last name"
+                  data-testid="input-card-alt-last-name"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="card-alt-email" className="text-xs">Email Address *</Label>
+              <Input
+                id="card-alt-email"
+                type="email"
+                value={altEmail}
+                onChange={(e) => setAltEmail(e.target.value)}
+                placeholder="email@example.com"
+                data-testid="input-card-alt-email"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setIsAddAltOpen(false); setAltFirstName(''); setAltLastName(''); setAltEmail(''); }}
+                data-testid="button-cancel-add-alt"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleAltSubmit}
+                disabled={!altEmail.trim() || isAddingAlternative}
+                data-testid="button-confirm-add-alt"
+              >
+                {isAddingAlternative ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <UserPlus className="w-4 h-4 mr-2" />
+                )}
+                Add & Send
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isOverrideOpen} onOpenChange={(open) => {
         setIsOverrideOpen(open);
         if (!open) setOverrideDateTime('');
@@ -147,9 +254,13 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
   );
 }
 
-function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplateIds }) {
+function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplateIds, onSendInvite, isSendingInvite, hasBookedRequest }) {
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [overrideDateTime, setOverrideDateTime] = useState('');
+  const [isSendOpen, setIsSendOpen] = useState(false);
+  const [inviteFirstName, setInviteFirstName] = useState('');
+  const [inviteLastName, setInviteLastName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
   
   const statusConfig = STATUS_CONFIG.not_sent;
   const StatusIcon = statusConfig.icon;
@@ -159,7 +270,8 @@ function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplat
   
   const firstAgent = config.agents?.[0];
   const templateAlreadyBooked = bookedTemplateIds?.has(config.meeting_template?.id);
-  const canOverride = !templateAlreadyBooked && firstAgent;
+  const canOverride = !templateAlreadyBooked && !hasBookedRequest && firstAgent;
+  const canSendInvite = !templateAlreadyBooked && !hasBookedRequest && firstAgent;
 
   const handleOverrideSubmit = () => {
     if (!overrideDateTime || !firstAgent) return;
@@ -170,6 +282,21 @@ function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplat
     });
     setIsOverrideOpen(false);
     setOverrideDateTime('');
+  };
+
+  const handleSendInvite = () => {
+    if (!inviteEmail.trim() || !firstAgent) return;
+    onSendInvite({
+      meetingTemplateId: config.meeting_template?.id,
+      agentIdentityId: firstAgent.id,
+      firstName: inviteFirstName.trim(),
+      lastName: inviteLastName.trim(),
+      email: inviteEmail.trim()
+    });
+    setInviteFirstName('');
+    setInviteLastName('');
+    setInviteEmail('');
+    setIsSendOpen(false);
   };
   
   return (
@@ -201,18 +328,102 @@ function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplat
           Will trigger on <span className="font-medium" style={{ color: config.stage_color || 'inherit' }}>{config.stage_name}</span> stage
         </p>
       </div>
-      {canOverride && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setIsOverrideOpen(true)}
-          className="flex-shrink-0"
-          data-testid={`button-override-configured-${config.config_id}`}
-        >
-          <Settings className="w-4 h-4 mr-1" />
-          Override
-        </Button>
-      )}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {canSendInvite && (
+          <Button
+            size="sm"
+            variant="default"
+            onClick={() => setIsSendOpen(true)}
+            data-testid={`button-send-invite-${config.config_id}`}
+          >
+            <Send className="w-4 h-4 mr-1" />
+            Send Invite
+          </Button>
+        )}
+        {canOverride && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setIsOverrideOpen(true)}
+            data-testid={`button-override-configured-${config.config_id}`}
+          >
+            <Settings className="w-4 h-4 mr-1" />
+            Override
+          </Button>
+        )}
+      </div>
+
+      <Dialog open={isSendOpen} onOpenChange={(open) => {
+        setIsSendOpen(open);
+        if (!open) { setInviteFirstName(''); setInviteLastName(''); setInviteEmail(''); }
+      }}>
+        <DialogContent className="max-w-sm" data-testid="send-invite-dialog">
+          <DialogHeader>
+            <DialogTitle>Send Meeting Invitation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-muted-foreground">
+              Send a meeting invitation for <span className="font-medium">{config.meeting_template?.name}</span> to a contact. They will receive a booking link.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="invite-first-name" className="text-xs">First Name</Label>
+                <Input
+                  id="invite-first-name"
+                  value={inviteFirstName}
+                  onChange={(e) => setInviteFirstName(e.target.value)}
+                  placeholder="First name"
+                  data-testid="input-invite-first-name"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="invite-last-name" className="text-xs">Last Name</Label>
+                <Input
+                  id="invite-last-name"
+                  value={inviteLastName}
+                  onChange={(e) => setInviteLastName(e.target.value)}
+                  placeholder="Last name"
+                  data-testid="input-invite-last-name"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="invite-email" className="text-xs">Email Address *</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="email@example.com"
+                data-testid="input-invite-email"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setIsSendOpen(false); setInviteFirstName(''); setInviteLastName(''); setInviteEmail(''); }}
+                data-testid="button-cancel-send-invite"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSendInvite}
+                disabled={!inviteEmail.trim() || isSendingInvite}
+                data-testid="button-confirm-send-invite"
+              >
+                {isSendingInvite ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4 mr-2" />
+                )}
+                Send Invitation
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       
       <Dialog open={isOverrideOpen} onOpenChange={(open) => {
         setIsOverrideOpen(open);
@@ -353,6 +564,39 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
     createBookedMutation.mutate(data);
   };
 
+  const addAlternativeMutation = useMutation({
+    mutationFn: async ({ meetingTemplateId, agentIdentityId, firstName, lastName, email }) => {
+      return apiRequest('POST', `/api/dd-meeting-requests/add-alternative`, {
+        formSubmissionId,
+        meetingTemplateId,
+        agentIdentityId,
+        recipientEmail: email,
+        recipientFirstName: firstName,
+        recipientLastName: lastName,
+        sendImmediately: true
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Invitation Sent",
+        description: "The meeting invitation has been sent.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/by-submission', formSubmissionId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/configured-by-form', formId] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send meeting invitation.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleAddAlternative = (data) => {
+    addAlternativeMutation.mutate(data);
+  };
+
   const requests = sentData?.requests || [];
   const configuredMeetings = configuredData?.configured_meetings || [];
   
@@ -409,6 +653,9 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
                   onOverride={handleConfiguredOverride}
                   isOverriding={createBookedMutation.isPending}
                   bookedTemplateIds={bookedTemplateIds}
+                  onSendInvite={handleAddAlternative}
+                  isSendingInvite={addAlternativeMutation.isPending}
+                  hasBookedRequest={hasBookedRequest}
                 />
               ))}
             </div>
@@ -424,6 +671,8 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
                   onOverride={handleManualOverride}
                   isOverriding={manualOverrideMutation.isPending}
                   hasBookedRequest={hasBookedRequest}
+                  onAddAlternative={handleAddAlternative}
+                  isAddingAlternative={addAlternativeMutation.isPending}
                 />
               ))}
             </div>
