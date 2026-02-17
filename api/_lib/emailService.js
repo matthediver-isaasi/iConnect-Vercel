@@ -286,7 +286,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     }
 
     if (unsubscribeUrl) {
-      messageData['h:List-Unsubscribe'] = `<${unsubscribeUrl}>`;
+      const mailtoAddress = `unsubscribe@${domain}`;
+      messageData['h:List-Unsubscribe'] = `<mailto:${mailtoAddress}>, <${unsubscribeUrl}>`;
       messageData['h:List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
     }
 
