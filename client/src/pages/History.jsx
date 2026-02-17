@@ -277,7 +277,7 @@ export default function HistoryPage({ hasBanner }) {
   const filteredMembershipHistory = useMemo(() => {
     return filterAndSortData(
       membershipHistory,
-      ['membership_year', 'tier_name', 'band_label', 'xero_invoice_number', 'purchase_order_number'],
+      ['membership_year', 'tier_label', 'band_label', 'xero_invoice_number', 'purchase_order_number'],
       'created_at'
     );
   }, [membershipHistory, searchQuery, sortOrder]);
@@ -1033,9 +1033,10 @@ export default function HistoryPage({ hasBanner }) {
   const MembershipHistoryCard = ({ record }) => {
     const hasInvoice = !!(record.xero_invoice_number || record.xero_invoice_id);
     const transactionDate = record.created_at ? new Date(record.created_at) : null;
-    const totalAmount = record.total_with_vat != null ? parseFloat(record.total_with_vat) : parseFloat(record.final_cost || 0);
-    const vatAmount = record.vat_amount != null ? parseFloat(record.vat_amount) : 0;
     const finalCost = parseFloat(record.final_cost || 0);
+    const vatRate = record.vat_rate != null ? parseFloat(record.vat_rate) : 0;
+    const vatAmount = vatRate > 0 ? finalCost * (vatRate / 100) : 0;
+    const totalAmount = finalCost + vatAmount;
 
     return (
       <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -1070,9 +1071,9 @@ export default function HistoryPage({ hasBanner }) {
             </div>
             
             <div className="space-y-1">
-              {record.tier_name && (
+              {record.tier_label && (
                 <p className="text-sm text-slate-600">
-                  {record.tier_name}{record.band_label ? ` - ${record.band_label}` : ''}
+                  {record.tier_label}{record.band_label ? ` - ${record.band_label}` : ''}
                 </p>
               )}
               <p className="text-sm text-slate-600">
