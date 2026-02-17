@@ -296,17 +296,19 @@ export default function MemberDirectoryPage() {
     }
     
     if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter(member => {
-        const organization = organizations.find(o => o.id === member.organization_id);
-        return (
-          member.first_name?.toLowerCase().includes(searchLower) ||
-          member.last_name?.toLowerCase().includes(searchLower) ||
-          member.email?.toLowerCase().includes(searchLower) ||
-          (displaySettings?.show_job_title && member.job_title?.toLowerCase().includes(searchLower)) ||
-          (displaySettings?.show_organization && organization?.name?.toLowerCase().includes(searchLower))
-        );
-      });
+      const searchLower = searchQuery.toLowerCase().trim();
+      if (searchLower) {
+        filtered = filtered.filter(member => {
+          const fullName = `${member.first_name || ''} ${member.last_name || ''}`.toLowerCase();
+          const organization = organizations.find(o => o.id === member.organization_id);
+          return (
+            fullName.includes(searchLower) ||
+            member.email?.toLowerCase().includes(searchLower) ||
+            (displaySettings?.show_job_title && member.job_title?.toLowerCase().includes(searchLower)) ||
+            (displaySettings?.show_organization && organization?.name?.toLowerCase().includes(searchLower))
+          );
+        });
+      }
     }
     
     // Filter by custom fields
