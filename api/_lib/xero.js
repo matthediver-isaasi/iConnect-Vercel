@@ -361,13 +361,35 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     }
   }
 
+  let onlineInvoiceUrl = null;
+  if (invoice.InvoiceID && invoice.Status !== 'DRAFT') {
+    try {
+      const onlineResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoice.InvoiceID}/OnlineInvoice`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Accept': 'application/json'
+        }
+      });
+      const onlineData = await safeXeroJson(onlineResponse, 'online-invoice-url');
+      onlineInvoiceUrl = onlineData?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+      if (onlineInvoiceUrl) {
+        console.log(`[Xero] Online invoice URL retrieved for ${invoice.InvoiceNumber}`);
+      }
+    } catch (urlErr) {
+      console.warn(`[Xero] Could not fetch online invoice URL (non-fatal): ${urlErr.message}`);
+    }
+  }
+
   return {
     invoice_id: invoice.InvoiceID,
     invoice_number: invoice.InvoiceNumber,
     total: invoice.Total,
     status: paymentRecorded ? 'PAID' : invoice.Status,
     payment_recorded: paymentRecorded,
-    payment_id: paymentId
+    payment_id: paymentId,
+    online_invoice_url: onlineInvoiceUrl
   };
 }
 

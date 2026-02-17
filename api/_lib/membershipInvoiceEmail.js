@@ -1,39 +1,5 @@
 import { supabase } from './database.js';
 import { sendTenantEmail } from './tenantEmailService.js';
-import crypto from 'crypto';
-
-const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
-
-async function ensureInvoiceDownloadTokenTable() {
-  try {
-    const { error } = await supabase
-      .from('membership_invoice_download_token')
-      .select('id')
-      .limit(1);
-
-    if (!error) return;
-
-    if (error.code === '42P01') {
-      await supabase.rpc('exec_sql', {
-        sql_text: `
-          CREATE TABLE IF NOT EXISTS membership_invoice_download_token (
-            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-            token TEXT NOT NULL UNIQUE,
-            tenant_id UUID NOT NULL,
-            organization_id UUID NOT NULL,
-            history_record_id UUID NOT NULL,
-            xero_invoice_id TEXT NOT NULL,
-            expires_at TIMESTAMPTZ NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-          );
-          CREATE INDEX IF NOT EXISTS idx_invoice_dl_token ON membership_invoice_download_token(token);
-        `
-      });
-    }
-  } catch (err) {
-    console.error('[Invoice Email] Error ensuring download token table:', err.message);
-  }
-}
 
 export async function sendMembershipInvoiceEmail({
   tenantId,
@@ -48,6 +14,7 @@ export async function sendMembershipInvoiceEmail({
   historyRecordId,
   vatAmount,
   totalWithVat,
+  onlineInvoiceUrl,
 }) {
   if (!supabase) {
     console.error('[Invoice Email] Supabase not configured');
@@ -93,39 +60,8 @@ export async function sendMembershipInvoiceEmail({
       .single();
 
     const tenantName = tenant?.name || 'Organisation';
-    const tenantSlug = tenant?.slug;
     const primaryColor = tenant?.primary_color || '#5C0085';
     const currencySymbol = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' }[currency] || currency;
-
-    let downloadUrl = null;
-    try {
-      await ensureInvoiceDownloadTokenTable();
-
-      const token = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-
-      const { error: tokenErr } = await supabase
-        .from('membership_invoice_download_token')
-        .insert({
-          token,
-          tenant_id: tenantId,
-          organization_id: organizationId,
-          history_record_id: historyRecordId,
-          xero_invoice_id: xeroInvoiceId,
-          expires_at: expiresAt.toISOString(),
-        });
-
-      if (!tokenErr) {
-        const baseUrl = tenantSlug
-          ? `https://${tenantSlug}.${APP_DOMAIN}`
-          : `https://${APP_DOMAIN}`;
-        downloadUrl = `${baseUrl}/api/public/membership-invoice-download/${token}`;
-      } else {
-        console.error('[Invoice Email] Error creating download token:', tokenErr.message);
-      }
-    } catch (dlErr) {
-      console.error('[Invoice Email] Error setting up download link (non-fatal):', dlErr.message);
-    }
 
     const displayTotal = totalWithVat && totalWithVat > finalCost ? totalWithVat : finalCost;
     const hasVat = vatAmount && vatAmount > 0;
@@ -170,12 +106,11 @@ export async function sendMembershipInvoiceEmail({
               </tr>
             </table>
           </div>
-          ${downloadUrl ? `
-          <p>You can download a copy of your invoice using the link below:</p>
+          ${onlineInvoiceUrl ? `
+          <p>You can view and download your invoice using the link below:</p>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${downloadUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">Download Invoice PDF</a>
+            <a href="${onlineInvoiceUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">View Invoice</a>
           </div>
-          <p style="color: #999; font-size: 12px;">This download link expires in 90 days.</p>
           ` : ''}
           <p style="color: #666; font-size: 13px;">If you have any questions about this invoice, please contact us.</p>
         </div>
