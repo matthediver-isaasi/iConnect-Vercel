@@ -320,6 +320,11 @@ export default function DueDiligenceConfigPage() {
       return;
     }
     try {
+      const existingForStage = stageMemberActions.filter(ma => ma.due_diligence_stage_id === stageId);
+      const nextSortOrder = existingForStage.length > 0
+        ? Math.max(...existingForStage.map(ma => ma.sort_order || 0)) + 1
+        : 0;
+
       const response = await fetch('/api/stage-member-actions', {
         method: 'POST',
         credentials: 'include',
@@ -334,7 +339,8 @@ export default function DueDiligenceConfigPage() {
           field_mappings: fieldMappings || { core: {}, custom: {} },
           form_id: formId,
           form_due_diligence_config_id: ddConfig.id,
-          login_enabled: loginEnabled === true
+          login_enabled: loginEnabled === true,
+          sort_order: nextSortOrder
         })
       });
       if (!response.ok) throw new Error('Failed to add member action');
@@ -707,10 +713,43 @@ export default function DueDiligenceConfigPage() {
 
   const handleStageDragEnd = (result) => {
     if (!result.destination) return;
+    if (result.source.index === result.destination.index && result.source.droppableId === result.destination.droppableId) return;
+
+    const { source, destination, type } = result;
+
+    if (type === 'member-action') {
+      if (source.droppableId !== destination.droppableId) return;
+      const stageId = source.droppableId.replace('member-actions-', '');
+      const stageActions = stageMemberActions
+        .filter(ma => ma.due_diligence_stage_id === stageId)
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const reordered = Array.from(stageActions);
+      const [moved] = reordered.splice(source.index, 1);
+      reordered.splice(destination.index, 0, moved);
+      const orderedIds = reordered.map(a => a.id);
+      reorderStageMemberActions(orderedIds);
+      return;
+    }
+
     const items = Array.from(workflowStages);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
+    const [reorderedItem] = items.splice(source.index, 1);
+    items.splice(destination.index, 0, reorderedItem);
     setWorkflowStages(items.map((item, index) => ({ ...item, order: index })));
+  };
+
+  const reorderStageMemberActions = async (orderedIds) => {
+    try {
+      const response = await fetch('/api/stage-member-actions/reorder', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedIds })
+      });
+      if (!response.ok) throw new Error('Failed to reorder member actions');
+      await refetchStageMemberActions();
+    } catch (err) {
+      toast.error(err.message || 'Failed to reorder member actions');
+    }
   };
 
   const handleQuestionDragEnd = (result) => {
@@ -1340,7 +1379,7 @@ export default function DueDiligenceConfigPage() {
             </CardHeader>
             <CardContent>
               <DragDropContext onDragEnd={handleStageDragEnd}>
-                <Droppable droppableId="stages">
+                <Droppable droppableId="stages" type="stage">
                   {(provided) => (
                     <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-3">
                       {workflowStages.map((stage, index) => (
@@ -2004,55 +2043,78 @@ export default function DueDiligenceConfigPage() {
                                         </p>
                                         <div className="space-y-2">
                                           {(() => {
-                                            const stageActions = stageMemberActions.filter(ma => ma.due_diligence_stage_id === stage.id);
+                                            const stageActions = stageMemberActions
+                                              .filter(ma => ma.due_diligence_stage_id === stage.id)
+                                              .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
                                             return (
                                               <>
-                                                {stageActions.map((ma) => (
-                                                  <div key={ma.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                      <UserPlus className="w-4 h-4 text-muted-foreground" />
-                                                      <span className="text-sm">Create Member</span>
-                                                      <Badge variant="outline" className="text-xs">Email: {getFieldLabel(ma.email_field)}</Badge>
-                                                      {ma.role?.name && (
-                                                        <Badge variant="outline" className="text-xs">Role: {ma.role.name}</Badge>
-                                                      )}
-                                                      {ma.welcome_email_template?.name && (
-                                                        <Badge variant="outline" className="text-xs">Welcome: {ma.welcome_email_template.name}</Badge>
-                                                      )}
-                                                      {ma.login_enabled && (
-                                                        <Badge variant="secondary" className="text-xs">Login Enabled</Badge>
-                                                      )}
+                                                <Droppable droppableId={`member-actions-${stage.id}`} type="member-action">
+                                                  {(droppableProvided) => (
+                                                    <div ref={droppableProvided.innerRef} {...droppableProvided.droppableProps} className="space-y-2">
+                                                      {stageActions.map((ma, maIndex) => (
+                                                        <Draggable key={ma.id} draggableId={`ma-${ma.id}`} index={maIndex}>
+                                                          {(dragProvided, dragSnapshot) => (
+                                                            <div
+                                                              ref={dragProvided.innerRef}
+                                                              {...dragProvided.draggableProps}
+                                                              className={cn(
+                                                                "flex items-center justify-between gap-2 p-2 border rounded bg-muted/50",
+                                                                dragSnapshot.isDragging && "shadow-lg ring-2 ring-primary/20"
+                                                              )}
+                                                            >
+                                                              <div className="flex items-center gap-2 flex-wrap">
+                                                                <div {...dragProvided.dragHandleProps} className="cursor-grab active:cursor-grabbing" data-testid={`drag-handle-member-action-${ma.id}`}>
+                                                                  <GripVertical className="w-4 h-4 text-muted-foreground" />
+                                                                </div>
+                                                                <UserPlus className="w-4 h-4 text-muted-foreground" />
+                                                                <span className="text-sm">Create Member</span>
+                                                                <Badge variant="outline" className="text-xs">Email: {getFieldLabel(ma.email_field)}</Badge>
+                                                                {ma.role?.name && (
+                                                                  <Badge variant="outline" className="text-xs">Role: {ma.role.name}</Badge>
+                                                                )}
+                                                                {ma.welcome_email_template?.name && (
+                                                                  <Badge variant="outline" className="text-xs">Welcome: {ma.welcome_email_template.name}</Badge>
+                                                                )}
+                                                                {ma.login_enabled && (
+                                                                  <Badge variant="secondary" className="text-xs">Login Enabled</Badge>
+                                                                )}
+                                                              </div>
+                                                              <div className="flex items-center gap-1">
+                                                                <Button
+                                                                  size="icon"
+                                                                  variant="ghost"
+                                                                  onClick={() => setPendingMemberAction({
+                                                                    stageId: stage.id,
+                                                                    firstNameField: ma.first_name_field,
+                                                                    lastNameField: ma.last_name_field,
+                                                                    emailField: ma.email_field,
+                                                                    roleId: ma.role_id || '',
+                                                                    welcomeEmailTemplateId: ma.welcome_email_template_id || '',
+                                                                    fieldMappings: ma.field_mappings || { core: {}, custom: {} },
+                                                                    loginEnabled: ma.login_enabled === true,
+                                                                    editId: ma.id
+                                                                  })}
+                                                                  data-testid={`button-edit-member-action-${ma.id}`}
+                                                                >
+                                                                  <Pencil className="w-4 h-4" />
+                                                                </Button>
+                                                                <Button
+                                                                  size="icon"
+                                                                  variant="ghost"
+                                                                  onClick={() => removeStageMemberAction(ma.id)}
+                                                                  data-testid={`button-remove-member-action-${ma.id}`}
+                                                                >
+                                                                  <Trash2 className="w-4 h-4" />
+                                                                </Button>
+                                                              </div>
+                                                            </div>
+                                                          )}
+                                                        </Draggable>
+                                                      ))}
+                                                      {droppableProvided.placeholder}
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => setPendingMemberAction({
-                                                          stageId: stage.id,
-                                                          firstNameField: ma.first_name_field,
-                                                          lastNameField: ma.last_name_field,
-                                                          emailField: ma.email_field,
-                                                          roleId: ma.role_id || '',
-                                                          welcomeEmailTemplateId: ma.welcome_email_template_id || '',
-                                                          fieldMappings: ma.field_mappings || { core: {}, custom: {} },
-                                                          loginEnabled: ma.login_enabled === true,
-                                                          editId: ma.id
-                                                        })}
-                                                        data-testid={`button-edit-member-action-${ma.id}`}
-                                                      >
-                                                        <Pencil className="w-4 h-4" />
-                                                      </Button>
-                                                      <Button
-                                                        size="icon"
-                                                        variant="ghost"
-                                                        onClick={() => removeStageMemberAction(ma.id)}
-                                                        data-testid={`button-remove-member-action-${ma.id}`}
-                                                      >
-                                                        <Trash2 className="w-4 h-4" />
-                                                      </Button>
-                                                    </div>
-                                                  </div>
-                                                ))}
+                                                  )}
+                                                </Droppable>
                                                 
                                                 {pendingMemberAction?.stageId === stage.id ? (
                                                   <div className="space-y-3 p-3 border rounded bg-muted/30">
