@@ -467,7 +467,7 @@ async function handleGet(req, res, tenantId) {
       yearData.overrideNote = override.note;
       yearData.overrideDiscountType = override.discount_type;
       yearData.overrideDiscountValue = parseFloat(override.discount_value);
-      yearData.originalAnnualCost = yearData.annualCost;
+      yearData.originalAnnualCost = yearData.annualCostBeforeDiscounts ?? yearData.annualCost;
       yearData.originalFinalCost = yearData.finalCost;
       yearData.originalCustomDiscountTotal = yearData.customDiscountTotal;
       yearData.customDiscountTotal = discountAmount;
