@@ -31,14 +31,12 @@ import { publicClient } from '@/api/publicClient';
 
 const MEETING_TYPE_ICONS = {
   phone: PhoneIcon,
-  google_meet: Video,
   zoom: Video,
   in_person: MapPin
 };
 
 const MEETING_TYPE_LABELS = {
   phone: 'Phone Call',
-  google_meet: 'Google Meet',
   zoom: 'Zoom Meeting',
   in_person: 'In Person'
 };
