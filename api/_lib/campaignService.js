@@ -689,7 +689,9 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
         subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
 
         const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
-        const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${generateTrackingToken(campaignId, recipient.id, 0)}`;
+        const trackingToken = generateTrackingToken(campaignId, recipient.id, 0);
+        const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
+        const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
         const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
 
         const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
@@ -713,7 +715,8 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
           tenantId: tenantId,
           skipFooter: campaignSkipFooter,
           contentWidth: campaignContentWidth,
-          enableTracking: true
+          enableTracking: true,
+          unsubscribeUrl: oneClickUnsubscribeUrl
         });
 
         if (result.success) {

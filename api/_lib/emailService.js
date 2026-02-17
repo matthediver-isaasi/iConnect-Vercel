@@ -204,7 +204,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -283,6 +283,11 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       messageData['o:tracking'] = 'yes';
       messageData['o:tracking-opens'] = 'yes';
       messageData['o:tracking-clicks'] = 'htmlonly';
+    }
+
+    if (unsubscribeUrl) {
+      messageData['h:List-Unsubscribe'] = `<${unsubscribeUrl}>`;
+      messageData['h:List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
     }
 
     // Try sending with the tenant domain first

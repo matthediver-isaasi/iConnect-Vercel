@@ -10,21 +10,61 @@ function decodeTrackingToken(token) {
   }
 }
 
+async function processUnsubscribe(campaignId, recipientId, recipient, campaign, source) {
+  await supabase
+    .from('email_unsubscribe')
+    .upsert({
+      tenant_id: campaign.tenant_id,
+      email: recipient.email,
+      member_id: recipient.member_id,
+      unsubscribe_type: 'all',
+      campaign_id: campaignId,
+      source: source,
+      unsubscribed_at: new Date().toISOString()
+    }, {
+      onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
+    });
+
+  await supabase
+    .from('email_campaign_recipient')
+    .update({
+      status: 'unsubscribed',
+      unsubscribed_at: new Date().toISOString()
+    })
+    .eq('id', recipientId);
+
+  await supabase
+    .from('email_campaign')
+    .update({
+      unsubscribed_count: supabase.raw ? supabase.raw('unsubscribed_count + 1') : 1
+    })
+    .eq('id', campaignId);
+}
+
 export default async function handler(req, res) {
   const { t: token, confirm } = req.query;
 
   if (!token) {
+    if (req.method === 'POST') {
+      return res.status(400).json({ error: 'Invalid unsubscribe link' });
+    }
     return res.status(400).send(renderPage('Invalid unsubscribe link', 'error'));
   }
 
   const tokenData = decodeTrackingToken(token);
   if (!tokenData) {
+    if (req.method === 'POST') {
+      return res.status(400).json({ error: 'Invalid unsubscribe link' });
+    }
     return res.status(400).send(renderPage('Invalid unsubscribe link', 'error'));
   }
 
   const { campaignId, recipientId } = tokenData;
 
   if (!supabase) {
+    if (req.method === 'POST') {
+      return res.status(500).json({ error: 'Service temporarily unavailable' });
+    }
     return res.status(500).send(renderPage('Service temporarily unavailable', 'error'));
   }
 
@@ -36,6 +76,9 @@ export default async function handler(req, res) {
       .single();
 
     if (recipientError || !recipient) {
+      if (req.method === 'POST') {
+        return res.status(400).json({ error: 'Invalid unsubscribe link' });
+      }
       return res.status(400).send(renderPage('Invalid unsubscribe link', 'error'));
     }
 
@@ -46,7 +89,16 @@ export default async function handler(req, res) {
       .single();
 
     if (!campaign) {
+      if (req.method === 'POST') {
+        return res.status(400).json({ error: 'Campaign not found' });
+      }
       return res.status(400).send(renderPage('Campaign not found', 'error'));
+    }
+
+    if (req.method === 'POST') {
+      await processUnsubscribe(campaignId, recipientId, recipient, campaign, 'one-click');
+      console.log(`[Unsubscribe] One-click unsubscribe processed for ${recipient.email} (campaign ${campaignId})`);
+      return res.status(200).json({ success: true });
     }
 
     if (req.method === 'GET' && confirm !== 'true') {
@@ -58,34 +110,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET' && confirm === 'true') {
-      await supabase
-        .from('email_unsubscribe')
-        .upsert({
-          tenant_id: campaign.tenant_id,
-          email: recipient.email,
-          member_id: recipient.member_id,
-          unsubscribe_type: 'all',
-          campaign_id: campaignId,
-          source: 'user',
-          unsubscribed_at: new Date().toISOString()
-        }, {
-          onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
-        });
-
-      await supabase
-        .from('email_campaign_recipient')
-        .update({
-          status: 'unsubscribed',
-          unsubscribed_at: new Date().toISOString()
-        })
-        .eq('id', recipientId);
-
-      await supabase
-        .from('email_campaign')
-        .update({
-          unsubscribed_count: supabase.raw ? supabase.raw('unsubscribed_count + 1') : 1
-        })
-        .eq('id', campaignId);
+      await processUnsubscribe(campaignId, recipientId, recipient, campaign, 'user');
 
       return res.send(renderPage('Successfully Unsubscribed', 'success', {
         email: recipient.email
@@ -95,6 +120,9 @@ export default async function handler(req, res) {
     return res.status(405).send(renderPage('Method not allowed', 'error'));
   } catch (err) {
     console.error('[Unsubscribe] Error:', err);
+    if (req.method === 'POST') {
+      return res.status(500).json({ error: 'An error occurred' });
+    }
     return res.status(500).send(renderPage('An error occurred', 'error'));
   }
 }
