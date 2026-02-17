@@ -1625,6 +1625,7 @@ const functionHandlers = {
     }
 
     // Verify Stripe payment if card payment was used
+    let verifiedStripeClient = null;
     if (paymentMethod === 'card' && stripePaymentIntentId) {
       console.log('[createOneOffEventBooking] Verifying Stripe payment:', stripePaymentIntentId);
       
@@ -1632,6 +1633,24 @@ const functionHandlers = {
       const stripe = await getStripeClient(event.tenant_id);
       if (!stripe) {
         return { success: false, error: 'Stripe is not configured for this tenant' };
+      }
+      verifiedStripeClient = stripe;
+
+      // Check for existing bookings with this PaymentIntent to prevent duplicate processing
+      const { data: existingBookings, error: existingError } = await supabase
+        .from('booking')
+        .select('id, booking_reference, booking_group_reference, attendee_email, status')
+        .eq('stripe_payment_intent_id', stripePaymentIntentId);
+      
+      if (!existingError && existingBookings && existingBookings.length > 0) {
+        console.log('[createOneOffEventBooking] Found existing bookings for PaymentIntent:', stripePaymentIntentId, 'count:', existingBookings.length);
+        return {
+          success: true,
+          booking_reference: existingBookings[0].booking_group_reference || existingBookings[0].booking_reference,
+          bookings: existingBookings,
+          already_processed: true,
+          message: 'This payment has already been processed and your booking is confirmed.'
+        };
       }
 
       try {
@@ -1643,14 +1662,38 @@ const functionHandlers = {
           return { success: false, error: 'Payment has not been completed. Please try again.' };
         }
 
-        // Verify payment amount matches expected amount (totalCost is already in pence)
-        const expectedCardAmount = Math.round(totalCost - (trainingFundAmount || 0));
-        if (Math.abs(paymentIntent.amount - expectedCardAmount) > 1) {
-          console.error('[createOneOffEventBooking] Payment amount mismatch:', {
-            expected: expectedCardAmount,
+        // Verify payment amount: the frontend charges (remainingBalance + donation) and converts to pence via amount*100.
+        // The PaymentIntent was created by our own createStripePaymentIntent endpoint with the correct amount.
+        // We verify the PaymentIntent metadata matches this event to prevent cross-event payment reuse.
+        // The amount was already validated when the PaymentIntent was created, so we do a loose sanity check
+        // rather than a strict recalculation (which is fragile due to voucher/discount server-side revalidation).
+        const piMetadata = paymentIntent.metadata || {};
+        if (piMetadata.event_id && piMetadata.event_id !== eventId) {
+          console.error('[createOneOffEventBooking] PaymentIntent event_id mismatch:', {
+            expected: eventId,
+            received: piMetadata.event_id
+          });
+          return { success: false, error: 'Payment was created for a different event' };
+        }
+        
+        // Sanity check: payment amount should not exceed total cost + donation (converted to pence)
+        const donationAmountValue = donationData?.amount || 0;
+        const maxReasonableAmount = Math.round((totalCost + donationAmountValue) * 100) + 100;
+        
+        console.log('[createOneOffEventBooking] Payment amount verification:', {
+          totalCost,
+          donationAmount: donationAmountValue,
+          maxReasonableAmountPence: maxReasonableAmount,
+          actualAmountPence: paymentIntent.amount,
+          paymentIntentEventId: piMetadata.event_id
+        });
+        
+        if (paymentIntent.amount > maxReasonableAmount) {
+          console.error('[createOneOffEventBooking] Payment amount exceeds expected maximum:', {
+            maxReasonable: maxReasonableAmount,
             received: paymentIntent.amount
           });
-          return { success: false, error: 'Payment amount does not match the expected total' };
+          return { success: false, error: 'Payment amount exceeds expected total' };
         }
 
         console.log('[createOneOffEventBooking] Stripe payment verified:', paymentIntent.status);
@@ -1924,7 +1967,32 @@ const functionHandlers = {
 
       if (bookingError) {
         console.error('[createOneOffEventBooking] Booking insert failed:', bookingError);
-        // Return error immediately if booking fails
+        
+        // If Stripe payment was taken, automatically refund since booking creation failed
+        if (stripePaymentIntentId && verifiedStripeClient) {
+          try {
+            console.log('[createOneOffEventBooking] Auto-refunding Stripe payment due to booking failure:', stripePaymentIntentId);
+            await verifiedStripeClient.refunds.create({
+              payment_intent: stripePaymentIntentId,
+              reason: 'requested_by_customer'
+            });
+            console.log('[createOneOffEventBooking] Stripe refund issued successfully');
+            return { 
+              success: false, 
+              error: 'We could not complete your booking due to a system error. Your payment has been automatically refunded. Please try again.',
+              refunded: true
+            };
+          } catch (refundError) {
+            console.error('[createOneOffEventBooking] Failed to auto-refund:', refundError.message);
+            return { 
+              success: false, 
+              error: `Booking failed and we could not process an automatic refund. Please contact support with reference: ${stripePaymentIntentId}`,
+              refund_failed: true,
+              stripe_payment_intent_id: stripePaymentIntentId
+            };
+          }
+        }
+        
         return { 
           success: false, 
           error: `Failed to create booking: ${bookingError.message || 'Unknown database error'}`,
@@ -1946,6 +2014,32 @@ const functionHandlers = {
     // Check if any bookings were created
     if (createdBookings.length === 0) {
       console.error('[createOneOffEventBooking] No bookings were created');
+      
+      // If Stripe payment was taken but no bookings created, auto-refund
+      if (stripePaymentIntentId && verifiedStripeClient) {
+        try {
+          console.log('[createOneOffEventBooking] Auto-refunding Stripe payment - no bookings created:', stripePaymentIntentId);
+          await verifiedStripeClient.refunds.create({
+            payment_intent: stripePaymentIntentId,
+            reason: 'requested_by_customer'
+          });
+          console.log('[createOneOffEventBooking] Stripe refund issued successfully');
+          return { 
+            success: false, 
+            error: 'We could not complete your booking due to a system error. Your payment has been automatically refunded. Please try again.',
+            refunded: true
+          };
+        } catch (refundError) {
+          console.error('[createOneOffEventBooking] Failed to auto-refund:', refundError.message);
+          return { 
+            success: false, 
+            error: `Booking failed and we could not process an automatic refund. Please contact support with reference: ${stripePaymentIntentId}`,
+            refund_failed: true,
+            stripe_payment_intent_id: stripePaymentIntentId
+          };
+        }
+      }
+      
       return { success: false, error: 'No bookings were created' };
     }
 

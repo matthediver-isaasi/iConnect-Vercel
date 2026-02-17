@@ -24,7 +24,7 @@ import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 let stripePromise = null;
 
 // Stripe Payment Form Component
-function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
+function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUrl }) {
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -44,7 +44,7 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
       const { error: submitError } = await stripe.confirmPayment({
         elements,
         confirmParams: {
-          return_url: window.location.href
+          return_url: returnUrl || window.location.href
         },
         redirect: 'if_required'
       });
@@ -151,6 +151,10 @@ export default function PaymentOptions({
   const [stripeAvailable, setStripeAvailable] = useState(false);
   const [poSupplyLater, setPoSupplyLater] = useState(true);
   
+  // 3D Secure return handling state
+  const [completingPayment, setCompletingPayment] = useState(false);
+  const [paymentReturnHandled, setPaymentReturnHandled] = useState(false);
+  
   // Duplicate registration check state
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const [duplicateAttendees, setDuplicateAttendees] = useState([]);
@@ -221,6 +225,107 @@ export default function PaymentOptions({
     };
     initStripe();
   }, []);
+
+  // Handle 3D Secure redirect return
+  // When a user returns from 3D Secure bank verification, the URL will contain
+  // payment_intent and redirect_status params. We detect this and auto-complete the booking.
+  useEffect(() => {
+    if (paymentReturnHandled || !event?.id) return;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentIntentFromUrl = urlParams.get('payment_intent');
+    const redirectStatus = urlParams.get('redirect_status');
+    
+    if (!paymentIntentFromUrl) return;
+    
+    setPaymentReturnHandled(true);
+    
+    console.log('[PaymentOptions] Detected 3D Secure return:', { paymentIntentFromUrl, redirectStatus });
+    
+    // Clean only Stripe-specific URL params, preserving all others (id, tenant context, etc.)
+    const cleanParams = new URLSearchParams(window.location.search);
+    cleanParams.delete('payment_intent');
+    cleanParams.delete('payment_intent_client_secret');
+    cleanParams.delete('redirect_status');
+    const cleanSearch = cleanParams.toString();
+    window.history.replaceState({}, '', window.location.pathname + (cleanSearch ? '?' + cleanSearch : ''));
+    
+    if (redirectStatus !== 'succeeded') {
+      const savedPayloadKey = `pending_booking_payload_${event.id}`;
+      sessionStorage.removeItem(savedPayloadKey);
+      toast.error('Payment was not completed. Please try again.');
+      return;
+    }
+    
+    // Retrieve saved booking payload from sessionStorage
+    const savedPayloadKey = `pending_booking_payload_${event.id}`;
+    const savedPayloadJson = sessionStorage.getItem(savedPayloadKey);
+    
+    if (!savedPayloadJson) {
+      console.error('[PaymentOptions] No saved booking payload found after 3D Secure return');
+      toast.error('We could not find your booking details after payment verification. Please contact support with your payment reference.');
+      return;
+    }
+    
+    let savedPayload;
+    try {
+      savedPayload = JSON.parse(savedPayloadJson);
+    } catch (e) {
+      console.error('[PaymentOptions] Failed to parse saved booking payload:', e);
+      toast.error('There was an error recovering your booking details. Please contact support.');
+      return;
+    }
+    
+    // Verify the payment intent matches what we saved
+    if (savedPayload.stripePaymentIntentId !== paymentIntentFromUrl) {
+      console.error('[PaymentOptions] PaymentIntent mismatch:', {
+        saved: savedPayload.stripePaymentIntentId,
+        fromUrl: paymentIntentFromUrl
+      });
+      toast.error('Payment reference mismatch. Please contact support.');
+      return;
+    }
+    
+    console.log('[PaymentOptions] Completing booking after 3D Secure return with saved payload');
+    setCompletingPayment(true);
+    
+    const completeBookingAfterRedirect = async () => {
+      try {
+        const response = await base44.functions.invoke('createOneOffEventBooking', savedPayload);
+        console.log('[PaymentOptions] 3D Secure booking response:', JSON.stringify(response.data));
+        
+        if (response.data.success) {
+          sessionStorage.removeItem(savedPayloadKey);
+          sessionStorage.removeItem(`event_registration_${event.id}`);
+          
+          if (refreshOrganizationInfo && !isGuestCheckout) {
+            refreshOrganizationInfo();
+          }
+          
+          const alreadyMsg = response.data.already_processed ? ' (previously confirmed)' : '';
+          toast.success(`Booking confirmed${alreadyMsg}!`);
+          
+          setTimeout(() => {
+            if (isGuestCheckout) {
+              window.location.href = createPageUrl('Events');
+            } else {
+              window.location.href = createPageUrl('Bookings');
+            }
+          }, 1500);
+        } else {
+          toast.error(response.data.error || 'Failed to complete booking after payment');
+        }
+      } catch (error) {
+        console.error('[PaymentOptions] Error completing booking after 3D Secure:', error);
+        sessionStorage.removeItem(savedPayloadKey);
+        toast.error('Failed to complete your booking. Your payment was successful - please contact support to confirm your registration.');
+      } finally {
+        setCompletingPayment(false);
+      }
+    };
+    
+    completeBookingAfterRedirect();
+  }, [event?.id, paymentReturnHandled, isGuestCheckout, refreshOrganizationInfo]);
 
   // Fetch vouchers for one-off events
   const { data: vouchers = [] } = useQuery({
@@ -507,17 +612,26 @@ export default function PaymentOptions({
     console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount, '(event:', remainingBalance, '+ donation:', donationAmt, ')');
     setSubmitting(true);
     try {
+      // Build enhanced metadata for payment reconciliation
+      const attendeeEmails = isGuestCheckout 
+        ? (guestInfo?.email ? [guestInfo.email] : [])
+        : attendees.filter(a => a.isValid).map(a => a.email).filter(Boolean);
+      
       const response = await base44.functions.invoke('createStripePaymentIntent', {
         amount: chargeAmount,
         currency: 'gbp',
         memberEmail: paymentEmail,
         metadata: {
           event_id: event.id,
-          event_title: event.title,
+          event_title: (event.title || '').substring(0, 200),
           organization_id: organizationInfo?.id || null,
           booking_type: isGuestCheckout ? 'guest_one_off_event' : 'one_off_event',
           is_guest: isGuestCheckout ? 'true' : 'false',
-          donation_amount: donationAmt > 0 ? donationAmt.toString() : undefined
+          donation_amount: donationAmt > 0 ? donationAmt.toString() : undefined,
+          attendee_emails: attendeeEmails.slice(0, 5).join(',').substring(0, 450),
+          ticket_class: selectedTicketClass?.name || 'default',
+          tickets_required: String(ticketsRequired),
+          member_email: paymentEmail
         }
       });
 
@@ -525,6 +639,51 @@ export default function PaymentOptions({
       if (response.data.success) {
         setStripeClientSecret(response.data.clientSecret);
         setStripePaymentIntentId(response.data.paymentIntentId);
+        
+        // Build and save booking payload to sessionStorage BEFORE showing Stripe modal.
+        // This ensures that if 3D Secure triggers a full-page redirect, we can recover
+        // the booking details when the user returns.
+        const validAttendees = attendees.filter(a => a.isValid);
+        const savedPayload = {
+          eventId: event.id,
+          attendees: validAttendees,
+          registrationMode: registrationMode,
+          ticketsRequired: ticketsRequired,
+          totalCost: totalCost,
+          pricingDetails: oneOffCostDetails,
+          paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : 'fully_covered',
+          stripePaymentIntentId: response.data.paymentIntentId,
+          ticketClassId: selectedTicketClass?.id || null,
+          ticketClassName: selectedTicketClass?.name || null,
+          ticketClassPrice: selectedTicketClass?.price || ticketPrice,
+          isGuestBooking: isGuestCheckout,
+          discountCodeId: appliedDiscount?.discount_code_id || null,
+          discountCodeAmount: discountCodeSavings || 0,
+          donationData: donationAmt > 0 ? (donationData || { amount: donationAmt }) : null
+        };
+        
+        if (!isGuestCheckout) {
+          savedPayload.memberEmail = memberInfo.email;
+          savedPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
+          savedPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
+          savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
+          savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
+          savedPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
+        } else {
+          savedPayload.guestInfo = {
+            first_name: guestInfo.first_name,
+            last_name: guestInfo.last_name,
+            email: guestInfo.email,
+            organization: guestInfo.organization,
+            phone: guestInfo.phone || null,
+            job_title: guestInfo.job_title || null
+          };
+        }
+        
+        const savedPayloadKey = `pending_booking_payload_${event.id}`;
+        sessionStorage.setItem(savedPayloadKey, JSON.stringify(savedPayload));
+        console.log('[PaymentOptions] Saved booking payload to sessionStorage for 3D Secure recovery');
+        
         setShowStripeModal(true);
       } else {
         toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
@@ -644,9 +803,12 @@ export default function PaymentOptions({
     }
   };
 
-  // Handle Stripe payment success
+  // Handle Stripe payment success (non-redirect flow)
   const handleStripePaymentSuccess = async () => {
     setShowStripeModal(false);
+    // Clean up saved payload since we're completing normally (no redirect needed)
+    const savedPayloadKey = `pending_booking_payload_${event.id}`;
+    sessionStorage.removeItem(savedPayloadKey);
     await processOneOffBooking(stripePaymentIntentId);
   };
 
@@ -1110,6 +1272,25 @@ export default function PaymentOptions({
     }
   }, [canProceed, onCanProceedChange]);
 
+  // If completing payment after 3D Secure redirect, show a loading overlay
+  if (completingPayment) {
+    return (
+      <Card className="border-slate-200 shadow-lg sticky top-8">
+        <CardHeader className="border-b border-slate-200">
+          <CardTitle className="text-xl">Completing Your Booking</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="flex flex-col items-center justify-center py-8 space-y-4">
+            <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+            <p className="text-sm text-slate-600 text-center">
+              Your payment has been verified. We're confirming your booking now...
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <>
       <Card className="border-slate-200 shadow-lg sticky top-8">
@@ -1261,8 +1442,12 @@ export default function PaymentOptions({
                     setStripeClientSecret(null);
                     setStripePaymentIntentId(null);
                     setSubmitting(false);
+                    // Clean up saved payload when user cancels
+                    const savedPayloadKey = `pending_booking_payload_${event.id}`;
+                    sessionStorage.removeItem(savedPayloadKey);
                   }}
                   amount={remainingBalance + donationAmount}
+                  returnUrl={window.location.href}
                 />
               </Elements>
             )}
