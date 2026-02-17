@@ -139,7 +139,8 @@ export default function FormSubmissionsPage() {
           entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
           member_entity_action: form.member_entity_action || 'none',
           organization_entity_action: form.organization_entity_action || 'none',
-          additional_member_creations: form.additional_member_creations || []
+          additional_member_creations: form.additional_member_creations || [],
+          tenant_id: form.tenant_id
         })
       });
       
