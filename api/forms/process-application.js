@@ -665,6 +665,11 @@ export default async function handler(req, res) {
           } else if (mapping.target_type === 'communication' && targetEntity === 'member') {
             // Communication preference (marketing list subscription)
             const categoryId = mapping.target_field;
+            // If value is an object (communication_preferences map), extract the specific category boolean
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+              value = value[categoryId] !== undefined ? value[categoryId] : null;
+              console.log(`[AppProcessor] Extracted category ${categoryId} from communication_preferences object: ${value}`);
+            }
             // Coerce value to boolean - truthy values mean subscribed
             let isSubscribed = false;
             if (typeof value === 'boolean') {
