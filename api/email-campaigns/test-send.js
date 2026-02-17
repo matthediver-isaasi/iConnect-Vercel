@@ -155,6 +155,10 @@ export default async function handler(req, res) {
     html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
     html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
     
+    const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
+    html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
+    html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
+    
     if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
       html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
         <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>

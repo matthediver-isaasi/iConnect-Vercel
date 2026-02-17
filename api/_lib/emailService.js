@@ -1,6 +1,7 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 import { supabase } from './database.js';
+import { generateMemberPreferencesToken } from '../email-preferences/index.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -352,13 +353,23 @@ export function clearTenantEmailCache(tenantId) {
   }
 }
 
-export function replacePlaceholders(template, entityType, entityData) {
+export function replacePlaceholders(template, entityType, entityData, context) {
   if (!template) return '';
   
   console.log(`[replacePlaceholders] entityType="${entityType}", entityData keys: ${entityData ? Object.keys(entityData).join(', ') : 'null'}`);
+
+  let result = template;
+
+  if (context?.tenantBaseUrl && context?.tenantId && context?.memberId) {
+    const prefToken = generateMemberPreferencesToken(context.tenantId, context.memberId);
+    const preferencesUrl = `${context.tenantBaseUrl}/email-preferences?t=${prefToken}`;
+    const preferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
+    result = result.replace(/\{\{communication_preferences_link\}\}/gi, preferencesLink);
+    result = result.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
+  }
   
   // First handle {{placeholder}} syntax (form field mappings)
-  let result = template.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
+  result = result.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
     const parts = path.split('.');
     console.log(`[replacePlaceholders] {{}} match="${match}", path="${path}", parts=${JSON.stringify(parts)}, parts[0]="${parts[0]}", entityType="${entityType}"`);
     if (parts[0] === entityType || parts[0] === 'record') {

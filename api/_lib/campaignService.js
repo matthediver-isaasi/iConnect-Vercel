@@ -698,6 +698,10 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
 
         html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
         html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
+        
+        const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
+        html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
+        html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
 
         html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug, requestHost);
 

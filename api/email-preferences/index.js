@@ -1,13 +1,36 @@
 import { supabase } from '../_lib/database.js';
+import crypto from 'crypto';
+
+const TOKEN_SECRET = process.env.EMAIL_PREFERENCES_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-preferences-secret';
+
+function hmacSign(data) {
+  return crypto.createHmac('sha256', TOKEN_SECRET).update(data).digest('hex').substring(0, 16);
+}
 
 function decodeTrackingToken(token) {
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
-    const [campaignId, recipientId] = decoded.split(':');
-    return { campaignId, recipientId };
+    const parts = decoded.split(':');
+    if (parts[0] === 'm' && parts.length === 4) {
+      const payload = `m:${parts[1]}:${parts[2]}`;
+      const expectedSig = hmacSign(payload);
+      if (parts[3] !== expectedSig) {
+        console.warn('[Preferences] Invalid member token signature');
+        return null;
+      }
+      return { type: 'member', tenantId: parts[1], memberId: parts[2] };
+    }
+    const [campaignId, recipientId] = parts;
+    return { type: 'campaign', campaignId, recipientId };
   } catch (err) {
     return null;
   }
+}
+
+export function generateMemberPreferencesToken(tenantId, memberId) {
+  const payload = `m:${tenantId}:${memberId}`;
+  const sig = hmacSign(payload);
+  return Buffer.from(`${payload}:${sig}`).toString('base64url');
 }
 
 export default async function handler(req, res) {
@@ -22,11 +45,92 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, error: 'Invalid link' });
   }
 
-  const { campaignId, recipientId } = tokenData;
-
   if (!supabase) {
     return res.status(500).json({ success: false, error: 'Service temporarily unavailable' });
   }
+
+  if (tokenData.type === 'member') {
+    return handleMemberToken(req, res, token, tokenData);
+  }
+
+  return handleCampaignToken(req, res, token, tokenData);
+}
+
+async function handleMemberToken(req, res, token, tokenData) {
+  const { tenantId, memberId } = tokenData;
+
+  try {
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, email, communications_opted_out_all, tenant_id')
+      .eq('id', memberId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (memberError || !member) {
+      return res.status(400).json({ success: false, error: 'Invalid or expired link' });
+    }
+
+    const { data: categories } = await supabase
+      .from('communication_category')
+      .select('id, name, description, display_order')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('display_order', { ascending: true });
+
+    const { data: prefs } = await supabase
+      .from('member_communication_preference')
+      .select('id, category_id, is_subscribed')
+      .eq('member_id', member.id);
+
+    const memberPreferences = prefs || [];
+
+    if (req.method === 'POST') {
+      return handlePreferenceUpdate(req, res, {
+        token,
+        member,
+        recipient: { email: member.email, member_id: member.id },
+        campaign: null,
+        categories,
+        tenantId
+      });
+    }
+
+    const categoriesWithStatus = (categories || []).map(cat => {
+      const pref = memberPreferences.find(p => p.category_id === cat.id);
+      return {
+        ...cat,
+        isSubscribed: pref ? pref.is_subscribed : false
+      };
+    });
+
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('id, slug')
+      .eq('id', tenantId)
+      .single();
+
+    return res.json({
+      success: true,
+      token,
+      email: member.email,
+      firstName: member.first_name || '',
+      lastName: member.last_name || '',
+      optedOutAll: member.communications_opted_out_all || false,
+      categories: categoriesWithStatus,
+      campaignName: null,
+      isMember: true,
+      tenantSlug: tenant?.slug || ''
+    });
+
+  } catch (err) {
+    console.error('[Preferences] Member token error:', err);
+    return res.status(500).json({ success: false, error: 'An error occurred' });
+  }
+}
+
+async function handleCampaignToken(req, res, token, tokenData) {
+  const { campaignId, recipientId } = tokenData;
 
   try {
     const { data: recipient, error: recipientError } = await supabase
@@ -84,7 +188,6 @@ export default async function handler(req, res) {
         memberPreferences = prefs || [];
       }
     } else {
-      // Non-member: check email_subscriber table for opted_out status
       const { data: subscriberRecords } = await supabase
         .from('email_subscriber')
         .select('opted_out')
@@ -136,7 +239,7 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error('[Preferences] Error:', err);
+    console.error('[Preferences] Campaign token error:', err);
     return res.status(500).json({ success: false, error: 'An error occurred' });
   }
 }
@@ -188,7 +291,7 @@ async function handlePreferenceUpdate(req, res, context) {
             email: recipient.email,
             member_id: member?.id || null,
             unsubscribe_type: 'all',
-            campaign_id: campaign.id,
+            campaign_id: campaign?.id || null,
             source: 'user',
             unsubscribed_at: new Date().toISOString()
           }, {
@@ -235,7 +338,7 @@ async function handlePreferenceUpdate(req, res, context) {
             member_id: member.id,
             unsubscribe_type: 'category',
             communication_category_id: categoryId,
-            campaign_id: campaign.id,
+            campaign_id: campaign?.id || null,
             source: 'user',
             unsubscribed_at: new Date().toISOString()
           }, {

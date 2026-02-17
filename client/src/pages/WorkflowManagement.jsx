@@ -1322,10 +1322,13 @@ export default function WorkflowManagementPage() {
 
                                   {formData.entity_type === 'member' && (
                                     <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                                      <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">Special Placeholder Available</p>
+                                      <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">Special Placeholders Available</p>
                                       <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
                                         Use <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{"{{set_password_url}}"}</code> in your template to include a password setup link for new members. 
                                         This generates a secure tokenized URL (valid for 7 days) that allows the member to set their initial password.
+                                      </p>
+                                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                        Use <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{"{{communication_preferences_link}}"}</code> to insert a clickable link allowing the member to manage their communication preferences, or <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{"{{communication_preferences_url}}"}</code> for just the URL.
                                       </p>
                                     </div>
                                   )}
@@ -1723,10 +1726,13 @@ export default function WorkflowManagementPage() {
                                   </div>
                                   {formData.entity_type === 'member' && (
                                     <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                                      <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">Special Placeholder Available</p>
+                                      <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">Special Placeholders Available</p>
                                       <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
                                         Use <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{"{{set_password_url}}"}</code> in your email body to include a password setup link for new members. 
                                         This generates a secure tokenized URL (valid for 7 days) that allows the member to set their initial password.
+                                      </p>
+                                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                        Use <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{"{{communication_preferences_link}}"}</code> to insert a clickable link allowing the member to manage their communication preferences, or <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{"{{communication_preferences_url}}"}</code> for just the URL.
                                       </p>
                                     </div>
                                   )}

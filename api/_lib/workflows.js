@@ -699,8 +699,9 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       console.log(`[Workflows] Before replacePlaceholders - entityType: "${entityType}", entityData keys: ${entityData ? Object.keys(entityData).join(', ') : 'null'}`);
       console.log(`[Workflows] entityData sample: ${entityData ? JSON.stringify({ first_name: entityData.first_name, last_name: entityData.last_name, email: entityData.email, name: entityData.name }) : 'null'}`);
       console.log(`[Workflows] Subject before: "${subject}"`);
-      subject = replacePlaceholders(subject, entityType, entityData);
-      body = replacePlaceholders(body, entityType, entityData);
+      const prefContext = entityType === 'member' && entityId ? { tenantBaseUrl: baseUrl, tenantId, memberId: entityId } : null;
+      subject = replacePlaceholders(subject, entityType, entityData, prefContext);
+      body = replacePlaceholders(body, entityType, entityData, prefContext);
       console.log(`[Workflows] Subject after: "${subject}"`);
       console.log(`[Workflows] Body after (first 500 chars): "${body?.substring(0, 500)}"`)
       
@@ -893,8 +894,8 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
               .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
               .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
             
-            body = replacePlaceholders(body, entityType, entityData);
-            subject = replacePlaceholders(subject, entityType, entityData);
+            body = replacePlaceholders(body, entityType, entityData, null);
+            subject = replacePlaceholders(subject, entityType, entityData, null);
             
             console.log(`[Workflows] Sending signing invitation to ${signer.email}`);
             
@@ -1299,12 +1300,13 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
       
       // Step 3: Replace standard placeholders - member first, then trigger entity
       // Member placeholders: {{member.first_name}}, {{first_name}}, etc.
-      memberSubject = replacePlaceholders(memberSubject, 'member', member);
-      memberBody = replacePlaceholders(memberBody, 'member', member);
+      const memberPrefContext = member.id ? { tenantBaseUrl: baseUrl, tenantId, memberId: member.id } : null;
+      memberSubject = replacePlaceholders(memberSubject, 'member', member, memberPrefContext);
+      memberBody = replacePlaceholders(memberBody, 'member', member, memberPrefContext);
       
       // Trigger entity placeholders: {{organization.name}}, {{name}}, etc.
-      memberSubject = replacePlaceholders(memberSubject, entityType, entityData);
-      memberBody = replacePlaceholders(memberBody, entityType, entityData);
+      memberSubject = replacePlaceholders(memberSubject, entityType, entityData, null);
+      memberBody = replacePlaceholders(memberBody, entityType, entityData, null);
       
       // Step 4: Process special placeholders like {{set_password_url}} for THIS member
       if (baseUrl) {
