@@ -179,7 +179,9 @@ export default async function handler(req, res) {
         currency: campaign.currency,
         start_date: campaign.start_date,
         end_date: campaign.end_date,
-        allow_anonymous_donations: campaign.allow_anonymous_donations
+        allow_anonymous_donations: campaign.allow_anonymous_donations,
+        terms_and_conditions: campaign.terms_and_conditions || null,
+        privacy_statement: campaign.privacy_statement || null
       },
       team_member: {
         first_name: teamMember.first_name,

@@ -7,10 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle
+} from "@/components/ui/dialog";
 import {
   Heart, Loader2, CheckCircle2, Users, Target, Gift,
   Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare,
-  Sparkles, Send
+  Sparkles, Send, FileText, Shield
 } from "lucide-react";
 
 function formatCurrency(amount, currency) {
@@ -84,6 +88,9 @@ export default function DonatePage() {
   const [sendingWellwish, setSendingWellwish] = useState(false);
   const [wellwishSent, setWellwishSent] = useState(false);
   const [wellwishError, setWellwishError] = useState(null);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [showTermsDialog, setShowTermsDialog] = useState(false);
+  const [showPrivacyDialog, setShowPrivacyDialog] = useState(false);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -677,6 +684,28 @@ export default function DonatePage() {
                   </div>
                 )}
 
+                {campaign.terms_and_conditions && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="agree-terms"
+                      checked={agreedToTerms}
+                      onCheckedChange={setAgreedToTerms}
+                      data-testid="checkbox-agree-terms"
+                    />
+                    <label htmlFor="agree-terms" className="text-sm leading-tight cursor-pointer">
+                      I agree to {tenant?.name || 'the'} fundraising{' '}
+                      <button
+                        type="button"
+                        className="underline font-medium"
+                        onClick={(e) => { e.preventDefault(); setShowTermsDialog(true); }}
+                        data-testid="link-terms-conditions"
+                      >
+                        terms and conditions
+                      </button>
+                    </label>
+                  </div>
+                )}
+
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
@@ -688,7 +717,7 @@ export default function DonatePage() {
                   </Button>
                   <Button
                     className="flex-[2] py-6 text-lg"
-                    disabled={processing}
+                    disabled={processing || (campaign.terms_and_conditions && !agreedToTerms)}
                     onClick={handlePayment}
                     data-testid="button-pay"
                   >
@@ -1037,10 +1066,50 @@ export default function DonatePage() {
         )}
 
         {tenant && (
-          <div className="text-center py-4 text-xs text-muted-foreground">
-            Fundraising by {tenant.name}
+          <div className="text-center py-4 text-xs text-muted-foreground space-y-1">
+            <p>Fundraising by {tenant.name}</p>
+            {campaign.privacy_statement && (
+              <p>
+                <button
+                  type="button"
+                  className="underline hover-elevate"
+                  onClick={() => setShowPrivacyDialog(true)}
+                  data-testid="link-privacy-statement"
+                >
+                  Privacy Statement
+                </button>
+              </p>
+            )}
           </div>
         )}
+
+        <Dialog open={showTermsDialog} onOpenChange={setShowTermsDialog}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Terms and Conditions
+              </DialogTitle>
+            </DialogHeader>
+            <div className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-terms-content">
+              {campaign.terms_and_conditions}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showPrivacyDialog} onOpenChange={setShowPrivacyDialog}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Privacy Statement
+              </DialogTitle>
+            </DialogHeader>
+            <div className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-privacy-content">
+              {campaign.privacy_statement}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
