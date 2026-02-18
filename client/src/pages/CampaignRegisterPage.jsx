@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
-  Heart, Loader2, CheckCircle2, Users, Target, Calendar,
-  Plus, Trash2, User, UserPlus, ArrowRight, ArrowLeft, Building2
+  Heart, Loader2, CheckCircle2, Users, Calendar,
+  Plus, Trash2, User, ArrowRight, ArrowLeft, Building2
 } from "lucide-react";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 
@@ -43,16 +43,68 @@ function ProgressBar({ percent }) {
   );
 }
 
+function StepIndicator({ steps, currentStep }) {
+  return (
+    <div className="flex items-center justify-center gap-0 mb-6">
+      {steps.map((step, index) => {
+        const isCompleted = index < currentStep;
+        const isActive = index === currentStep;
+        const isUpcoming = index > currentStep;
+
+        return (
+          <div key={step.id} className="flex items-center">
+            <div className="flex flex-col items-center">
+              <div
+                data-testid={`step-indicator-${index}`}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors duration-300 ${
+                  isCompleted
+                    ? 'bg-primary text-primary-foreground'
+                    : isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {isCompleted ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : (
+                  index + 1
+                )}
+              </div>
+              <span className={`text-xs mt-1.5 whitespace-nowrap ${
+                isCompleted || isActive ? 'text-primary font-medium' : 'text-muted-foreground'
+              }`}>
+                {step.label}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <div
+                className={`h-0.5 w-10 sm:w-16 mx-1 sm:mx-2 mt-[-1.25rem] transition-colors duration-300 ${
+                  index < currentStep ? 'bg-primary' : 'bg-muted'
+                }`}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function CampaignRegisterPage() {
   const { slug } = useParams();
   const [campaign, setCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [step, setStep] = useState('form');
+  const [formState, setFormState] = useState('form');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [result, setResult] = useState(null);
+
+  const [currentStep, setCurrentStep] = useState(0);
+  const [stepDirection, setStepDirection] = useState(1);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [validationErrors, setValidationErrors] = useState({});
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -144,6 +196,76 @@ export default function CampaignRegisterPage() {
   const maxTeamSize = campaign?.max_team_size || 5;
   const maxAdditionalMembers = maxTeamSize - 1;
 
+  const wizardSteps = useMemo(() => {
+    if (!campaign) return [];
+    const steps = [];
+    if (campaign.allow_org_signup) {
+      steps.push({ id: 'organisation', label: 'Organisation' });
+    }
+    steps.push({
+      id: 'details',
+      label: campaign.campaign_type === 'team' ? 'Team Leader Details' : 'Your Details'
+    });
+    if (campaign.campaign_type === 'team') {
+      steps.push({ id: 'team', label: 'Team Members' });
+    }
+    return steps;
+  }, [campaign]);
+
+  useEffect(() => {
+    if (wizardSteps.length > 0 && currentStep >= wizardSteps.length) {
+      setCurrentStep(0);
+    }
+  }, [wizardSteps.length, currentStep]);
+
+  const isLastStep = currentStep === wizardSteps.length - 1;
+  const isFirstStep = currentStep === 0;
+  const currentStepId = wizardSteps[currentStep]?.id;
+
+  const validateCurrentStep = () => {
+    const errors = {};
+
+    if (currentStepId === 'details') {
+      if (!firstName.trim()) errors.firstName = 'First name is required';
+      if (!lastName.trim()) errors.lastName = 'Last name is required';
+      if (!email.trim()) errors.email = 'Email is required';
+      else if (!/\S+@\S+\.\S+/.test(email.trim())) errors.email = 'Please enter a valid email';
+    }
+
+    if (currentStepId === 'team') {
+      const validMembers = teamMembers.filter(m => m.first_name.trim() && m.last_name.trim());
+      if (validMembers.length === 0) {
+        errors.teamMembers = 'Please add at least one team member with first and last name';
+      }
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const goToNextStep = () => {
+    if (!validateCurrentStep()) return;
+    setValidationErrors({});
+    setSubmitError(null);
+    setStepDirection(1);
+    setIsAnimating(true);
+    setTimeout(() => {
+      setCurrentStep(prev => Math.min(prev + 1, wizardSteps.length - 1));
+      setIsAnimating(false);
+    }, 200);
+  };
+
+  const goToPrevStep = () => {
+    setValidationErrors({});
+    setSubmitError(null);
+    setStepDirection(-1);
+    setIsAnimating(true);
+    setTimeout(() => {
+      setCurrentStep(prev => Math.max(prev - 1, 0));
+      setIsAnimating(false);
+    }, 200);
+  };
+
   const addTeamMember = () => {
     if (teamMembers.length < maxAdditionalMembers) {
       setTeamMembers(prev => [...prev, { first_name: '', last_name: '', email: '' }]);
@@ -160,6 +282,8 @@ export default function CampaignRegisterPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isLastStep) return;
+    if (!validateCurrentStep()) return;
     setSubmitError(null);
 
     if (!firstName.trim() || !lastName.trim()) {
@@ -232,7 +356,7 @@ export default function CampaignRegisterPage() {
       }
 
       setResult(data);
-      setStep('success');
+      setFormState('success');
     } catch (err) {
       setSubmitError(err.message);
     } finally {
@@ -287,6 +411,253 @@ export default function CampaignRegisterPage() {
   const progressPercent = campaign.goal_amount > 0
     ? Math.min(100, Math.round((campaign.total_raised / parseFloat(campaign.goal_amount)) * 100))
     : 0;
+
+  const animationStyle = {
+    transition: 'opacity 200ms ease, transform 200ms ease',
+    opacity: isAnimating ? 0 : 1,
+    transform: isAnimating
+      ? `translateX(${stepDirection * 30}px)`
+      : 'translateX(0)',
+  };
+
+  const renderOrganisationStep = () => (
+    <div className="space-y-4">
+      <p className="text-sm font-medium flex items-center gap-2">
+        <Building2 className="w-4 h-4" />
+        Organisation Details
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Link your registration to an organisation. This step is optional - you can skip it.
+      </p>
+      <div className="space-y-1.5 relative">
+        <Label>Organisation Name</Label>
+        <div className="relative">
+          <Input
+            value={orgName}
+            onChange={(e) => handleOrgNameChange(e.target.value)}
+            onFocus={() => { if (orgSuggestions.length > 0 && !selectedOrgId) setShowOrgSuggestions(true); }}
+            onBlur={() => setTimeout(() => setShowOrgSuggestions(false), 200)}
+            placeholder="Start typing to search..."
+            autoComplete="off"
+            data-testid="input-org-name"
+          />
+          {orgSearchLoading && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+          )}
+        </div>
+        {selectedOrgId && (
+          <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3" />
+            Matched to existing organisation
+          </p>
+        )}
+        {showOrgSuggestions && orgSuggestions.length > 0 && (
+          <div className="absolute left-0 right-0 z-50 mt-1 border rounded-md bg-popover shadow-md max-h-48 overflow-y-auto" data-testid="org-suggestions-dropdown">
+            {orgSuggestions.map((org) => (
+              <button
+                key={org.id}
+                type="button"
+                className="w-full text-left px-3 py-2 text-sm hover-elevate cursor-pointer flex items-center justify-between gap-2"
+                onMouseDown={(e) => { e.preventDefault(); selectOrganisation(org); }}
+                data-testid={`org-suggestion-${org.id}`}
+              >
+                <span className="font-medium truncate">{org.name}</span>
+                {org.city && <span className="text-xs text-muted-foreground flex-shrink-0">{org.city}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!selectedOrgId && (
+        <>
+          <div className="space-y-1.5">
+            <Label>Address</Label>
+            <Input
+              value={orgAddress}
+              onChange={(e) => setOrgAddress(e.target.value)}
+              placeholder="Street address"
+              data-testid="input-org-address"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>City</Label>
+              <Input
+                value={orgCity}
+                onChange={(e) => setOrgCity(e.target.value)}
+                placeholder="City"
+                data-testid="input-org-city"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Postcode</Label>
+              <Input
+                value={orgPostcode}
+                onChange={(e) => setOrgPostcode(e.target.value)}
+                placeholder="Postcode"
+                data-testid="input-org-postcode"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Country</Label>
+            <Input
+              value={orgCountry}
+              onChange={(e) => setOrgCountry(e.target.value)}
+              placeholder="Country"
+              data-testid="input-org-country"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const renderDetailsStep = () => (
+    <div className="space-y-4">
+      <p className="text-sm font-medium flex items-center gap-2">
+        <User className="w-4 h-4" />
+        {isTeamCampaign ? 'Team Leader Details' : 'Your Details'}
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>First Name *</Label>
+          <Input
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            placeholder="First name"
+            data-testid="input-first-name"
+          />
+          {validationErrors.firstName && (
+            <p className="text-xs text-destructive">{validationErrors.firstName}</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label>Last Name *</Label>
+          <Input
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            placeholder="Last name"
+            data-testid="input-last-name"
+          />
+          {validationErrors.lastName && (
+            <p className="text-xs text-destructive">{validationErrors.lastName}</p>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Email *</Label>
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="your@email.com"
+          data-testid="input-email"
+        />
+        {validationErrors.email && (
+          <p className="text-xs text-destructive">{validationErrors.email}</p>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        <Label>Personal Fundraising Goal (optional)</Label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+            {campaign.currency === 'GBP' ? '\u00a3' : campaign.currency === 'EUR' ? '\u20ac' : '$'}
+          </span>
+          <Input
+            type="number"
+            min="0"
+            step="0.01"
+            value={individualGoal}
+            onChange={(e) => setIndividualGoal(e.target.value)}
+            placeholder="0.00"
+            className="pl-7"
+            data-testid="input-individual-goal"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderTeamStep = () => (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm font-medium flex items-center gap-2">
+          <Users className="w-4 h-4" />
+          Team Members ({teamMembers.length}/{maxAdditionalMembers})
+        </p>
+        {teamMembers.length < maxAdditionalMembers && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addTeamMember}
+            data-testid="button-add-team-member"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Add Member
+          </Button>
+        )}
+      </div>
+
+      {validationErrors.teamMembers && (
+        <p className="text-xs text-destructive">{validationErrors.teamMembers}</p>
+      )}
+
+      {teamMembers.map((member, index) => (
+        <div key={index} className="p-3 border rounded-md space-y-3" data-testid={`team-member-row-${index}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Member {index + 1}</span>
+            {teamMembers.length > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => removeTeamMember(index)}
+                data-testid={`button-remove-member-${index}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              value={member.first_name}
+              onChange={(e) => updateTeamMember(index, 'first_name', e.target.value)}
+              placeholder="First name *"
+              data-testid={`input-team-first-name-${index}`}
+            />
+            <Input
+              value={member.last_name}
+              onChange={(e) => updateTeamMember(index, 'last_name', e.target.value)}
+              placeholder="Last name *"
+              data-testid={`input-team-last-name-${index}`}
+            />
+          </div>
+          <Input
+            type="email"
+            value={member.email}
+            onChange={(e) => updateTeamMember(index, 'email', e.target.value)}
+            placeholder="Email (optional)"
+            data-testid={`input-team-email-${index}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderCurrentStep = () => {
+    switch (currentStepId) {
+      case 'organisation':
+        return renderOrganisationStep();
+      case 'details':
+        return renderDetailsStep();
+      case 'team':
+        return renderTeamStep();
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -373,7 +744,7 @@ export default function CampaignRegisterPage() {
           </CardContent>
         </Card>
 
-        {step === 'form' && (
+        {formState === 'form' && (
           <Card>
             <CardContent className="pt-6 pb-6">
               <h2 className="text-lg font-semibold mb-1" data-testid="text-register-heading">
@@ -385,243 +756,63 @@ export default function CampaignRegisterPage() {
                   : 'Sign up to get your own fundraising page where people can donate to support your effort.'}
               </p>
 
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="space-y-4">
-                  <p className="text-sm font-medium flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    {isTeamCampaign ? 'Team Leader' : 'Your Details'}
-                  </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label>First Name *</Label>
-                      <Input
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="First name"
-                        required
-                        data-testid="input-first-name"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Last Name *</Label>
-                      <Input
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="Last name"
-                        required
-                        data-testid="input-last-name"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Email *</Label>
-                    <Input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="your@email.com"
-                      required
-                      data-testid="input-email"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Personal Fundraising Goal (optional)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
-                        {campaign.currency === 'GBP' ? '\u00a3' : campaign.currency === 'EUR' ? '\u20ac' : '$'}
-                      </span>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={individualGoal}
-                        onChange={(e) => setIndividualGoal(e.target.value)}
-                        placeholder="0.00"
-                        className="pl-7"
-                        data-testid="input-individual-goal"
-                      />
-                    </div>
-                  </div>
+              <StepIndicator steps={wizardSteps} currentStep={currentStep} />
+
+              <form onSubmit={handleSubmit}>
+                <div style={animationStyle}>
+                  {renderCurrentStep()}
                 </div>
 
-                {campaign.allow_org_signup && (
-                  <div className="space-y-4 border-t pt-5">
-                    <p className="text-sm font-medium flex items-center gap-2">
-                      <Building2 className="w-4 h-4" />
-                      Organisation Details
-                    </p>
-                    <div className="space-y-1.5 relative">
-                      <Label>Organisation Name</Label>
-                      <div className="relative">
-                        <Input
-                          value={orgName}
-                          onChange={(e) => handleOrgNameChange(e.target.value)}
-                          onFocus={() => { if (orgSuggestions.length > 0 && !selectedOrgId) setShowOrgSuggestions(true); }}
-                          onBlur={() => setTimeout(() => setShowOrgSuggestions(false), 200)}
-                          placeholder="Start typing to search..."
-                          autoComplete="off"
-                          data-testid="input-org-name"
-                        />
-                        {orgSearchLoading && (
-                          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
-                        )}
-                      </div>
-                      {selectedOrgId && (
-                        <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Matched to existing organisation
-                        </p>
-                      )}
-                      {showOrgSuggestions && orgSuggestions.length > 0 && (
-                        <div className="absolute left-0 right-0 z-50 mt-1 border rounded-md bg-popover shadow-md max-h-48 overflow-y-auto" data-testid="org-suggestions-dropdown">
-                          {orgSuggestions.map((org) => (
-                            <button
-                              key={org.id}
-                              type="button"
-                              className="w-full text-left px-3 py-2 text-sm hover-elevate cursor-pointer flex items-center justify-between gap-2"
-                              onMouseDown={(e) => { e.preventDefault(); selectOrganisation(org); }}
-                              data-testid={`org-suggestion-${org.id}`}
-                            >
-                              <span className="font-medium truncate">{org.name}</span>
-                              {org.city && <span className="text-xs text-muted-foreground flex-shrink-0">{org.city}</span>}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {!selectedOrgId && (
-                      <>
-                        <div className="space-y-1.5">
-                          <Label>Address</Label>
-                          <Input
-                            value={orgAddress}
-                            onChange={(e) => setOrgAddress(e.target.value)}
-                            placeholder="Street address"
-                            data-testid="input-org-address"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1.5">
-                            <Label>City</Label>
-                            <Input
-                              value={orgCity}
-                              onChange={(e) => setOrgCity(e.target.value)}
-                              placeholder="City"
-                              data-testid="input-org-city"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label>Postcode</Label>
-                            <Input
-                              value={orgPostcode}
-                              onChange={(e) => setOrgPostcode(e.target.value)}
-                              placeholder="Postcode"
-                              data-testid="input-org-postcode"
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label>Country</Label>
-                          <Input
-                            value={orgCountry}
-                            onChange={(e) => setOrgCountry(e.target.value)}
-                            placeholder="Country"
-                            data-testid="input-org-country"
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {isTeamCampaign && (
-                  <div className="space-y-4 border-t pt-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium flex items-center gap-2">
-                        <Users className="w-4 h-4" />
-                        Team Members ({teamMembers.length}/{maxAdditionalMembers})
-                      </p>
-                      {teamMembers.length < maxAdditionalMembers && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={addTeamMember}
-                          data-testid="button-add-team-member"
-                        >
-                          <Plus className="w-3.5 h-3.5 mr-1" />
-                          Add Member
-                        </Button>
-                      )}
-                    </div>
-
-                    {teamMembers.map((member, index) => (
-                      <div key={index} className="p-3 border rounded-md space-y-3" data-testid={`team-member-row-${index}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-muted-foreground">Member {index + 1}</span>
-                          {teamMembers.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeTeamMember(index)}
-                              data-testid={`button-remove-member-${index}`}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <Input
-                            value={member.first_name}
-                            onChange={(e) => updateTeamMember(index, 'first_name', e.target.value)}
-                            placeholder="First name *"
-                            data-testid={`input-team-first-name-${index}`}
-                          />
-                          <Input
-                            value={member.last_name}
-                            onChange={(e) => updateTeamMember(index, 'last_name', e.target.value)}
-                            placeholder="Last name *"
-                            data-testid={`input-team-last-name-${index}`}
-                          />
-                        </div>
-                        <Input
-                          type="email"
-                          value={member.email}
-                          onChange={(e) => updateTeamMember(index, 'email', e.target.value)}
-                          placeholder="Email (optional)"
-                          data-testid={`input-team-email-${index}`}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 {submitError && (
-                  <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm" data-testid="text-submit-error">
+                  <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm mt-4" data-testid="text-submit-error">
                     {submitError}
                   </div>
                 )}
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  size="lg"
-                  disabled={submitting}
-                  data-testid="button-register"
-                >
-                  {submitting ? (
-                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Registering...</>
-                  ) : (
-                    <>{isTeamCampaign ? 'Register Team' : 'Register'} <ArrowRight className="w-4 h-4 ml-2" /></>
+                <div className={`flex items-center mt-6 gap-3 flex-wrap ${isFirstStep ? 'justify-end' : 'justify-between'}`}>
+                  {!isFirstStep && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={goToPrevStep}
+                      disabled={isAnimating}
+                      data-testid="button-prev-step"
+                    >
+                      <ArrowLeft className="w-4 h-4 mr-2" />
+                      Back
+                    </Button>
                   )}
-                </Button>
+
+                  {isLastStep ? (
+                    <Button
+                      type="submit"
+                      disabled={submitting || isAnimating}
+                      data-testid="button-register"
+                    >
+                      {submitting ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Registering...</>
+                      ) : (
+                        <>{isTeamCampaign ? 'Register Team' : 'Register'} <ArrowRight className="w-4 h-4 ml-2" /></>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={goToNextStep}
+                      disabled={isAnimating}
+                      data-testid="button-next-step"
+                    >
+                      Next
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  )}
+                </div>
               </form>
             </CardContent>
           </Card>
         )}
 
-        {step === 'success' && result && (
+        {formState === 'success' && result && (
           <Card>
             <CardContent className="pt-8 pb-8 text-center space-y-4">
               <div className="flex justify-center">
