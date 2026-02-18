@@ -226,7 +226,7 @@ async function handlePost(req, res, tenantId) {
       status: status || 'draft',
       allow_anonymous_donations: allow_anonymous_donations !== false,
       campaign_type: campaign_type || 'individual',
-      max_team_size: campaign_type === 'team' ? (parseInt(max_team_size) || 5) : null,
+      max_team_size: (campaign_type === 'team' || campaign_type === 'both') ? (parseInt(max_team_size) || 5) : null,
       registration_open: registration_open || false,
       registration_message: registration_message || null,
       public_description: public_description || null,
@@ -265,7 +265,7 @@ async function handlePut(req, res, tenantId) {
   if (status !== undefined) updates.status = status;
   if (allow_anonymous_donations !== undefined) updates.allow_anonymous_donations = allow_anonymous_donations;
   if (campaign_type !== undefined) updates.campaign_type = campaign_type;
-  if (max_team_size !== undefined) updates.max_team_size = campaign_type === 'team' ? (parseInt(max_team_size) || 5) : null;
+  if (max_team_size !== undefined) updates.max_team_size = (campaign_type === 'team' || campaign_type === 'both') ? (parseInt(max_team_size) || 5) : null;
   if (registration_open !== undefined) updates.registration_open = registration_open;
   if (registration_message !== undefined) updates.registration_message = registration_message;
   if (public_description !== undefined) updates.public_description = public_description;

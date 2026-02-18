@@ -118,7 +118,7 @@ export default function CampaignEdit() {
       goal_amount: parseFloat(form.goal_amount),
       start_date: form.start_date || null,
       end_date: form.end_date || null,
-      max_team_size: form.campaign_type === 'team' ? parseInt(form.max_team_size) || 5 : null,
+      max_team_size: (form.campaign_type === 'team' || form.campaign_type === 'both') ? parseInt(form.max_team_size) || 5 : null,
       registration_message: form.registration_message || null,
       public_description: form.public_description || null,
       auto_create_members: form.auto_create_members || false,
@@ -299,16 +299,19 @@ export default function CampaignEdit() {
                 <SelectContent>
                   <SelectItem value="individual">Individual</SelectItem>
                   <SelectItem value="team">Team</SelectItem>
+                  <SelectItem value="both">Both (Individual or Team)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {form.campaign_type === 'team'
                   ? 'Participants register as a team with multiple members'
-                  : 'Participants register individually'}
+                  : form.campaign_type === 'both'
+                    ? 'Participants choose to register as an individual or as a team'
+                    : 'Participants register individually'}
               </p>
             </div>
 
-            {form.campaign_type === 'team' && (
+            {(form.campaign_type === 'team' || form.campaign_type === 'both') && (
               <div className="space-y-2">
                 <Label>Max Team Size</Label>
                 <Input

@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, organisation, existing_organisation_id } = req.body;
+    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, organisation, existing_organisation_id, participation_type } = req.body;
 
     if (!campaign_slug) {
       return res.status(400).json({ error: 'Campaign slug is required' });
@@ -69,9 +69,16 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'This email is already registered for this campaign' });
     }
 
-    const isTeamCampaign = campaign.campaign_type === 'team';
+    const effectiveType = campaign.campaign_type === 'both'
+      ? (participation_type || 'individual')
+      : campaign.campaign_type;
+    const isTeamCampaign = effectiveType === 'team';
     const maxTeamSize = campaign.max_team_size || 5;
     const maxAdditional = maxTeamSize - 1;
+
+    if (campaign.campaign_type === 'both' && !['individual', 'team'].includes(participation_type)) {
+      return res.status(400).json({ error: 'Please select whether you are joining as an individual or a team' });
+    }
 
     const validTeamMembers = isTeamCampaign && Array.isArray(team_members)
       ? team_members.filter(m => m.first_name?.trim() && m.last_name?.trim() && m.email?.trim())

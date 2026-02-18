@@ -111,6 +111,7 @@ export default function CampaignRegisterPage() {
   const [email, setEmail] = useState('');
   const [individualGoal, setIndividualGoal] = useState('');
   const [teamMembers, setTeamMembers] = useState([{ first_name: '', last_name: '', email: '' }]);
+  const [participationType, setParticipationType] = useState(null);
 
   const [orgName, setOrgName] = useState('');
   const [orgAddress, setOrgAddress] = useState('');
@@ -192,25 +193,30 @@ export default function CampaignRegisterPage() {
       });
   }, [slug]);
 
-  const isTeamCampaign = campaign?.campaign_type === 'team';
+  const isBothCampaign = campaign?.campaign_type === 'both';
+  const effectiveType = isBothCampaign ? participationType : campaign?.campaign_type;
+  const isTeamCampaign = effectiveType === 'team';
   const maxTeamSize = campaign?.max_team_size || 5;
   const maxAdditionalMembers = maxTeamSize - 1;
 
   const wizardSteps = useMemo(() => {
     if (!campaign) return [];
     const steps = [];
+    if (isBothCampaign) {
+      steps.push({ id: 'participation', label: 'How to Join' });
+    }
     if (campaign.allow_org_signup) {
       steps.push({ id: 'organisation', label: 'Organisation' });
     }
     steps.push({
       id: 'details',
-      label: campaign.campaign_type === 'team' ? 'Team Leader Details' : 'Your Details'
+      label: isTeamCampaign ? 'Team Leader Details' : 'Your Details'
     });
-    if (campaign.campaign_type === 'team') {
+    if (isTeamCampaign) {
       steps.push({ id: 'team', label: 'Team Members' });
     }
     return steps;
-  }, [campaign]);
+  }, [campaign, participationType, isTeamCampaign, isBothCampaign]);
 
   useEffect(() => {
     if (wizardSteps.length > 0 && currentStep >= wizardSteps.length) {
@@ -224,6 +230,12 @@ export default function CampaignRegisterPage() {
 
   const validateCurrentStep = () => {
     const errors = {};
+
+    if (currentStepId === 'participation') {
+      if (!participationType) {
+        errors.participationType = 'Please choose how you would like to participate';
+      }
+    }
 
     if (currentStepId === 'details') {
       if (!firstName.trim()) errors.firstName = 'First name is required';
@@ -323,6 +335,10 @@ export default function CampaignRegisterPage() {
         email: email.trim(),
         individual_goal: individualGoal ? parseFloat(individualGoal) : null,
       };
+
+      if (isBothCampaign) {
+        body.participation_type = participationType;
+      }
 
       if (campaign.allow_org_signup && orgName.trim()) {
         if (selectedOrgId) {
@@ -424,6 +440,63 @@ export default function CampaignRegisterPage() {
       ? `translateX(${stepDirection * 30}px)`
       : 'translateX(0)',
   };
+
+  const renderParticipationStep = () => (
+    <div className="space-y-4">
+      <p className="text-sm font-medium flex items-center gap-2">
+        <Users className="w-4 h-4" />
+        How would you like to participate?
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Choose whether you are joining as an individual or registering a team.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => setParticipationType('individual')}
+          className={`p-4 rounded-md border text-left transition-colors ${
+            participationType === 'individual'
+              ? 'border-primary bg-primary/5'
+              : 'hover-elevate'
+          }`}
+          data-testid="button-join-individual"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`p-2 rounded-full ${participationType === 'individual' ? 'bg-primary/10' : 'bg-muted'}`}>
+              <User className="w-5 h-5" />
+            </div>
+            <span className="font-medium">Individual</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Join on your own with your personal fundraising page
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setParticipationType('team')}
+          className={`p-4 rounded-md border text-left transition-colors ${
+            participationType === 'team'
+              ? 'border-primary bg-primary/5'
+              : 'hover-elevate'
+          }`}
+          data-testid="button-join-team"
+        >
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`p-2 rounded-full ${participationType === 'team' ? 'bg-primary/10' : 'bg-muted'}`}>
+              <Users className="w-5 h-5" />
+            </div>
+            <span className="font-medium">Team</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Register a team and invite others to fundraise together
+          </p>
+        </button>
+      </div>
+      {validationErrors.participationType && (
+        <p className="text-xs text-destructive">{validationErrors.participationType}</p>
+      )}
+    </div>
+  );
 
   const renderOrganisationStep = () => (
     <div className="space-y-4">
@@ -657,6 +730,8 @@ export default function CampaignRegisterPage() {
 
   const renderCurrentStep = () => {
     switch (currentStepId) {
+      case 'participation':
+        return renderParticipationStep();
       case 'organisation':
         return renderOrganisationStep();
       case 'details':
@@ -702,7 +777,9 @@ export default function CampaignRegisterPage() {
               {campaign.name}
             </h1>
             <Badge variant="outline" data-testid="badge-campaign-type">
-              {isTeamCampaign ? (
+              {isBothCampaign ? (
+                <><Users className="w-3 h-3 mr-1" /> Individual or Team</>
+              ) : isTeamCampaign ? (
                 <><Users className="w-3 h-3 mr-1" /> Team Event</>
               ) : (
                 <><User className="w-3 h-3 mr-1" /> Individual</>
@@ -846,7 +923,7 @@ export default function CampaignRegisterPage() {
                       <span className="text-sm font-medium">{member.first_name} {member.last_name}</span>
                       {member.role === 'lead' && (
                         <Badge variant="secondary" className="text-xs">
-                          {result.campaign_type === 'team' ? 'Team Leader' : 'You'}
+                          {(result.campaign_type === 'team' || (result.campaign_type === 'both' && participationType === 'team')) ? 'Team Leader' : 'You'}
                         </Badge>
                       )}
                     </div>
