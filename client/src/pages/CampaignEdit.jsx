@@ -78,8 +78,7 @@ export default function CampaignEdit() {
 
   const { data: roles } = useQuery({
     queryKey: ['roles'],
-    queryFn: () => apiRequest('GET', '/api/roles'),
-    enabled: form.auto_create_members
+    queryFn: () => apiRequest('GET', '/api/roles')
   });
 
   const saveMutation = useMutation({
