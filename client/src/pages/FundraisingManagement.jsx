@@ -435,6 +435,33 @@ function CampaignDetail({ campaignId, onBack }) {
     toast.success('Donation link copied');
   };
 
+  const { teams, individuals } = useMemo(() => {
+    const allMembers = campaign?.team_members || [];
+    const teamMap = {};
+    const indivs = [];
+
+    allMembers.forEach(m => {
+      if (m.team_name) {
+        const key = m.team_name.trim().toLowerCase();
+        if (!teamMap[key]) {
+          teamMap[key] = { name: m.team_name.trim(), slug: key.replace(/[^a-z0-9]+/g, '-'), members: [], totalRaised: 0, donationCount: 0, giftAidCount: 0 };
+        }
+        teamMap[key].members.push(m);
+        teamMap[key].totalRaised += (m.total_raised || 0);
+        teamMap[key].donationCount += (m.donation_count || 0);
+        teamMap[key].giftAidCount += (m.gift_aid_count || 0);
+      } else {
+        indivs.push(m);
+      }
+    });
+
+    const teamList = Object.values(teamMap).sort((a, b) => b.totalRaised - a.totalRaised);
+    teamList.forEach(t => t.members.sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0)));
+    indivs.sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0));
+
+    return { teams: teamList, individuals: indivs };
+  }, [campaign?.team_members]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -459,33 +486,6 @@ function CampaignDetail({ campaignId, onBack }) {
   const statusConfig = STATUS_CONFIG[campaign.status] || STATUS_CONFIG.draft;
   const sortedTeamMembers = [...(campaign.team_members || [])].sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0));
   const topFundraiser = sortedTeamMembers[0];
-
-  const { teams, individuals } = useMemo(() => {
-    const allMembers = campaign.team_members || [];
-    const teamMap = {};
-    const indivs = [];
-
-    allMembers.forEach(m => {
-      if (m.team_name) {
-        const key = m.team_name.trim().toLowerCase();
-        if (!teamMap[key]) {
-          teamMap[key] = { name: m.team_name.trim(), slug: key.replace(/[^a-z0-9]+/g, '-'), members: [], totalRaised: 0, donationCount: 0, giftAidCount: 0 };
-        }
-        teamMap[key].members.push(m);
-        teamMap[key].totalRaised += (m.total_raised || 0);
-        teamMap[key].donationCount += (m.donation_count || 0);
-        teamMap[key].giftAidCount += (m.gift_aid_count || 0);
-      } else {
-        indivs.push(m);
-      }
-    });
-
-    const teamList = Object.values(teamMap).sort((a, b) => b.totalRaised - a.totalRaised);
-    teamList.forEach(t => t.members.sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0)));
-    indivs.sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0));
-
-    return { teams: teamList, individuals: indivs };
-  }, [campaign.team_members]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
