@@ -1384,38 +1384,6 @@ export default function PaymentOptions({
             )}
           </div>
 
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Attendees ({conf.bookings?.length || conf.ticketsRequired})
-            </h3>
-            <div className="space-y-1.5">
-              {conf.bookings?.length > 0 ? (
-                conf.bookings.map((booking, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/30" data-testid={`text-attendee-${i}`}>
-                    <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                    <span>{booking.attendee_first_name || ''} {booking.attendee_last_name || ''}</span>
-                    <span className="text-muted-foreground text-xs ml-auto">{booking.attendee_email}</span>
-                  </div>
-                ))
-              ) : conf.attendees?.length > 0 ? (
-                conf.attendees.map((att, i) => (
-                  <div key={i} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/30" data-testid={`text-attendee-${i}`}>
-                    <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                    <span>{att.first_name || att.firstName || ''} {att.last_name || att.lastName || ''}</span>
-                    <span className="text-muted-foreground text-xs ml-auto">{att.email}</span>
-                  </div>
-                ))
-              ) : conf.guestInfo ? (
-                <div className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/30" data-testid="text-attendee-0">
-                  <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                  <span>{conf.guestInfo.first_name} {conf.guestInfo.last_name}</span>
-                  <span className="text-muted-foreground text-xs ml-auto">{conf.guestInfo.email}</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
           {conf.totalCost > 0 && (
             <div className="p-4 rounded-md border space-y-2">
               <h3 className="text-sm font-medium flex items-center gap-2">
