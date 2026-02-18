@@ -80,10 +80,11 @@ export default function CampaignEdit() {
     }
   }, [campaignData, formLoaded]);
 
-  const { data: roles } = useQuery({
+  const { data: rolesData } = useQuery({
     queryKey: ['roles'],
-    queryFn: () => apiRequest('GET', '/api/roles')
+    queryFn: () => apiRequest('GET', '/api/admin/roles')
   });
+  const roles = rolesData?.data || [];
 
   const saveMutation = useMutation({
     mutationFn: async (data) => {
