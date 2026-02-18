@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Calendar, Clock, Check, User, Loader2, Send, Info, Settings, UserPlus } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Calendar, Clock, Check, User, Loader2, Send, Info, Settings, UserPlus, MailCheck } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/components/ui/use-toast";
@@ -20,7 +21,7 @@ const STATUS_CONFIG = {
   not_sent: { label: 'Not sent', color: '#94a3b8', icon: Send }
 };
 
-function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBookedRequest, onAddAlternative, isAddingAlternative }) {
+function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBookedRequest, onAddAlternative, isAddingAlternative, onResend, isResending }) {
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [overrideDateTime, setOverrideDateTime] = useState('');
   const [isAddAltOpen, setIsAddAltOpen] = useState(false);
@@ -35,6 +36,7 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
     [request.agent.first_name, request.agent.last_name].filter(Boolean).join(' ') : 'Unknown Agent';
   const canOverride = (request.status === 'pending' || request.status === 'not_sent') && !hasBookedRequest;
   const canAddAlt = request.status === 'pending' && !hasBookedRequest;
+  const canResend = (request.status === 'pending' || request.status === 'not_sent') && !hasBookedRequest;
   const isBooked = request.status === 'booked';
   
   const handleOverrideSubmit = () => {
@@ -59,13 +61,15 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
     setIsAddAltOpen(false);
   };
 
+  const resendLabel = request.resend_count > 0 ? 'Resend' : 'Send Invite';
+
   return (
     <div 
-      className={`flex items-center gap-3 p-3 rounded-lg border hover-elevate cursor-pointer ${isBooked ? 'border-green-500 bg-green-50' : ''}`}
+      className={`flex items-start gap-3 p-3 rounded-lg border hover-elevate cursor-pointer ${isBooked ? 'border-green-500 bg-green-50' : ''}`}
       data-testid={`meeting-request-item-${request.recipient_email}`}
       onClick={onClick}
     >
-      <div className="p-2 bg-muted rounded-md">
+      <div className="p-2 bg-muted rounded-md mt-0.5">
         <Calendar className="w-5 h-5 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
@@ -95,35 +99,68 @@ function MeetingRequestItem({ request, onClick, onOverride, isOverriding, hasBoo
             Booked: {format(new Date(request.booking?.starts_at || request.booked_at), 'MMM d, yyyy h:mm a')}
           </p>
         )}
+        {request.last_resent_at && (
+          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+            <MailCheck className="w-3 h-3" />
+            Last sent: {format(new Date(request.last_resent_at), 'MMM d, yyyy h:mm a')}
+          </p>
+        )}
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex flex-col gap-1 flex-shrink-0">
+        {canResend && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="default"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResend(request.id);
+                }}
+                disabled={isResending}
+                data-testid={`button-resend-${request.id}`}
+              >
+                {isResending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{resendLabel}</TooltipContent>
+          </Tooltip>
+        )}
         {canAddAlt && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsAddAltOpen(true);
-            }}
-            data-testid={`button-add-alt-${request.id}`}
-          >
-            <UserPlus className="w-4 h-4 mr-1" />
-            Add Alternative
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsAddAltOpen(true);
+                }}
+                data-testid={`button-add-alt-${request.id}`}
+              >
+                <UserPlus className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Add Alternative</TooltipContent>
+          </Tooltip>
         )}
         {canOverride && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsOverrideOpen(true);
-            }}
-            data-testid={`button-override-${request.id}`}
-          >
-            <Settings className="w-4 h-4 mr-1" />
-            Override
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOverrideOpen(true);
+                }}
+                data-testid={`button-override-${request.id}`}
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Override</TooltipContent>
+          </Tooltip>
         )}
       </div>
       
@@ -301,10 +338,10 @@ function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplat
   
   return (
     <div 
-      className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30"
+      className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30"
       data-testid={`configured-meeting-${config.config_id}`}
     >
-      <div className="p-2 bg-muted rounded-md">
+      <div className="p-2 bg-muted rounded-md mt-0.5">
         <Calendar className="w-5 h-5 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
@@ -328,28 +365,36 @@ function ConfiguredMeetingItem({ config, onOverride, isOverriding, bookedTemplat
           Will trigger on <span className="font-medium" style={{ color: config.stage_color || 'inherit' }}>{config.stage_name}</span> stage
         </p>
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex flex-col gap-1 flex-shrink-0">
         {canSendInvite && (
-          <Button
-            size="sm"
-            variant="default"
-            onClick={() => setIsSendOpen(true)}
-            data-testid={`button-send-invite-${config.config_id}`}
-          >
-            <Send className="w-4 h-4 mr-1" />
-            Send Invite
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="default"
+                onClick={() => setIsSendOpen(true)}
+                data-testid={`button-send-invite-${config.config_id}`}
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Send Invite</TooltipContent>
+          </Tooltip>
         )}
         {canOverride && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setIsOverrideOpen(true)}
-            data-testid={`button-override-configured-${config.config_id}`}
-          >
-            <Settings className="w-4 h-4 mr-1" />
-            Override
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={() => setIsOverrideOpen(true)}
+                data-testid={`button-override-configured-${config.config_id}`}
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Override</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
@@ -597,6 +642,32 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
     addAlternativeMutation.mutate(data);
   };
 
+  const resendMutation = useMutation({
+    mutationFn: async (meetingRequestId) => {
+      return apiRequest('POST', `/api/dd-meeting-requests/resend`, {
+        meetingRequestId
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Invitation Sent",
+        description: "The meeting invitation has been sent successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/dd-meeting-requests/by-submission', formSubmissionId] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send meeting invitation.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleResend = (meetingRequestId) => {
+    resendMutation.mutate(meetingRequestId);
+  };
+
   const requests = sentData?.requests || [];
   const configuredMeetings = configuredData?.configured_meetings || [];
   
@@ -673,6 +744,8 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
                   hasBookedRequest={hasBookedRequest}
                   onAddAlternative={handleAddAlternative}
                   isAddingAlternative={addAlternativeMutation.isPending}
+                  onResend={handleResend}
+                  isResending={resendMutation.isPending}
                 />
               ))}
             </div>
