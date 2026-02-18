@@ -1,6 +1,43 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import crypto from 'crypto';
+import OpenAI from 'openai';
+
+let openaiClient = null;
+function getOpenAIClient() {
+  if (openaiClient) return openaiClient;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (!apiKey) return null;
+  openaiClient = new OpenAI({ apiKey, ...(baseURL && { baseURL }) });
+  return openaiClient;
+}
+
+async function moderateTeamName(name) {
+  const client = getOpenAIClient();
+  if (!client) {
+    return { is_safe: true, reason: '' };
+  }
+  try {
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a content moderator. Given a team name, determine if it is appropriate for a public fundraising campaign. Reject names that are offensive, contain profanity, slurs, hate speech, sexual content, or are clearly inappropriate. Be lenient with creative or playful names. Respond with valid JSON only: {"is_safe": true/false, "reason": "explanation if unsafe"}'
+        },
+        { role: 'user', content: `Team name: "${name}"` }
+      ],
+      response_format: { type: 'json_object' },
+      max_completion_tokens: 256,
+    });
+    const result = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    return { is_safe: result.is_safe !== false, reason: result.reason || '' };
+  } catch (err) {
+    console.error('[Fundraising Register] LLM moderation error:', err.message);
+    return { is_safe: true, reason: '' };
+  }
+}
 
 function generateToken() {
   return crypto.randomBytes(16).toString('hex');
@@ -26,7 +63,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, organisation, existing_organisation_id, participation_type } = req.body;
+    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, team_name, organisation, existing_organisation_id, participation_type } = req.body;
 
     if (!campaign_slug) {
       return res.status(400).json({ error: 'Campaign slug is required' });
@@ -127,6 +164,34 @@ export default async function handler(req, res) {
       }
     }
 
+    if (isTeamCampaign && team_name) {
+      const trimmedTeamName = team_name.trim();
+      if (trimmedTeamName.length < 2 || trimmedTeamName.length > 100) {
+        return res.status(400).json({ error: 'Team name must be between 2 and 100 characters' });
+      }
+
+      const { data: existingTeamName } = await supabase
+        .from('fundraising_team_member')
+        .select('id')
+        .eq('campaign_id', campaign.id)
+        .eq('tenant_id', tenant.id)
+        .ilike('team_name', trimmedTeamName)
+        .limit(1);
+
+      if (existingTeamName && existingTeamName.length > 0) {
+        return res.status(409).json({ error: 'This team name is already taken for this campaign. Please choose a different name.' });
+      }
+
+      const moderation = await moderateTeamName(trimmedTeamName);
+      if (!moderation.is_safe) {
+        return res.status(400).json({
+          error: moderation.reason || 'The team name was flagged as inappropriate. Please choose a different name.'
+        });
+      }
+    } else if (isTeamCampaign && !team_name?.trim()) {
+      return res.status(400).json({ error: 'Team name is required for team registrations' });
+    }
+
     let createdOrgId = null;
 
     if (existing_organisation_id) {
@@ -194,6 +259,7 @@ export default async function handler(req, res) {
       email: email.trim(),
       token: generateToken(),
       individual_goal: individual_goal ? parseFloat(individual_goal) : null,
+      team_name: isTeamCampaign && team_name ? team_name.trim() : null,
       is_active: true
     };
     if (createdOrgId) leadInsert.organization_id = createdOrgId;
@@ -228,6 +294,7 @@ export default async function handler(req, res) {
           email: tm.email?.trim() || null,
           token: generateToken(),
           individual_goal: null,
+          team_name: team_name ? team_name.trim() : null,
           is_active: true
         };
         if (createdOrgId) tmInsert.organization_id = createdOrgId;

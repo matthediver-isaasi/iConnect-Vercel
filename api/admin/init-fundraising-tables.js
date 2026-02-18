@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS fundraising_team_member (
   photo_url TEXT,
   token TEXT NOT NULL UNIQUE,
   individual_goal NUMERIC(12,2),
+  team_name TEXT,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -126,6 +127,12 @@ CREATE TABLE IF NOT EXISTS fundraising_wellwisher (
 );
 CREATE INDEX IF NOT EXISTS idx_fundraising_wellwisher_member ON fundraising_wellwisher(team_member_id);
 CREATE INDEX IF NOT EXISTS idx_fundraising_wellwisher_campaign ON fundraising_wellwisher(campaign_id);
+
+ALTER TABLE fundraising_team_member ADD COLUMN IF NOT EXISTS team_name TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_fundraising_team_name
+  ON fundraising_team_member(tenant_id, campaign_id, team_name)
+  WHERE team_name IS NOT NULL;
 `;
 
 export default async function handler(req, res) {

@@ -111,6 +111,7 @@ export default function CampaignRegisterPage() {
   const [email, setEmail] = useState('');
   const [individualGoal, setIndividualGoal] = useState('');
   const [teamMembers, setTeamMembers] = useState([{ first_name: '', last_name: '', email: '' }]);
+  const [teamName, setTeamName] = useState('');
   const [participationType, setParticipationType] = useState(null);
 
   const [orgName, setOrgName] = useState('');
@@ -245,6 +246,13 @@ export default function CampaignRegisterPage() {
     }
 
     if (currentStepId === 'team') {
+      if (!teamName.trim()) {
+        errors.teamName = 'Please enter a team name';
+      } else if (teamName.trim().length < 2) {
+        errors.teamName = 'Team name must be at least 2 characters';
+      } else if (teamName.trim().length > 100) {
+        errors.teamName = 'Team name must be 100 characters or fewer';
+      }
       const validMembers = teamMembers.filter(m => m.first_name.trim() && m.last_name.trim());
       if (validMembers.length === 0) {
         errors.teamMembers = 'Please add at least one team member with first and last name';
@@ -355,6 +363,7 @@ export default function CampaignRegisterPage() {
       }
 
       if (isTeamCampaign) {
+        body.team_name = teamName.trim();
         body.team_members = teamMembers
           .filter(m => m.first_name.trim() && m.last_name.trim())
           .map(m => ({
@@ -453,7 +462,7 @@ export default function CampaignRegisterPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
-          onClick={() => setParticipationType('individual')}
+          onClick={() => { setParticipationType('individual'); setTeamName(''); }}
           className={`p-4 rounded-md border text-left transition-colors ${
             participationType === 'individual'
               ? 'border-primary bg-primary/5'
@@ -659,6 +668,22 @@ export default function CampaignRegisterPage() {
 
   const renderTeamStep = () => (
     <div className="space-y-4">
+      <div className="space-y-1.5">
+        <Label>Team Name *</Label>
+        <Input
+          value={teamName}
+          onChange={(e) => setTeamName(e.target.value)}
+          placeholder="Enter your team name"
+          maxLength={100}
+          data-testid="input-team-name"
+        />
+        {validationErrors.teamName && (
+          <p className="text-xs text-destructive" data-testid="error-team-name">{validationErrors.teamName}</p>
+        )}
+      </div>
+
+      <div className="border-t pt-4" />
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm font-medium flex items-center gap-2">
           <Users className="w-4 h-4" />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import {
   Heart, Plus, Trash2, Users, Link as LinkIcon, Copy, Check,
   ArrowLeft, Target, Calendar, Loader2, Search, ExternalLink, UserPlus,
   Eye, BarChart3, Gift, PoundSterling, TrendingUp, Award, Clock,
-  ChevronRight, MessageSquare, Shield, HandHeart, FileText, Save
+  ChevronRight, ChevronDown, ChevronUp, MessageSquare, Shield, HandHeart, FileText, Save
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
@@ -295,6 +295,104 @@ function CampaignList({ onSelect }) {
   );
 }
 
+function TeamMemberRow({ member, campaign, copiedToken, onCopyLink, onRemove }) {
+  const memberGoal = member.individual_goal || 0;
+  const memberProgress = memberGoal > 0 ? Math.min(100, Math.round(((member.total_raised || 0) / memberGoal) * 100)) : 0;
+
+  return (
+    <div
+      className="p-4 rounded-md border space-y-3"
+      data-testid={`row-team-member-${member.id}`}
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <Avatar className="h-10 w-10">
+            <AvatarFallback>
+              {member.first_name?.[0]}{member.last_name?.[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <p className="font-medium truncate">
+              {member.first_name} {member.last_name}
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              {member.email && (
+                <span className="text-xs text-muted-foreground truncate">{member.email}</span>
+              )}
+              {member.member_id && (
+                <Badge variant="secondary">Tenant Member</Badge>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onCopyLink(member.token); }}
+            data-testid={`button-copy-link-${member.id}`}
+          >
+            {copiedToken === member.token ? (
+              <><Check className="w-3 h-3 mr-1" /> Copied</>
+            ) : (
+              <><Copy className="w-3 h-3 mr-1" /> Copy Link</>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(`/donate/${member.token}`, '_blank');
+            }}
+            data-testid={`button-view-page-${member.id}`}
+          >
+            <Eye className="w-3 h-3 mr-1" /> View
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (window.confirm(`Remove ${member.first_name} ${member.last_name} from this campaign?`)) {
+                onRemove(member.id);
+              }
+            }}
+            data-testid={`button-remove-member-${member.id}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-4 text-sm">
+        <div className="flex items-center gap-4 text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Heart className="w-3.5 h-3.5" />
+            {member.donation_count || 0} donations
+          </span>
+          {member.gift_aid_count > 0 && (
+            <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+              <Gift className="w-3.5 h-3.5" />
+              {member.gift_aid_count} Gift Aid
+            </span>
+          )}
+        </div>
+        <div className="text-right">
+          <span className="font-bold">{formatCurrency(member.total_raised, campaign.currency)}</span>
+          {memberGoal > 0 && (
+            <span className="text-muted-foreground text-xs ml-1.5">
+              / {formatCurrency(memberGoal, campaign.currency)} ({memberProgress}%)
+            </span>
+          )}
+        </div>
+      </div>
+      {memberGoal > 0 && (
+        <ProgressBar percent={memberProgress} height="h-1.5" />
+      )}
+    </div>
+  );
+}
+
 function CampaignDetail({ campaignId, onBack }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -302,6 +400,7 @@ function CampaignDetail({ campaignId, onBack }) {
   const [copiedToken, setCopiedToken] = useState(null);
   const [copiedRegLink, setCopiedRegLink] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [expandedTeamName, setExpandedTeamName] = useState(null);
 
   const { data: campaign, isLoading } = useQuery({
     queryKey: ['fundraising-campaigns', campaignId],
@@ -360,6 +459,33 @@ function CampaignDetail({ campaignId, onBack }) {
   const statusConfig = STATUS_CONFIG[campaign.status] || STATUS_CONFIG.draft;
   const sortedTeamMembers = [...(campaign.team_members || [])].sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0));
   const topFundraiser = sortedTeamMembers[0];
+
+  const { teams, individuals } = useMemo(() => {
+    const allMembers = campaign.team_members || [];
+    const teamMap = {};
+    const indivs = [];
+
+    allMembers.forEach(m => {
+      if (m.team_name) {
+        const key = m.team_name.trim().toLowerCase();
+        if (!teamMap[key]) {
+          teamMap[key] = { name: m.team_name.trim(), slug: key.replace(/[^a-z0-9]+/g, '-'), members: [], totalRaised: 0, donationCount: 0, giftAidCount: 0 };
+        }
+        teamMap[key].members.push(m);
+        teamMap[key].totalRaised += (m.total_raised || 0);
+        teamMap[key].donationCount += (m.donation_count || 0);
+        teamMap[key].giftAidCount += (m.gift_aid_count || 0);
+      } else {
+        indivs.push(m);
+      }
+    });
+
+    const teamList = Object.values(teamMap).sort((a, b) => b.totalRaised - a.totalRaised);
+    teamList.forEach(t => t.members.sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0)));
+    indivs.sort((a, b) => (b.total_raised || 0) - (a.total_raised || 0));
+
+    return { teams: teamList, individuals: indivs };
+  }, [campaign.team_members]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -546,6 +672,7 @@ function CampaignDetail({ campaignId, onBack }) {
                                   {isTop && <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
+                                  {member.team_name && <span className="font-medium">{member.team_name} &middot; </span>}
                                   {member.donation_count || 0} donations
                                   {member.gift_aid_count > 0 && ` \u00b7 ${member.gift_aid_count} Gift Aid`}
                                 </p>
@@ -680,12 +807,12 @@ function CampaignDetail({ campaignId, onBack }) {
           </div>
         </TabsContent>
 
-        <TabsContent value="team" className="mt-4">
+        <TabsContent value="team" className="mt-4 space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
-                <CardTitle className="text-lg">Team Members</CardTitle>
-                <CardDescription>Manage fundraisers and their individual donation pages</CardDescription>
+                <CardTitle className="text-lg">Fundraisers</CardTitle>
+                <CardDescription>Manage teams and individual fundraisers</CardDescription>
               </div>
               <Button onClick={() => setShowAddMember(true)} data-testid="button-add-team-member">
                 <UserPlus className="w-4 h-4 mr-2" />
@@ -698,109 +825,84 @@ function CampaignDetail({ campaignId, onBack }) {
                   <div className="p-4 rounded-full bg-muted inline-block mb-4">
                     <Users className="w-8 h-8" />
                   </div>
-                  <p className="font-medium mb-1">No team members added yet</p>
+                  <p className="font-medium mb-1">No fundraisers added yet</p>
                   <p>Add team members to generate unique donation page links.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {sortedTeamMembers.map(member => {
-                    const memberGoal = member.individual_goal || 0;
-                    const memberProgress = memberGoal > 0 ? Math.min(100, Math.round(((member.total_raised || 0) / memberGoal) * 100)) : 0;
-
-                    return (
-                      <div
-                        key={member.id}
-                        className="p-4 rounded-md border space-y-3"
-                        data-testid={`row-team-member-${member.id}`}
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <Avatar className="h-10 w-10">
-                              <AvatarFallback>
-                                {member.first_name?.[0]}{member.last_name?.[0]}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0">
-                              <p className="font-medium truncate">
-                                {member.first_name} {member.last_name}
-                              </p>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {member.email && (
-                                  <span className="text-xs text-muted-foreground truncate">{member.email}</span>
-                                )}
-                                {member.member_id && (
-                                  <Badge variant="secondary">Tenant Member</Badge>
-                                )}
+                <div className="space-y-6">
+                  {teams.length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        Teams ({teams.length})
+                      </p>
+                      {teams.map(team => {
+                        const isExpanded = expandedTeamName === team.name;
+                        return (
+                          <div key={team.slug} className="border rounded-md" data-testid={`team-group-${team.slug}`}>
+                            <button
+                              type="button"
+                              className="w-full text-left p-4 flex items-center justify-between gap-4 hover-elevate rounded-md"
+                              onClick={() => setExpandedTeamName(isExpanded ? null : team.name)}
+                              data-testid={`button-expand-team-${team.slug}`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="p-2 rounded-md bg-primary/10 shrink-0">
+                                  <Users className="w-5 h-5 text-primary" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-semibold truncate">{team.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {team.members.length} member{team.members.length !== 1 ? 's' : ''}
+                                    {' \u00b7 '}
+                                    {team.donationCount} donation{team.donationCount !== 1 ? 's' : ''}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => { e.stopPropagation(); copyDonationLink(member.token); }}
-                              data-testid={`button-copy-link-${member.id}`}
-                            >
-                              {copiedToken === member.token ? (
-                                <><Check className="w-3 h-3 mr-1" /> Copied</>
-                              ) : (
-                                <><Copy className="w-3 h-3 mr-1" /> Copy Link</>
-                              )}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                window.open(`/donate/${member.token}`, '_blank');
-                              }}
-                              data-testid={`button-view-page-${member.id}`}
-                            >
-                              <Eye className="w-3 h-3 mr-1" /> View
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm(`Remove ${member.first_name} ${member.last_name} from this campaign?`)) {
-                                  removeTeamMemberMutation.mutate(member.id);
-                                }
-                              }}
-                              data-testid={`button-remove-member-${member.id}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-4 text-sm">
-                          <div className="flex items-center gap-4 text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Heart className="w-3.5 h-3.5" />
-                              {member.donation_count || 0} donations
-                            </span>
-                            {member.gift_aid_count > 0 && (
-                              <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                <Gift className="w-3.5 h-3.5" />
-                                {member.gift_aid_count} Gift Aid
-                              </span>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <span className="font-bold text-sm">{formatCurrency(team.totalRaised, campaign.currency)}</span>
+                                {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                              </div>
+                            </button>
+
+                            {isExpanded && (
+                              <div className="border-t px-4 pb-4 pt-3 space-y-3">
+                                {team.members.map(member => (
+                                  <TeamMemberRow
+                                    key={member.id}
+                                    member={member}
+                                    campaign={campaign}
+                                    copiedToken={copiedToken}
+                                    onCopyLink={copyDonationLink}
+                                    onRemove={(id) => removeTeamMemberMutation.mutate(id)}
+                                  />
+                                ))}
+                              </div>
                             )}
                           </div>
-                          <div className="text-right">
-                            <span className="font-bold">{formatCurrency(member.total_raised, campaign.currency)}</span>
-                            {memberGoal > 0 && (
-                              <span className="text-muted-foreground text-xs ml-1.5">
-                                / {formatCurrency(memberGoal, campaign.currency)} ({memberProgress}%)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {memberGoal > 0 && (
-                          <ProgressBar percent={memberProgress} height="h-1.5" />
-                        )}
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {individuals.length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <Heart className="w-4 h-4" />
+                        Individual Fundraisers ({individuals.length})
+                      </p>
+                      {individuals.map(member => (
+                        <TeamMemberRow
+                          key={member.id}
+                          member={member}
+                          campaign={campaign}
+                          copiedToken={copiedToken}
+                          onCopyLink={copyDonationLink}
+                          onRemove={(id) => removeTeamMemberMutation.mutate(id)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
