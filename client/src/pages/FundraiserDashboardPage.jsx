@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Heart, Loader2, Users, Target, Copy, Check,
   ExternalLink, AlertCircle, ImagePlus, MessageSquare,
-  ChevronDown, ChevronUp, X, Clock
+  ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
+  TrendingUp, Send, Mail, Globe
 } from "lucide-react";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 
@@ -283,6 +284,206 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
   );
 }
 
+function DonorsList({ donors, teamMemberId, currency }) {
+  const [expanded, setExpanded] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyType, setReplyType] = useState('public');
+  const [replyMessage, setReplyMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sentDonations, setSentDonations] = useState({});
+
+  const tenantSlug = getTenantSlugFromLocation();
+  const sessionToken = localStorage.getItem(getSessionKey());
+
+  const handleSendResponse = async (donationId) => {
+    if (!replyMessage.trim() || !sessionToken) return;
+    setSending(true);
+    try {
+      let url = `/api/public/fundraising/donor-response?session_token=${encodeURIComponent(sessionToken)}`;
+      if (tenantSlug) url += `&tenant=${tenantSlug}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          donation_id: donationId,
+          team_member_id: teamMemberId,
+          response_type: replyType,
+          message: replyMessage.trim()
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to send');
+      }
+      setSentDonations(prev => ({
+        ...prev,
+        [donationId]: [...(prev[donationId] || []), { response_type: replyType, message: replyMessage.trim(), created_at: new Date().toISOString() }]
+      }));
+      setReplyingTo(null);
+      setReplyMessage('');
+      setReplyType('public');
+    } catch {} finally {
+      setSending(false);
+    }
+  };
+
+  if (!donors || donors.length === 0) return null;
+
+  const getAllResponses = (donor) => {
+    const existing = donor.responses || [];
+    const newOnes = sentDonations[donor.id] || [];
+    return [...existing, ...newOnes];
+  };
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <button
+        className="flex items-center justify-between w-full text-left"
+        onClick={() => setExpanded(!expanded)}
+        data-testid="button-toggle-donors"
+      >
+        <span className="text-sm font-medium flex items-center gap-2">
+          <Heart className="w-4 h-4" />
+          Your Donors
+          <Badge variant="secondary" className="text-xs">{donors.length}</Badge>
+        </span>
+        {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3">
+          {donors.map((donor) => {
+            const responses = getAllResponses(donor);
+            const hasPublicResponse = responses.some(r => r.response_type === 'public');
+            const hasPrivateResponse = responses.some(r => r.response_type === 'private');
+
+            return (
+              <div key={donor.id} className="border rounded-md p-3 space-y-2" data-testid={`donor-${donor.id}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium shrink-0">
+                      {donor.is_anonymous ? '?' : donor.donor_name?.[0]?.toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid={`text-donor-name-${donor.id}`}>
+                        {donor.donor_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground" data-testid={`text-donor-amount-${donor.id}`}>
+                        {formatCurrency(donor.amount, currency)} · {formatTimeAgo(donor.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {hasPublicResponse && (
+                      <Badge variant="outline" className="text-xs">
+                        <Globe className="w-3 h-3 mr-0.5" />
+                        Thanked
+                      </Badge>
+                    )}
+                    {hasPrivateResponse && (
+                      <Badge variant="outline" className="text-xs">
+                        <Mail className="w-3 h-3 mr-0.5" />
+                        Messaged
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {donor.donor_message && (
+                  <p className="text-xs text-muted-foreground italic pl-10" data-testid={`text-donor-message-${donor.id}`}>
+                    "{donor.donor_message}"
+                  </p>
+                )}
+
+                {responses.length > 0 && (
+                  <div className="pl-10 space-y-1">
+                    {responses.map((r, i) => (
+                      <div key={i} className="text-xs bg-muted/50 rounded-md px-2 py-1.5 flex items-start gap-1.5" data-testid={`response-${donor.id}-${i}`}>
+                        {r.response_type === 'public' ? <Globe className="w-3 h-3 mt-0.5 shrink-0 text-muted-foreground" /> : <Mail className="w-3 h-3 mt-0.5 shrink-0 text-muted-foreground" />}
+                        <span>{r.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {replyingTo === donor.id ? (
+                  <div className="pl-10 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={replyType === 'public' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setReplyType('public')}
+                        data-testid="button-reply-public"
+                      >
+                        <Globe className="w-3 h-3 mr-1" />
+                        Public Thank You
+                      </Button>
+                      <Button
+                        variant={replyType === 'private' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setReplyType('private')}
+                        disabled={!donor.donor_email || donor.is_anonymous}
+                        data-testid="button-reply-private"
+                      >
+                        <Mail className="w-3 h-3 mr-1" />
+                        Private Message
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={replyMessage}
+                      onChange={(e) => setReplyMessage(e.target.value)}
+                      placeholder={replyType === 'public' ? 'Write a public thank you...' : 'Write a private message to the donor...'}
+                      className="resize-none text-sm"
+                      rows={2}
+                      data-testid="textarea-donor-reply"
+                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        disabled={!replyMessage.trim() || sending}
+                        onClick={() => handleSendResponse(donor.id)}
+                        data-testid="button-send-reply"
+                      >
+                        {sending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Send className="w-3 h-3 mr-1" />}
+                        {replyType === 'public' ? 'Post Thank You' : 'Send Message'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setReplyingTo(null); setReplyMessage(''); }}
+                        data-testid="button-cancel-reply"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    {replyType === 'private' && (!donor.donor_email || donor.is_anonymous) && (
+                      <p className="text-xs text-muted-foreground">
+                        Private messaging is not available for anonymous donors or donors without an email address.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="pl-10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setReplyingTo(donor.id); setReplyMessage(''); }}
+                      data-testid={`button-reply-${donor.id}`}
+                    >
+                      <MessageSquare className="w-3 h-3 mr-1" />
+                      Reply
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const variants = {
     active: 'default',
@@ -297,12 +498,262 @@ function StatusBadge({ status }) {
   );
 }
 
+function SummaryCards({ campaigns }) {
+  const totalRaised = campaigns.reduce((sum, c) => sum + parseFloat(c.individual_raised || 0), 0);
+  const totalDonations = campaigns.reduce((sum, c) => sum + (c.donation_count || 0), 0);
+  const activeCampaigns = campaigns.filter(c => c.campaign_status === 'active').length;
+  const currency = campaigns[0]?.currency || 'USD';
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <Card data-testid="card-summary-total-raised">
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+              <DollarSign className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Total Raised</p>
+              <p className="text-lg font-semibold truncate" data-testid="text-total-raised">
+                {formatCurrency(totalRaised, currency)}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-summary-total-donations">
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+              <Heart className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Total Donations</p>
+              <p className="text-lg font-semibold" data-testid="text-total-donations">
+                {totalDonations}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-summary-active-campaigns">
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Active Campaigns</p>
+              <p className="text-lg font-semibold" data-testid="text-active-campaigns">
+                {activeCampaigns}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function CampaignTile({ campaign, onClick }) {
+  const individualPercent = campaign.individual_goal > 0
+    ? Math.round((campaign.individual_raised / campaign.individual_goal) * 100)
+    : 0;
+
+  return (
+    <Card
+      className="hover-elevate cursor-pointer overflow-visible"
+      onClick={onClick}
+      data-testid={`card-campaign-tile-${campaign.campaign_id}`}
+    >
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-center gap-4">
+          {campaign.campaign_cover_image_url ? (
+            <img
+              src={campaign.campaign_cover_image_url}
+              alt={campaign.campaign_name}
+              className="w-16 h-16 rounded-md object-cover shrink-0"
+              data-testid={`img-campaign-thumb-${campaign.campaign_id}`}
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center shrink-0">
+              <Heart className="w-6 h-6 text-muted-foreground" />
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0 space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold truncate" data-testid={`text-tile-name-${campaign.campaign_id}`}>
+                {campaign.campaign_name}
+              </h3>
+              <StatusBadge status={campaign.campaign_status} />
+            </div>
+
+            {campaign.individual_goal > 0 && (
+              <ProgressBar percent={individualPercent} />
+            )}
+
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground flex-wrap">
+              <span data-testid={`text-tile-raised-${campaign.campaign_id}`}>
+                {formatCurrency(campaign.individual_raised, campaign.currency)}
+                {campaign.individual_goal > 0 && ` of ${formatCurrency(campaign.individual_goal, campaign.currency)}`}
+              </span>
+              <span className="flex items-center gap-1" data-testid={`text-tile-donations-${campaign.campaign_id}`}>
+                <Heart className="w-3 h-3" />
+                {campaign.donation_count} donation{campaign.donation_count !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
+  const individualPercent = campaign.individual_goal > 0
+    ? Math.round((campaign.individual_raised / campaign.individual_goal) * 100)
+    : 0;
+  const donateUrl = getDonatePageUrl(campaign.participant_token);
+
+  return (
+    <div className="space-y-4">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onBack}
+        data-testid="button-back-to-list"
+      >
+        <ArrowLeft className="w-4 h-4 mr-1" />
+        Back to campaigns
+      </Button>
+
+      <Card data-testid={`card-campaign-detail-${campaign.campaign_id}`}>
+        <CardContent className="pt-6 space-y-4">
+          {campaign.campaign_cover_image_url && (
+            <div className="relative h-40 -mt-6 -mx-6 mb-4 overflow-hidden rounded-t-lg">
+              <img
+                src={campaign.campaign_cover_image_url}
+                alt={campaign.campaign_name}
+                className="w-full h-full object-cover"
+                data-testid="img-campaign-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+            </div>
+          )}
+
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold" data-testid="text-campaign-name">
+                {campaign.campaign_name}
+              </h3>
+              {campaign.organization_name && (
+                <p className="text-sm text-muted-foreground" data-testid="text-org-name">
+                  Raising funds on behalf of: {campaign.organization_name}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <StatusBadge status={campaign.campaign_status} />
+              <Badge variant="outline" data-testid="badge-role">
+                {campaign.role === 'lead' ? 'Lead' : 'Member'}
+              </Badge>
+            </div>
+          </div>
+
+          {campaign.individual_goal > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Target className="w-3 h-3" />
+                  Your progress
+                </span>
+                <span className="font-medium">
+                  {individualPercent}%
+                </span>
+              </div>
+              <ProgressBar percent={individualPercent} />
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-semibold" data-testid="text-individual-raised">
+                  {formatCurrency(campaign.individual_raised, campaign.currency)}
+                </span>
+                <span className="text-muted-foreground" data-testid="text-individual-goal">
+                  of {formatCurrency(campaign.individual_goal, campaign.currency)} goal
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-1.5">
+              <Heart className="w-4 h-4 text-muted-foreground" />
+              <span data-testid="text-donation-count">
+                {campaign.donation_count} donation{campaign.donation_count !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-muted-foreground" />
+              <span data-testid="text-amount-raised">
+                {formatCurrency(campaign.individual_raised, campaign.currency)} raised
+              </span>
+            </div>
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Your Donation Page</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={donateUrl}
+                  className="text-xs bg-muted/50"
+                  data-testid="input-donate-url"
+                />
+                <CopyLinkButton url={donateUrl} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <a href={donateUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" data-testid="button-view-donate-page">
+                  <ExternalLink className="w-4 h-4 mr-1" />
+                  View Page
+                </Button>
+              </a>
+              {campaign.campaign_slug && (
+                <Link to={`/fundraise/${campaign.campaign_slug}`}>
+                  <Button variant="outline" size="sm" data-testid="button-view-campaign">
+                    Campaign Page
+                  </Button>
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <DonorsList
+            donors={campaign.donors}
+            teamMemberId={campaign.team_member_id}
+            currency={campaign.currency}
+          />
+
+          <CampaignUpdates
+            campaignId={campaign.campaign_id}
+            teamMemberId={campaign.team_member_id}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function FundraiserDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [tenantBranding, setTenantBranding] = useState(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState(null);
 
   useEffect(() => {
     const tenantSlug = getTenantSlugFromLocation();
@@ -423,6 +874,9 @@ export default function FundraiserDashboardPage() {
   if (!dashboardData) return null;
 
   const { first_name, last_name, campaigns } = dashboardData;
+  const selectedCampaign = selectedCampaignId
+    ? campaigns.find(c => c.campaign_id === selectedCampaignId)
+    : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
@@ -460,124 +914,25 @@ export default function FundraiserDashboardPage() {
               </p>
             </CardContent>
           </Card>
+        ) : selectedCampaign ? (
+          <CampaignDetailView
+            campaign={selectedCampaign}
+            onBack={() => setSelectedCampaignId(null)}
+            getDonatePageUrl={getDonatePageUrl}
+          />
         ) : (
           <div className="space-y-4">
-            {campaigns.map((campaign) => {
-              const individualPercent = campaign.individual_goal > 0
-                ? Math.round((campaign.individual_raised / campaign.individual_goal) * 100)
-                : 0;
-              const donateUrl = getDonatePageUrl(campaign.participant_token);
+            <SummaryCards campaigns={campaigns} />
 
-              return (
-                <Card key={campaign.campaign_id} data-testid={`card-campaign-${campaign.campaign_id}`}>
-                  <CardContent className="pt-6 space-y-4">
-                    {campaign.campaign_cover_image_url && (
-                      <div className="relative h-32 -mt-6 -mx-6 mb-4 overflow-hidden rounded-t-lg">
-                        <img
-                          src={campaign.campaign_cover_image_url}
-                          alt={campaign.campaign_name}
-                          className="w-full h-full object-cover"
-                          data-testid="img-campaign-cover"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                      </div>
-                    )}
-
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div className="space-y-1">
-                        <h3 className="text-lg font-semibold" data-testid="text-campaign-name">
-                          {campaign.campaign_name}
-                        </h3>
-                        {campaign.organization_name && (
-                          <p className="text-sm text-muted-foreground" data-testid="text-org-name">
-                            Raising funds on behalf of: {campaign.organization_name}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <StatusBadge status={campaign.campaign_status} />
-                        <Badge variant="outline" data-testid="badge-role">
-                          {campaign.role === 'lead' ? 'Lead' : 'Member'}
-                        </Badge>
-                      </div>
-                    </div>
-
-                    {campaign.individual_goal > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            <Target className="w-3 h-3" />
-                            Your progress
-                          </span>
-                          <span className="font-medium">
-                            {individualPercent}%
-                          </span>
-                        </div>
-                        <ProgressBar percent={individualPercent} />
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-semibold text-primary" data-testid="text-individual-raised">
-                            {formatCurrency(campaign.individual_raised, campaign.currency)}
-                          </span>
-                          <span className="text-muted-foreground" data-testid="text-individual-goal">
-                            of {formatCurrency(campaign.individual_goal, campaign.currency)} goal
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="flex items-center gap-1.5">
-                        <Heart className="w-4 h-4 text-muted-foreground" />
-                        <span data-testid="text-donation-count">
-                          {campaign.donation_count} donation{campaign.donation_count !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Users className="w-4 h-4 text-muted-foreground" />
-                        <span data-testid="text-amount-raised">
-                          {formatCurrency(campaign.individual_raised, campaign.currency)} raised
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="border-t pt-4 space-y-3">
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-medium text-muted-foreground">Your Donation Page</p>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            readOnly
-                            value={donateUrl}
-                            className="text-xs bg-muted/50"
-                            data-testid="input-donate-url"
-                          />
-                          <CopyLinkButton url={donateUrl} />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <a href={donateUrl} target="_blank" rel="noopener noreferrer">
-                          <Button variant="outline" size="sm" data-testid="button-view-donate-page">
-                            <ExternalLink className="w-4 h-4 mr-1" />
-                            View Page
-                          </Button>
-                        </a>
-                        {campaign.campaign_slug && (
-                          <Link to={`/fundraise/${campaign.campaign_slug}`}>
-                            <Button variant="outline" size="sm" data-testid="button-view-campaign">
-                              Campaign Page
-                            </Button>
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-
-                    <CampaignUpdates
-                      campaignId={campaign.campaign_id}
-                      teamMemberId={campaign.team_member_id}
-                    />
-                  </CardContent>
-                </Card>
-              );
-            })}
+            <div className="space-y-3" data-testid="campaign-list">
+              {campaigns.map((campaign) => (
+                <CampaignTile
+                  key={campaign.campaign_id}
+                  campaign={campaign}
+                  onClick={() => setSelectedCampaignId(campaign.campaign_id)}
+                />
+              ))}
+            </div>
           </div>
         )}
 

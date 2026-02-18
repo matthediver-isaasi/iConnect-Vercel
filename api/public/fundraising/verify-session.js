@@ -92,6 +92,54 @@ async function fetchDashboardData(supabase, tenantId, email) {
     }
   });
 
+  const { data: memberDonationsDetail } = await supabase
+    .from('fundraising_donation')
+    .select('id, team_member_id, campaign_id, donor_name, donor_email, donor_message, amount, currency, is_anonymous, gift_aid, created_at')
+    .eq('tenant_id', tenantId)
+    .in('team_member_id', memberIds)
+    .eq('payment_status', 'succeeded')
+    .order('created_at', { ascending: false });
+
+  const donorsByMember = {};
+  (memberDonationsDetail || []).forEach(d => {
+    if (!donorsByMember[d.team_member_id]) {
+      donorsByMember[d.team_member_id] = [];
+    }
+    donorsByMember[d.team_member_id].push({
+      id: d.id,
+      donor_name: d.is_anonymous ? 'Anonymous' : d.donor_name,
+      donor_email: d.donor_email,
+      donor_message: d.donor_message,
+      amount: parseFloat(d.amount),
+      currency: d.currency,
+      is_anonymous: d.is_anonymous,
+      gift_aid: d.gift_aid,
+      created_at: d.created_at
+    });
+  });
+
+  const allDonationIds = (memberDonationsDetail || []).map(d => d.id);
+  let existingResponsesMap = {};
+  if (allDonationIds.length > 0) {
+    const { data: existingResponses } = await supabase
+      .from('fundraising_donor_response')
+      .select('donation_id, response_type, message, created_at')
+      .in('donation_id', allDonationIds);
+
+    (existingResponses || []).forEach(r => {
+      if (!existingResponsesMap[r.donation_id]) {
+        existingResponsesMap[r.donation_id] = [];
+      }
+      existingResponsesMap[r.donation_id].push(r);
+    });
+  }
+
+  Object.values(donorsByMember).forEach(donors => {
+    donors.forEach(d => {
+      d.responses = existingResponsesMap[d.id] || [];
+    });
+  });
+
   const campaignsData = members.map(member => {
     const campaign = campaignMap[member.campaign_id];
     if (!campaign) return null;
@@ -115,7 +163,8 @@ async function fetchDashboardData(supabase, tenantId, email) {
       individual_raised: stats.raised,
       donation_count: stats.count,
       organization_name: org?.name || null,
-      role: isLead ? 'lead' : 'member'
+      role: isLead ? 'lead' : 'member',
+      donors: donorsByMember[member.id] || []
     };
   }).filter(Boolean);
 

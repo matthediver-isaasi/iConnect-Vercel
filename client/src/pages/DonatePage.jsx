@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Heart, Loader2, CheckCircle2, Users, Target, Gift,
-  Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare
+  Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare,
+  Sparkles, Send
 } from "lucide-react";
 
 function formatCurrency(amount, currency) {
@@ -74,6 +75,12 @@ export default function DonatePage() {
   const [paymentError, setPaymentError] = useState(null);
   const [updates, setUpdates] = useState([]);
   const [fullSizeImage, setFullSizeImage] = useState(null);
+  const [showWellwisherForm, setShowWellwisherForm] = useState(false);
+  const [wellwisherName, setWellwisherName] = useState('');
+  const [wellwisherMessage, setWellwisherMessage] = useState('');
+  const [sendingWellwish, setSendingWellwish] = useState(false);
+  const [wellwishSent, setWellwishSent] = useState(false);
+  const [wellwishError, setWellwishError] = useState(null);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -699,7 +706,7 @@ export default function DonatePage() {
               </div>
               <div className="space-y-3">
                 {(showAllDonations ? recent_donations : recent_donations.slice(0, 5)).map((d, i) => (
-                  <div key={i} className="flex items-start gap-3">
+                  <div key={d.id || i} className="flex items-start gap-3" data-testid={`donation-card-${d.id || i}`}>
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0 mt-0.5">
                       {d.is_anonymous ? '?' : d.donor_name?.[0]?.toUpperCase()}
                     </div>
@@ -716,6 +723,12 @@ export default function DonatePage() {
                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 italic">
                           "{d.donor_message}"
                         </p>
+                      )}
+                      {d.thank_you && (
+                        <div className="mt-1.5 bg-muted/50 rounded-md px-2.5 py-1.5 text-xs" data-testid={`thank-you-${d.id}`}>
+                          <span className="font-medium">{team_member.first_name}:</span>{' '}
+                          <span className="text-muted-foreground">{d.thank_you.message}</span>
+                        </div>
                       )}
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -748,6 +761,139 @@ export default function DonatePage() {
             </CardContent>
           </Card>
         )}
+
+        {pageData?.wellwishers?.length > 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="font-semibold flex items-center gap-2 mb-4">
+                <Sparkles className="w-4 h-4 text-primary" />
+                Words of Support
+              </h3>
+              <div className="space-y-3">
+                {pageData.wellwishers.map((w) => (
+                  <div key={w.id} className="flex items-start gap-3" data-testid={`wellwisher-${w.id}`}>
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0 mt-0.5">
+                      {w.name?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{w.name}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 italic">"{w.message}"</p>
+                      <span className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                        <Clock className="w-3 h-3" />
+                        {formatTimeAgo(w.created_at)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardContent className="pt-6">
+            {wellwishSent ? (
+              <div className="text-center py-4 space-y-2" data-testid="wellwish-success">
+                <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto" />
+                <p className="text-sm font-medium">Your message of support has been sent!</p>
+              </div>
+            ) : showWellwisherForm ? (
+              <div className="space-y-3" data-testid="wellwisher-form">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  Send a Message of Support
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Leave an encouraging message without making a donation.
+                </p>
+                <div>
+                  <Label htmlFor="wellwisher-name" className="text-sm">Your Name</Label>
+                  <Input
+                    id="wellwisher-name"
+                    value={wellwisherName}
+                    onChange={(e) => setWellwisherName(e.target.value)}
+                    placeholder="Enter your name"
+                    data-testid="input-wellwisher-name"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="wellwisher-message" className="text-sm">Your Message</Label>
+                  <Textarea
+                    id="wellwisher-message"
+                    value={wellwisherMessage}
+                    onChange={(e) => setWellwisherMessage(e.target.value)}
+                    placeholder="Write a supportive message..."
+                    className="resize-none text-sm"
+                    rows={3}
+                    data-testid="input-wellwisher-message"
+                  />
+                </div>
+                {wellwishError && (
+                  <p className="text-xs text-destructive" data-testid="text-wellwish-error">{wellwishError}</p>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    disabled={!wellwisherName.trim() || !wellwisherMessage.trim() || sendingWellwish}
+                    onClick={async () => {
+                      setSendingWellwish(true);
+                      setWellwishError(null);
+                      try {
+                        const res = await fetch('/api/public/fundraising/wellwisher', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            token,
+                            name: wellwisherName.trim(),
+                            message: wellwisherMessage.trim()
+                          })
+                        });
+                        if (!res.ok) {
+                          const err = await res.json();
+                          throw new Error(err.error || 'Failed to send');
+                        }
+                        const result = await res.json();
+                        setPageData(prev => ({
+                          ...prev,
+                          wellwishers: [
+                            { id: result.id || Date.now(), name: wellwisherName.trim(), message: wellwisherMessage.trim(), created_at: new Date().toISOString() },
+                            ...(prev.wellwishers || [])
+                          ]
+                        }));
+                        setWellwishSent(true);
+                      } catch (err) {
+                        setWellwishError(err.message);
+                      } finally {
+                        setSendingWellwish(false);
+                      }
+                    }}
+                    data-testid="button-send-wellwish"
+                  >
+                    {sendingWellwish ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Send className="w-3 h-3 mr-1" />}
+                    Send Message
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setShowWellwisherForm(false); setWellwishError(null); }}
+                    data-testid="button-cancel-wellwish"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="flex items-center gap-2 w-full text-left text-sm text-muted-foreground hover-elevate rounded-md p-2"
+                onClick={() => setShowWellwisherForm(true)}
+                data-testid="button-show-wellwisher"
+              >
+                <Sparkles className="w-4 h-4" />
+                Want to show your support without donating? Leave a message!
+              </button>
+            )}
+          </CardContent>
+        </Card>
 
         {updates.length > 0 && (
           <Card>

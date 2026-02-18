@@ -102,6 +102,30 @@ CREATE TABLE IF NOT EXISTS fundraising_update (
 );
 CREATE INDEX IF NOT EXISTS idx_fundraising_update_member ON fundraising_update(team_member_id);
 CREATE INDEX IF NOT EXISTS idx_fundraising_update_campaign ON fundraising_update(campaign_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS fundraising_donor_response (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  donation_id UUID NOT NULL REFERENCES fundraising_donation(id) ON DELETE CASCADE,
+  team_member_id UUID NOT NULL REFERENCES fundraising_team_member(id) ON DELETE CASCADE,
+  response_type TEXT NOT NULL CHECK (response_type IN ('public', 'private')),
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fundraising_donor_response_donation ON fundraising_donor_response(donation_id);
+CREATE INDEX IF NOT EXISTS idx_fundraising_donor_response_member ON fundraising_donor_response(team_member_id);
+
+CREATE TABLE IF NOT EXISTS fundraising_wellwisher (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  campaign_id UUID NOT NULL REFERENCES fundraising_campaign(id) ON DELETE CASCADE,
+  team_member_id UUID NOT NULL REFERENCES fundraising_team_member(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  message TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fundraising_wellwisher_member ON fundraising_wellwisher(team_member_id);
+CREATE INDEX IF NOT EXISTS idx_fundraising_wellwisher_campaign ON fundraising_wellwisher(campaign_id);
 `;
 
 export default async function handler(req, res) {

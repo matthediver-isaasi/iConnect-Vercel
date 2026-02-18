@@ -71,20 +71,50 @@ export default async function handler(req, res) {
 
     const { data: recentDonations } = await supabase
       .from('fundraising_donation')
-      .select('donor_name, donor_message, amount, is_anonymous, created_at, gift_aid')
+      .select('id, donor_name, donor_message, amount, is_anonymous, created_at, gift_aid')
       .eq('team_member_id', teamMember.id)
       .eq('payment_status', 'succeeded')
       .order('created_at', { ascending: false })
       .limit(20);
 
-    const sanitizedDonations = (recentDonations || []).map(d => ({
-      donor_name: d.is_anonymous ? 'Anonymous' : d.donor_name,
-      donor_message: d.donor_message,
-      amount: parseFloat(d.amount),
-      is_anonymous: d.is_anonymous,
-      gift_aid: d.gift_aid,
-      created_at: d.created_at
-    }));
+    const donationIds = (recentDonations || []).map(d => d.id);
+    let responsesMap = {};
+    if (donationIds.length > 0) {
+      const { data: responses } = await supabase
+        .from('fundraising_donor_response')
+        .select('donation_id, response_type, message, created_at')
+        .in('donation_id', donationIds)
+        .eq('response_type', 'public')
+        .order('created_at', { ascending: false });
+
+      (responses || []).forEach(r => {
+        if (!responsesMap[r.donation_id]) {
+          responsesMap[r.donation_id] = r;
+        }
+      });
+    }
+
+    const sanitizedDonations = (recentDonations || []).map(d => {
+      const publicResponse = responsesMap[d.id];
+      return {
+        id: d.id,
+        donor_name: d.is_anonymous ? 'Anonymous' : d.donor_name,
+        donor_message: d.donor_message,
+        amount: parseFloat(d.amount),
+        is_anonymous: d.is_anonymous,
+        gift_aid: d.gift_aid,
+        created_at: d.created_at,
+        thank_you: publicResponse ? { message: publicResponse.message, created_at: publicResponse.created_at } : null
+      };
+    });
+
+    const { data: wellwishers } = await supabase
+      .from('fundraising_wellwisher')
+      .select('id, name, message, created_at')
+      .eq('team_member_id', teamMember.id)
+      .eq('tenant_id', teamMember.tenant_id)
+      .order('created_at', { ascending: false })
+      .limit(50);
 
     let tenantBranding = null;
     try {
@@ -146,6 +176,7 @@ export default async function handler(req, res) {
           : 0
       },
       recent_donations: sanitizedDonations,
+      wellwishers: wellwishers || [],
       other_team_members: otherMembers,
       tenant: tenantBranding
     });
