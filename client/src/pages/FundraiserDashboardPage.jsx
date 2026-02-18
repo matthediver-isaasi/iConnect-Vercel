@@ -9,8 +9,12 @@ import {
   Heart, Loader2, Users, Target, Copy, Check,
   ExternalLink, AlertCircle, ImagePlus, MessageSquare,
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
-  TrendingUp, Send, Mail, Globe, Sparkles
+  TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
+  Trophy, Medal, Star, Flame, Zap, Award, Minus
 } from "lucide-react";
+import {
+  Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
+} from "@/components/ui/tooltip";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 
 function getSessionKey() {
@@ -76,6 +80,185 @@ function formatTimeAgo(dateStr) {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+const ACHIEVEMENT_ICONS = {
+  heart: Heart,
+  users: Users,
+  star: Star,
+  target: Target,
+  trophy: Trophy,
+  flame: Flame,
+  zap: Zap,
+};
+
+function RankBadge({ rank }) {
+  if (rank === 1) return <Trophy className="w-5 h-5 text-yellow-500" />;
+  if (rank === 2) return <Medal className="w-5 h-5 text-gray-400" />;
+  if (rank === 3) return <Medal className="w-5 h-5 text-amber-600" />;
+  return <span className="text-lg font-bold">#{rank}</span>;
+}
+
+function GamificationSection({ campaignId, teamMemberId, currency }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+
+  useEffect(() => {
+    const tenantSlug = getTenantSlugFromLocation();
+    const sessionToken = localStorage.getItem(getSessionKey());
+    if (!sessionToken || !campaignId || !teamMemberId) return;
+
+    let url = `/api/public/fundraising/gamification?campaign_id=${campaignId}&team_member_id=${teamMemberId}&session_token=${encodeURIComponent(sessionToken)}`;
+    if (tenantSlug) url += `&tenant=${tenantSlug}`;
+
+    fetch(url)
+      .then(res => res.ok ? res.json() : null)
+      .then(d => { if (d) setData(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [campaignId, teamMemberId]);
+
+  if (loading) return null;
+  if (!data || data.rank === null || data.total <= 1) return null;
+
+  const earnedCount = data.achievements.filter(a => a.earned).length;
+  const TrendIcon = data.trend?.direction === 'up' ? TrendingUp : data.trend?.direction === 'down' ? TrendingDown : Minus;
+  const trendColor = data.trend?.direction === 'up' ? 'text-green-600 dark:text-green-400' : data.trend?.direction === 'down' ? 'text-red-500 dark:text-red-400' : 'text-muted-foreground';
+
+  return (
+    <div className="space-y-3" data-testid="section-gamification">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Card data-testid="card-rank">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                <RankBadge rank={data.rank} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground">Campaign Rank</p>
+                  {data.rank <= 3 && (
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-top-rank">
+                      {data.rank === 1 ? '1st Place' : data.rank === 2 ? '2nd Place' : '3rd Place'}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-lg font-semibold" data-testid="text-rank">
+                  #{data.rank} <span className="text-sm font-normal text-muted-foreground">of {data.total}</span>
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="card-percentile">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-md flex items-center justify-center shrink-0 ${data.percentile >= 90 ? 'bg-green-500/10' : 'bg-primary/10'}`}>
+                <TrendIcon className={`w-5 h-5 ${trendColor}`} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-xs text-muted-foreground">Percentile</p>
+                  {data.trend?.direction === 'up' && (
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-trending">
+                      Trending Up
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-lg font-semibold" data-testid="text-percentile">
+                  Top {Math.max(1, 100 - (data.percentile || 0))}%
+                </p>
+                {data.trend?.recentDonations > 0 && (
+                  <p className="text-xs text-muted-foreground" data-testid="text-recent-activity">
+                    {data.trend.recentDonations} donation{data.trend.recentDonations !== 1 ? 's' : ''} in last 24h
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <TooltipProvider delayDuration={200}>
+        <div className="flex items-center gap-1.5 flex-wrap px-1" data-testid="section-achievements">
+          <span className="text-xs text-muted-foreground mr-1">
+            <Award className="w-3.5 h-3.5 inline mr-0.5" />
+            {earnedCount}/{data.achievements.length}
+          </span>
+          {data.achievements.map(a => {
+            const IconComp = ACHIEVEMENT_ICONS[a.icon] || Star;
+            return (
+              <Tooltip key={a.id}>
+                <TooltipTrigger asChild>
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                      a.earned
+                        ? 'bg-primary/15 text-primary'
+                        : 'bg-muted/50 text-muted-foreground/30'
+                    }`}
+                    data-testid={`achievement-${a.id}`}
+                  >
+                    <IconComp className="w-4 h-4" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-center max-w-[180px]">
+                  <p className="font-medium text-xs">{a.label}</p>
+                  <p className="text-xs text-muted-foreground">{a.description}</p>
+                  {!a.earned && <p className="text-xs italic mt-0.5">Not yet earned</p>}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+      </TooltipProvider>
+
+      {data.nearby.length > 1 && (
+        <div>
+          <button
+            className="flex items-center justify-between w-full text-left px-1"
+            onClick={() => setLeaderboardOpen(!leaderboardOpen)}
+            data-testid="button-toggle-leaderboard"
+          >
+            <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" />
+              Nearby Fundraisers
+            </span>
+            {leaderboardOpen ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+          </button>
+
+          {leaderboardOpen && (
+            <div className="mt-2 space-y-1" data-testid="section-mini-leaderboard">
+              {data.nearby.map((entry) => (
+                <div
+                  key={entry.rank}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm ${
+                    entry.isYou ? 'bg-primary/5 border border-primary/20' : ''
+                  }`}
+                  data-testid={`leaderboard-row-${entry.rank}`}
+                >
+                  <div className="w-7 shrink-0 text-center">
+                    {entry.rank <= 3 ? (
+                      <RankBadge rank={entry.rank} />
+                    ) : (
+                      <span className="text-sm font-medium text-muted-foreground">#{entry.rank}</span>
+                    )}
+                  </div>
+                  <span className={`flex-1 truncate ${entry.isYou ? 'font-semibold' : ''}`}>
+                    {entry.name} {entry.isYou ? '(You)' : ''}
+                  </span>
+                  <span className="text-sm font-medium shrink-0">
+                    {formatCurrency(entry.raised, currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CampaignUpdates({ campaignId, teamMemberId }) {
@@ -863,6 +1046,12 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
               </span>
             </div>
           </div>
+
+          <GamificationSection
+            campaignId={campaign.campaign_id}
+            teamMemberId={campaign.team_member_id}
+            currency={campaign.currency}
+          />
 
           <div className="border-t pt-4 space-y-3">
             <div className="space-y-1.5">
