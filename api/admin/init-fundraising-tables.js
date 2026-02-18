@@ -90,6 +90,18 @@ CREATE TABLE IF NOT EXISTS fundraising_login_token (
 );
 CREATE INDEX IF NOT EXISTS idx_fundraising_login_token_token ON fundraising_login_token(token);
 CREATE INDEX IF NOT EXISTS idx_fundraising_login_token_email ON fundraising_login_token(tenant_id, email);
+
+CREATE TABLE IF NOT EXISTS fundraising_update (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  campaign_id UUID NOT NULL REFERENCES fundraising_campaign(id) ON DELETE CASCADE,
+  team_member_id UUID NOT NULL REFERENCES fundraising_team_member(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  image_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fundraising_update_member ON fundraising_update(team_member_id);
+CREATE INDEX IF NOT EXISTS idx_fundraising_update_campaign ON fundraising_update(campaign_id, created_at DESC);
 `;
 
 export default async function handler(req, res) {

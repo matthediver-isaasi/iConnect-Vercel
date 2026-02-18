@@ -109,6 +109,7 @@ async function fetchDashboardData(supabase, tenantId, email) {
       currency: campaign.currency,
       campaign_goal: parseFloat(campaign.goal_amount || 0),
       campaign_raised: campaignRaised[campaign.id] || 0,
+      team_member_id: member.id,
       participant_token: member.token,
       individual_goal: parseFloat(member.individual_goal || 0),
       individual_raised: stats.raised,

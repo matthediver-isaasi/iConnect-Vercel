@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Heart, Loader2, CheckCircle2, Users, Target, Gift,
-  Clock, ChevronDown, ChevronUp, ArrowRight
+  Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare
 } from "lucide-react";
 
 function formatCurrency(amount, currency) {
@@ -72,6 +72,8 @@ export default function DonatePage() {
   const [donationComplete, setDonationComplete] = useState(false);
   const [showAllDonations, setShowAllDonations] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
+  const [updates, setUpdates] = useState([]);
+  const [fullSizeImage, setFullSizeImage] = useState(null);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -92,6 +94,14 @@ export default function DonatePage() {
         setError(err.message);
         setLoading(false);
       });
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`/api/public/fundraising/updates?token=${encodeURIComponent(token)}`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setUpdates(data || []))
+      .catch(() => {});
   }, [token]);
 
   const notifyParentResize = () => {
@@ -737,6 +747,63 @@ export default function DonatePage() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {updates.length > 0 && (
+          <Card>
+            <CardContent className="pt-6">
+              <h3 className="font-semibold flex items-center gap-2 mb-4" data-testid="text-updates-heading">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                Updates
+              </h3>
+              <div className="space-y-4">
+                {updates.map((u) => (
+                  <div key={u.id} className="space-y-2" data-testid={`update-${u.id}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
+                        {u.author_initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate" data-testid={`text-update-author-${u.id}`}>
+                          {u.author_name}
+                        </p>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatTimeAgo(u.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
+                    {u.image_url && (
+                      <img
+                        src={u.image_url}
+                        alt=""
+                        className="rounded-md max-h-64 object-cover cursor-pointer"
+                        onClick={() => setFullSizeImage(u.image_url)}
+                        data-testid={`img-update-${u.id}`}
+                      />
+                    )}
+                    {u !== updates[updates.length - 1] && <div className="border-t" />}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {fullSizeImage && (
+          <div
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setFullSizeImage(null)}
+            data-testid="modal-full-image"
+          >
+            <img
+              src={fullSizeImage}
+              alt=""
+              className="max-w-full max-h-full object-contain rounded-md"
+              data-testid="img-full-size"
+            />
+          </div>
         )}
 
         {other_team_members && other_team_members.length > 0 && (
