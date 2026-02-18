@@ -319,7 +319,12 @@ function CampaignFormModal({ campaign, onClose }) {
     start_date: campaign?.start_date ? campaign.start_date.substring(0, 10) : '',
     end_date: campaign?.end_date ? campaign.end_date.substring(0, 10) : '',
     status: campaign?.status || 'draft',
-    allow_anonymous_donations: campaign?.allow_anonymous_donations !== false
+    allow_anonymous_donations: campaign?.allow_anonymous_donations !== false,
+    campaign_type: campaign?.campaign_type || 'individual',
+    max_team_size: campaign?.max_team_size?.toString() || '5',
+    registration_open: campaign?.registration_open || false,
+    registration_message: campaign?.registration_message || '',
+    public_description: campaign?.public_description || ''
   });
 
   const saveMutation = useMutation({
@@ -353,7 +358,10 @@ function CampaignFormModal({ campaign, onClose }) {
       ...form,
       goal_amount: parseFloat(form.goal_amount),
       start_date: form.start_date || null,
-      end_date: form.end_date || null
+      end_date: form.end_date || null,
+      max_team_size: form.campaign_type === 'team' ? parseInt(form.max_team_size) || 5 : null,
+      registration_message: form.registration_message || null,
+      public_description: form.public_description || null
     });
   };
 
@@ -477,6 +485,81 @@ function CampaignFormModal({ campaign, onClose }) {
             />
           </div>
 
+          <Separator />
+
+          <div className="space-y-4">
+            <p className="text-sm font-semibold">Public Registration</p>
+
+            <div className="space-y-2">
+              <Label>Campaign Type</Label>
+              <Select
+                value={form.campaign_type}
+                onValueChange={(v) => setForm(f => ({ ...f, campaign_type: v }))}
+              >
+                <SelectTrigger data-testid="select-campaign-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="individual">Individual</SelectItem>
+                  <SelectItem value="team">Team</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {form.campaign_type === 'team'
+                  ? 'Participants register as a team with multiple members'
+                  : 'Participants register individually'}
+              </p>
+            </div>
+
+            {form.campaign_type === 'team' && (
+              <div className="space-y-2">
+                <Label>Max Team Size</Label>
+                <Input
+                  type="number"
+                  min="2"
+                  max="50"
+                  value={form.max_team_size}
+                  onChange={(e) => setForm(f => ({ ...f, max_team_size: e.target.value }))}
+                  data-testid="input-max-team-size"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Registration Open</Label>
+                <p className="text-xs text-muted-foreground">Allow the public to register for this campaign</p>
+              </div>
+              <Switch
+                checked={form.registration_open}
+                onCheckedChange={(v) => setForm(f => ({ ...f, registration_open: v }))}
+                data-testid="switch-registration-open"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Public Description</Label>
+              <Textarea
+                value={form.public_description}
+                onChange={(e) => setForm(f => ({ ...f, public_description: e.target.value }))}
+                placeholder="Describe the campaign for potential participants on the public registration page..."
+                rows={3}
+                data-testid="input-public-description"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Registration Message</Label>
+              <Textarea
+                value={form.registration_message}
+                onChange={(e) => setForm(f => ({ ...f, registration_message: e.target.value }))}
+                placeholder="Shown after someone registers successfully (e.g. 'Thank you for signing up! We'll be in touch soon.')"
+                rows={2}
+                data-testid="input-registration-message"
+              />
+            </div>
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={saveMutation.isPending} data-testid="button-save-campaign">
@@ -494,6 +577,7 @@ function CampaignDetail({ campaignId, onBack }) {
   const queryClient = useQueryClient();
   const [showAddMember, setShowAddMember] = useState(false);
   const [copiedToken, setCopiedToken] = useState(null);
+  const [copiedRegLink, setCopiedRegLink] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -572,7 +656,23 @@ function CampaignDetail({ campaignId, onBack }) {
             <p className="text-muted-foreground text-sm mt-1 line-clamp-2">{campaign.description}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {campaign.registration_open && campaign.slug && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                const regUrl = `${window.location.origin}/fundraise/${campaign.slug}`;
+                navigator.clipboard.writeText(regUrl);
+                setCopiedRegLink(true);
+                setTimeout(() => setCopiedRegLink(false), 2000);
+                toast.success('Registration page link copied');
+              }}
+              data-testid="button-copy-registration-link"
+            >
+              {copiedRegLink ? <Check className="w-4 h-4 mr-2" /> : <LinkIcon className="w-4 h-4 mr-2" />}
+              {copiedRegLink ? 'Copied' : 'Registration Link'}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setShowEditModal(true)}

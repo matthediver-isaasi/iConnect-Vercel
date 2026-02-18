@@ -190,7 +190,7 @@ async function handleGet(req, res, tenantId) {
 }
 
 async function handlePost(req, res, tenantId) {
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'Campaign name is required' });
@@ -224,7 +224,12 @@ async function handlePost(req, res, tenantId) {
       start_date: start_date || null,
       end_date: end_date || null,
       status: status || 'draft',
-      allow_anonymous_donations: allow_anonymous_donations !== false
+      allow_anonymous_donations: allow_anonymous_donations !== false,
+      campaign_type: campaign_type || 'individual',
+      max_team_size: campaign_type === 'team' ? (parseInt(max_team_size) || 5) : null,
+      registration_open: registration_open || false,
+      registration_message: registration_message || null,
+      public_description: public_description || null
     })
     .select()
     .single();
@@ -243,7 +248,7 @@ async function handlePut(req, res, tenantId) {
     return res.status(400).json({ error: 'Campaign ID is required' });
   }
 
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description } = req.body;
 
   const updates = {};
   if (name !== undefined) updates.name = name;
@@ -255,6 +260,11 @@ async function handlePut(req, res, tenantId) {
   if (end_date !== undefined) updates.end_date = end_date;
   if (status !== undefined) updates.status = status;
   if (allow_anonymous_donations !== undefined) updates.allow_anonymous_donations = allow_anonymous_donations;
+  if (campaign_type !== undefined) updates.campaign_type = campaign_type;
+  if (max_team_size !== undefined) updates.max_team_size = campaign_type === 'team' ? (parseInt(max_team_size) || 5) : null;
+  if (registration_open !== undefined) updates.registration_open = registration_open;
+  if (registration_message !== undefined) updates.registration_message = registration_message;
+  if (public_description !== undefined) updates.public_description = public_description;
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
