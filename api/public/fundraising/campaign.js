@@ -28,7 +28,7 @@ export default async function handler(req, res) {
 
     const { data: campaign, error } = await supabase
       .from('fundraising_campaign')
-      .select('id, name, slug, description, public_description, cover_image_url, goal_amount, currency, start_date, end_date, status, campaign_type, max_team_size, registration_open, registration_message, allow_anonymous_donations')
+      .select('id, name, slug, description, public_description, cover_image_url, goal_amount, currency, start_date, end_date, status, campaign_type, max_team_size, registration_open, registration_message, allow_anonymous_donations, allow_org_signup')
       .eq('tenant_id', tenant.id)
       .eq('slug', slug)
       .single();

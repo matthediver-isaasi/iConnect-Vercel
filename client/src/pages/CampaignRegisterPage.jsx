@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Heart, Loader2, CheckCircle2, Users, Target, Calendar,
-  Plus, Trash2, User, UserPlus, ArrowRight, ArrowLeft
+  Plus, Trash2, User, UserPlus, ArrowRight, ArrowLeft, Building2
 } from "lucide-react";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 
@@ -59,6 +59,12 @@ export default function CampaignRegisterPage() {
   const [email, setEmail] = useState('');
   const [individualGoal, setIndividualGoal] = useState('');
   const [teamMembers, setTeamMembers] = useState([{ first_name: '', last_name: '', email: '' }]);
+
+  const [orgName, setOrgName] = useState('');
+  const [orgAddress, setOrgAddress] = useState('');
+  const [orgCity, setOrgCity] = useState('');
+  const [orgPostcode, setOrgPostcode] = useState('');
+  const [orgCountry, setOrgCountry] = useState('');
 
   useEffect(() => {
     if (!slug) return;
@@ -136,6 +142,16 @@ export default function CampaignRegisterPage() {
         email: email.trim(),
         individual_goal: individualGoal ? parseFloat(individualGoal) : null,
       };
+
+      if (campaign.allow_org_signup && orgName.trim()) {
+        body.organisation = {
+          name: orgName.trim(),
+          address: orgAddress.trim() || null,
+          city: orgCity.trim() || null,
+          postcode: orgPostcode.trim() || null,
+          country: orgCountry.trim() || null
+        };
+      }
 
       if (isTeamCampaign) {
         body.team_members = teamMembers
@@ -371,6 +387,62 @@ export default function CampaignRegisterPage() {
                     </div>
                   </div>
                 </div>
+
+                {campaign.allow_org_signup && (
+                  <div className="space-y-4 border-t pt-5">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <Building2 className="w-4 h-4" />
+                      Organisation Details
+                    </p>
+                    <div className="space-y-1.5">
+                      <Label>Organisation Name</Label>
+                      <Input
+                        value={orgName}
+                        onChange={(e) => setOrgName(e.target.value)}
+                        placeholder="Organisation name"
+                        data-testid="input-org-name"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Address</Label>
+                      <Input
+                        value={orgAddress}
+                        onChange={(e) => setOrgAddress(e.target.value)}
+                        placeholder="Street address"
+                        data-testid="input-org-address"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label>City</Label>
+                        <Input
+                          value={orgCity}
+                          onChange={(e) => setOrgCity(e.target.value)}
+                          placeholder="City"
+                          data-testid="input-org-city"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Postcode</Label>
+                        <Input
+                          value={orgPostcode}
+                          onChange={(e) => setOrgPostcode(e.target.value)}
+                          placeholder="Postcode"
+                          data-testid="input-org-postcode"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Country</Label>
+                      <Input
+                        value={orgCountry}
+                        onChange={(e) => setOrgCountry(e.target.value)}
+                        placeholder="Country"
+                        data-testid="input-org-country"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {isTeamCampaign && (
                   <div className="space-y-4 border-t pt-5">

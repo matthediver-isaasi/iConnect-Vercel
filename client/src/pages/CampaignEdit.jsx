@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Loader2, Save, UserPlus } from "lucide-react";
+import { ArrowLeft, Loader2, Save, UserPlus, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -41,7 +41,9 @@ export default function CampaignEdit() {
     registration_message: '',
     public_description: '',
     auto_create_members: false,
-    member_role_id: ''
+    member_role_id: '',
+    allow_org_signup: false,
+    auto_create_organisations: false
   });
 
   const [formLoaded, setFormLoaded] = useState(false);
@@ -70,7 +72,9 @@ export default function CampaignEdit() {
         registration_message: campaignData.registration_message || '',
         public_description: campaignData.public_description || '',
         auto_create_members: campaignData.auto_create_members || false,
-        member_role_id: campaignData.member_role_id || ''
+        member_role_id: campaignData.member_role_id || '',
+        allow_org_signup: campaignData.allow_org_signup || false,
+        auto_create_organisations: campaignData.auto_create_organisations || false
       });
       setFormLoaded(true);
     }
@@ -350,23 +354,55 @@ export default function CampaignEdit() {
                 data-testid="input-registration-message"
               />
             </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Allow organisational sign-up</Label>
+                <p className="text-xs text-muted-foreground">
+                  Ask registrants to provide their organisation details during sign-up
+                </p>
+              </div>
+              <Switch
+                checked={form.allow_org_signup}
+                onCheckedChange={(v) => setForm(f => ({ ...f, allow_org_signup: v }))}
+                data-testid="switch-allow-org-signup"
+              />
+            </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <UserPlus className="w-5 h-5" />
-              Member Creation
+              <Building2 className="w-5 h-5" />
+              Record Creation
             </CardTitle>
-            <CardDescription>Automatically create member records when people register</CardDescription>
+            <CardDescription>Automatically create organisation and member records from registrations</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
+                <Label>Auto-create organisations</Label>
+                <p className="text-xs text-muted-foreground">
+                  Automatically create organisation records from the organisational data provided during registration
+                </p>
+              </div>
+              <Switch
+                checked={form.auto_create_organisations}
+                onCheckedChange={(v) => setForm(f => ({ ...f, auto_create_organisations: v }))}
+                data-testid="switch-auto-create-organisations"
+              />
+            </div>
+
+            <Separator />
+
+            <div className="flex items-center justify-between">
+              <div>
                 <Label>Auto-create member records</Label>
                 <p className="text-xs text-muted-foreground">
-                  Automatically create member records when individuals or team members register for this campaign
+                  {form.auto_create_organisations
+                    ? 'Create member records and link them to the auto-created organisation'
+                    : 'Create member records from registrant details (without organisation linkage)'}
                 </p>
               </div>
               <Switch
@@ -395,6 +431,20 @@ export default function CampaignEdit() {
                 <p className="text-xs text-muted-foreground">
                   The role to assign to automatically created member records
                 </p>
+              </div>
+            )}
+
+            {(form.auto_create_organisations || form.auto_create_members) && (
+              <div className="p-3 rounded-md bg-muted/50 text-xs text-muted-foreground space-y-1">
+                {form.auto_create_organisations && form.auto_create_members && (
+                  <p>Organisations and members will be created automatically. Members will be linked to their organisation.</p>
+                )}
+                {form.auto_create_organisations && !form.auto_create_members && (
+                  <p>Organisations will be created automatically. No member records will be created.</p>
+                )}
+                {!form.auto_create_organisations && form.auto_create_members && (
+                  <p>Member records will be created without organisation linkage.</p>
+                )}
               </div>
             )}
           </CardContent>

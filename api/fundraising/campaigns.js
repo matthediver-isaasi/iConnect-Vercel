@@ -190,7 +190,7 @@ async function handleGet(req, res, tenantId) {
 }
 
 async function handlePost(req, res, tenantId) {
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id, allow_org_signup, auto_create_organisations } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'Campaign name is required' });
@@ -231,7 +231,9 @@ async function handlePost(req, res, tenantId) {
       registration_message: registration_message || null,
       public_description: public_description || null,
       auto_create_members: auto_create_members || false,
-      member_role_id: auto_create_members ? (member_role_id || null) : null
+      member_role_id: auto_create_members ? (member_role_id || null) : null,
+      allow_org_signup: allow_org_signup || false,
+      auto_create_organisations: auto_create_organisations || false
     })
     .select()
     .single();
@@ -250,7 +252,7 @@ async function handlePut(req, res, tenantId) {
     return res.status(400).json({ error: 'Campaign ID is required' });
   }
 
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id, allow_org_signup, auto_create_organisations } = req.body;
 
   const updates = {};
   if (name !== undefined) updates.name = name;
@@ -269,6 +271,8 @@ async function handlePut(req, res, tenantId) {
   if (public_description !== undefined) updates.public_description = public_description;
   if (auto_create_members !== undefined) updates.auto_create_members = auto_create_members;
   if (member_role_id !== undefined) updates.member_role_id = auto_create_members ? (member_role_id || null) : null;
+  if (allow_org_signup !== undefined) updates.allow_org_signup = allow_org_signup;
+  if (auto_create_organisations !== undefined) updates.auto_create_organisations = auto_create_organisations;
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase

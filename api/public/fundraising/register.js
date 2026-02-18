@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { campaign_slug, first_name, last_name, email, individual_goal, team_members } = req.body;
+    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, organisation } = req.body;
 
     if (!campaign_slug) {
       return res.status(400).json({ error: 'Campaign slug is required' });
@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
     const { data: campaign, error: campError } = await supabase
       .from('fundraising_campaign')
-      .select('id, name, slug, status, campaign_type, max_team_size, registration_open, registration_message, currency')
+      .select('id, name, slug, status, campaign_type, max_team_size, registration_open, registration_message, currency, auto_create_organisations, auto_create_members, member_role_id, allow_org_signup')
       .eq('tenant_id', tenant.id)
       .eq('slug', campaign_slug)
       .single();
@@ -176,6 +176,102 @@ export default async function handler(req, res) {
           token: teamMember.token,
           role: 'member'
         });
+      }
+    }
+
+    let createdOrgId = null;
+
+    if (campaign.auto_create_organisations && campaign.allow_org_signup && organisation?.name) {
+      try {
+        const { data: existingOrg } = await supabase
+          .from('organisation')
+          .select('id')
+          .eq('tenant_id', tenant.id)
+          .ilike('name', organisation.name)
+          .single();
+
+        if (existingOrg) {
+          createdOrgId = existingOrg.id;
+          console.log(`[Fundraising Register] Organisation already exists: ${organisation.name} (${existingOrg.id})`);
+        } else {
+          const { data: newOrg, error: orgError } = await supabase
+            .from('organisation')
+            .insert({
+              tenant_id: tenant.id,
+              name: organisation.name,
+              address_line_1: organisation.address || null,
+              city: organisation.city || null,
+              postcode: organisation.postcode || null,
+              country: organisation.country || null
+            })
+            .select('id')
+            .single();
+
+          if (orgError) {
+            console.error('[Fundraising Register] Error creating organisation:', orgError);
+          } else {
+            createdOrgId = newOrg.id;
+            console.log(`[Fundraising Register] Created organisation: ${organisation.name} (${newOrg.id})`);
+          }
+        }
+      } catch (orgErr) {
+        console.error('[Fundraising Register] Organisation creation error:', orgErr);
+      }
+    }
+
+    if (campaign.auto_create_members) {
+      try {
+        const allRegistrants = [
+          { first_name: first_name.trim(), last_name: last_name.trim(), email: email.trim() },
+          ...validTeamMembers.map(m => ({
+            first_name: m.first_name.trim(),
+            last_name: m.last_name.trim(),
+            email: m.email?.trim() || null
+          }))
+        ];
+
+        for (const registrant of allRegistrants) {
+          if (!registrant.email) continue;
+
+          const { data: existingMemberRecord } = await supabase
+            .from('member')
+            .select('id')
+            .eq('tenant_id', tenant.id)
+            .ilike('email', registrant.email)
+            .single();
+
+          if (existingMemberRecord) {
+            console.log(`[Fundraising Register] Member record already exists for: ${registrant.email}`);
+            continue;
+          }
+
+          const memberInsert = {
+            tenant_id: tenant.id,
+            first_name: registrant.first_name,
+            last_name: registrant.last_name,
+            email: registrant.email
+          };
+
+          if (campaign.member_role_id) {
+            memberInsert.role_id = campaign.member_role_id;
+          }
+
+          if (createdOrgId) {
+            memberInsert.organization_id = createdOrgId;
+          }
+
+          const { error: memberError } = await supabase
+            .from('member')
+            .insert(memberInsert);
+
+          if (memberError) {
+            console.error(`[Fundraising Register] Error creating member record for ${registrant.email}:`, memberError);
+          } else {
+            console.log(`[Fundraising Register] Created member record for: ${registrant.email}${createdOrgId ? ` (linked to org ${createdOrgId})` : ''}`);
+          }
+        }
+      } catch (memberErr) {
+        console.error('[Fundraising Register] Member creation error:', memberErr);
       }
     }
 
