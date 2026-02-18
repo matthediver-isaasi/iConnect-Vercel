@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     const searchTerm = q.trim();
 
     const { data: organisations, error } = await supabase
-      .from('organisation')
+      .from('organization')
       .select('id, name, city')
       .eq('tenant_id', tenant.id)
       .ilike('name', `%${searchTerm}%`)

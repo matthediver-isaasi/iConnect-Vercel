@@ -183,7 +183,7 @@ export default async function handler(req, res) {
 
     if (existing_organisation_id) {
       const { data: verifiedOrg } = await supabase
-        .from('organisation')
+        .from('organization')
         .select('id')
         .eq('id', existing_organisation_id)
         .eq('tenant_id', tenant.id)
@@ -198,7 +198,7 @@ export default async function handler(req, res) {
     } else if (campaign.auto_create_organisations && campaign.allow_org_signup && organisation?.name) {
       try {
         const { data: existingOrg } = await supabase
-          .from('organisation')
+          .from('organization')
           .select('id')
           .eq('tenant_id', tenant.id)
           .ilike('name', organisation.name)
@@ -209,7 +209,7 @@ export default async function handler(req, res) {
           console.log(`[Fundraising Register] Organisation already exists: ${organisation.name} (${existingOrg.id})`);
         } else {
           const { data: newOrg, error: orgError } = await supabase
-            .from('organisation')
+            .from('organization')
             .insert({
               tenant_id: tenant.id,
               name: organisation.name,
