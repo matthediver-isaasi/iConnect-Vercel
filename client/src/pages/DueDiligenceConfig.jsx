@@ -365,6 +365,22 @@ export default function DueDiligenceConfigPage() {
     }
   };
 
+  const toggleStageMemberAction = async (id, currentIsActive) => {
+    try {
+      const response = await fetch(`/api/stage-member-actions/${id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentIsActive })
+      });
+      if (!response.ok) throw new Error('Failed to toggle member action');
+      await refetchStageMemberActions();
+      toast.success(`Create Member action ${currentIsActive ? 'disabled' : 'enabled'}`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to toggle member action');
+    }
+  };
+
   const updateStageMemberAction = async (id, firstNameField, lastNameField, emailField, roleId, welcomeEmailTemplateId, fieldMappings, loginEnabled) => {
     try {
       const response = await fetch(`/api/stage-member-actions/${id}`, {
@@ -2058,7 +2074,8 @@ export default function DueDiligenceConfigPage() {
                                                               ref={dragProvided.innerRef}
                                                               {...dragProvided.draggableProps}
                                                               className={cn(
-                                                                "flex items-center justify-between gap-2 p-2 border rounded bg-muted/50",
+                                                                "flex items-center justify-between gap-2 p-2 border rounded",
+                                                                ma.is_active !== false ? "bg-muted/50" : "bg-muted/20 opacity-60",
                                                                 dragSnapshot.isDragging && "shadow-lg ring-2 ring-primary/20"
                                                               )}
                                                             >
@@ -2066,8 +2083,16 @@ export default function DueDiligenceConfigPage() {
                                                                 <div {...dragProvided.dragHandleProps} className="cursor-grab active:cursor-grabbing" data-testid={`drag-handle-member-action-${ma.id}`}>
                                                                   <GripVertical className="w-4 h-4 text-muted-foreground" />
                                                                 </div>
+                                                                <Switch
+                                                                  checked={ma.is_active !== false}
+                                                                  onCheckedChange={() => toggleStageMemberAction(ma.id, ma.is_active !== false)}
+                                                                  data-testid={`switch-toggle-member-action-${ma.id}`}
+                                                                />
                                                                 <UserPlus className="w-4 h-4 text-muted-foreground" />
                                                                 <span className="text-sm">Create Member</span>
+                                                                {ma.is_active === false && (
+                                                                  <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                                                                )}
                                                                 <Badge variant="outline" className="text-xs">Email: {getFieldLabel(ma.email_field)}</Badge>
                                                                 {ma.role?.name && (
                                                                   <Badge variant="outline" className="text-xs">Role: {ma.role.name}</Badge>
