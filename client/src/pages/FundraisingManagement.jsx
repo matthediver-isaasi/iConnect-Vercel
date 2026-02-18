@@ -1,14 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle
@@ -91,8 +88,7 @@ const STATUS_CONFIG = {
 
 export default function FundraisingManagement() {
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editingCampaign, setEditingCampaign] = useState(null);
+  const navigate = useNavigate();
 
   if (selectedCampaignId) {
     return (
@@ -111,7 +107,7 @@ export default function FundraisingManagement() {
           <p className="text-muted-foreground text-sm mt-1">Manage campaigns, team members, and track donations</p>
         </div>
         <Button
-          onClick={() => { setEditingCampaign(null); setShowCreateModal(true); }}
+          onClick={() => navigate('/CampaignEdit/new')}
           data-testid="button-create-campaign"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -121,20 +117,12 @@ export default function FundraisingManagement() {
 
       <CampaignList
         onSelect={setSelectedCampaignId}
-        onEdit={(c) => { setEditingCampaign(c); setShowCreateModal(true); }}
       />
-
-      {showCreateModal && (
-        <CampaignFormModal
-          campaign={editingCampaign}
-          onClose={() => { setShowCreateModal(false); setEditingCampaign(null); }}
-        />
-      )}
     </div>
   );
 }
 
-function CampaignList({ onSelect, onEdit }) {
+function CampaignList({ onSelect }) {
   const { data: campaigns, isLoading } = useQuery({
     queryKey: ['fundraising-campaigns'],
     queryFn: () => apiRequest('GET', '/api/fundraising/campaigns')
@@ -306,279 +294,12 @@ function CampaignList({ onSelect, onEdit }) {
   );
 }
 
-function CampaignFormModal({ campaign, onClose }) {
-  const queryClient = useQueryClient();
-  const isEditing = !!campaign;
-
-  const [form, setForm] = useState({
-    name: campaign?.name || '',
-    description: campaign?.description || '',
-    cover_image_url: campaign?.cover_image_url || '',
-    goal_amount: campaign?.goal_amount?.toString() || '',
-    currency: campaign?.currency || 'GBP',
-    start_date: campaign?.start_date ? campaign.start_date.substring(0, 10) : '',
-    end_date: campaign?.end_date ? campaign.end_date.substring(0, 10) : '',
-    status: campaign?.status || 'draft',
-    allow_anonymous_donations: campaign?.allow_anonymous_donations !== false,
-    campaign_type: campaign?.campaign_type || 'individual',
-    max_team_size: campaign?.max_team_size?.toString() || '5',
-    registration_open: campaign?.registration_open || false,
-    registration_message: campaign?.registration_message || '',
-    public_description: campaign?.public_description || ''
-  });
-
-  const saveMutation = useMutation({
-    mutationFn: async (data) => {
-      const url = isEditing
-        ? `/api/fundraising/campaigns?id=${campaign.id}`
-        : '/api/fundraising/campaigns';
-      return apiRequest(isEditing ? 'PUT' : 'POST', url, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['fundraising-campaigns'] });
-      toast.success(isEditing ? 'Campaign updated' : 'Campaign created');
-      onClose();
-    },
-    onError: (err) => {
-      toast.error(err.message);
-    }
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!form.name.trim()) {
-      toast.error('Campaign name is required');
-      return;
-    }
-    if (!form.goal_amount || parseFloat(form.goal_amount) <= 0) {
-      toast.error('Goal amount must be greater than zero');
-      return;
-    }
-    saveMutation.mutate({
-      ...form,
-      goal_amount: parseFloat(form.goal_amount),
-      start_date: form.start_date || null,
-      end_date: form.end_date || null,
-      max_team_size: form.campaign_type === 'team' ? parseInt(form.max_team_size) || 5 : null,
-      registration_message: form.registration_message || null,
-      public_description: form.public_description || null
-    });
-  };
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? 'Edit Campaign' : 'New Campaign'}</DialogTitle>
-          <DialogDescription>
-            {isEditing ? 'Update your campaign details' : 'Set up a new fundraising campaign'}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label>Campaign Name *</Label>
-            <Input
-              value={form.name}
-              onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. Annual Charity Run 2026"
-              data-testid="input-campaign-name"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea
-              value={form.description}
-              onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
-              placeholder="Tell donors what this campaign is about..."
-              rows={3}
-              data-testid="input-campaign-description"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Cover Image URL</Label>
-            <Input
-              value={form.cover_image_url}
-              onChange={(e) => setForm(f => ({ ...f, cover_image_url: e.target.value }))}
-              placeholder="https://..."
-              data-testid="input-campaign-image"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Goal Amount *</Label>
-              <Input
-                type="number"
-                min="1"
-                step="0.01"
-                value={form.goal_amount}
-                onChange={(e) => setForm(f => ({ ...f, goal_amount: e.target.value }))}
-                placeholder="5000"
-                data-testid="input-campaign-goal"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Currency</Label>
-              <Select
-                value={form.currency}
-                onValueChange={(v) => setForm(f => ({ ...f, currency: v }))}
-              >
-                <SelectTrigger data-testid="select-campaign-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map(c => (
-                    <SelectItem key={c.value} value={c.value}>{c.label} ({c.symbol})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Start Date</Label>
-              <Input
-                type="date"
-                value={form.start_date}
-                onChange={(e) => setForm(f => ({ ...f, start_date: e.target.value }))}
-                data-testid="input-campaign-start"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>End Date</Label>
-              <Input
-                type="date"
-                value={form.end_date}
-                onChange={(e) => setForm(f => ({ ...f, end_date: e.target.value }))}
-                data-testid="input-campaign-end"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Status</Label>
-            <Select
-              value={form.status}
-              onValueChange={(v) => setForm(f => ({ ...f, status: v }))}
-            >
-              <SelectTrigger data-testid="select-campaign-status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <Label>Allow anonymous donations</Label>
-            <Switch
-              checked={form.allow_anonymous_donations}
-              onCheckedChange={(v) => setForm(f => ({ ...f, allow_anonymous_donations: v }))}
-              data-testid="switch-anonymous"
-            />
-          </div>
-
-          <Separator />
-
-          <div className="space-y-4">
-            <p className="text-sm font-semibold">Public Registration</p>
-
-            <div className="space-y-2">
-              <Label>Campaign Type</Label>
-              <Select
-                value={form.campaign_type}
-                onValueChange={(v) => setForm(f => ({ ...f, campaign_type: v }))}
-              >
-                <SelectTrigger data-testid="select-campaign-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="individual">Individual</SelectItem>
-                  <SelectItem value="team">Team</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {form.campaign_type === 'team'
-                  ? 'Participants register as a team with multiple members'
-                  : 'Participants register individually'}
-              </p>
-            </div>
-
-            {form.campaign_type === 'team' && (
-              <div className="space-y-2">
-                <Label>Max Team Size</Label>
-                <Input
-                  type="number"
-                  min="2"
-                  max="50"
-                  value={form.max_team_size}
-                  onChange={(e) => setForm(f => ({ ...f, max_team_size: e.target.value }))}
-                  data-testid="input-max-team-size"
-                />
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Registration Open</Label>
-                <p className="text-xs text-muted-foreground">Allow the public to register for this campaign</p>
-              </div>
-              <Switch
-                checked={form.registration_open}
-                onCheckedChange={(v) => setForm(f => ({ ...f, registration_open: v }))}
-                data-testid="switch-registration-open"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Public Description</Label>
-              <Textarea
-                value={form.public_description}
-                onChange={(e) => setForm(f => ({ ...f, public_description: e.target.value }))}
-                placeholder="Describe the campaign for potential participants on the public registration page..."
-                rows={3}
-                data-testid="input-public-description"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Registration Message</Label>
-              <Textarea
-                value={form.registration_message}
-                onChange={(e) => setForm(f => ({ ...f, registration_message: e.target.value }))}
-                placeholder="Shown after someone registers successfully (e.g. 'Thank you for signing up! We'll be in touch soon.')"
-                rows={2}
-                data-testid="input-registration-message"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={saveMutation.isPending} data-testid="button-save-campaign">
-              {saveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {isEditing ? 'Update' : 'Create'} Campaign
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function CampaignDetail({ campaignId, onBack }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [showAddMember, setShowAddMember] = useState(false);
   const [copiedToken, setCopiedToken] = useState(null);
   const [copiedRegLink, setCopiedRegLink] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
   const { data: campaign, isLoading } = useQuery({
@@ -675,7 +396,7 @@ function CampaignDetail({ campaignId, onBack }) {
           )}
           <Button
             variant="outline"
-            onClick={() => setShowEditModal(true)}
+            onClick={() => navigate('/CampaignEdit/' + campaignId)}
             data-testid="button-edit-campaign"
           >
             Edit
@@ -1094,12 +815,6 @@ function CampaignDetail({ campaignId, onBack }) {
         />
       )}
 
-      {showEditModal && (
-        <CampaignFormModal
-          campaign={campaign}
-          onClose={() => setShowEditModal(false)}
-        />
-      )}
     </div>
   );
 }

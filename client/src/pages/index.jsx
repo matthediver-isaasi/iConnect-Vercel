@@ -287,6 +287,8 @@ import ForumManagement from "./ForumManagement";
 
 import FundraisingManagement from "./FundraisingManagement";
 
+import CampaignEdit from "./CampaignEdit";
+
 import DonatePage from "./DonatePage";
 
 import CampaignRegisterPage from "./CampaignRegisterPage";
@@ -422,6 +424,7 @@ const PAGES = {
     MembershipSettings: MembershipSettings,
     MembershipFees: MembershipFees,
     FundraisingManagement: FundraisingManagement,
+    CampaignEdit: CampaignEdit,
     
     Resources: Resources,
     
@@ -736,6 +739,7 @@ function PagesContent() {
                 <Route path="/MembershipSettings" element={<MembershipSettings />} />
                 <Route path="/MembershipFees" element={<MembershipFees />} />
                 <Route path="/FundraisingManagement" element={<FundraisingManagement />} />
+                <Route path="/CampaignEdit/:id" element={<CampaignEdit />} />
                 
                 <Route path="/Resources" element={<Resources />} />
                 

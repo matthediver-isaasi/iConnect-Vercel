@@ -190,7 +190,7 @@ async function handleGet(req, res, tenantId) {
 }
 
 async function handlePost(req, res, tenantId) {
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'Campaign name is required' });
@@ -229,7 +229,9 @@ async function handlePost(req, res, tenantId) {
       max_team_size: campaign_type === 'team' ? (parseInt(max_team_size) || 5) : null,
       registration_open: registration_open || false,
       registration_message: registration_message || null,
-      public_description: public_description || null
+      public_description: public_description || null,
+      auto_create_members: auto_create_members || false,
+      member_role_id: auto_create_members ? (member_role_id || null) : null
     })
     .select()
     .single();
@@ -248,7 +250,7 @@ async function handlePut(req, res, tenantId) {
     return res.status(400).json({ error: 'Campaign ID is required' });
   }
 
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id } = req.body;
 
   const updates = {};
   if (name !== undefined) updates.name = name;
@@ -265,6 +267,8 @@ async function handlePut(req, res, tenantId) {
   if (registration_open !== undefined) updates.registration_open = registration_open;
   if (registration_message !== undefined) updates.registration_message = registration_message;
   if (public_description !== undefined) updates.public_description = public_description;
+  if (auto_create_members !== undefined) updates.auto_create_members = auto_create_members;
+  if (member_role_id !== undefined) updates.member_role_id = auto_create_members ? (member_role_id || null) : null;
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
