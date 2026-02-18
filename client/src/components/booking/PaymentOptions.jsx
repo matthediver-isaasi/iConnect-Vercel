@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users, Wifi, LogIn, Lock } from "lucide-react";
+import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, CheckCircle2, Users, Wifi, LogIn, Lock, Calendar, MapPin, Copy, ArrowRight } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -157,6 +157,9 @@ export default function PaymentOptions({
   const [completingPayment, setCompletingPayment] = useState(false);
   const [paymentReturnHandled, setPaymentReturnHandled] = useState(false);
   
+  // Booking confirmation state (for guest checkout)
+  const [bookingConfirmation, setBookingConfirmation] = useState(null);
+
   // Duplicate registration check state
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const [duplicateAttendees, setDuplicateAttendees] = useState([]);
@@ -307,13 +310,24 @@ export default function PaymentOptions({
           const alreadyMsg = response.data.already_processed ? ' (previously confirmed)' : '';
           toast.success(`Booking confirmed${alreadyMsg}!`);
           
-          setTimeout(() => {
-            if (isGuestCheckout) {
-              window.location.href = createPageUrl('Events');
-            } else {
+          if (isGuestCheckout || savedPayload.isGuestBooking) {
+            setBookingConfirmation({
+              bookingReference: response.data.booking_reference,
+              bookings: response.data.bookings || [],
+              paymentDetails: response.data.payment_details,
+              xeroInvoice: response.data.xero_invoice,
+              event: event,
+              guestInfo: savedPayload.guestInfo || guestInfo,
+              attendees: savedPayload.attendees || attendees.filter(a => a.isValid),
+              ticketsRequired: savedPayload.ticketsRequired || ticketsRequired,
+              totalCost: savedPayload.totalCost || totalCost,
+              ticketClassName: savedPayload.ticketClassName || selectedTicketClass?.name || 'Standard'
+            });
+          } else {
+            setTimeout(() => {
               window.location.href = createPageUrl('Bookings');
-            }
-          }, 1500);
+            }, 1500);
+          }
         } else {
           toast.error(response.data.error || 'Failed to complete booking after payment');
         }
@@ -788,17 +802,26 @@ export default function PaymentOptions({
           refreshOrganizationInfo();
         }
         
-        toast.success("Booking confirmed!");
-        
-        // For guest checkout, redirect to a confirmation page or Events page
-        // For member checkout, redirect to Bookings page
-        setTimeout(() => {
-          if (isGuestCheckout) {
-            window.location.href = createPageUrl('Events');
-          } else {
+        if (isGuestCheckout) {
+          setBookingConfirmation({
+            bookingReference: response.data.booking_reference,
+            bookings: response.data.bookings || [],
+            paymentDetails: response.data.payment_details,
+            xeroInvoice: response.data.xero_invoice,
+            event: event,
+            guestInfo: guestInfo,
+            attendees: attendees.filter(a => a.isValid),
+            ticketsRequired: ticketsRequired,
+            totalCost: totalCost,
+            ticketClassName: selectedTicketClass?.name || 'Standard'
+          });
+          toast.success("Booking confirmed!");
+        } else {
+          toast.success("Booking confirmed!");
+          setTimeout(() => {
             window.location.href = createPageUrl('Bookings');
-          }
-        }, 1500);
+          }, 1500);
+        }
       } else {
         toast.error(response.data.error || "Failed to create booking");
       }
@@ -1293,6 +1316,159 @@ export default function PaymentOptions({
               Your payment has been verified. We're confirming your booking now...
             </p>
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (bookingConfirmation) {
+    const conf = bookingConfirmation;
+    const eventDate = conf.event?.date ? new Date(conf.event.date).toLocaleDateString('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    }) : null;
+    const eventTime = conf.event?.start_time || null;
+    const paymentAmount = conf.paymentDetails?.card_amount || conf.paymentDetails?.account_amount || 0;
+
+    return (
+      <Card className="border-slate-200 shadow-lg">
+        <CardContent className="pt-8 pb-8 space-y-6">
+          <div className="text-center space-y-3">
+            <div className="flex justify-center">
+              <div className="p-3 rounded-full bg-green-100">
+                <CheckCircle2 className="w-10 h-10 text-green-600" />
+              </div>
+            </div>
+            <h2 className="text-xl font-semibold" data-testid="text-booking-confirmed">
+              Booking Confirmed
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Your booking has been confirmed. A confirmation email will be sent to you shortly.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-md border bg-muted/30 space-y-3">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-muted-foreground">Reference</span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-semibold" data-testid="text-booking-reference">{conf.bookingReference}</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(conf.bookingReference);
+                    toast.success('Reference copied');
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                  data-testid="button-copy-reference"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-muted-foreground">Event</span>
+              <span className="font-medium text-right" data-testid="text-event-name">{conf.event?.title}</span>
+            </div>
+
+            {eventDate && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Date</span>
+                <span className="font-medium">{eventDate}{eventTime ? ` at ${eventTime}` : ''}</span>
+              </div>
+            )}
+
+            {conf.event?.location && (
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Location</span>
+                <span className="font-medium text-right">{conf.event.location}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Attendees ({conf.bookings?.length || conf.ticketsRequired})
+            </h3>
+            <div className="space-y-1.5">
+              {conf.bookings?.length > 0 ? (
+                conf.bookings.map((booking, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/30" data-testid={`text-attendee-${i}`}>
+                    <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                    <span>{booking.attendee_first_name || ''} {booking.attendee_last_name || ''}</span>
+                    <span className="text-muted-foreground text-xs ml-auto">{booking.attendee_email}</span>
+                  </div>
+                ))
+              ) : conf.attendees?.length > 0 ? (
+                conf.attendees.map((att, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/30" data-testid={`text-attendee-${i}`}>
+                    <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                    <span>{att.first_name || att.firstName || ''} {att.last_name || att.lastName || ''}</span>
+                    <span className="text-muted-foreground text-xs ml-auto">{att.email}</span>
+                  </div>
+                ))
+              ) : conf.guestInfo ? (
+                <div className="flex items-center gap-2 text-sm p-2 rounded-md bg-muted/30" data-testid="text-attendee-0">
+                  <CheckCircle className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                  <span>{conf.guestInfo.first_name} {conf.guestInfo.last_name}</span>
+                  <span className="text-muted-foreground text-xs ml-auto">{conf.guestInfo.email}</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {conf.totalCost > 0 && (
+            <div className="p-4 rounded-md border space-y-2">
+              <h3 className="text-sm font-medium flex items-center gap-2">
+                <PoundSterling className="w-4 h-4" />
+                Payment Summary
+              </h3>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {conf.ticketsRequired} x {conf.ticketClassName}
+                </span>
+                <span className="font-medium">{'\u00a3'}{conf.totalCost.toFixed(2)}</span>
+              </div>
+              {conf.paymentDetails?.voucher_amount > 0 && (
+                <div className="flex items-center justify-between text-sm text-green-700">
+                  <span>Voucher applied</span>
+                  <span>-{'\u00a3'}{conf.paymentDetails.voucher_amount.toFixed(2)}</span>
+                </div>
+              )}
+              {conf.paymentDetails?.training_fund_amount > 0 && (
+                <div className="flex items-center justify-between text-sm text-green-700">
+                  <span>Training fund applied</span>
+                  <span>-{'\u00a3'}{conf.paymentDetails.training_fund_amount.toFixed(2)}</span>
+                </div>
+              )}
+              {conf.paymentDetails?.discount_code_amount > 0 && (
+                <div className="flex items-center justify-between text-sm text-green-700">
+                  <span>Discount applied</span>
+                  <span>-{'\u00a3'}{conf.paymentDetails.discount_code_amount.toFixed(2)}</span>
+                </div>
+              )}
+              {paymentAmount > 0 && (
+                <div className="flex items-center justify-between text-sm pt-2 border-t font-semibold">
+                  <span>Paid by card</span>
+                  <span>{'\u00a3'}{paymentAmount.toFixed(2)}</span>
+                </div>
+              )}
+              {conf.xeroInvoice?.invoice_number && (
+                <div className="flex items-center justify-between text-sm pt-1 text-muted-foreground">
+                  <span>Invoice</span>
+                  <span>{conf.xeroInvoice.invoice_number}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <Button
+            onClick={() => window.location.href = createPageUrl('Events')}
+            className="w-full"
+            size="lg"
+            data-testid="button-back-to-events"
+          >
+            Back to Events <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
         </CardContent>
       </Card>
     );
