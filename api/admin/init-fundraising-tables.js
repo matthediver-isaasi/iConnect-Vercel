@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS fundraising_login_token (
   tenant_id UUID NOT NULL,
   email TEXT NOT NULL,
   token TEXT NOT NULL UNIQUE,
+  type TEXT NOT NULL DEFAULT 'magic_link' CHECK (type IN ('magic_link', 'session')),
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

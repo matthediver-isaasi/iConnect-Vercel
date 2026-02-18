@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,11 @@ import {
   ExternalLink, AlertCircle
 } from "lucide-react";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
+
+function getSessionKey() {
+  const slug = getTenantSlugFromLocation();
+  return slug ? `fundraiser_session_${slug}` : 'fundraiser_session_token';
+}
 
 function formatCurrency(amount, currency) {
   const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
@@ -74,7 +79,7 @@ function StatusBadge({ status }) {
 }
 
 export default function FundraiserDashboardPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -90,34 +95,64 @@ export default function FundraiserDashboardPage() {
     }
   }, []);
 
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem(getSessionKey());
+    setDashboardData(null);
+    setError(null);
+  }, []);
+
   useEffect(() => {
-    const token = searchParams.get('token');
-    if (!token) {
-      setError('No login token provided. Please request a new login link.');
-      setLoading(false);
-      return;
-    }
-
+    const urlToken = searchParams.get('token');
+    const sessionKey = getSessionKey();
+    const storedSession = localStorage.getItem(sessionKey);
     const tenantSlug = getTenantSlugFromLocation();
-    let url = `/api/public/fundraising/verify-login?token=${encodeURIComponent(token)}`;
-    if (tenantSlug) {
-      url += `&tenant=${tenantSlug}`;
-    }
 
-    fetch(url)
-      .then(res => {
-        if (!res.ok) return res.json().then(err => { throw new Error(err.error || 'Invalid login link'); });
-        return res.json();
-      })
-      .then(data => {
-        setDashboardData(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
-  }, [searchParams]);
+    if (urlToken) {
+      let url = `/api/public/fundraising/verify-login?token=${encodeURIComponent(urlToken)}`;
+      if (tenantSlug) url += `&tenant=${tenantSlug}`;
+
+      fetch(url)
+        .then(res => {
+          if (!res.ok) return res.json().then(err => { throw new Error(err.error || 'Invalid login link'); });
+          return res.json();
+        })
+        .then(data => {
+          if (data.session_token) {
+            localStorage.setItem(sessionKey, data.session_token);
+          }
+          setDashboardData(data);
+          setLoading(false);
+          setSearchParams({}, { replace: true });
+        })
+        .catch(err => {
+          setError(err.message);
+          setLoading(false);
+        });
+    } else if (storedSession) {
+      let url = `/api/public/fundraising/verify-session?session_token=${encodeURIComponent(storedSession)}`;
+      if (tenantSlug) url += `&tenant=${tenantSlug}`;
+
+      fetch(url)
+        .then(res => {
+          if (!res.ok) {
+            localStorage.removeItem(sessionKey);
+            return res.json().then(err => { throw new Error(err.error || 'Session expired'); });
+          }
+          return res.json();
+        })
+        .then(data => {
+          setDashboardData(data);
+          setLoading(false);
+        })
+        .catch(err => {
+          setError(err.message);
+          setLoading(false);
+        });
+    } else {
+      setError('No login token provided. Please request a login link.');
+      setLoading(false);
+    }
+  }, [searchParams, setSearchParams]);
 
   const getDonatePageUrl = (participantToken) => {
     const origin = window.location.origin;
@@ -129,7 +164,7 @@ export default function FundraiserDashboardPage() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-background to-muted/30">
         <div className="text-center space-y-3">
           <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
-          <p className="text-sm text-muted-foreground" data-testid="text-loading">Verifying your login...</p>
+          <p className="text-sm text-muted-foreground" data-testid="text-loading">Loading your dashboard...</p>
         </div>
       </div>
     );
@@ -323,7 +358,7 @@ export default function FundraiserDashboardPage() {
         )}
 
         <div className="text-center pt-4">
-          <Link to="/fundraiser/login">
+          <Link to="/fundraiser/login" onClick={handleLogout}>
             <Button variant="ghost" size="sm" data-testid="button-logout">
               Sign in with a different email
             </Button>
