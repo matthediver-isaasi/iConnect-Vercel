@@ -55,7 +55,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Tenant not found' });
       }
 
-      const { token, name, message } = req.body;
+      const { token, name, message, email, marketing_consent } = req.body;
 
       if (!token || !name?.trim()) {
         return res.status(400).json({ error: 'token and name are required' });
@@ -104,7 +104,10 @@ export default async function handler(req, res) {
           campaign_id: teamMember.campaign_id,
           team_member_id: teamMember.id,
           name: name.trim(),
-          message: message?.trim() || null
+          email: email?.trim() || null,
+          message: message?.trim() || null,
+          marketing_consent: !!marketing_consent,
+          marketing_consent_at: marketing_consent ? new Date().toISOString() : null
         })
         .select()
         .single();

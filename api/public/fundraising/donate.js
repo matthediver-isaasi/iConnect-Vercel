@@ -28,7 +28,8 @@ export default async function handler(req, res) {
       gift_aid_address_line_1,
       gift_aid_address_line_2,
       gift_aid_city,
-      gift_aid_postcode
+      gift_aid_postcode,
+      marketing_consent
     } = req.body;
 
     if (!token) {
@@ -121,6 +122,8 @@ export default async function handler(req, res) {
         gift_aid_address_line_2: gift_aid ? (gift_aid_address_line_2 || null) : null,
         gift_aid_city: gift_aid ? gift_aid_city : null,
         gift_aid_postcode: gift_aid ? gift_aid_postcode : null,
+        marketing_consent: !!marketing_consent,
+        marketing_consent_at: marketing_consent ? new Date().toISOString() : null,
         stripe_payment_intent_id: paymentIntent.id,
         payment_status: 'pending'
       })

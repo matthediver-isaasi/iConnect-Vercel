@@ -77,7 +77,10 @@ export default function DonatePage() {
   const [fullSizeImage, setFullSizeImage] = useState(null);
   const [showWellwisherForm, setShowWellwisherForm] = useState(false);
   const [wellwisherName, setWellwisherName] = useState('');
+  const [wellwisherEmail, setWellwisherEmail] = useState('');
   const [wellwisherMessage, setWellwisherMessage] = useState('');
+  const [wellwisherConsent, setWellwisherConsent] = useState(true);
+  const [donorMarketingConsent, setDonorMarketingConsent] = useState(true);
   const [sendingWellwish, setSendingWellwish] = useState(false);
   const [wellwishSent, setWellwishSent] = useState(false);
   const [wellwishError, setWellwishError] = useState(null);
@@ -193,7 +196,8 @@ export default function DonatePage() {
           gift_aid_address_line_1: giftAid ? giftAidAddress1.trim() : null,
           gift_aid_address_line_2: giftAid ? giftAidAddress2.trim() : null,
           gift_aid_city: giftAid ? giftAidCity.trim() : null,
-          gift_aid_postcode: giftAid ? giftAidPostcode.trim() : null
+          gift_aid_postcode: giftAid ? giftAidPostcode.trim() : null,
+          marketing_consent: donorMarketingConsent
         })
       });
 
@@ -509,6 +513,20 @@ export default function DonatePage() {
                     </div>
                   )}
 
+                  <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                    <div className="flex-1 pr-3">
+                      <Label className="cursor-pointer text-sm">Keep me updated about fundraising activities</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        I consent to receiving fundraising communications from {tenant?.name || 'the organiser'}. You can withdraw consent at any time.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={donorMarketingConsent}
+                      onCheckedChange={setDonorMarketingConsent}
+                      data-testid="switch-donor-marketing-consent"
+                    />
+                  </div>
+
                   <div className="border rounded-md overflow-hidden">
                     <button
                       type="button"
@@ -807,13 +825,24 @@ export default function DonatePage() {
                   Leave an encouraging message without making a donation.
                 </p>
                 <div>
-                  <Label htmlFor="wellwisher-name" className="text-sm">Your Name</Label>
+                  <Label htmlFor="wellwisher-name" className="text-sm">Your Name *</Label>
                   <Input
                     id="wellwisher-name"
                     value={wellwisherName}
                     onChange={(e) => setWellwisherName(e.target.value)}
                     placeholder="Enter your name"
                     data-testid="input-wellwisher-name"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="wellwisher-email" className="text-sm">Your Email</Label>
+                  <Input
+                    id="wellwisher-email"
+                    type="email"
+                    value={wellwisherEmail}
+                    onChange={(e) => setWellwisherEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    data-testid="input-wellwisher-email"
                   />
                 </div>
                 <div>
@@ -826,6 +855,19 @@ export default function DonatePage() {
                     className="resize-none text-sm"
                     rows={3}
                     data-testid="input-wellwisher-message"
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50">
+                  <div className="flex-1 pr-3">
+                    <Label className="cursor-pointer text-sm">Keep me updated about fundraising activities</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      I consent to receiving fundraising communications from {tenant?.name || 'the organiser'}. You can withdraw consent at any time.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={wellwisherConsent}
+                    onCheckedChange={setWellwisherConsent}
+                    data-testid="switch-wellwisher-consent"
                   />
                 </div>
                 {wellwishError && (
@@ -845,7 +887,9 @@ export default function DonatePage() {
                           body: JSON.stringify({
                             token,
                             name: wellwisherName.trim(),
-                            message: wellwisherMessage.trim()
+                            email: wellwisherEmail.trim() || null,
+                            message: wellwisherMessage.trim(),
+                            marketing_consent: wellwisherConsent
                           })
                         });
                         if (!res.ok) {
