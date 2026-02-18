@@ -63,11 +63,29 @@ export default async function handler(req, res) {
       return res.status(200).json(successResponse);
     }
 
-    let baseUrl;
-    if (tenant.domain) {
-      baseUrl = `https://${tenant.domain}`;
-    } else {
-      baseUrl = `https://${tenant.slug}.${process.env.APP_DOMAIN || 'iconn.app'}`;
+    const appDomain = process.env.APP_DOMAIN || 'iconn.app';
+    const allowedHosts = new Set();
+    if (tenant.domain) allowedHosts.add(tenant.domain.toLowerCase());
+    allowedHosts.add(`${tenant.slug}.${appDomain}`.toLowerCase());
+    allowedHosts.add(`${tenant.slug}.dev.${appDomain}`.toLowerCase());
+    allowedHosts.add(`${tenant.slug}.staging.${appDomain}`.toLowerCase());
+
+    let baseUrl = null;
+    const origin = req.headers?.origin || req.headers?.referer;
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        if (allowedHosts.has(parsed.host.toLowerCase())) {
+          baseUrl = `${parsed.protocol}//${parsed.host}`;
+        }
+      } catch (_) {}
+    }
+    if (!baseUrl) {
+      if (tenant.domain) {
+        baseUrl = `https://${tenant.domain}`;
+      } else {
+        baseUrl = `https://${tenant.slug}.${appDomain}`;
+      }
     }
 
     const loginUrl = `${baseUrl}/fundraiser/dashboard?token=${token}`;
