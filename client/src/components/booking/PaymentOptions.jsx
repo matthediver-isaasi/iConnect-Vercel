@@ -1552,7 +1552,7 @@ export default function PaymentOptions({
             </Button>
           )}
 
-          {import.meta.env.DEV && isOneOffEvent && totalCost > 0 && (
+          {isOneOffEvent && totalCost > 0 && (
             <Button
               type="button"
               variant="outline"

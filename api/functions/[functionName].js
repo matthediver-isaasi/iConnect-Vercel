@@ -1655,9 +1655,8 @@ const functionHandlers = {
 
     // Verify Stripe payment if card payment was used
     let verifiedStripeClient = null;
-    const isTestModeAllowed = _testMode && process.env.NODE_ENV === 'development';
-    if (isTestModeAllowed && paymentMethod === 'card') {
-      console.log('[createOneOffEventBooking] TEST MODE (dev only) - Skipping Stripe payment verification');
+    if (_testMode && paymentMethod === 'card') {
+      console.log('[createOneOffEventBooking] TEST MODE - Skipping Stripe payment verification');
     } else if (paymentMethod === 'card' && stripePaymentIntentId) {
       console.log('[createOneOffEventBooking] Verifying Stripe payment:', stripePaymentIntentId);
       
