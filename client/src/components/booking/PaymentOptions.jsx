@@ -741,8 +741,7 @@ export default function PaymentOptions({
     }
   };
 
-  // Process one-off booking (after payment if needed)
-  const processOneOffBooking = async (stripePaymentId = null) => {
+  const processOneOffBooking = async (stripePaymentId = null, testMode = false) => {
     console.log('[PaymentOptions] processOneOffBooking started');
     setSubmitting(true);
 
@@ -768,7 +767,8 @@ export default function PaymentOptions({
         isGuestBooking: isGuestCheckout,
         discountCodeId: appliedDiscount?.discount_code_id || null,
         discountCodeAmount: discountCodeSavings || 0,
-        donationData: donationAmount > 0 ? donationData : null
+        donationData: donationAmount > 0 ? donationData : null,
+        _testMode: testMode
       };
 
       // Add member-specific fields for logged-in users
@@ -1548,6 +1548,27 @@ export default function PaymentOptions({
                 totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : 'Confirm Booking'
               ) : (
                 'Confirm Booking'
+              )}
+            </Button>
+          )}
+
+          {import.meta.env.DEV && isOneOffEvent && totalCost > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => processOneOffBooking(null, true)}
+              disabled={!canProceed || submitting}
+              className="w-full border-dashed border-orange-400 text-orange-600"
+              size="lg"
+              data-testid="button-test-booking"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Processing (Test)...
+                </>
+              ) : (
+                `DEV: Test Booking (Skip Stripe)`
               )}
             </Button>
           )}

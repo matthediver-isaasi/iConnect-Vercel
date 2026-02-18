@@ -170,14 +170,27 @@ async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
   );
 
   console.log(`[Xero] Contact search response status: ${contactSearchResponse.status}`);
-  const contactData = await contactSearchResponse.json();
+
+  if (!contactSearchResponse.ok) {
+    const errorText = await contactSearchResponse.text();
+    console.error(`[Xero] Contact search failed with status ${contactSearchResponse.status}: ${errorText.substring(0, 300)}`);
+    throw new Error(`Xero contact search failed (${contactSearchResponse.status})`);
+  }
+
+  const searchText = await contactSearchResponse.text();
+  let contactData;
+  try {
+    contactData = JSON.parse(searchText);
+  } catch (parseErr) {
+    console.error(`[Xero] Contact search response not valid JSON: ${searchText.substring(0, 300)}`);
+    throw new Error('Xero contact search returned non-JSON response');
+  }
 
   if (contactData.Contacts && contactData.Contacts.length > 0) {
     console.log(`[Xero] Found existing contact: ${contactData.Contacts[0].ContactID}`);
     return contactData.Contacts[0].ContactID;
   }
 
-  // Create new contact with email if provided (useful for individual contacts)
   console.log(`[Xero] No existing contact found, creating new contact...`);
   const newContact = { Name: info.name };
   if (info.email) {
@@ -189,13 +202,28 @@ async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'xero-tenant-id': tenantId,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
     },
     body: JSON.stringify({ Contacts: [newContact] })
   });
 
   console.log(`[Xero] Create contact response status: ${createContactResponse.status}`);
-  const newContactData = await createContactResponse.json();
+
+  if (!createContactResponse.ok) {
+    const errorText = await createContactResponse.text();
+    console.error(`[Xero] Create contact failed with status ${createContactResponse.status}: ${errorText.substring(0, 300)}`);
+    throw new Error(`Xero contact creation failed (${createContactResponse.status})`);
+  }
+
+  const createText = await createContactResponse.text();
+  let newContactData;
+  try {
+    newContactData = JSON.parse(createText);
+  } catch (parseErr) {
+    console.error(`[Xero] Create contact response not valid JSON: ${createText.substring(0, 300)}`);
+    throw new Error('Xero contact creation returned non-JSON response');
+  }
   
   if (newContactData.Contacts && newContactData.Contacts.length > 0) {
     console.log(`[Xero] Created new contact: ${newContactData.Contacts[0].ContactID}`);
@@ -1496,7 +1524,8 @@ const functionHandlers = {
       guestInfo = null,
       discountCodeId = null,
       discountCodeAmount = 0,
-      donationData = null
+      donationData = null,
+      _testMode = false
     } = params;
 
     console.log('[createOneOffEventBooking] Starting booking:', {
@@ -1626,7 +1655,10 @@ const functionHandlers = {
 
     // Verify Stripe payment if card payment was used
     let verifiedStripeClient = null;
-    if (paymentMethod === 'card' && stripePaymentIntentId) {
+    const isTestModeAllowed = _testMode && process.env.NODE_ENV === 'development';
+    if (isTestModeAllowed && paymentMethod === 'card') {
+      console.log('[createOneOffEventBooking] TEST MODE (dev only) - Skipping Stripe payment verification');
+    } else if (paymentMethod === 'card' && stripePaymentIntentId) {
       console.log('[createOneOffEventBooking] Verifying Stripe payment:', stripePaymentIntentId);
       
       // Get tenant-scoped Stripe client from event's tenant
