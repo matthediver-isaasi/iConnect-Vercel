@@ -74,8 +74,15 @@ export default async function handler(req, res) {
     const maxAdditional = maxTeamSize - 1;
 
     const validTeamMembers = isTeamCampaign && Array.isArray(team_members)
-      ? team_members.filter(m => m.first_name?.trim() && m.last_name?.trim())
+      ? team_members.filter(m => m.first_name?.trim() && m.last_name?.trim() && m.email?.trim())
       : [];
+
+    if (isTeamCampaign && Array.isArray(team_members)) {
+      const membersWithoutEmail = team_members.filter(m => m.first_name?.trim() && m.last_name?.trim() && !m.email?.trim());
+      if (membersWithoutEmail.length > 0) {
+        return res.status(400).json({ error: 'All team members must have an email address' });
+      }
+    }
 
     if (isTeamCampaign && validTeamMembers.length > maxAdditional) {
       return res.status(400).json({
@@ -110,72 +117,6 @@ export default async function handler(req, res) {
             error: `The following email(s) are already registered for this campaign: ${duplicates.join(', ')}`
           });
         }
-      }
-    }
-
-    const createdMembers = [];
-
-    const leadToken = generateToken();
-    const { data: leadMember, error: leadError } = await supabase
-      .from('fundraising_team_member')
-      .insert({
-        tenant_id: tenant.id,
-        campaign_id: campaign.id,
-        first_name: first_name.trim(),
-        last_name: last_name.trim(),
-        email: email.trim(),
-        token: leadToken,
-        individual_goal: individual_goal ? parseFloat(individual_goal) : null,
-        is_active: true
-      })
-      .select()
-      .single();
-
-    if (leadError) {
-      console.error('[Fundraising Register] Error creating lead member:', leadError);
-      return res.status(500).json({ error: 'Failed to register. Please try again.' });
-    }
-
-    createdMembers.push({
-      id: leadMember.id,
-      first_name: leadMember.first_name,
-      last_name: leadMember.last_name,
-      email: leadMember.email,
-      token: leadMember.token,
-      role: 'lead'
-    });
-
-    if (isTeamCampaign && validTeamMembers.length > 0) {
-      for (const tm of validTeamMembers) {
-        const memberToken = generateToken();
-        const { data: teamMember, error: tmError } = await supabase
-          .from('fundraising_team_member')
-          .insert({
-            tenant_id: tenant.id,
-            campaign_id: campaign.id,
-            first_name: tm.first_name.trim(),
-            last_name: tm.last_name.trim(),
-            email: tm.email?.trim() || null,
-            token: memberToken,
-            individual_goal: null,
-            is_active: true
-          })
-          .select()
-          .single();
-
-        if (tmError) {
-          console.error('[Fundraising Register] Error creating team member:', tmError);
-          continue;
-        }
-
-        createdMembers.push({
-          id: teamMember.id,
-          first_name: teamMember.first_name,
-          last_name: teamMember.last_name,
-          email: teamMember.email,
-          token: teamMember.token,
-          role: 'member'
-        });
       }
     }
 
@@ -236,6 +177,76 @@ export default async function handler(req, res) {
       }
     }
 
+    const createdMembers = [];
+
+    const leadInsert = {
+      tenant_id: tenant.id,
+      campaign_id: campaign.id,
+      first_name: first_name.trim(),
+      last_name: last_name.trim(),
+      email: email.trim(),
+      token: generateToken(),
+      individual_goal: individual_goal ? parseFloat(individual_goal) : null,
+      is_active: true
+    };
+    if (createdOrgId) leadInsert.organization_id = createdOrgId;
+
+    const { data: leadMember, error: leadError } = await supabase
+      .from('fundraising_team_member')
+      .insert(leadInsert)
+      .select()
+      .single();
+
+    if (leadError) {
+      console.error('[Fundraising Register] Error creating lead member:', leadError);
+      return res.status(500).json({ error: 'Failed to register. Please try again.' });
+    }
+
+    createdMembers.push({
+      id: leadMember.id,
+      first_name: leadMember.first_name,
+      last_name: leadMember.last_name,
+      email: leadMember.email,
+      token: leadMember.token,
+      role: 'lead'
+    });
+
+    if (isTeamCampaign && validTeamMembers.length > 0) {
+      for (const tm of validTeamMembers) {
+        const tmInsert = {
+          tenant_id: tenant.id,
+          campaign_id: campaign.id,
+          first_name: tm.first_name.trim(),
+          last_name: tm.last_name.trim(),
+          email: tm.email?.trim() || null,
+          token: generateToken(),
+          individual_goal: null,
+          is_active: true
+        };
+        if (createdOrgId) tmInsert.organization_id = createdOrgId;
+
+        const { data: teamMember, error: tmError } = await supabase
+          .from('fundraising_team_member')
+          .insert(tmInsert)
+          .select()
+          .single();
+
+        if (tmError) {
+          console.error('[Fundraising Register] Error creating team member:', tmError);
+          continue;
+        }
+
+        createdMembers.push({
+          id: teamMember.id,
+          first_name: teamMember.first_name,
+          last_name: teamMember.last_name,
+          email: teamMember.email,
+          token: teamMember.token,
+          role: 'member'
+        });
+      }
+    }
+
     if (campaign.auto_create_members) {
       try {
         const allRegistrants = [
@@ -273,10 +284,6 @@ export default async function handler(req, res) {
             memberInsert.role_id = campaign.member_role_id;
           }
 
-          if (createdOrgId) {
-            memberInsert.organization_id = createdOrgId;
-          }
-
           const { error: memberError } = await supabase
             .from('member')
             .insert(memberInsert);
@@ -284,7 +291,7 @@ export default async function handler(req, res) {
           if (memberError) {
             console.error(`[Fundraising Register] Error creating member record for ${registrant.email}:`, memberError);
           } else {
-            console.log(`[Fundraising Register] Created member record for: ${registrant.email}${createdOrgId ? ` (linked to org ${createdOrgId})` : ''}`);
+            console.log(`[Fundraising Register] Created member record for: ${registrant.email}`);
           }
         }
       } catch (memberErr) {

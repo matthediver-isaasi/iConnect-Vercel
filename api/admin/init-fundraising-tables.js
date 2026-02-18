@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS fundraising_team_member (
   tenant_id UUID NOT NULL,
   campaign_id UUID NOT NULL REFERENCES fundraising_campaign(id) ON DELETE CASCADE,
   member_id UUID,
+  organization_id UUID REFERENCES organization(id) ON DELETE SET NULL,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   email TEXT,
@@ -77,6 +78,17 @@ CREATE INDEX IF NOT EXISTS idx_fundraising_donation_tenant
   ON fundraising_donation(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_fundraising_donation_payment
   ON fundraising_donation(stripe_payment_intent_id);
+
+CREATE TABLE IF NOT EXISTS fundraising_login_token (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  email TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fundraising_login_token_token ON fundraising_login_token(token);
+CREATE INDEX IF NOT EXISTS idx_fundraising_login_token_email ON fundraising_login_token(tenant_id, email);
 `;
 
 export default async function handler(req, res) {

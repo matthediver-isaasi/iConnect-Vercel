@@ -236,6 +236,11 @@ export default function CampaignRegisterPage() {
       const validMembers = teamMembers.filter(m => m.first_name.trim() && m.last_name.trim());
       if (validMembers.length === 0) {
         errors.teamMembers = 'Please add at least one team member with first and last name';
+      } else {
+        const missingEmails = validMembers.some(m => !m.email.trim() || !/\S+@\S+\.\S+/.test(m.email.trim()));
+        if (missingEmails) {
+          errors.teamMemberEmails = 'Each team member needs a valid email address';
+        }
       }
     }
 
@@ -603,6 +608,9 @@ export default function CampaignRegisterPage() {
       {validationErrors.teamMembers && (
         <p className="text-xs text-destructive">{validationErrors.teamMembers}</p>
       )}
+      {validationErrors.teamMemberEmails && (
+        <p className="text-xs text-destructive">{validationErrors.teamMemberEmails}</p>
+      )}
 
       {teamMembers.map((member, index) => (
         <div key={index} className="p-3 border rounded-md space-y-3" data-testid={`team-member-row-${index}`}>
@@ -638,7 +646,8 @@ export default function CampaignRegisterPage() {
             type="email"
             value={member.email}
             onChange={(e) => updateTeamMember(index, 'email', e.target.value)}
-            placeholder="Email (optional)"
+            placeholder="Email *"
+            required
             data-testid={`input-team-email-${index}`}
           />
         </div>

@@ -293,6 +293,10 @@ import DonatePage from "./DonatePage";
 
 import CampaignRegisterPage from "./CampaignRegisterPage";
 
+import FundraiserLoginPage from "./FundraiserLoginPage";
+
+import FundraiserDashboardPage from "./FundraiserDashboardPage";
+
 import MembershipFeePage from "./MembershipFeePage";
 
 import MembershipFees from "./MembershipFees";
@@ -973,6 +977,8 @@ function StandaloneRoutes() {
             <Route path="/embed/alternative-signer" element={<EmbedAlternativeSigner />} />
             <Route path="/donate/:token" element={<DonatePage />} />
             <Route path="/fundraise/:slug" element={<CampaignRegisterPage />} />
+            <Route path="/fundraiser/login" element={<FundraiserLoginPage />} />
+            <Route path="/fundraiser/dashboard" element={<FundraiserDashboardPage />} />
             <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
@@ -1059,6 +1065,7 @@ function AppRoutes() {
     const isBookingPage = location.pathname.toLowerCase().startsWith('/book/');
     const isDonatePage = location.pathname.toLowerCase().startsWith('/donate/');
     const isFundraisePage = location.pathname.toLowerCase().startsWith('/fundraise/');
+    const isFundraiserPage = location.pathname.toLowerCase().startsWith('/fundraiser/');
     const isMembershipFeePage = location.pathname.toLowerCase().startsWith('/membership-fees/');
     
     // Use window.location.search to reliably detect embed param (works even before routing)
@@ -1067,7 +1074,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isMembershipFeePage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     
