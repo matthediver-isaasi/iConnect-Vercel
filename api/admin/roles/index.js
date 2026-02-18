@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSession } from '../../_lib/session.js';
+import { getSessionTenantUser } from '../../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -17,15 +17,21 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
   
-  const session = await getSession(req);
-  if (!session?.data?.memberId) {
+  const tenantUser = await getSessionTenantUser(req);
+  if (!tenantUser) {
     return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const tenantId = tenantUser.tenant_id;
+  if (!tenantId) {
+    return res.status(400).json({ error: 'Tenant context not available' });
   }
   
   try {
     const { data, error } = await supabase
       .from('role')
       .select('id, name, is_system')
+      .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
     
     if (error) {
