@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
     const { data: organisations, error } = await supabase
       .from('organization')
-      .select('id, name, city')
+      .select('id, name, address')
       .eq('tenant_id', tenant.id)
       .ilike('name', `%${searchTerm}%`)
       .order('name')
@@ -41,7 +41,13 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Search failed' });
     }
 
-    return res.json(organisations || []);
+    const results = (organisations || []).map(org => ({
+      id: org.id,
+      name: org.name,
+      city: org.address?.city || org.address?.town || null
+    }));
+
+    return res.json(results);
   } catch (error) {
     console.error('[Public Org Search] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });

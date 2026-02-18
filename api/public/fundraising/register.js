@@ -208,15 +208,18 @@ export default async function handler(req, res) {
           createdOrgId = existingOrg.id;
           console.log(`[Fundraising Register] Organisation already exists: ${organisation.name} (${existingOrg.id})`);
         } else {
+          const addressObj = {};
+          if (organisation.address) addressObj.line1 = organisation.address;
+          if (organisation.city) addressObj.city = organisation.city;
+          if (organisation.postcode) addressObj.postcode = organisation.postcode;
+          if (organisation.country) addressObj.country = organisation.country;
+
           const { data: newOrg, error: orgError } = await supabase
             .from('organization')
             .insert({
               tenant_id: tenant.id,
               name: organisation.name,
-              address_line_1: organisation.address || null,
-              city: organisation.city || null,
-              postcode: organisation.postcode || null,
-              country: organisation.country || null
+              address: Object.keys(addressObj).length > 0 ? addressObj : null
             })
             .select('id')
             .single();
