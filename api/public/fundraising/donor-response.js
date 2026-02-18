@@ -43,14 +43,18 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Session expired. Please log in again.' });
     }
 
-    const { donation_id, team_member_id, response_type, message } = req.body;
+    const { donation_id, wellwisher_id, team_member_id, response_type, message } = req.body;
 
-    if (!donation_id || !team_member_id || !response_type || !message?.trim()) {
-      return res.status(400).json({ error: 'donation_id, team_member_id, response_type, and message are required' });
+    if ((!donation_id && !wellwisher_id) || !team_member_id || !response_type || !message?.trim()) {
+      return res.status(400).json({ error: 'donation_id or wellwisher_id, team_member_id, response_type, and message are required' });
     }
 
     if (!['public', 'private'].includes(response_type)) {
       return res.status(400).json({ error: 'response_type must be public or private' });
+    }
+
+    if (wellwisher_id && response_type !== 'public') {
+      return res.status(400).json({ error: 'Only public responses are allowed for wellwishers' });
     }
 
     const { data: member, error: memberError } = await supabase
@@ -71,29 +75,55 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    const { data: donation, error: donationError } = await supabase
-      .from('fundraising_donation')
-      .select('id, donor_name, donor_email, team_member_id, campaign_id, tenant_id, amount, currency')
-      .eq('id', donation_id)
-      .single();
+    let donation = null;
+    let wellwisher = null;
 
-    if (donationError || !donation) {
-      return res.status(404).json({ error: 'Donation not found' });
+    if (donation_id) {
+      const { data: d, error: donationError } = await supabase
+        .from('fundraising_donation')
+        .select('id, donor_name, donor_email, team_member_id, campaign_id, tenant_id, amount, currency')
+        .eq('id', donation_id)
+        .single();
+
+      if (donationError || !d) {
+        return res.status(404).json({ error: 'Donation not found' });
+      }
+
+      if (d.tenant_id !== tenant.id || d.team_member_id !== team_member_id) {
+        return res.status(403).json({ error: 'Not authorized to respond to this donation' });
+      }
+      donation = d;
     }
 
-    if (donation.tenant_id !== tenant.id || donation.team_member_id !== team_member_id) {
-      return res.status(403).json({ error: 'Not authorized to respond to this donation' });
+    if (wellwisher_id) {
+      const { data: w, error: wError } = await supabase
+        .from('fundraising_wellwisher')
+        .select('id, name, team_member_id, tenant_id')
+        .eq('id', wellwisher_id)
+        .single();
+
+      if (wError || !w) {
+        return res.status(404).json({ error: 'Wellwisher not found' });
+      }
+
+      if (w.tenant_id !== tenant.id || w.team_member_id !== team_member_id) {
+        return res.status(403).json({ error: 'Not authorized to respond to this wellwisher' });
+      }
+      wellwisher = w;
     }
+
+    const insertData = {
+      tenant_id: tenant.id,
+      team_member_id,
+      response_type,
+      message: message.trim()
+    };
+    if (donation_id) insertData.donation_id = donation_id;
+    if (wellwisher_id) insertData.wellwisher_id = wellwisher_id;
 
     const { data: response, error: insertError } = await supabase
       .from('fundraising_donor_response')
-      .insert({
-        tenant_id: tenant.id,
-        donation_id,
-        team_member_id,
-        response_type,
-        message: message.trim()
-      })
+      .insert(insertData)
       .select()
       .single();
 
@@ -102,7 +132,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to save response' });
     }
 
-    if (response_type === 'private' && donation.donor_email) {
+    if (donation && response_type === 'private' && donation.donor_email) {
       const { data: campaign } = await supabase
         .from('fundraising_campaign')
         .select('name')

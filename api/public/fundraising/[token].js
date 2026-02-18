@@ -116,6 +116,28 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: false })
       .limit(50);
 
+    const wellwisherIds = (wellwishers || []).map(w => w.id);
+    let wellwisherResponsesMap = {};
+    if (wellwisherIds.length > 0) {
+      const { data: wResponses } = await supabase
+        .from('fundraising_donor_response')
+        .select('wellwisher_id, message, created_at')
+        .in('wellwisher_id', wellwisherIds)
+        .eq('response_type', 'public')
+        .order('created_at', { ascending: false });
+
+      (wResponses || []).forEach(r => {
+        if (!wellwisherResponsesMap[r.wellwisher_id]) {
+          wellwisherResponsesMap[r.wellwisher_id] = r;
+        }
+      });
+    }
+
+    const enrichedWellwishers = (wellwishers || []).map(w => ({
+      ...w,
+      reply: wellwisherResponsesMap[w.id] ? { message: wellwisherResponsesMap[w.id].message, created_at: wellwisherResponsesMap[w.id].created_at } : null
+    }));
+
     let tenantBranding = null;
     try {
       const { data: tenant } = await supabase
@@ -176,7 +198,7 @@ export default async function handler(req, res) {
           : 0
       },
       recent_donations: sanitizedDonations,
-      wellwishers: wellwishers || [],
+      wellwishers: enrichedWellwishers,
       other_team_members: otherMembers,
       tenant: tenantBranding
     });

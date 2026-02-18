@@ -140,6 +140,50 @@ async function fetchDashboardData(supabase, tenantId, email) {
     });
   });
 
+  const { data: memberWellwishers } = await supabase
+    .from('fundraising_wellwisher')
+    .select('id, team_member_id, name, email, message, created_at')
+    .eq('tenant_id', tenantId)
+    .in('team_member_id', memberIds)
+    .order('created_at', { ascending: false });
+
+  const wellwishersByMember = {};
+  (memberWellwishers || []).forEach(w => {
+    if (!wellwishersByMember[w.team_member_id]) {
+      wellwishersByMember[w.team_member_id] = [];
+    }
+    wellwishersByMember[w.team_member_id].push({
+      id: w.id,
+      name: w.name,
+      email: w.email,
+      message: w.message,
+      created_at: w.created_at
+    });
+  });
+
+  const allWellwisherIds = (memberWellwishers || []).map(w => w.id);
+  let wellwisherResponsesMap = {};
+  if (allWellwisherIds.length > 0) {
+    const { data: wellwisherResponses } = await supabase
+      .from('fundraising_donor_response')
+      .select('wellwisher_id, response_type, message, created_at')
+      .in('wellwisher_id', allWellwisherIds)
+      .eq('response_type', 'public');
+
+    (wellwisherResponses || []).forEach(r => {
+      if (!wellwisherResponsesMap[r.wellwisher_id]) {
+        wellwisherResponsesMap[r.wellwisher_id] = [];
+      }
+      wellwisherResponsesMap[r.wellwisher_id].push(r);
+    });
+  }
+
+  Object.values(wellwishersByMember).forEach(wellwishers => {
+    wellwishers.forEach(w => {
+      w.responses = wellwisherResponsesMap[w.id] || [];
+    });
+  });
+
   const campaignsData = members.map(member => {
     const campaign = campaignMap[member.campaign_id];
     if (!campaign) return null;
@@ -164,7 +208,8 @@ async function fetchDashboardData(supabase, tenantId, email) {
       donation_count: stats.count,
       organization_name: org?.name || null,
       role: isLead ? 'lead' : 'member',
-      donors: donorsByMember[member.id] || []
+      donors: donorsByMember[member.id] || [],
+      wellwishers: wellwishersByMember[member.id] || []
     };
   }).filter(Boolean);
 

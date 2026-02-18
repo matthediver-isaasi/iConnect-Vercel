@@ -9,7 +9,7 @@ import {
   Heart, Loader2, Users, Target, Copy, Check,
   ExternalLink, AlertCircle, ImagePlus, MessageSquare,
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
-  TrendingUp, Send, Mail, Globe
+  TrendingUp, Send, Mail, Globe, Sparkles
 } from "lucide-react";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 
@@ -484,6 +484,169 @@ function DonorsList({ donors, teamMemberId, currency }) {
   );
 }
 
+function WellwishersList({ wellwishers, teamMemberId }) {
+  const [expanded, setExpanded] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyMessage, setReplyMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sentResponses, setSentResponses] = useState({});
+
+  const tenantSlug = getTenantSlugFromLocation();
+  const sessionToken = localStorage.getItem(getSessionKey());
+
+  const handleSendResponse = async (wellwisherId) => {
+    if (!replyMessage.trim() || !sessionToken) return;
+    setSending(true);
+    try {
+      let url = `/api/public/fundraising/donor-response?session_token=${encodeURIComponent(sessionToken)}`;
+      if (tenantSlug) url += `&tenant=${tenantSlug}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wellwisher_id: wellwisherId,
+          team_member_id: teamMemberId,
+          response_type: 'public',
+          message: replyMessage.trim()
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to send');
+      }
+      setSentResponses(prev => ({
+        ...prev,
+        [wellwisherId]: [...(prev[wellwisherId] || []), { response_type: 'public', message: replyMessage.trim(), created_at: new Date().toISOString() }]
+      }));
+      setReplyingTo(null);
+      setReplyMessage('');
+    } catch {} finally {
+      setSending(false);
+    }
+  };
+
+  if (!wellwishers || wellwishers.length === 0) return null;
+
+  const getAllResponses = (w) => {
+    const existing = w.responses || [];
+    const newOnes = sentResponses[w.id] || [];
+    return [...existing, ...newOnes];
+  };
+
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <button
+        className="flex items-center justify-between w-full text-left"
+        onClick={() => setExpanded(!expanded)}
+        data-testid="button-toggle-wellwishers"
+      >
+        <span className="text-sm font-medium flex items-center gap-2">
+          <Sparkles className="w-4 h-4" />
+          Well-Wishers
+          <Badge variant="secondary" className="text-xs">{wellwishers.length}</Badge>
+        </span>
+        {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3">
+          {wellwishers.map((w) => {
+            const responses = getAllResponses(w);
+            const hasResponse = responses.length > 0;
+
+            return (
+              <div key={w.id} className="border rounded-md p-3 space-y-2" data-testid={`wellwisher-dashboard-${w.id}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium shrink-0">
+                      {w.name?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid={`text-wellwisher-name-${w.id}`}>
+                        {w.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTimeAgo(w.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                  {hasResponse && (
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      <Globe className="w-3 h-3 mr-0.5" />
+                      Replied
+                    </Badge>
+                  )}
+                </div>
+
+                {w.message && (
+                  <p className="text-xs text-muted-foreground italic pl-10" data-testid={`text-wellwisher-message-${w.id}`}>
+                    "{w.message}"
+                  </p>
+                )}
+
+                {responses.length > 0 && (
+                  <div className="pl-10 space-y-1">
+                    {responses.map((r, i) => (
+                      <div key={i} className="text-xs bg-muted/50 rounded-md px-2 py-1.5 flex items-start gap-1.5">
+                        <Globe className="w-3 h-3 mt-0.5 shrink-0 text-muted-foreground" />
+                        <span>{r.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {replyingTo === w.id ? (
+                  <div className="pl-10 space-y-2">
+                    <Textarea
+                      value={replyMessage}
+                      onChange={(e) => setReplyMessage(e.target.value)}
+                      placeholder="Write a public reply..."
+                      className="resize-none text-sm"
+                      rows={2}
+                      data-testid="textarea-wellwisher-reply"
+                    />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        disabled={!replyMessage.trim() || sending}
+                        onClick={() => handleSendResponse(w.id)}
+                        data-testid="button-send-wellwisher-reply"
+                      >
+                        {sending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Send className="w-3 h-3 mr-1" />}
+                        Post Reply
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setReplyingTo(null); setReplyMessage(''); }}
+                        data-testid="button-cancel-wellwisher-reply"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pl-10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setReplyingTo(w.id); setReplyMessage(''); }}
+                      data-testid={`button-reply-wellwisher-${w.id}`}
+                    >
+                      <MessageSquare className="w-3 h-3 mr-1" />
+                      Reply
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const variants = {
     active: 'default',
@@ -735,6 +898,11 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
             donors={campaign.donors}
             teamMemberId={campaign.team_member_id}
             currency={campaign.currency}
+          />
+
+          <WellwishersList
+            wellwishers={campaign.wellwishers}
+            teamMemberId={campaign.team_member_id}
           />
 
           <CampaignUpdates

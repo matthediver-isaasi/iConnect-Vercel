@@ -796,6 +796,12 @@ export default function DonatePage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{w.name}</p>
                       <p className="text-xs text-muted-foreground mt-0.5 italic">"{w.message}"</p>
+                      {w.reply && (
+                        <div className="mt-1.5 bg-muted/50 rounded-md px-2.5 py-1.5 text-xs">
+                          <span className="font-medium">{team_member.first_name}:</span>{' '}
+                          <span className="text-muted-foreground">{w.reply.message}</span>
+                        </div>
+                      )}
                       <span className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                         <Clock className="w-3 h-3" />
                         {formatTimeAgo(w.created_at)}
