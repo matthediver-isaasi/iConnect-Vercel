@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, organisation } = req.body;
+    const { campaign_slug, first_name, last_name, email, individual_goal, team_members, organisation, existing_organisation_id } = req.body;
 
     if (!campaign_slug) {
       return res.status(400).json({ error: 'Campaign slug is required' });
@@ -181,7 +181,21 @@ export default async function handler(req, res) {
 
     let createdOrgId = null;
 
-    if (campaign.auto_create_organisations && campaign.allow_org_signup && organisation?.name) {
+    if (existing_organisation_id) {
+      const { data: verifiedOrg } = await supabase
+        .from('organisation')
+        .select('id')
+        .eq('id', existing_organisation_id)
+        .eq('tenant_id', tenant.id)
+        .single();
+
+      if (verifiedOrg) {
+        createdOrgId = verifiedOrg.id;
+        console.log(`[Fundraising Register] Using existing organisation: ${existing_organisation_id}`);
+      } else {
+        console.warn(`[Fundraising Register] Provided existing_organisation_id not found: ${existing_organisation_id}`);
+      }
+    } else if (campaign.auto_create_organisations && campaign.allow_org_signup && organisation?.name) {
       try {
         const { data: existingOrg } = await supabase
           .from('organisation')

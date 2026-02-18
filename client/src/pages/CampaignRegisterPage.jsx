@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,58 @@ export default function CampaignRegisterPage() {
   const [orgCity, setOrgCity] = useState('');
   const [orgPostcode, setOrgPostcode] = useState('');
   const [orgCountry, setOrgCountry] = useState('');
+  const [selectedOrgId, setSelectedOrgId] = useState(null);
+  const [orgSuggestions, setOrgSuggestions] = useState([]);
+  const [showOrgSuggestions, setShowOrgSuggestions] = useState(false);
+  const [orgSearchLoading, setOrgSearchLoading] = useState(false);
+  const orgDebounceRef = useRef(null);
+
+  useEffect(() => {
+    return () => { if (orgDebounceRef.current) clearTimeout(orgDebounceRef.current); };
+  }, []);
+
+  const searchOrganisations = (searchTerm) => {
+    if (orgDebounceRef.current) clearTimeout(orgDebounceRef.current);
+
+    if (!searchTerm || searchTerm.trim().length < 2) {
+      setOrgSuggestions([]);
+      setShowOrgSuggestions(false);
+      return;
+    }
+
+    setOrgSearchLoading(true);
+    orgDebounceRef.current = setTimeout(async () => {
+      try {
+        const tenantSlug = getTenantSlugFromLocation();
+        const params = new URLSearchParams({ q: searchTerm.trim() });
+        if (tenantSlug) params.set('tenant', tenantSlug);
+        const res = await fetch(`/api/public/fundraising/search-organisations?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOrgSuggestions(data);
+          setShowOrgSuggestions(data.length > 0);
+        }
+      } catch (err) {
+        console.error('Org search error:', err);
+      } finally {
+        setOrgSearchLoading(false);
+      }
+    }, 300);
+  };
+
+  const handleOrgNameChange = (value) => {
+    setOrgName(value);
+    setSelectedOrgId(null);
+    searchOrganisations(value);
+  };
+
+  const selectOrganisation = (org) => {
+    setOrgName(org.name);
+    setSelectedOrgId(org.id);
+    setOrgCity(org.city || '');
+    setOrgSuggestions([]);
+    setShowOrgSuggestions(false);
+  };
 
   useEffect(() => {
     if (!slug) return;
@@ -144,13 +196,17 @@ export default function CampaignRegisterPage() {
       };
 
       if (campaign.allow_org_signup && orgName.trim()) {
-        body.organisation = {
-          name: orgName.trim(),
-          address: orgAddress.trim() || null,
-          city: orgCity.trim() || null,
-          postcode: orgPostcode.trim() || null,
-          country: orgCountry.trim() || null
-        };
+        if (selectedOrgId) {
+          body.existing_organisation_id = selectedOrgId;
+        } else {
+          body.organisation = {
+            name: orgName.trim(),
+            address: orgAddress.trim() || null,
+            city: orgCity.trim() || null,
+            postcode: orgPostcode.trim() || null,
+            country: orgCountry.trim() || null
+          };
+        }
       }
 
       if (isTeamCampaign) {
@@ -394,53 +450,87 @@ export default function CampaignRegisterPage() {
                       <Building2 className="w-4 h-4" />
                       Organisation Details
                     </p>
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 relative">
                       <Label>Organisation Name</Label>
-                      <Input
-                        value={orgName}
-                        onChange={(e) => setOrgName(e.target.value)}
-                        placeholder="Organisation name"
-                        data-testid="input-org-name"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Address</Label>
-                      <Input
-                        value={orgAddress}
-                        onChange={(e) => setOrgAddress(e.target.value)}
-                        placeholder="Street address"
-                        data-testid="input-org-address"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label>City</Label>
+                      <div className="relative">
                         <Input
-                          value={orgCity}
-                          onChange={(e) => setOrgCity(e.target.value)}
-                          placeholder="City"
-                          data-testid="input-org-city"
+                          value={orgName}
+                          onChange={(e) => handleOrgNameChange(e.target.value)}
+                          onFocus={() => { if (orgSuggestions.length > 0 && !selectedOrgId) setShowOrgSuggestions(true); }}
+                          onBlur={() => setTimeout(() => setShowOrgSuggestions(false), 200)}
+                          placeholder="Start typing to search..."
+                          autoComplete="off"
+                          data-testid="input-org-name"
                         />
+                        {orgSearchLoading && (
+                          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                        )}
                       </div>
-                      <div className="space-y-1.5">
-                        <Label>Postcode</Label>
-                        <Input
-                          value={orgPostcode}
-                          onChange={(e) => setOrgPostcode(e.target.value)}
-                          placeholder="Postcode"
-                          data-testid="input-org-postcode"
-                        />
-                      </div>
+                      {selectedOrgId && (
+                        <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Matched to existing organisation
+                        </p>
+                      )}
+                      {showOrgSuggestions && orgSuggestions.length > 0 && (
+                        <div className="absolute left-0 right-0 z-50 mt-1 border rounded-md bg-popover shadow-md max-h-48 overflow-y-auto" data-testid="org-suggestions-dropdown">
+                          {orgSuggestions.map((org) => (
+                            <button
+                              key={org.id}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm hover-elevate cursor-pointer flex items-center justify-between gap-2"
+                              onMouseDown={(e) => { e.preventDefault(); selectOrganisation(org); }}
+                              data-testid={`org-suggestion-${org.id}`}
+                            >
+                              <span className="font-medium truncate">{org.name}</span>
+                              {org.city && <span className="text-xs text-muted-foreground flex-shrink-0">{org.city}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="space-y-1.5">
-                      <Label>Country</Label>
-                      <Input
-                        value={orgCountry}
-                        onChange={(e) => setOrgCountry(e.target.value)}
-                        placeholder="Country"
-                        data-testid="input-org-country"
-                      />
-                    </div>
+                    {!selectedOrgId && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label>Address</Label>
+                          <Input
+                            value={orgAddress}
+                            onChange={(e) => setOrgAddress(e.target.value)}
+                            placeholder="Street address"
+                            data-testid="input-org-address"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label>City</Label>
+                            <Input
+                              value={orgCity}
+                              onChange={(e) => setOrgCity(e.target.value)}
+                              placeholder="City"
+                              data-testid="input-org-city"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Postcode</Label>
+                            <Input
+                              value={orgPostcode}
+                              onChange={(e) => setOrgPostcode(e.target.value)}
+                              placeholder="Postcode"
+                              data-testid="input-org-postcode"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Country</Label>
+                          <Input
+                            value={orgCountry}
+                            onChange={(e) => setOrgCountry(e.target.value)}
+                            placeholder="Country"
+                            data-testid="input-org-country"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
