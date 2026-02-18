@@ -148,6 +148,7 @@ export default function DonatePage() {
     stripeRef.current = window.Stripe(publishableKey);
     elementsRef.current = stripeRef.current.elements();
     cardRef.current = elementsRef.current.create('card', {
+      hidePostalCode: true,
       style: {
         base: {
           fontSize: '16px',
