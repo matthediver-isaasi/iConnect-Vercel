@@ -137,7 +137,9 @@ export default function PaymentOptions({
   bookingTerms = '',
   termsAccepted = false,
   setTermsAccepted = null,
-  onShowTermsModal = null
+  onShowTermsModal = null,
+  checkGuestEmailIsMember = null,
+  checkingMemberEmail = false
 }) {
   // Payment state for one-off events
   const [selectedVouchers, setSelectedVouchers] = useState([]);
@@ -524,6 +526,11 @@ export default function PaymentOptions({
       guestInfo: guestInfo ? { email: guestInfo.email, first_name: guestInfo.first_name } : null,
       attendeesCount: attendees?.length
     });
+
+    if (isGuestCheckout && checkGuestEmailIsMember) {
+      const isMember = await checkGuestEmailIsMember();
+      if (isMember) return;
+    }
 
     // For guest checkout, skip member-specific validations
     if (!isGuestCheckout) {
@@ -1370,11 +1377,16 @@ export default function PaymentOptions({
             <Button
               id="confirm-booking-button"
               onClick={handleSubmit}
-              disabled={!canProceed || checkingDuplicates}
+              disabled={!canProceed || checkingDuplicates || checkingMemberEmail}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               size="lg"
             >
-              {checkingDuplicates ? (
+              {checkingMemberEmail ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : checkingDuplicates ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Checking...

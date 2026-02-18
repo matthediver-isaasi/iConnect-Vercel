@@ -91,6 +91,9 @@ export default function EventDetailsPage() {
            guestInfo.organization.trim() !== '';
   }, [guestInfo]);
 
+  const [showMemberEmailModal, setShowMemberEmailModal] = useState(false);
+  const [checkingMemberEmail, setCheckingMemberEmail] = useState(false);
+
   // Check if user is a guest (not logged in)
   const isGuestCheckout = !currentMemberInfo;
 
@@ -978,6 +981,24 @@ export default function EventDetailsPage() {
   // Terms must be accepted if they exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
 
+  const checkGuestEmailIsMember = async () => {
+    if (!isGuestCheckout || !guestInfo?.email) return false;
+    try {
+      setCheckingMemberEmail(true);
+      const result = await publicClient.checkMemberEmail(guestInfo.email);
+      if (result?.isMember) {
+        setShowMemberEmailModal(true);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[EventDetails] Member email check failed:', err);
+      return false;
+    } finally {
+      setCheckingMemberEmail(false);
+    }
+  };
+
   const handleConfirmBooking = async () => {
     console.log('[EventDetails] handleConfirmBooking called');
     console.log('[EventDetails] canConfirmBooking:', canConfirmBooking);
@@ -987,6 +1008,11 @@ export default function EventDetailsPage() {
     console.log('[EventDetails] ticketsRequired:', ticketsRequired);
     console.log('[EventDetails] attendees:', attendees);
     
+    if (isGuestCheckout) {
+      const isMember = await checkGuestEmailIsMember();
+      if (isMember) return;
+    }
+
     // Validate attendees have all required information
     console.log('[EventDetails] Checking attendee validation, registrationMode:', registrationMode);
     if (registrationMode === 'colleagues' || registrationMode === 'self') {
@@ -1637,15 +1663,15 @@ export default function EventDetailsPage() {
                                 console.log('[EventDetails] Button disabled state:', !canConfirmBooking || !termsRequirementMet);
                                 handleConfirmBooking();
                               }}
-                              disabled={!canConfirmBooking || !termsRequirementMet}
+                              disabled={!canConfirmBooking || !termsRequirementMet || checkingMemberEmail}
                               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                               size="lg"
                               data-testid="button-confirm-booking"
                             >
-                              {submitting ? (
+                              {submitting || checkingMemberEmail ? (
                                 <>
                                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                                  Processing...
+                                  {checkingMemberEmail ? 'Checking...' : 'Processing...'}
                                 </>
                               ) : isRegistrationClosed ? (
                                 'Registration Closed'
@@ -1981,6 +2007,8 @@ export default function EventDetailsPage() {
               termsAccepted={termsAccepted}
               setTermsAccepted={setTermsAccepted}
               onShowTermsModal={() => setShowTermsModal(true)}
+              checkGuestEmailIsMember={checkGuestEmailIsMember}
+              checkingMemberEmail={checkingMemberEmail}
             />
 
           </div>
@@ -2058,6 +2086,46 @@ export default function EventDetailsPage() {
           <div className="mt-6 pt-4 border-t flex justify-end">
             <Button onClick={() => setShowTermsModal(false)} data-testid="button-close-terms">
               Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMemberEmailModal} onOpenChange={setShowMemberEmailModal}>
+        <DialogContent className="max-w-md" data-testid="modal-member-email-found">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Member Account Found
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <p className="text-slate-600">
+              The email address <span className="font-medium text-slate-900">{guestInfo.email}</span> is associated with an existing member account.
+            </p>
+            <p className="text-slate-600">
+              Please log in to your member account to register for this event. This ensures your booking is linked to your membership and you receive all member benefits.
+            </p>
+          </div>
+          <div className="mt-6 pt-4 border-t flex flex-col gap-2">
+            <Button
+              onClick={() => {
+                const currentUrl = window.location.pathname + window.location.search;
+                window.location.href = `/login?redirect=${encodeURIComponent(currentUrl)}`;
+              }}
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+              data-testid="button-login-redirect"
+            >
+              <LogIn className="w-4 h-4 mr-2" />
+              Log In to Continue
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setShowMemberEmailModal(false)}
+              className="w-full"
+              data-testid="button-dismiss-member-modal"
+            >
+              Cancel
             </Button>
           </div>
         </DialogContent>

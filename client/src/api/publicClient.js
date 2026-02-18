@@ -519,6 +519,14 @@ class PublicClient {
   async getResourceAuthorSettings() {
     return this._fetch('/api/public/resource-author-settings');
   }
+
+  async checkMemberEmail(email) {
+    if (!email) return { isMember: false };
+    return this._fetch('/api/public/check-member-email', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+  }
 }
 
 // Export singleton instance
