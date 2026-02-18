@@ -2111,7 +2111,7 @@ export default function EventDetailsPage() {
             <Button
               onClick={() => {
                 const currentUrl = window.location.pathname + window.location.search;
-                window.location.href = `/login?redirect=${encodeURIComponent(currentUrl)}`;
+                window.location.href = `/login?returnTo=${encodeURIComponent(currentUrl)}`;
               }}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               data-testid="button-login-redirect"
