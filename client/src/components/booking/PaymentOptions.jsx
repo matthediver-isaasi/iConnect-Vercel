@@ -1321,7 +1321,8 @@ export default function PaymentOptions({
     );
   }
 
-  if (bookingConfirmation) {
+  const confirmationModal = (() => {
+    if (!bookingConfirmation) return null;
     const conf = bookingConfirmation;
     const eventDate = conf.event?.date ? new Date(conf.event.date).toLocaleDateString('en-GB', {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
@@ -1330,120 +1331,127 @@ export default function PaymentOptions({
     const paymentAmount = conf.paymentDetails?.card_amount || conf.paymentDetails?.account_amount || 0;
 
     return (
-      <Card className="border-slate-200 shadow-lg">
-        <CardContent className="pt-8 pb-8 space-y-6">
-          <div className="text-center space-y-3">
-            <div className="flex justify-center">
-              <div className="p-3 rounded-full bg-green-100">
-                <CheckCircle2 className="w-10 h-10 text-green-600" />
+      <Dialog open={!!bookingConfirmation} onOpenChange={(open) => { if (!open) setBookingConfirmation(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="sr-only">Booking Confirmed</DialogTitle>
+            <DialogDescription className="sr-only">Your booking confirmation details</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
+            <div className="text-center space-y-3">
+              <div className="flex justify-center">
+                <div className="p-3 rounded-full bg-green-100">
+                  <CheckCircle2 className="w-10 h-10 text-green-600" />
+                </div>
               </div>
-            </div>
-            <h2 className="text-xl font-semibold" data-testid="text-booking-confirmed">
-              Booking Confirmed
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Your booking has been confirmed. A confirmation email will be sent to you shortly.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-md border bg-muted/30 space-y-3">
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-muted-foreground">Reference</span>
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono font-semibold" data-testid="text-booking-reference">{conf.bookingReference}</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(conf.bookingReference);
-                    toast.success('Reference copied');
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                  data-testid="button-copy-reference"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <h2 className="text-xl font-semibold" data-testid="text-booking-confirmed">
+                Booking Confirmed
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Your booking has been confirmed. A confirmation email will be sent to you shortly.
+              </p>
             </div>
 
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-muted-foreground">Event</span>
-              <span className="font-medium text-right" data-testid="text-event-name">{conf.event?.title}</span>
-            </div>
-
-            {eventDate && (
+            <div className="p-4 rounded-md border bg-muted/30 space-y-3">
               <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-muted-foreground flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Date</span>
-                <span className="font-medium">{eventDate}{eventTime ? ` at ${eventTime}` : ''}</span>
+                <span className="text-muted-foreground">Reference</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-semibold" data-testid="text-booking-reference">{conf.bookingReference}</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(conf.bookingReference);
+                      toast.success('Reference copied');
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                    data-testid="button-copy-reference"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground">Event</span>
+                <span className="font-medium text-right" data-testid="text-event-name">{conf.event?.title}</span>
+              </div>
+
+              {eventDate && (
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-muted-foreground flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Date</span>
+                  <span className="font-medium">{eventDate}{eventTime ? ` at ${eventTime}` : ''}</span>
+                </div>
+              )}
+
+              {conf.event?.location && (
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Location</span>
+                  <span className="font-medium text-right">{conf.event.location}</span>
+                </div>
+              )}
+            </div>
+
+            {conf.totalCost > 0 && (
+              <div className="p-4 rounded-md border space-y-2">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <PoundSterling className="w-4 h-4" />
+                  Payment Summary
+                </h3>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {conf.ticketsRequired} x {conf.ticketClassName}
+                  </span>
+                  <span className="font-medium">{'\u00a3'}{conf.totalCost.toFixed(2)}</span>
+                </div>
+                {conf.paymentDetails?.voucher_amount > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-700">
+                    <span>Voucher applied</span>
+                    <span>-{'\u00a3'}{conf.paymentDetails.voucher_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {conf.paymentDetails?.training_fund_amount > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-700">
+                    <span>Training fund applied</span>
+                    <span>-{'\u00a3'}{conf.paymentDetails.training_fund_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {conf.paymentDetails?.discount_code_amount > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-700">
+                    <span>Discount applied</span>
+                    <span>-{'\u00a3'}{conf.paymentDetails.discount_code_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {paymentAmount > 0 && (
+                  <div className="flex items-center justify-between text-sm pt-2 border-t font-semibold">
+                    <span>Paid by card</span>
+                    <span>{'\u00a3'}{paymentAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                {conf.xeroInvoice?.invoice_number && (
+                  <div className="flex items-center justify-between text-sm pt-1 text-muted-foreground">
+                    <span>Invoice</span>
+                    <span>{conf.xeroInvoice.invoice_number}</span>
+                  </div>
+                )}
               </div>
             )}
 
-            {conf.event?.location && (
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Location</span>
-                <span className="font-medium text-right">{conf.event.location}</span>
-              </div>
-            )}
+            <Button
+              onClick={() => window.location.href = createPageUrl('Events')}
+              className="w-full"
+              size="lg"
+              data-testid="button-back-to-events"
+            >
+              Back to Events <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
           </div>
-
-          {conf.totalCost > 0 && (
-            <div className="p-4 rounded-md border space-y-2">
-              <h3 className="text-sm font-medium flex items-center gap-2">
-                <PoundSterling className="w-4 h-4" />
-                Payment Summary
-              </h3>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
-                  {conf.ticketsRequired} x {conf.ticketClassName}
-                </span>
-                <span className="font-medium">{'\u00a3'}{conf.totalCost.toFixed(2)}</span>
-              </div>
-              {conf.paymentDetails?.voucher_amount > 0 && (
-                <div className="flex items-center justify-between text-sm text-green-700">
-                  <span>Voucher applied</span>
-                  <span>-{'\u00a3'}{conf.paymentDetails.voucher_amount.toFixed(2)}</span>
-                </div>
-              )}
-              {conf.paymentDetails?.training_fund_amount > 0 && (
-                <div className="flex items-center justify-between text-sm text-green-700">
-                  <span>Training fund applied</span>
-                  <span>-{'\u00a3'}{conf.paymentDetails.training_fund_amount.toFixed(2)}</span>
-                </div>
-              )}
-              {conf.paymentDetails?.discount_code_amount > 0 && (
-                <div className="flex items-center justify-between text-sm text-green-700">
-                  <span>Discount applied</span>
-                  <span>-{'\u00a3'}{conf.paymentDetails.discount_code_amount.toFixed(2)}</span>
-                </div>
-              )}
-              {paymentAmount > 0 && (
-                <div className="flex items-center justify-between text-sm pt-2 border-t font-semibold">
-                  <span>Paid by card</span>
-                  <span>{'\u00a3'}{paymentAmount.toFixed(2)}</span>
-                </div>
-              )}
-              {conf.xeroInvoice?.invoice_number && (
-                <div className="flex items-center justify-between text-sm pt-1 text-muted-foreground">
-                  <span>Invoice</span>
-                  <span>{conf.xeroInvoice.invoice_number}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          <Button
-            onClick={() => window.location.href = createPageUrl('Events')}
-            className="w-full"
-            size="lg"
-            data-testid="button-back-to-events"
-          >
-            Back to Events <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     );
-  }
+  })();
 
   return (
     <>
+      {confirmationModal}
       <Card className="border-slate-200 shadow-lg sticky top-8">
         <CardHeader className="border-b border-slate-200">
           <CardTitle className="text-xl">Booking Summary</CardTitle>
