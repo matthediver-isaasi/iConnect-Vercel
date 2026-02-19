@@ -267,14 +267,18 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
   const [updates, setUpdates] = useState([]);
   const [loadingUpdates, setLoadingUpdates] = useState(false);
   const [content, setContent] = useState('');
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
   const [posting, setPosting] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
+  const [editExistingImages, setEditExistingImages] = useState([]);
+  const [editNewFiles, setEditNewFiles] = useState([]);
+  const [editNewPreviews, setEditNewPreviews] = useState([]);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const fileInputRef = useRef(null);
+  const editFileInputRef = useRef(null);
 
   const tenantSlug = getTenantSlugFromLocation();
   const sessionToken = localStorage.getItem(getSessionKey());
@@ -300,35 +304,59 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
   }, [fetchUpdates]);
 
   const handleImageSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageFile(file);
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target.result);
-    reader.readAsDataURL(file);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const newFiles = [...imageFiles, ...files];
+    setImageFiles(newFiles);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreviews(prev => [...prev, ev.target.result]);
+      reader.readAsDataURL(file);
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const removeImage = () => {
-    setImageFile(null);
-    setImagePreview(null);
+  const removeImage = (index) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const clearImages = () => {
+    setImageFiles([]);
+    setImagePreviews([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleEditImageSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setEditNewFiles(prev => [...prev, ...files]);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => setEditNewPreviews(prev => [...prev, ev.target.result]);
+      reader.readAsDataURL(file);
+    });
+    if (editFileInputRef.current) editFileInputRef.current.value = '';
+  };
+
+  const uploadImage = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    let uploadUrl = `/api/public/fundraising/upload-update-image?session_token=${encodeURIComponent(sessionToken)}`;
+    if (tenantSlug) uploadUrl += `&tenant=${tenantSlug}`;
+    const uploadRes = await fetch(uploadUrl, { method: 'POST', body: formData });
+    if (!uploadRes.ok) throw new Error('Image upload failed');
+    const uploadData = await uploadRes.json();
+    return uploadData.url;
   };
 
   const handlePost = async () => {
     if (!content.trim() || !sessionToken) return;
     setPosting(true);
     try {
-      let imageUrl = null;
-
-      if (imageFile) {
-        const formData = new FormData();
-        formData.append('file', imageFile);
-        let uploadUrl = `/api/public/fundraising/upload-update-image?session_token=${encodeURIComponent(sessionToken)}`;
-        if (tenantSlug) uploadUrl += `&tenant=${tenantSlug}`;
-        const uploadRes = await fetch(uploadUrl, { method: 'POST', body: formData });
-        if (!uploadRes.ok) throw new Error('Image upload failed');
-        const uploadData = await uploadRes.json();
-        imageUrl = uploadData.url;
+      let uploadedUrls = [];
+      if (imageFiles.length > 0) {
+        uploadedUrls = await Promise.all(imageFiles.map(f => uploadImage(f)));
       }
 
       let postUrl = `/api/public/fundraising/updates?session_token=${encodeURIComponent(sessionToken)}`;
@@ -340,14 +368,14 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
           team_member_id: teamMemberId,
           campaign_id: campaignId,
           content: content.trim(),
-          image_url: imageUrl
+          image_urls: uploadedUrls.length > 0 ? uploadedUrls : undefined
         })
       });
 
       if (!postRes.ok) throw new Error('Failed to post update');
 
       setContent('');
-      removeImage();
+      clearImages();
       fetchUpdates();
     } catch {} finally {
       setPosting(false);
@@ -358,12 +386,23 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
     if (!editContent.trim() || !sessionToken) return;
     setSavingEdit(true);
     try {
+      let newUploadedUrls = [];
+      if (editNewFiles.length > 0) {
+        newUploadedUrls = await Promise.all(editNewFiles.map(f => uploadImage(f)));
+      }
+
+      const allImages = [...editExistingImages, ...newUploadedUrls];
+
       let url = `/api/public/fundraising/updates?session_token=${encodeURIComponent(sessionToken)}`;
       if (tenantSlug) url += `&tenant=${tenantSlug}`;
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ update_id: updateId, content: editContent.trim() })
+        body: JSON.stringify({
+          update_id: updateId,
+          content: editContent.trim(),
+          image_urls: allImages
+        })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -371,6 +410,9 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
       }
       setEditingId(null);
       setEditContent('');
+      setEditExistingImages([]);
+      setEditNewFiles([]);
+      setEditNewPreviews([]);
       fetchUpdates();
     } catch {} finally {
       setSavingEdit(false);
@@ -423,23 +465,27 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
               data-testid="textarea-update-content"
             />
 
-            {imagePreview && (
-              <div className="relative inline-block">
-                <img
-                  src={imagePreview}
-                  alt="Preview"
-                  className="w-20 h-20 object-cover rounded-md"
-                  data-testid="img-update-preview"
-                />
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="absolute -top-2 -right-2 rounded-full"
-                  onClick={removeImage}
-                  data-testid="button-remove-image"
-                >
-                  <X className="w-3 h-3" />
-                </Button>
+            {imagePreviews.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {imagePreviews.map((preview, idx) => (
+                  <div key={idx} className="relative inline-block">
+                    <img
+                      src={preview}
+                      alt="Preview"
+                      className="w-20 h-20 object-cover rounded-md"
+                      data-testid={`img-update-preview-${idx}`}
+                    />
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      className="absolute -top-2 -right-2 rounded-full"
+                      onClick={() => removeImage(idx)}
+                      data-testid={`button-remove-image-${idx}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -448,6 +494,7 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                multiple
                 onChange={handleImageSelect}
                 className="hidden"
                 data-testid="input-update-image"
@@ -459,7 +506,7 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                 data-testid="button-add-image"
               >
                 <ImagePlus className="w-4 h-4 mr-1" />
-                Add Photo
+                Add Photo{imagePreviews.length > 0 ? 's' : ''}
               </Button>
               <Button
                 size="sm"
@@ -505,7 +552,13 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                             <Button
                               size="icon"
                               variant="ghost"
-                              onClick={() => { setEditingId(u.id); setEditContent(u.content); }}
+                              onClick={() => {
+                                setEditingId(u.id);
+                                setEditContent(u.content);
+                                setEditExistingImages(u.image_urls || (u.image_url ? [u.image_url] : []));
+                                setEditNewFiles([]);
+                                setEditNewPreviews([]);
+                              }}
                               data-testid={`button-edit-update-${u.id}`}
                             >
                               <Pencil className="w-3.5 h-3.5" />
@@ -542,7 +595,70 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                           rows={3}
                           data-testid={`textarea-edit-update-${u.id}`}
                         />
+                        {(editExistingImages.length > 0 || editNewPreviews.length > 0) && (
+                          <div className="flex flex-wrap gap-2">
+                            {editExistingImages.map((imgUrl, idx) => (
+                              <div key={`existing-${idx}`} className="relative inline-block">
+                                <img
+                                  src={imgUrl}
+                                  alt=""
+                                  className="w-20 h-20 object-cover rounded-md"
+                                  data-testid={`img-edit-existing-${idx}`}
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  className="absolute -top-2 -right-2 rounded-full"
+                                  onClick={() => setEditExistingImages(prev => prev.filter((_, i) => i !== idx))}
+                                  data-testid={`button-remove-edit-existing-${idx}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                            {editNewPreviews.map((preview, idx) => (
+                              <div key={`new-${idx}`} className="relative inline-block">
+                                <img
+                                  src={preview}
+                                  alt=""
+                                  className="w-20 h-20 object-cover rounded-md"
+                                  data-testid={`img-edit-new-${idx}`}
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  className="absolute -top-2 -right-2 rounded-full"
+                                  onClick={() => {
+                                    setEditNewFiles(prev => prev.filter((_, i) => i !== idx));
+                                    setEditNewPreviews(prev => prev.filter((_, i) => i !== idx));
+                                  }}
+                                  data-testid={`button-remove-edit-new-${idx}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex items-center gap-2 flex-wrap">
+                          <input
+                            ref={editFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handleEditImageSelect}
+                            className="hidden"
+                            data-testid={`input-edit-image-${u.id}`}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => editFileInputRef.current?.click()}
+                            data-testid={`button-add-edit-image-${u.id}`}
+                          >
+                            <ImagePlus className="w-4 h-4 mr-1" />
+                            Add Photo
+                          </Button>
                           <Button
                             size="sm"
                             disabled={!editContent.trim() || savingEdit}
@@ -555,7 +671,13 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => { setEditingId(null); setEditContent(''); }}
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditContent('');
+                              setEditExistingImages([]);
+                              setEditNewFiles([]);
+                              setEditNewPreviews([]);
+                            }}
                             data-testid={`button-cancel-edit-${u.id}`}
                           >
                             Cancel
@@ -565,13 +687,18 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                     ) : (
                       <>
                         <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
-                        {u.image_url && (
-                          <img
-                            src={u.image_url}
-                            alt=""
-                            className="rounded-md max-h-48 object-cover"
-                            data-testid={`img-update-${u.id}`}
-                          />
+                        {(u.image_urls && u.image_urls.length > 0 ? u.image_urls : (u.image_url ? [u.image_url] : [])).length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {(u.image_urls && u.image_urls.length > 0 ? u.image_urls : [u.image_url]).map((imgUrl, idx) => (
+                              <img
+                                key={idx}
+                                src={imgUrl}
+                                alt=""
+                                className="rounded-md max-h-48 object-cover"
+                                data-testid={`img-update-${u.id}-${idx}`}
+                              />
+                            ))}
+                          </div>
                         )}
                       </>
                     )}

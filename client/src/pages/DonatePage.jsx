@@ -1011,14 +1011,19 @@ export default function DonatePage() {
                       </div>
                     </div>
                     <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
-                    {u.image_url && (
-                      <img
-                        src={u.image_url}
-                        alt=""
-                        className="rounded-md max-h-64 object-cover cursor-pointer"
-                        onClick={() => setFullSizeImage(u.image_url)}
-                        data-testid={`img-update-${u.id}`}
-                      />
+                    {((u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])).length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {((u.image_urls && u.image_urls.length > 0) ? u.image_urls : [u.image_url]).map((imgUrl, idx) => (
+                          <img
+                            key={idx}
+                            src={imgUrl}
+                            alt=""
+                            className="rounded-md max-h-64 object-cover cursor-pointer"
+                            onClick={() => setFullSizeImage(imgUrl)}
+                            data-testid={`img-update-${u.id}-${idx}`}
+                          />
+                        ))}
+                      </div>
                     )}
                     {u !== updates[updates.length - 1] && <div className="border-t" />}
                   </div>

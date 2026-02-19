@@ -74,6 +74,7 @@ export default async function handler(req, res) {
           id,
           content,
           image_url,
+          image_urls,
           visibility,
           posted_by,
           posted_by_name,
@@ -100,10 +101,15 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch updates' });
       }
 
-      const result = (updates || []).map(u => ({
+      const result = (updates || []).map(u => {
+        const images = u.image_urls && u.image_urls.length > 0
+          ? u.image_urls
+          : (u.image_url ? [u.image_url] : []);
+        return {
         id: u.id,
         content: u.content,
-        image_url: u.image_url,
+        image_url: images[0] || null,
+        image_urls: images,
         visibility: u.visibility || 'public',
         posted_by: u.posted_by || 'fundraiser',
         posted_by_name: u.posted_by_name,
@@ -119,7 +125,7 @@ export default async function handler(req, res) {
           : u.fundraising_team_member
             ? `${u.fundraising_team_member.first_name?.[0] || ''}${u.fundraising_team_member.last_name?.[0] || ''}`
             : '?'
-      }));
+      };});
 
       return res.json(result);
     } catch (err) {
@@ -156,11 +162,15 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: 'Session expired. Please log in again.' });
       }
 
-      const { team_member_id, campaign_id, content, image_url } = req.body;
+      const { team_member_id, campaign_id, content, image_url, image_urls } = req.body;
 
       if (!team_member_id || !campaign_id || !content?.trim()) {
         return res.status(400).json({ error: 'team_member_id, campaign_id, and content are required' });
       }
+
+      const finalImageUrls = image_urls && image_urls.length > 0
+        ? image_urls
+        : (image_url ? [image_url] : []);
 
       const { data: member, error: memberError } = await supabase
         .from('fundraising_team_member')
@@ -187,7 +197,8 @@ export default async function handler(req, res) {
           campaign_id,
           team_member_id,
           content: content.trim(),
-          image_url: image_url || null,
+          image_url: finalImageUrls[0] || null,
+          image_urls: finalImageUrls.length > 0 ? finalImageUrls : null,
           visibility: 'public',
           posted_by: 'fundraiser'
         })
@@ -230,7 +241,7 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: 'Session expired. Please log in again.' });
       }
 
-      const { update_id, content, image_url } = req.body;
+      const { update_id, content, image_url, image_urls } = req.body;
 
       if (!update_id || !content?.trim()) {
         return res.status(400).json({ error: 'update_id and content are required' });
@@ -262,8 +273,12 @@ export default async function handler(req, res) {
       }
 
       const updateData = { content: content.trim() };
-      if (image_url !== undefined) {
+      if (image_urls !== undefined) {
+        updateData.image_urls = image_urls && image_urls.length > 0 ? image_urls : null;
+        updateData.image_url = (image_urls && image_urls.length > 0) ? image_urls[0] : null;
+      } else if (image_url !== undefined) {
         updateData.image_url = image_url || null;
+        updateData.image_urls = image_url ? [image_url] : null;
       }
 
       const { data: updated, error: updateError } = await supabase
