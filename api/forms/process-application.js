@@ -966,14 +966,16 @@ export default async function handler(req, res) {
         existingMember = foundMember;
         console.log('[AppProcessor] Found member by prefill ID:', existingMember?.id);
       } else if (memberData.email) {
-        const { data: foundMember } = await supabase
+        let emailQuery = supabase
           .from('member')
           .select('*')
-          .ilike('email', memberData.email)
-          .limit(1)
-          .single();
+          .ilike('email', memberData.email);
+        if (tenant_id) {
+          emailQuery = emailQuery.eq('tenant_id', tenant_id);
+        }
+        const { data: foundMember } = await emailQuery.limit(1).single();
         existingMember = foundMember;
-        console.log('[AppProcessor] Found member by email:', existingMember?.id);
+        console.log('[AppProcessor] Found member by email:', existingMember?.id, tenant_id ? `(tenant: ${tenant_id})` : '(no tenant filter)');
       }
       
       if (existingMember) {
