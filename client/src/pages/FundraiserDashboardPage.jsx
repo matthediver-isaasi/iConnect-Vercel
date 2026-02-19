@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
   TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
   Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2,
-  Megaphone, Lock
+  Megaphone, Lock, Pencil, Trash2
 } from "lucide-react";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
@@ -270,6 +270,10 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [posting, setPosting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const fileInputRef = useRef(null);
 
   const tenantSlug = getTenantSlugFromLocation();
@@ -347,6 +351,46 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
       fetchUpdates();
     } catch {} finally {
       setPosting(false);
+    }
+  };
+
+  const handleEdit = async (updateId) => {
+    if (!editContent.trim() || !sessionToken) return;
+    setSavingEdit(true);
+    try {
+      let url = `/api/public/fundraising/updates?session_token=${encodeURIComponent(sessionToken)}`;
+      if (tenantSlug) url += `&tenant=${tenantSlug}`;
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ update_id: updateId, content: editContent.trim() })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to save');
+      }
+      setEditingId(null);
+      setEditContent('');
+      fetchUpdates();
+    } catch {} finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDelete = async (updateId) => {
+    if (!sessionToken) return;
+    setDeletingId(updateId);
+    try {
+      let url = `/api/public/fundraising/updates?session_token=${encodeURIComponent(sessionToken)}&update_id=${updateId}`;
+      if (tenantSlug) url += `&tenant=${tenantSlug}`;
+      const res = await fetch(url, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete');
+      }
+      fetchUpdates();
+    } catch {} finally {
+      setDeletingId(null);
     }
   };
 
@@ -435,38 +479,105 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
             </div>
           ) : updates.length > 0 ? (
             <div className="space-y-3">
-              {updates.map((u) => (
-                <div
-                  key={u.id}
-                  className={`border rounded-md p-3 space-y-2 ${u.posted_by === 'tenant' ? 'border-primary/20 bg-primary/5' : ''}`}
-                  data-testid={`update-${u.id}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
-                      {u.posted_by === 'tenant' && <Megaphone className="w-3.5 h-3.5 text-primary" />}
-                      {u.author_name}
-                      {u.posted_by === 'tenant' && u.visibility === 'private' && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Lock className="w-3 h-3 mr-0.5" />Private
-                        </Badge>
-                      )}
-                    </span>
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {formatTimeAgo(u.created_at)}
-                    </span>
+              {updates.map((u) => {
+                const isOwn = u.posted_by !== 'tenant' && u.team_member_id === teamMemberId;
+                const isEditing = editingId === u.id;
+
+                return (
+                  <div
+                    key={u.id}
+                    className={`border rounded-md p-3 space-y-2 ${u.posted_by === 'tenant' ? 'border-primary/20 bg-primary/5' : ''}`}
+                    data-testid={`update-${u.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
+                        {u.posted_by === 'tenant' && <Megaphone className="w-3.5 h-3.5 text-primary" />}
+                        {u.author_name}
+                        {u.posted_by === 'tenant' && u.visibility === 'private' && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Lock className="w-3 h-3 mr-0.5" />Private
+                          </Badge>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {isOwn && !isEditing && (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => { setEditingId(u.id); setEditContent(u.content); }}
+                              data-testid={`button-edit-update-${u.id}`}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              disabled={deletingId === u.id}
+                              onClick={() => {
+                                if (window.confirm('Delete this update?')) {
+                                  handleDelete(u.id);
+                                }
+                              }}
+                              data-testid={`button-delete-update-${u.id}`}
+                            >
+                              {deletingId === u.id
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <Trash2 className="w-3.5 h-3.5" />}
+                            </Button>
+                          </>
+                        )}
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatTimeAgo(u.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="resize-none"
+                          rows={3}
+                          data-testid={`textarea-edit-update-${u.id}`}
+                        />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Button
+                            size="sm"
+                            disabled={!editContent.trim() || savingEdit}
+                            onClick={() => handleEdit(u.id)}
+                            data-testid={`button-save-update-${u.id}`}
+                          >
+                            {savingEdit && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setEditingId(null); setEditContent(''); }}
+                            data-testid={`button-cancel-edit-${u.id}`}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
+                        {u.image_url && (
+                          <img
+                            src={u.image_url}
+                            alt=""
+                            className="rounded-md max-h-48 object-cover"
+                            data-testid={`img-update-${u.id}`}
+                          />
+                        )}
+                      </>
+                    )}
                   </div>
-                  <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
-                  {u.image_url && (
-                    <img
-                      src={u.image_url}
-                      alt=""
-                      className="rounded-md max-h-48 object-cover"
-                      data-testid={`img-update-${u.id}`}
-                    />
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground text-center py-2" data-testid="text-no-updates">

@@ -107,6 +107,7 @@ export default async function handler(req, res) {
         visibility: u.visibility || 'public',
         posted_by: u.posted_by || 'fundraiser',
         posted_by_name: u.posted_by_name,
+        team_member_id: u.team_member_id,
         created_at: u.created_at,
         author_name: u.posted_by === 'tenant'
           ? (u.posted_by_name || 'Campaign Organiser')
@@ -201,6 +202,156 @@ export default async function handler(req, res) {
       return res.status(201).json(update);
     } catch (err) {
       console.error('[Fundraising Updates] POST error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  if (req.method === 'PUT') {
+    try {
+      const tenant = await resolveTenantFromRequest(req);
+      if (!tenant?.id) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+
+      const sessionToken = req.query.session_token;
+      if (!sessionToken) {
+        return res.status(400).json({ error: 'Session token is required' });
+      }
+
+      const { data: tokenRecord, error: tokenError } = await supabase
+        .from('fundraising_login_token')
+        .select('*')
+        .eq('token', sessionToken)
+        .eq('tenant_id', tenant.id)
+        .eq('type', 'session')
+        .single();
+
+      if (tokenError || !tokenRecord || new Date(tokenRecord.expires_at) < new Date()) {
+        return res.status(401).json({ error: 'Session expired. Please log in again.' });
+      }
+
+      const { update_id, content, image_url } = req.body;
+
+      if (!update_id || !content?.trim()) {
+        return res.status(400).json({ error: 'update_id and content are required' });
+      }
+
+      const { data: existing, error: fetchError } = await supabase
+        .from('fundraising_update')
+        .select('id, team_member_id, posted_by, tenant_id')
+        .eq('id', update_id)
+        .eq('tenant_id', tenant.id)
+        .single();
+
+      if (fetchError || !existing) {
+        return res.status(404).json({ error: 'Update not found' });
+      }
+
+      if (existing.posted_by === 'tenant') {
+        return res.status(403).json({ error: 'Cannot edit campaign organiser posts' });
+      }
+
+      const { data: member } = await supabase
+        .from('fundraising_team_member')
+        .select('id, email')
+        .eq('id', existing.team_member_id)
+        .single();
+
+      if (!member || member.email?.toLowerCase() !== tokenRecord.email?.toLowerCase()) {
+        return res.status(403).json({ error: 'Not authorized to edit this update' });
+      }
+
+      const updateData = { content: content.trim() };
+      if (image_url !== undefined) {
+        updateData.image_url = image_url || null;
+      }
+
+      const { data: updated, error: updateError } = await supabase
+        .from('fundraising_update')
+        .update(updateData)
+        .eq('id', update_id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[Fundraising Updates] Update error:', updateError);
+        return res.status(500).json({ error: 'Failed to update' });
+      }
+
+      return res.json(updated);
+    } catch (err) {
+      console.error('[Fundraising Updates] PUT error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  if (req.method === 'DELETE') {
+    try {
+      const tenant = await resolveTenantFromRequest(req);
+      if (!tenant?.id) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+
+      const sessionToken = req.query.session_token;
+      if (!sessionToken) {
+        return res.status(400).json({ error: 'Session token is required' });
+      }
+
+      const { data: tokenRecord, error: tokenError } = await supabase
+        .from('fundraising_login_token')
+        .select('*')
+        .eq('token', sessionToken)
+        .eq('tenant_id', tenant.id)
+        .eq('type', 'session')
+        .single();
+
+      if (tokenError || !tokenRecord || new Date(tokenRecord.expires_at) < new Date()) {
+        return res.status(401).json({ error: 'Session expired. Please log in again.' });
+      }
+
+      const updateId = req.query.update_id;
+      if (!updateId) {
+        return res.status(400).json({ error: 'update_id is required' });
+      }
+
+      const { data: existing, error: fetchError } = await supabase
+        .from('fundraising_update')
+        .select('id, team_member_id, posted_by, tenant_id')
+        .eq('id', updateId)
+        .eq('tenant_id', tenant.id)
+        .single();
+
+      if (fetchError || !existing) {
+        return res.status(404).json({ error: 'Update not found' });
+      }
+
+      if (existing.posted_by === 'tenant') {
+        return res.status(403).json({ error: 'Cannot delete campaign organiser posts' });
+      }
+
+      const { data: member } = await supabase
+        .from('fundraising_team_member')
+        .select('id, email')
+        .eq('id', existing.team_member_id)
+        .single();
+
+      if (!member || member.email?.toLowerCase() !== tokenRecord.email?.toLowerCase()) {
+        return res.status(403).json({ error: 'Not authorized to delete this update' });
+      }
+
+      const { error: deleteError } = await supabase
+        .from('fundraising_update')
+        .delete()
+        .eq('id', updateId);
+
+      if (deleteError) {
+        console.error('[Fundraising Updates] Delete error:', deleteError);
+        return res.status(500).json({ error: 'Failed to delete update' });
+      }
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('[Fundraising Updates] DELETE error:', err);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
