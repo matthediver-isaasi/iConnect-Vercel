@@ -143,6 +143,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const roleActionTriggeredRef = useRef(false);
   // Track which role actions were previously active (for transition detection)
   const previousRoleActionsRef = useRef(new Set());
+  const formContainerRef = useRef(null);
 
   // Handler for field validity changes from FormRenderer
   const handleValidityChange = (fieldId, isValid) => {
@@ -1100,18 +1101,24 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return true;
   };
 
+  const scrollToForm = () => {
+    if (formContainerRef.current) {
+      formContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const goToNextPage = () => {
     if (validateCurrentPage()) {
       setCurrentPageIndex(prev => Math.min(prev + 1, pages.length - 1));
-      // Scroll to top of page for better UX
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollToForm();
     }
   };
 
   const goToPreviousPage = () => {
     setCurrentPageIndex(prev => Math.max(prev - 1, 0));
-    // Scroll to top of page for better UX
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToForm();
   };
 
   const isFirstPage = currentPageIndex === 0;
@@ -1582,7 +1589,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }
 
   return (
-    <div id={anchor || undefined} style={containerStyle}>
+    <div id={anchor || undefined} style={containerStyle} ref={formContainerRef}>
       {background_type === 'image' && overlay_enabled && (
         <div 
           className="absolute inset-0" 

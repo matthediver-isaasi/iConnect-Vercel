@@ -1315,6 +1315,7 @@ export default function FormViewPage() {
   const roleActionTriggeredRef = useRef(false);
   // Track which role actions were previously active (for transition detection)
   const previousRoleActionsRef = useRef(new Set());
+  const formContainerRef = useRef(null);
   
   // Reset set_value and role tracking when form changes
   useEffect(() => {
@@ -2173,18 +2174,24 @@ export default function FormViewPage() {
     return true;
   };
   
+  const scrollToForm = () => {
+    if (formContainerRef.current) {
+      formContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const goToNextPage = () => {
     if (validateCurrentPage()) {
       setCurrentPageIndex(prev => Math.min(prev + 1, pages.length - 1));
-      // Scroll to top of page for better UX
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollToForm();
     }
   };
   
   const goToPreviousPage = () => {
     setCurrentPageIndex(prev => Math.max(prev - 1, 0));
-    // Scroll to top of page for better UX
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToForm();
   };
   
   const isFirstPage = currentPageIndex === 0;
@@ -2193,7 +2200,7 @@ export default function FormViewPage() {
   const displayFields = filterVisibleFields(getCurrentPageFields());
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>
       <div className="max-w-3xl mx-auto">
         <Card className="border-slate-200">
           <CardHeader>
