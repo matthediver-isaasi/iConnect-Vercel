@@ -213,6 +213,9 @@ export default async function handler(req, res) {
         first_name: teamMember.first_name,
         last_name: teamMember.last_name,
         photo_url: teamMember.photo_url,
+        avatar_url: teamMember.avatar_url || null,
+        personal_message: teamMember.personal_message || null,
+        custom_header_image_url: teamMember.custom_header_image_url || null,
         individual_goal: teamMember.individual_goal ? parseFloat(teamMember.individual_goal) : null,
         team_name: teamName
       },

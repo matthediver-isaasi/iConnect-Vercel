@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
   TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
   Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2,
-  Megaphone, Lock, Pencil, Trash2
+  Megaphone, Lock, Pencil, Trash2, Camera, Save, Image
 } from "lucide-react";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
@@ -21,6 +21,50 @@ import { getTenantSlugFromLocation } from "@/api/publicClient";
 function getSessionKey() {
   const slug = getTenantSlugFromLocation();
   return slug ? `fundraiser_session_${slug}` : 'fundraiser_session_token';
+}
+
+function useProfileUpload(tenantSlug) {
+  const sessionToken = localStorage.getItem(
+    tenantSlug ? `fundraiser_session_${tenantSlug}` : 'fundraiser_session_token'
+  );
+
+  const uploadImage = async (teamMemberId, field, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('team_member_id', teamMemberId);
+    formData.append('field', field);
+    let url = `/api/public/fundraising/update-profile?session_token=${encodeURIComponent(sessionToken)}`;
+    if (tenantSlug) url += `&tenant=${tenantSlug}`;
+    const res = await fetch(url, { method: 'PUT', body: formData });
+    if (!res.ok) throw new Error('Upload failed');
+    return res.json();
+  };
+
+  const updateText = async (teamMemberId, field, value) => {
+    let url = `/api/public/fundraising/update-profile?session_token=${encodeURIComponent(sessionToken)}`;
+    if (tenantSlug) url += `&tenant=${tenantSlug}`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_member_id: teamMemberId, field, value })
+    });
+    if (!res.ok) throw new Error('Update failed');
+    return res.json();
+  };
+
+  const removeImage = async (teamMemberId, field) => {
+    let url = `/api/public/fundraising/update-profile?session_token=${encodeURIComponent(sessionToken)}`;
+    if (tenantSlug) url += `&tenant=${tenantSlug}`;
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_member_id: teamMemberId, field, value: 'remove' })
+    });
+    if (!res.ok) throw new Error('Remove failed');
+    return res.json();
+  };
+
+  return { uploadImage, updateText, removeImage };
 }
 
 function formatCurrency(amount, currency) {
@@ -1214,11 +1258,55 @@ function CampaignTile({ campaign, onClick, hasNewUpdates }) {
   );
 }
 
-function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
+function CampaignDetailView({ campaign, onBack, getDonatePageUrl, onRefresh }) {
   const individualPercent = campaign.individual_goal > 0
     ? Math.round((campaign.individual_raised / campaign.individual_goal) * 100)
     : 0;
   const donateUrl = getDonatePageUrl(campaign.participant_token, campaign);
+  const tenantSlug = getTenantSlugFromLocation();
+  const { uploadImage: profileUploadImage, updateText, removeImage: profileRemoveImage } = useProfileUpload(tenantSlug);
+
+  const [editingMessage, setEditingMessage] = useState(false);
+  const [messageText, setMessageText] = useState(campaign.personal_message || '');
+  const [savingMessage, setSavingMessage] = useState(false);
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+  const headerInputRef = useRef(null);
+
+  const handleSaveMessage = async () => {
+    setSavingMessage(true);
+    try {
+      await updateText(campaign.team_member_id, 'personal_message', messageText);
+      setEditingMessage(false);
+      if (onRefresh) onRefresh();
+    } catch {} finally {
+      setSavingMessage(false);
+    }
+  };
+
+  const handleHeaderUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingHeader(true);
+    try {
+      await profileUploadImage(campaign.team_member_id, 'custom_header_image_url', file);
+      if (onRefresh) onRefresh();
+    } catch {} finally {
+      setUploadingHeader(false);
+      if (headerInputRef.current) headerInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveHeader = async () => {
+    setUploadingHeader(true);
+    try {
+      await profileRemoveImage(campaign.team_member_id, 'custom_header_image_url');
+      if (onRefresh) onRefresh();
+    } catch {} finally {
+      setUploadingHeader(false);
+    }
+  };
+
+  const headerImage = campaign.custom_header_image_url || campaign.campaign_cover_image_url;
 
   return (
     <div className="space-y-4">
@@ -1234,15 +1322,69 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
 
       <Card data-testid={`card-campaign-detail-${campaign.campaign_id}`}>
         <CardContent className="pt-6 space-y-4">
-          {campaign.campaign_cover_image_url && (
-            <div className="relative h-40 -mt-6 -mx-6 mb-4 overflow-hidden rounded-t-lg">
+          {headerImage && (
+            <div className="relative h-40 -mt-6 -mx-6 mb-4 overflow-hidden rounded-t-lg group">
               <img
-                src={campaign.campaign_cover_image_url}
+                src={headerImage}
                 alt={campaign.campaign_name}
                 className="w-full h-full object-cover"
                 data-testid="img-campaign-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+              <div className="absolute top-2 right-2 flex gap-1 invisible group-hover:visible">
+                <input
+                  ref={headerInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleHeaderUpload}
+                  className="hidden"
+                  data-testid="input-header-image"
+                />
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  disabled={uploadingHeader}
+                  onClick={() => headerInputRef.current?.click()}
+                  data-testid="button-change-header"
+                >
+                  {uploadingHeader ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                </Button>
+                {campaign.custom_header_image_url && (
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    disabled={uploadingHeader}
+                    onClick={handleRemoveHeader}
+                    data-testid="button-remove-header"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+          {!headerImage && (
+            <div className="relative -mt-6 -mx-6 mb-4 overflow-hidden rounded-t-lg">
+              <div className="h-24 bg-muted flex items-center justify-center">
+                <input
+                  ref={headerInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleHeaderUpload}
+                  className="hidden"
+                  data-testid="input-header-image"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingHeader}
+                  onClick={() => headerInputRef.current?.click()}
+                  data-testid="button-add-header"
+                >
+                  {uploadingHeader ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Image className="w-4 h-4 mr-1" />}
+                  Add Cover Photo
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1269,6 +1411,59 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
                 {campaign.role === 'lead' ? 'Lead' : 'Member'}
               </Badge>
             </div>
+          </div>
+
+          <div className="border rounded-md p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">Why I'm fundraising</p>
+              {!editingMessage && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => { setEditingMessage(true); setMessageText(campaign.personal_message || ''); }}
+                  data-testid="button-edit-message"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+            {editingMessage ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder="Tell supporters why this cause matters to you..."
+                  className="resize-none"
+                  rows={3}
+                  data-testid="textarea-personal-message"
+                />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    disabled={savingMessage}
+                    onClick={handleSaveMessage}
+                    data-testid="button-save-message"
+                  >
+                    {savingMessage && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setEditingMessage(false)}
+                    data-testid="button-cancel-message"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm" data-testid="text-personal-message">
+                {campaign.personal_message || (
+                  <span className="text-muted-foreground italic">Add a personal message to show on your donation page</span>
+                )}
+              </p>
+            )}
           </div>
 
           {campaign.individual_goal > 0 && (
@@ -1465,6 +1660,19 @@ export default function FundraiserDashboardPage() {
     }
   }, [searchParams, setSearchParams]);
 
+  const refreshData = useCallback(() => {
+    const tenantSlug = getTenantSlugFromLocation();
+    const sessionKey = tenantSlug ? `fundraiser_session_${tenantSlug}` : 'fundraiser_session_token';
+    const storedSession = localStorage.getItem(sessionKey);
+    if (!storedSession) return;
+    let url = `/api/public/fundraising/verify-session?session_token=${encodeURIComponent(storedSession)}`;
+    if (tenantSlug) url += `&tenant=${tenantSlug}`;
+    fetch(url)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setDashboardData(data); })
+      .catch(() => {});
+  }, []);
+
   const getDonatePageUrl = (participantToken, campaign) => {
     const baseUrl = campaign?.tenant_base_url || window.location.origin;
     return `${baseUrl}/donate/${participantToken}`;
@@ -1514,10 +1722,28 @@ export default function FundraiserDashboardPage() {
 
   if (!dashboardData) return null;
 
-  const { first_name, last_name, campaigns } = dashboardData;
+  const { first_name, last_name, avatar_url, campaigns } = dashboardData;
   const selectedCampaign = selectedCampaignId
     ? campaigns.find(c => c.campaign_id === selectedCampaignId)
     : null;
+
+  const avatarInputRef = useRef(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const tenantSlugForAvatar = getTenantSlugFromLocation();
+  const { uploadImage: avatarUpload } = useProfileUpload(tenantSlugForAvatar);
+
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || campaigns.length === 0) return;
+    setUploadingAvatar(true);
+    try {
+      await avatarUpload(campaigns[0].team_member_id, 'avatar_url', file);
+      refreshData();
+    } catch {} finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
 
   const uniqueTenants = [...new Set(campaigns.map(c => c.tenant_name).filter(Boolean))];
   const isMultiTenant = uniqueTenants.length > 1;
@@ -1546,9 +1772,38 @@ export default function FundraiserDashboardPage() {
         )}
 
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto text-lg font-bold text-primary">
-            {first_name?.[0]}{last_name?.[0]}
-          </div>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleAvatarUpload}
+            className="hidden"
+            data-testid="input-avatar-upload"
+          />
+          <button
+            className="relative w-14 h-14 rounded-full mx-auto group cursor-pointer"
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            data-testid="button-avatar-upload"
+          >
+            {avatar_url ? (
+              <img
+                src={avatar_url}
+                alt={`${first_name} ${last_name}`}
+                className="w-14 h-14 rounded-full object-cover"
+                data-testid="img-avatar"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary">
+                {first_name?.[0]}{last_name?.[0]}
+              </div>
+            )}
+            <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center invisible group-hover:visible">
+              {uploadingAvatar
+                ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+                : <Pencil className="w-4 h-4 text-white" />}
+            </div>
+          </button>
           <h1 className="text-2xl font-bold" data-testid="text-welcome">
             Welcome back, {first_name}
           </h1>
@@ -1575,6 +1830,7 @@ export default function FundraiserDashboardPage() {
             campaign={selectedCampaign}
             onBack={() => setSelectedCampaignId(null)}
             getDonatePageUrl={getDonatePageUrl}
+            onRefresh={refreshData}
           />
         ) : (
           <div className="space-y-4">

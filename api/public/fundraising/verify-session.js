@@ -14,7 +14,10 @@ async function fetchDashboardData(supabase, tenantId, email) {
       token,
       individual_goal,
       is_active,
-      created_at
+      created_at,
+      personal_message,
+      custom_header_image_url,
+      avatar_url
     `)
     .eq('tenant_id', tenantId)
     .ilike('email', email)
@@ -223,7 +226,10 @@ async function fetchDashboardData(supabase, tenantId, email) {
       role: isLead ? 'lead' : 'member',
       donors: donorsByMember[member.id] || [],
       wellwishers: wellwishersByMember[member.id] || [],
-      latest_update_at: latestUpdatePerCampaign[campaign.id] || null
+      latest_update_at: latestUpdatePerCampaign[campaign.id] || null,
+      personal_message: member.personal_message || null,
+      custom_header_image_url: member.custom_header_image_url || null,
+      avatar_url: member.avatar_url || null
     };
 
     if (campaign.hide_campaign_target !== true) {
@@ -238,6 +244,7 @@ async function fetchDashboardData(supabase, tenantId, email) {
     email,
     first_name: members[0].first_name,
     last_name: members[0].last_name,
+    avatar_url: members[0].avatar_url || null,
     campaigns: campaignsData
   };
 }
@@ -282,6 +289,7 @@ async function fetchCrossTenantDashboardData(supabase, currentTenantId, email) {
   let mergedCampaigns = [];
   let firstName = null;
   let lastName = null;
+  let avatarUrl = null;
 
   for (const tenantId of sortedTenantIds) {
     const tenantData = await fetchDashboardData(supabase, tenantId, email);
@@ -290,6 +298,9 @@ async function fetchCrossTenantDashboardData(supabase, currentTenantId, email) {
     if (!firstName) {
       firstName = tenantData.first_name;
       lastName = tenantData.last_name;
+    }
+    if (!avatarUrl && tenantData.avatar_url) {
+      avatarUrl = tenantData.avatar_url;
     }
 
     const tenant = tenantMap[tenantId];
@@ -314,6 +325,7 @@ async function fetchCrossTenantDashboardData(supabase, currentTenantId, email) {
     email,
     first_name: firstName,
     last_name: lastName,
+    avatar_url: avatarUrl,
     campaigns: mergedCampaigns
   };
 }

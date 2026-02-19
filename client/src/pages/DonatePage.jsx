@@ -340,10 +340,10 @@ export default function DonatePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
-      {campaign.cover_image_url && (
+      {(team_member.custom_header_image_url || campaign.cover_image_url) && (
         <div className="relative h-48 md:h-64 overflow-hidden">
           <img
-            src={campaign.cover_image_url}
+            src={team_member.custom_header_image_url || campaign.cover_image_url}
             alt={campaign.name}
             className="w-full h-full object-cover"
           />
@@ -357,7 +357,7 @@ export default function DonatePage() {
       )}
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {!campaign.cover_image_url && (
+        {!team_member.custom_header_image_url && !campaign.cover_image_url && (
           <div className="text-center pt-4">
             <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-campaign-name-no-img">
               {campaign.name}
@@ -366,9 +366,18 @@ export default function DonatePage() {
         )}
 
         <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-          <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary shrink-0">
-            {team_member.first_name?.[0]}{team_member.last_name?.[0]}
-          </div>
+          {(team_member.avatar_url || team_member.photo_url) ? (
+            <img
+              src={team_member.avatar_url || team_member.photo_url}
+              alt={`${team_member.first_name} ${team_member.last_name}`}
+              className="w-14 h-14 rounded-full object-cover shrink-0"
+              data-testid="img-fundraiser-avatar"
+            />
+          ) : (
+            <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary shrink-0">
+              {team_member.first_name?.[0]}{team_member.last_name?.[0]}
+            </div>
+          )}
           <div>
             <p className="font-semibold text-lg" data-testid="text-team-member-name">
               {team_member.first_name} {team_member.last_name}
@@ -376,6 +385,16 @@ export default function DonatePage() {
             <p className="text-sm text-muted-foreground">is fundraising for this campaign</p>
           </div>
         </div>
+
+        {team_member.personal_message && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap" data-testid="text-personal-message">
+                {team_member.personal_message}
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {(!campaign.hide_campaign_target || team_member.individual_goal) && (
           <Card>

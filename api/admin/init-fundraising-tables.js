@@ -143,6 +143,10 @@ ALTER TABLE fundraising_update ADD COLUMN IF NOT EXISTS posted_by TEXT NOT NULL 
 ALTER TABLE fundraising_update ADD COLUMN IF NOT EXISTS posted_by_name TEXT;
 ALTER TABLE fundraising_update ADD COLUMN IF NOT EXISTS image_urls TEXT[];
 UPDATE fundraising_update SET image_urls = ARRAY[image_url] WHERE image_url IS NOT NULL AND (image_urls IS NULL OR image_urls = '{}');
+
+ALTER TABLE fundraising_team_member ADD COLUMN IF NOT EXISTS personal_message TEXT;
+ALTER TABLE fundraising_team_member ADD COLUMN IF NOT EXISTS custom_header_image_url TEXT;
+ALTER TABLE fundraising_team_member ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 `;
 
 export default async function handler(req, res) {
