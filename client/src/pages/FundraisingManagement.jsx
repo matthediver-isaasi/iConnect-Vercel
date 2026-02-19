@@ -638,72 +638,131 @@ function CampaignDetail({ campaignId, onBack }) {
 
         <TabsContent value="overview" className="mt-4">
           <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <Award className="w-4 h-4 text-amber-500" />
-                  <CardTitle className="text-base">Team Leaderboard</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {sortedTeamMembers.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground text-sm">
-                    No team members yet
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {sortedTeamMembers.map((member, index) => {
-                      const memberGoal = member.individual_goal || parseFloat(campaign.goal_amount) / (campaign.team_members?.length || 1);
-                      const memberProgress = memberGoal > 0 ? Math.min(100, Math.round(((member.total_raised || 0) / memberGoal) * 100)) : 0;
-                      const isTop = index === 0 && (member.total_raised || 0) > 0;
+            <div className="space-y-6">
+              {teams.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-primary" />
+                      <CardTitle className="text-base">Team Leaderboard</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {teams.map((team, index) => {
+                        const isTop = index === 0 && team.totalRaised > 0;
+                        const teamGoal = team.members.reduce((sum, m) => sum + (parseFloat(m.individual_goal) || 0), 0);
+                        const teamProgress = teamGoal > 0 ? Math.min(100, Math.round((team.totalRaised / teamGoal) * 100)) : 0;
 
-                      return (
-                        <div key={member.id} className="space-y-2" data-testid={`leaderboard-member-${member.id}`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-sm font-medium text-muted-foreground w-5 text-right">
-                                  {index + 1}
-                                </span>
-                                <Avatar className="h-8 w-8">
-                                  <AvatarFallback className={isTop ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : ''}>
-                                    {member.first_name?.[0]}{member.last_name?.[0]}
-                                  </AvatarFallback>
-                                </Avatar>
+                        return (
+                          <div key={team.slug} className="space-y-2" data-testid={`leaderboard-team-${team.slug}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-sm font-medium text-muted-foreground w-5 text-right">
+                                    {index + 1}
+                                  </span>
+                                  <div className={`p-1.5 rounded-md ${isTop ? 'bg-amber-500/10' : 'bg-muted'}`}>
+                                    <Users className={`w-4 h-4 ${isTop ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`} />
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                                    {team.name}
+                                    {isTop && <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {team.members.length} member{team.members.length !== 1 ? 's' : ''}
+                                    {' \u00b7 '}{team.donationCount} donation{team.donationCount !== 1 ? 's' : ''}
+                                  </p>
+                                </div>
                               </div>
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate flex items-center gap-1.5">
-                                  {member.first_name} {member.last_name}
-                                  {isTop && <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {member.team_name && <span className="font-medium">{member.team_name} &middot; </span>}
-                                  {member.donation_count || 0} donations
-                                  {member.gift_aid_count > 0 && ` \u00b7 ${member.gift_aid_count} Gift Aid`}
+                              <div className="text-right shrink-0">
+                                <p className="text-sm font-bold">
+                                  {formatCurrency(team.totalRaised, campaign.currency)}
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <p className="text-sm font-bold">
-                                {formatCurrency(member.total_raised, campaign.currency)}
-                              </p>
-                              {member.individual_goal > 0 && (
-                                <p className="text-xs text-muted-foreground">
-                                  of {formatCurrency(member.individual_goal, campaign.currency)}
-                                </p>
-                              )}
-                            </div>
+                            {teamGoal > 0 && (
+                              <div className="ml-12">
+                                <ProgressBar percent={teamProgress} height="h-1.5" />
+                              </div>
+                            )}
                           </div>
-                          <div className="ml-12">
-                            <ProgressBar percent={memberProgress} height="h-1.5" />
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-500" />
+                    <CardTitle className="text-base">Individual Leaderboard</CardTitle>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent>
+                  {sortedTeamMembers.length === 0 ? (
+                    <div className="text-center py-6 text-muted-foreground text-sm">
+                      No fundraisers yet
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {sortedTeamMembers.map((member, index) => {
+                        const memberGoal = member.individual_goal || parseFloat(campaign.goal_amount) / (campaign.team_members?.length || 1);
+                        const memberProgress = memberGoal > 0 ? Math.min(100, Math.round(((member.total_raised || 0) / memberGoal) * 100)) : 0;
+                        const isTop = index === 0 && (member.total_raised || 0) > 0;
+
+                        return (
+                          <div key={member.id} className="space-y-2" data-testid={`leaderboard-member-${member.id}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-sm font-medium text-muted-foreground w-5 text-right">
+                                    {index + 1}
+                                  </span>
+                                  <Avatar className="h-8 w-8">
+                                    <AvatarFallback className={isTop ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : ''}>
+                                      {member.first_name?.[0]}{member.last_name?.[0]}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                                    {member.first_name} {member.last_name}
+                                    {isTop && <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {member.team_name && <span className="font-medium">{member.team_name} &middot; </span>}
+                                    {member.donation_count || 0} donations
+                                    {member.gift_aid_count > 0 && ` \u00b7 ${member.gift_aid_count} Gift Aid`}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-sm font-bold">
+                                  {formatCurrency(member.total_raised, campaign.currency)}
+                                </p>
+                                {member.individual_goal > 0 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    of {formatCurrency(member.individual_goal, campaign.currency)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="ml-12">
+                              <ProgressBar percent={memberProgress} height="h-1.5" />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
             <div className="space-y-6">
               <Card>
