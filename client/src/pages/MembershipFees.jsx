@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   Loader2, CheckCircle2, CreditCard, ClipboardList,
-  AlertCircle, Building2, FileText, RefreshCw, ShieldAlert
+  AlertCircle, Building2, FileText, RefreshCw, ShieldAlert, Send
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -346,7 +346,9 @@ export default function MembershipFees() {
   }
 
   const breakdown = data?.costBreakdown || {};
-  const alreadyPaid = data?.existingRecord?.status === 'active';
+  const isStripePayment = data?.existingRecord?.paymentMethod === 'stripe';
+  const alreadyPaid = data?.existingRecord?.status === 'active' && isStripePayment;
+  const invoiceSent = data?.existingRecord?.status === 'active' && !isStripePayment;
 
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-4">
@@ -362,6 +364,12 @@ export default function MembershipFees() {
             <Badge variant="secondary" data-testid="badge-paid">
               <CheckCircle2 className="w-3 h-3 mr-1" />
               Paid
+            </Badge>
+          )}
+          {invoiceSent && (
+            <Badge variant="outline" data-testid="badge-invoice-sent">
+              <Send className="w-3 h-3 mr-1" />
+              Invoice Sent
             </Badge>
           )}
         </CardHeader>
@@ -448,7 +456,7 @@ export default function MembershipFees() {
         </CardContent>
       </Card>
 
-      {data?.approvalPending && !alreadyPaid && (
+      {data?.approvalPending && !alreadyPaid && !invoiceSent && (
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
@@ -464,7 +472,7 @@ export default function MembershipFees() {
         </Card>
       )}
 
-      {canSubmitPo && !alreadyPaid && !poSubmitted && !data?.poNumber && paymentMode !== 'stripe' && !data?.approvalPending && (
+      {canSubmitPo && !alreadyPaid && !invoiceSent && !poSubmitted && !data?.poNumber && paymentMode !== 'stripe' && !data?.approvalPending && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -520,7 +528,7 @@ export default function MembershipFees() {
         </Card>
       )}
 
-      {canPayOnline && data?.stripeEnabled && !alreadyPaid && !paymentComplete && !data?.approvalPending && (
+      {canPayOnline && data?.stripeEnabled && !alreadyPaid && !invoiceSent && !paymentComplete && !data?.approvalPending && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -589,9 +597,15 @@ export default function MembershipFees() {
           <CardContent className="pt-6 text-center">
             <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-green-500" />
             <p className="font-medium">Membership fee already paid for this period</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Payment method: {data.existingRecord?.paymentMethod || 'N/A'}
-            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {invoiceSent && (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <Send className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
+            <p className="font-medium">Invoice sent for this period</p>
           </CardContent>
         </Card>
       )}
