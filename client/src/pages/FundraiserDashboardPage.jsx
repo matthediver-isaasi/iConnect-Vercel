@@ -10,7 +10,7 @@ import {
   ExternalLink, AlertCircle, ImagePlus, MessageSquare,
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
   TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
-  Trophy, Medal, Star, Flame, Zap, Award, Minus
+  Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2
 } from "lucide-react";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
@@ -962,7 +962,7 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
   const individualPercent = campaign.individual_goal > 0
     ? Math.round((campaign.individual_raised / campaign.individual_goal) * 100)
     : 0;
-  const donateUrl = getDonatePageUrl(campaign.participant_token);
+  const donateUrl = getDonatePageUrl(campaign.participant_token, campaign);
 
   return (
     <div className="space-y-4">
@@ -995,6 +995,12 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
               <h3 className="text-lg font-semibold" data-testid="text-campaign-name">
                 {campaign.campaign_name}
               </h3>
+              {campaign.tenant_name && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1" data-testid="text-tenant-name">
+                  <Building2 className="w-3 h-3" />
+                  {campaign.tenant_name}
+                </p>
+              )}
               {campaign.organization_name && (
                 <p className="text-sm text-muted-foreground" data-testid="text-org-name">
                   Raising funds on behalf of: {campaign.organization_name}
@@ -1074,11 +1080,19 @@ function CampaignDetailView({ campaign, onBack, getDonatePageUrl }) {
                 </Button>
               </a>
               {campaign.campaign_slug && (
-                <Link to={`/fundraise/${campaign.campaign_slug}`}>
-                  <Button variant="outline" size="sm" data-testid="button-view-campaign">
-                    Campaign Page
-                  </Button>
-                </Link>
+                campaign.tenant_base_url ? (
+                  <a href={`${campaign.tenant_base_url}/fundraise/${campaign.campaign_slug}`} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" data-testid="button-view-campaign">
+                      Campaign Page
+                    </Button>
+                  </a>
+                ) : (
+                  <Link to={`/fundraise/${campaign.campaign_slug}`}>
+                    <Button variant="outline" size="sm" data-testid="button-view-campaign">
+                      Campaign Page
+                    </Button>
+                  </Link>
+                )
               )}
             </div>
           </div>
@@ -1181,9 +1195,9 @@ export default function FundraiserDashboardPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  const getDonatePageUrl = (participantToken) => {
-    const origin = window.location.origin;
-    return `${origin}/donate/${participantToken}`;
+  const getDonatePageUrl = (participantToken, campaign) => {
+    const baseUrl = campaign?.tenant_base_url || window.location.origin;
+    return `${baseUrl}/donate/${participantToken}`;
   };
 
   if (loading) {
@@ -1235,6 +1249,18 @@ export default function FundraiserDashboardPage() {
     ? campaigns.find(c => c.campaign_id === selectedCampaignId)
     : null;
 
+  const uniqueTenants = [...new Set(campaigns.map(c => c.tenant_name).filter(Boolean))];
+  const isMultiTenant = uniqueTenants.length > 1;
+
+  const campaignsByTenant = isMultiTenant
+    ? campaigns.reduce((groups, campaign) => {
+        const tenantName = campaign.tenant_name || 'Other';
+        if (!groups[tenantName]) groups[tenantName] = [];
+        groups[tenantName].push(campaign);
+        return groups;
+      }, {})
+    : null;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
@@ -1257,7 +1283,10 @@ export default function FundraiserDashboardPage() {
             Welcome back, {first_name}
           </h1>
           <p className="text-muted-foreground text-sm">
-            Here are your fundraising campaigns
+            {isMultiTenant
+              ? `Your fundraising campaigns across ${uniqueTenants.length} organisations`
+              : 'Here are your fundraising campaigns'
+            }
           </p>
         </div>
 
@@ -1281,15 +1310,38 @@ export default function FundraiserDashboardPage() {
           <div className="space-y-4">
             <SummaryCards campaigns={campaigns} />
 
-            <div className="space-y-3" data-testid="campaign-list">
-              {campaigns.map((campaign) => (
-                <CampaignTile
-                  key={campaign.campaign_id}
-                  campaign={campaign}
-                  onClick={() => setSelectedCampaignId(campaign.campaign_id)}
-                />
-              ))}
-            </div>
+            {isMultiTenant ? (
+              <div className="space-y-6" data-testid="campaign-list">
+                {Object.entries(campaignsByTenant).map(([tenantName, tenantCampaigns]) => (
+                  <div key={tenantName} className="space-y-3">
+                    <div className="flex items-center gap-2 px-1">
+                      <Building2 className="w-4 h-4 text-muted-foreground" />
+                      <h2 className="text-sm font-semibold text-muted-foreground" data-testid={`text-tenant-group-${tenantName}`}>
+                        {tenantName}
+                      </h2>
+                      <Badge variant="secondary" className="text-xs">{tenantCampaigns.length}</Badge>
+                    </div>
+                    {tenantCampaigns.map((campaign) => (
+                      <CampaignTile
+                        key={campaign.campaign_id}
+                        campaign={campaign}
+                        onClick={() => setSelectedCampaignId(campaign.campaign_id)}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3" data-testid="campaign-list">
+                {campaigns.map((campaign) => (
+                  <CampaignTile
+                    key={campaign.campaign_id}
+                    campaign={campaign}
+                    onClick={() => setSelectedCampaignId(campaign.campaign_id)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 

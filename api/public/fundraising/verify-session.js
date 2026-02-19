@@ -227,7 +227,83 @@ async function fetchDashboardData(supabase, tenantId, email) {
   };
 }
 
-export { fetchDashboardData };
+function buildTenantBaseUrl(tenant) {
+  const appDomain = process.env.APP_DOMAIN || 'iconn.app';
+  if (tenant.domain) {
+    return `https://${tenant.domain}`;
+  }
+  return `https://${tenant.slug}.${appDomain}`;
+}
+
+async function fetchCrossTenantDashboardData(supabase, currentTenantId, email) {
+  // Cross-tenant: same email = same person across tenants (verified via magic link to that email).
+  // Only shows campaigns where the email is an active registered team member.
+  const { data: allMembers } = await supabase
+    .from('fundraising_team_member')
+    .select('tenant_id')
+    .ilike('email', email)
+    .eq('is_active', true);
+
+  if (!allMembers || allMembers.length === 0) {
+    return null;
+  }
+
+  const tenantIds = [...new Set(allMembers.map(m => m.tenant_id))];
+
+  const { data: tenants } = await supabase
+    .from('tenant')
+    .select('id, name, slug, domain')
+    .in('id', tenantIds);
+
+  const tenantMap = {};
+  (tenants || []).forEach(t => { tenantMap[t.id] = t; });
+
+  const sortedTenantIds = tenantIds.sort((a, b) => {
+    if (a === currentTenantId) return -1;
+    if (b === currentTenantId) return 1;
+    return 0;
+  });
+
+  let mergedCampaigns = [];
+  let firstName = null;
+  let lastName = null;
+
+  for (const tenantId of sortedTenantIds) {
+    const tenantData = await fetchDashboardData(supabase, tenantId, email);
+    if (!tenantData) continue;
+
+    if (!firstName) {
+      firstName = tenantData.first_name;
+      lastName = tenantData.last_name;
+    }
+
+    const tenant = tenantMap[tenantId];
+    const tenantBaseUrl = tenant ? buildTenantBaseUrl(tenant) : null;
+
+    const enrichedCampaigns = tenantData.campaigns.map(c => ({
+      ...c,
+      tenant_id: tenantId,
+      tenant_name: tenant?.name || 'Unknown',
+      tenant_slug: tenant?.slug || null,
+      tenant_base_url: tenantBaseUrl
+    }));
+
+    mergedCampaigns = mergedCampaigns.concat(enrichedCampaigns);
+  }
+
+  if (mergedCampaigns.length === 0) {
+    return null;
+  }
+
+  return {
+    email,
+    first_name: firstName,
+    last_name: lastName,
+    campaigns: mergedCampaigns
+  };
+}
+
+export { fetchDashboardData, fetchCrossTenantDashboardData };
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -271,7 +347,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Session expired. Please log in again.' });
     }
 
-    const dashboardData = await fetchDashboardData(supabase, tenant.id, tokenRecord.email);
+    const dashboardData = await fetchCrossTenantDashboardData(supabase, tenant.id, tokenRecord.email);
 
     if (!dashboardData) {
       return res.status(404).json({ error: 'No active fundraising campaigns found' });

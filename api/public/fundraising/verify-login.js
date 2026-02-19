@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import crypto from 'crypto';
-import { fetchDashboardData } from './verify-session.js';
+import { fetchCrossTenantDashboardData } from './verify-session.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
 
     const email = tokenRecord.email;
 
-    const dashboardData = await fetchDashboardData(supabase, tenant.id, email);
+    const dashboardData = await fetchCrossTenantDashboardData(supabase, tenant.id, email);
 
     if (!dashboardData) {
       await supabase.from('fundraising_login_token').delete().eq('id', tokenRecord.id);
