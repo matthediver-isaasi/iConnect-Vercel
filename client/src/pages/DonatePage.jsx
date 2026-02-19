@@ -1078,7 +1078,18 @@ export default function DonatePage() {
 
         {tenant && (
           <div className="text-center py-4 text-xs text-muted-foreground space-y-1">
-            <p>Fundraising by {tenant.name}</p>
+            <p>
+              Fundraising by {tenant.name} powered by{' '}
+              <a
+                href="https://www.isaasi.co.uk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                data-testid="link-isupporter"
+              >
+                <span style={{ color: '#FF00FF' }}>i</span>supporter
+              </a>
+            </p>
             {campaign.privacy_statement && (
               <p>
                 <button

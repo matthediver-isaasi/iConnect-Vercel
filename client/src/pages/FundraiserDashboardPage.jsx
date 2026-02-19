@@ -1497,6 +1497,23 @@ export default function FundraiserDashboardPage() {
             </Button>
           </Link>
         </div>
+
+        {campaigns.length > 0 && campaigns[0]?.tenant_name && (
+          <div className="text-center py-4 text-xs text-muted-foreground">
+            <p>
+              Fundraising by {campaigns[0].tenant_name} powered by{' '}
+              <a
+                href="https://www.isaasi.co.uk"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                data-testid="link-isupporter"
+              >
+                <span style={{ color: '#FF00FF' }}>i</span>supporter
+              </a>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
