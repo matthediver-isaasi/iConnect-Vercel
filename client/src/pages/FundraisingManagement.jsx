@@ -22,7 +22,7 @@ import {
   ArrowLeft, Target, Calendar, Loader2, Search, ExternalLink, UserPlus,
   Eye, BarChart3, Gift, PoundSterling, TrendingUp, Award, Clock,
   ChevronRight, ChevronDown, ChevronUp, MessageSquare, HandHeart,
-  ImagePlus, X, Megaphone, Lock
+  ImagePlus, X, Megaphone, Lock, Paperclip, FileText, Download
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
@@ -1279,8 +1279,10 @@ function CampaignUpdatesAdmin({ campaignId }) {
   const [postedByName, setPostedByName] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [attachmentFiles, setAttachmentFiles] = useState([]);
   const [posting, setPosting] = useState(false);
   const fileInputRef = useRef(null);
+  const docInputRef = useRef(null);
 
   const { data: updates, isLoading } = useQuery({
     queryKey: ['campaign-updates-admin', campaignId],
@@ -1311,6 +1313,34 @@ function CampaignUpdatesAdmin({ campaignId }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleDocSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setAttachmentFiles(prev => [...prev, ...files]);
+    if (docInputRef.current) docInputRef.current.value = '';
+  };
+
+  const removeAttachment = (index) => {
+    setAttachmentFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const getFileIcon = (filename) => {
+    const ext = (filename || '').split('.').pop()?.toLowerCase();
+    if (ext === 'pdf') return 'PDF';
+    if (['doc', 'docx'].includes(ext)) return 'DOC';
+    if (['xls', 'xlsx'].includes(ext)) return 'XLS';
+    if (['ppt', 'pptx'].includes(ext)) return 'PPT';
+    if (ext === 'csv') return 'CSV';
+    if (ext === 'txt') return 'TXT';
+    return 'FILE';
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const handlePost = async () => {
     if (!content.trim()) return;
     setPosting(true);
@@ -1330,10 +1360,35 @@ function CampaignUpdatesAdmin({ campaignId }) {
         imageUrl = uploadData.url;
       }
 
+      let uploadedAttachments = [];
+      if (attachmentFiles.length > 0) {
+        for (const file of attachmentFiles) {
+          const formData = new FormData();
+          formData.append('file', file);
+          const uploadRes = await fetch('/api/fundraising/upload-update-file', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+          });
+          if (!uploadRes.ok) {
+            const errData = await uploadRes.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to upload ${file.name}`);
+          }
+          const uploadData = await uploadRes.json();
+          uploadedAttachments.push({
+            url: uploadData.url,
+            filename: uploadData.filename || file.name,
+            mimetype: uploadData.mimetype || file.type,
+            size: uploadData.size || file.size
+          });
+        }
+      }
+
       await apiRequest('POST', '/api/fundraising/campaign-updates', {
         campaign_id: campaignId,
         content: content.trim(),
         image_url: imageUrl,
+        attachment_urls: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
         visibility,
         posted_by_name: postedByName.trim() || null
       });
@@ -1342,6 +1397,7 @@ function CampaignUpdatesAdmin({ campaignId }) {
       setVisibility('public');
       setPostedByName('');
       removeImage();
+      setAttachmentFiles([]);
       queryClient.invalidateQueries({ queryKey: ['campaign-updates-admin', campaignId] });
       toast.success('Update posted');
     } catch (err) {
@@ -1431,6 +1487,26 @@ function CampaignUpdatesAdmin({ campaignId }) {
             </div>
           )}
 
+          {attachmentFiles.length > 0 && (
+            <div className="space-y-1">
+              {attachmentFiles.map((file, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`attachment-pending-${idx}`}>
+                  <FileText className="w-4 h-4 shrink-0" />
+                  <span className="truncate max-w-[200px]">{file.name}</span>
+                  <span className="text-xs">({formatFileSize(file.size)})</span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => removeAttachment(idx)}
+                    data-testid={`button-remove-attachment-${idx}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 flex-wrap">
             <input
               ref={fileInputRef}
@@ -1440,6 +1516,15 @@ function CampaignUpdatesAdmin({ campaignId }) {
               className="hidden"
               data-testid="input-admin-update-image"
             />
+            <input
+              ref={docInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt"
+              onChange={handleDocSelect}
+              multiple
+              className="hidden"
+              data-testid="input-admin-update-file"
+            />
             <Button
               variant="outline"
               size="sm"
@@ -1448,6 +1533,15 @@ function CampaignUpdatesAdmin({ campaignId }) {
             >
               <ImagePlus className="w-4 h-4 mr-1" />
               Add Photo
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => docInputRef.current?.click()}
+              data-testid="button-admin-attach-file"
+            >
+              <Paperclip className="w-4 h-4 mr-1" />
+              Attach File
             </Button>
             <Button
               size="sm"
@@ -1533,6 +1627,25 @@ function CampaignUpdatesAdmin({ campaignId }) {
                       className="rounded-md max-h-48 object-cover"
                       data-testid={`img-admin-update-${u.id}`}
                     />
+                  )}
+                  {u.attachment_urls && u.attachment_urls.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      {u.attachment_urls.map((att, idx) => (
+                        <a
+                          key={idx}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
+                          data-testid={`link-admin-attachment-${u.id}-${idx}`}
+                        >
+                          <FileText className="w-4 h-4 shrink-0" />
+                          <span className="truncate">{att.filename}</span>
+                          {att.size && <span className="text-xs shrink-0">({formatFileSize(att.size)})</span>}
+                          <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
               ))}

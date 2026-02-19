@@ -14,7 +14,7 @@ import {
 import {
   Heart, Loader2, CheckCircle2, Users, Target, Gift,
   Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare,
-  Sparkles, Send, FileText, Shield, Megaphone
+  Sparkles, Send, FileText, Shield, Megaphone, Download
 } from "lucide-react";
 import PostImageGallery from "@/components/PostImageGallery";
 
@@ -1066,6 +1066,24 @@ export default function DonatePage() {
                       updateId={u.id}
                       onImageClick={(imgUrl) => setFullSizeImage(imgUrl)}
                     />
+                    {u.attachment_urls && u.attachment_urls.length > 0 && (
+                      <div className="space-y-1">
+                        {u.attachment_urls.map((att, idx) => (
+                          <a
+                            key={idx}
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
+                            data-testid={`link-attachment-${u.id}-${idx}`}
+                          >
+                            <FileText className="w-4 h-4 shrink-0" />
+                            <span className="truncate">{att.filename}</span>
+                            <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     {u !== updates[updates.length - 1] && <div className="border-t" />}
                   </div>
                 ))}

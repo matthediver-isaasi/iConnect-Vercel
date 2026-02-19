@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
   TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
   Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2,
-  Megaphone, Lock, Pencil, Trash2, Camera, Save, Image
+  Megaphone, Lock, Pencil, Trash2, Camera, Save, Image, FileText, Download
 } from "lucide-react";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
@@ -738,6 +738,24 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                           images={(u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])}
                           updateId={u.id}
                         />
+                        {u.attachment_urls && u.attachment_urls.length > 0 && (
+                          <div className="space-y-1">
+                            {u.attachment_urls.map((att, idx) => (
+                              <a
+                                key={idx}
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
+                                data-testid={`link-attachment-${u.id}-${idx}`}
+                              >
+                                <FileText className="w-4 h-4 shrink-0" />
+                                <span className="truncate">{att.filename}</span>
+                                <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

@@ -42,6 +42,7 @@ export default async function handler(req, res) {
           id,
           content,
           image_url,
+          attachment_urls,
           visibility,
           posted_by,
           posted_by_name,
@@ -66,6 +67,7 @@ export default async function handler(req, res) {
         id: u.id,
         content: u.content,
         image_url: u.image_url,
+        attachment_urls: u.attachment_urls || [],
         visibility: u.visibility || 'public',
         posted_by: u.posted_by || 'fundraiser',
         posted_by_name: u.posted_by_name,
@@ -86,7 +88,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { campaign_id, content, image_url, visibility, posted_by_name } = req.body;
+      const { campaign_id, content, image_url, visibility, posted_by_name, attachment_urls } = req.body;
 
       if (!campaign_id || !content?.trim()) {
         return res.status(400).json({ error: 'campaign_id and content are required' });
@@ -115,6 +117,7 @@ export default async function handler(req, res) {
           team_member_id: null,
           content: content.trim(),
           image_url: image_url || null,
+          attachment_urls: attachment_urls && attachment_urls.length > 0 ? attachment_urls : null,
           visibility: visibility || 'public',
           posted_by: 'tenant',
           posted_by_name: posted_by_name?.trim() || null
