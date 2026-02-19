@@ -170,35 +170,48 @@ export default async function handler(req, res) {
         };
       });
 
+    const hideCampaignTarget = campaign.hide_campaign_target === true;
+
+    const campaignResponse = {
+      name: campaign.name,
+      description: campaign.description,
+      cover_image_url: campaign.cover_image_url,
+      currency: campaign.currency,
+      start_date: campaign.start_date,
+      end_date: campaign.end_date,
+      allow_anonymous_donations: campaign.allow_anonymous_donations,
+      terms_and_conditions: campaign.terms_and_conditions || null,
+      privacy_statement: campaign.privacy_statement || null,
+      hide_campaign_target: hideCampaignTarget
+    };
+
+    if (!hideCampaignTarget) {
+      campaignResponse.goal_amount = parseFloat(campaign.goal_amount);
+    }
+
+    const progressResponse = {
+      member_total: memberTotal,
+      member_donor_count: memberDonorCount
+    };
+
+    if (!hideCampaignTarget) {
+      progressResponse.team_total = teamTotal;
+      progressResponse.team_donor_count = teamDonorCount;
+      progressResponse.goal_amount = parseFloat(campaign.goal_amount);
+      progressResponse.percentage = campaign.goal_amount > 0
+        ? Math.min(100, Math.round((teamTotal / parseFloat(campaign.goal_amount)) * 100))
+        : 0;
+    }
+
     return res.json({
-      campaign: {
-        name: campaign.name,
-        description: campaign.description,
-        cover_image_url: campaign.cover_image_url,
-        goal_amount: parseFloat(campaign.goal_amount),
-        currency: campaign.currency,
-        start_date: campaign.start_date,
-        end_date: campaign.end_date,
-        allow_anonymous_donations: campaign.allow_anonymous_donations,
-        terms_and_conditions: campaign.terms_and_conditions || null,
-        privacy_statement: campaign.privacy_statement || null
-      },
+      campaign: campaignResponse,
       team_member: {
         first_name: teamMember.first_name,
         last_name: teamMember.last_name,
         photo_url: teamMember.photo_url,
         individual_goal: teamMember.individual_goal ? parseFloat(teamMember.individual_goal) : null
       },
-      progress: {
-        team_total: teamTotal,
-        team_donor_count: teamDonorCount,
-        member_total: memberTotal,
-        member_donor_count: memberDonorCount,
-        goal_amount: parseFloat(campaign.goal_amount),
-        percentage: campaign.goal_amount > 0
-          ? Math.min(100, Math.round((teamTotal / parseFloat(campaign.goal_amount)) * 100))
-          : 0
-      },
+      progress: progressResponse,
       recent_donations: sanitizedDonations,
       wellwishers: enrichedWellwishers,
       other_team_members: otherMembers,

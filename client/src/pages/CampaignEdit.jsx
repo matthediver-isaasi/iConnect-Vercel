@@ -43,7 +43,9 @@ export default function CampaignEdit() {
     auto_create_members: false,
     member_role_id: '',
     allow_org_signup: false,
-    auto_create_organisations: false
+    auto_create_organisations: false,
+    unlimited_team_size: false,
+    hide_campaign_target: false
   });
 
   const [formLoaded, setFormLoaded] = useState(false);
@@ -74,7 +76,9 @@ export default function CampaignEdit() {
         auto_create_members: campaignData.auto_create_members || false,
         member_role_id: campaignData.member_role_id || '',
         allow_org_signup: campaignData.allow_org_signup || false,
-        auto_create_organisations: campaignData.auto_create_organisations || false
+        auto_create_organisations: campaignData.auto_create_organisations || false,
+        unlimited_team_size: campaignData.unlimited_team_size || false,
+        hide_campaign_target: campaignData.hide_campaign_target || false
       });
       setFormLoaded(true);
     }
@@ -118,7 +122,9 @@ export default function CampaignEdit() {
       goal_amount: parseFloat(form.goal_amount),
       start_date: form.start_date || null,
       end_date: form.end_date || null,
-      max_team_size: (form.campaign_type === 'team' || form.campaign_type === 'both') ? parseInt(form.max_team_size) || 5 : null,
+      max_team_size: (form.campaign_type === 'team' || form.campaign_type === 'both') && !form.unlimited_team_size ? parseInt(form.max_team_size) || 5 : null,
+      unlimited_team_size: form.unlimited_team_size || false,
+      hide_campaign_target: form.hide_campaign_target || false,
       registration_message: form.registration_message || null,
       public_description: form.public_description || null,
       auto_create_members: form.auto_create_members || false,
@@ -269,13 +275,24 @@ export default function CampaignEdit() {
           <CardHeader>
             <CardTitle>Settings</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <Label>Allow anonymous donations</Label>
               <Switch
                 checked={form.allow_anonymous_donations}
                 onCheckedChange={(v) => setForm(f => ({ ...f, allow_anonymous_donations: v }))}
                 data-testid="switch-anonymous"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Hide campaign target & donations</Label>
+                <p className="text-xs text-muted-foreground">Hides the overall campaign goal and total raised from public pages. Individual fundraiser goals remain visible.</p>
+              </div>
+              <Switch
+                checked={form.hide_campaign_target}
+                onCheckedChange={(v) => setForm(f => ({ ...f, hide_campaign_target: v }))}
+                data-testid="switch-hide-campaign-target"
               />
             </div>
           </CardContent>
@@ -312,17 +329,32 @@ export default function CampaignEdit() {
             </div>
 
             {(form.campaign_type === 'team' || form.campaign_type === 'both') && (
-              <div className="space-y-2">
-                <Label>Max Team Size</Label>
-                <Input
-                  type="number"
-                  min="2"
-                  max="50"
-                  value={form.max_team_size}
-                  onChange={(e) => setForm(f => ({ ...f, max_team_size: e.target.value }))}
-                  data-testid="input-max-team-size"
-                />
-              </div>
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Unlimited Team Size</Label>
+                    <p className="text-xs text-muted-foreground">Allow teams to have any number of members</p>
+                  </div>
+                  <Switch
+                    checked={form.unlimited_team_size}
+                    onCheckedChange={(v) => setForm(f => ({ ...f, unlimited_team_size: v }))}
+                    data-testid="switch-unlimited-team-size"
+                  />
+                </div>
+                {!form.unlimited_team_size && (
+                  <div className="space-y-2">
+                    <Label>Max Team Size</Label>
+                    <Input
+                      type="number"
+                      min="2"
+                      max="50"
+                      value={form.max_team_size}
+                      onChange={(e) => setForm(f => ({ ...f, max_team_size: e.target.value }))}
+                      data-testid="input-max-team-size"
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             <div className="flex items-center justify-between">

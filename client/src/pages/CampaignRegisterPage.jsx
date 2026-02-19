@@ -197,8 +197,9 @@ export default function CampaignRegisterPage() {
   const isBothCampaign = campaign?.campaign_type === 'both';
   const effectiveType = isBothCampaign ? participationType : campaign?.campaign_type;
   const isTeamCampaign = effectiveType === 'team';
+  const isUnlimitedTeam = campaign?.unlimited_team_size === true;
   const maxTeamSize = campaign?.max_team_size || 5;
-  const maxAdditionalMembers = maxTeamSize - 1;
+  const maxAdditionalMembers = isUnlimitedTeam ? Infinity : maxTeamSize - 1;
 
   const wizardSteps = useMemo(() => {
     if (!campaign) return [];
@@ -441,6 +442,7 @@ export default function CampaignRegisterPage() {
   const progressPercent = campaign.goal_amount > 0
     ? Math.min(100, Math.round((campaign.total_raised / parseFloat(campaign.goal_amount)) * 100))
     : 0;
+  const hideCampaignTarget = campaign.hide_campaign_target === true;
 
   const animationStyle = {
     transition: 'opacity 200ms ease, transform 200ms ease',
@@ -687,7 +689,7 @@ export default function CampaignRegisterPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm font-medium flex items-center gap-2">
           <Users className="w-4 h-4" />
-          Team Members ({teamMembers.length}/{maxAdditionalMembers})
+          Team Members ({teamMembers.length}{isUnlimitedTeam ? '' : `/${maxAdditionalMembers}`})
         </p>
         {teamMembers.length < maxAdditionalMembers && (
           <Button
@@ -824,36 +826,38 @@ export default function CampaignRegisterPage() {
           )}
         </div>
 
-        <Card>
-          <CardContent className="pt-5 pb-4 space-y-3">
-            <div className="flex items-center justify-between gap-4 text-sm">
-              <span className="font-semibold text-lg">
-                {formatCurrency(campaign.total_raised, campaign.currency)}
-                <span className="text-muted-foreground font-normal text-sm ml-1.5">
-                  raised of {formatCurrency(campaign.goal_amount, campaign.currency)}
+        {!hideCampaignTarget && (
+          <Card>
+            <CardContent className="pt-5 pb-4 space-y-3">
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <span className="font-semibold text-lg">
+                  {formatCurrency(campaign.total_raised, campaign.currency)}
+                  <span className="text-muted-foreground font-normal text-sm ml-1.5">
+                    raised of {formatCurrency(campaign.goal_amount, campaign.currency)}
+                  </span>
                 </span>
-              </span>
-              <span className="font-bold text-lg">{progressPercent}%</span>
-            </div>
-            <ProgressBar percent={progressPercent} />
-            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1">
-                <Users className="w-3.5 h-3.5" />
-                {campaign.participant_count} {campaign.participant_count === 1 ? 'participant' : 'participants'}
-              </span>
-              <span className="flex items-center gap-1">
-                <Heart className="w-3.5 h-3.5" />
-                {campaign.donation_count} {campaign.donation_count === 1 ? 'donation' : 'donations'}
-              </span>
-              {campaign.end_date && (
+                <span className="font-bold text-lg">{progressPercent}%</span>
+              </div>
+              <ProgressBar percent={progressPercent} />
+              <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
-                  Ends {formatDate(campaign.end_date)}
+                  <Users className="w-3.5 h-3.5" />
+                  {campaign.participant_count} {campaign.participant_count === 1 ? 'participant' : 'participants'}
                 </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                <span className="flex items-center gap-1">
+                  <Heart className="w-3.5 h-3.5" />
+                  {campaign.donation_count} {campaign.donation_count === 1 ? 'donation' : 'donations'}
+                </span>
+                {campaign.end_date && (
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Ends {formatDate(campaign.end_date)}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {formState === 'form' && (
           <Card>
@@ -863,7 +867,9 @@ export default function CampaignRegisterPage() {
               </h2>
               <p className="text-sm text-muted-foreground mb-5">
                 {isTeamCampaign
-                  ? `Sign up as a team (up to ${maxTeamSize} members). Each member gets their own donation page.`
+                  ? isUnlimitedTeam
+                    ? 'Sign up as a team. Each member gets their own donation page.'
+                    : `Sign up as a team (up to ${maxTeamSize} members). Each member gets their own donation page.`
                   : 'Sign up to get your own fundraising page where people can donate to support your effort.'}
               </p>
 

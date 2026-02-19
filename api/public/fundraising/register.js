@@ -77,7 +77,7 @@ export default async function handler(req, res) {
 
     const { data: campaign, error: campError } = await supabase
       .from('fundraising_campaign')
-      .select('id, name, slug, status, campaign_type, max_team_size, registration_open, registration_message, currency, auto_create_organisations, auto_create_members, member_role_id, allow_org_signup')
+      .select('id, name, slug, status, campaign_type, max_team_size, unlimited_team_size, registration_open, registration_message, currency, auto_create_organisations, auto_create_members, member_role_id, allow_org_signup')
       .eq('tenant_id', tenant.id)
       .eq('slug', campaign_slug)
       .single();
@@ -128,7 +128,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (isTeamCampaign && validTeamMembers.length > maxAdditional) {
+    if (isTeamCampaign && !campaign.unlimited_team_size && validTeamMembers.length > maxAdditional) {
       return res.status(400).json({
         error: `Team size exceeds the maximum of ${maxTeamSize} members (including yourself). Please remove ${validTeamMembers.length - maxAdditional} member(s).`
       });

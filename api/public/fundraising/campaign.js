@@ -28,7 +28,7 @@ export default async function handler(req, res) {
 
     const { data: campaign, error } = await supabase
       .from('fundraising_campaign')
-      .select('id, name, slug, description, public_description, cover_image_url, goal_amount, currency, start_date, end_date, status, campaign_type, max_team_size, registration_open, registration_message, allow_anonymous_donations, allow_org_signup')
+      .select('id, name, slug, description, public_description, cover_image_url, goal_amount, currency, start_date, end_date, status, campaign_type, max_team_size, unlimited_team_size, registration_open, registration_message, allow_anonymous_donations, allow_org_signup, hide_campaign_target')
       .eq('tenant_id', tenant.id)
       .eq('slug', slug)
       .single();
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenant.id)
       .eq('is_active', true);
 
-    return res.json({
+    const response = {
       ...campaign,
       total_raised: totalRaised,
       donation_count: donationCount,
@@ -66,7 +66,15 @@ export default async function handler(req, res) {
       tenant_name: tenant.name,
       tenant_logo_url: tenant.logo_url,
       tenant_primary_color: tenant.primary_color
-    });
+    };
+
+    if (campaign.hide_campaign_target) {
+      delete response.goal_amount;
+      delete response.total_raised;
+      delete response.donation_count;
+    }
+
+    return res.json(response);
   } catch (error) {
     console.error('[Public Fundraising Campaign] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });

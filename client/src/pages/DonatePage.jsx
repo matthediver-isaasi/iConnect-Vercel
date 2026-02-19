@@ -377,46 +377,52 @@ export default function DonatePage() {
           </div>
         </div>
 
-        <Card>
-          <CardContent className="pt-6 space-y-4">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-3xl font-bold text-primary" data-testid="text-total-raised">
-                  {formatCurrency(progress.team_total, campaign.currency)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  raised of {formatCurrency(progress.goal_amount, campaign.currency)} goal
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold">{progress.percentage}%</p>
-                <p className="text-xs text-muted-foreground">
-                  {progress.team_donor_count} donation{progress.team_donor_count !== 1 ? 's' : ''}
-                </p>
-              </div>
-            </div>
+        {(!campaign.hide_campaign_target || team_member.individual_goal) && (
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              {!campaign.hide_campaign_target && (
+                <>
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-3xl font-bold text-primary" data-testid="text-total-raised">
+                        {formatCurrency(progress.team_total, campaign.currency)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        raised of {formatCurrency(progress.goal_amount, campaign.currency)} goal
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold">{progress.percentage}%</p>
+                      <p className="text-xs text-muted-foreground">
+                        {progress.team_donor_count} donation{progress.team_donor_count !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
 
-            <ProgressBar percent={progress.percentage} height="h-4" />
+                  <ProgressBar percent={progress.percentage} height="h-4" />
+                </>
+              )}
 
-            {team_member.individual_goal && (
-              <div className="pt-2 border-t">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Target className="w-3 h-3" />
-                    {team_member.first_name}'s personal goal
-                  </span>
-                  <span className="font-medium">
-                    {formatCurrency(progress.member_total, campaign.currency)} of{' '}
-                    {formatCurrency(team_member.individual_goal, campaign.currency)}
-                  </span>
+              {team_member.individual_goal && (
+                <div className={!campaign.hide_campaign_target ? "pt-2 border-t" : ""}>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <Target className="w-3 h-3" />
+                      {team_member.first_name}'s personal goal
+                    </span>
+                    <span className="font-medium">
+                      {formatCurrency(progress.member_total, campaign.currency)} of{' '}
+                      {formatCurrency(team_member.individual_goal, campaign.currency)}
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <ProgressBar percent={Math.min(100, Math.round((progress.member_total / parseFloat(team_member.individual_goal)) * 100))} height="h-2" />
+                  </div>
                 </div>
-                <div className="mt-2">
-                  <ProgressBar percent={Math.min(100, Math.round((progress.member_total / parseFloat(team_member.individual_goal)) * 100))} height="h-2" />
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {campaign.description && (
           <Card>

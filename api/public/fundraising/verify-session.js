@@ -30,7 +30,7 @@ async function fetchDashboardData(supabase, tenantId, email) {
 
   const { data: campaigns } = await supabase
     .from('fundraising_campaign')
-    .select('id, name, slug, description, cover_image_url, goal_amount, currency, start_date, end_date, status')
+    .select('id, name, slug, description, cover_image_url, goal_amount, currency, start_date, end_date, status, hide_campaign_target')
     .eq('tenant_id', tenantId)
     .in('id', campaignIds);
 
@@ -192,15 +192,14 @@ async function fetchDashboardData(supabase, tenantId, email) {
     const org = member.organization_id ? orgMap[member.organization_id] : null;
     const isLead = firstMemberPerCampaign[member.campaign_id] === member.id;
 
-    return {
+    const result = {
       campaign_id: campaign.id,
       campaign_name: campaign.name,
       campaign_slug: campaign.slug,
       campaign_status: campaign.status,
       campaign_cover_image_url: campaign.cover_image_url,
       currency: campaign.currency,
-      campaign_goal: parseFloat(campaign.goal_amount || 0),
-      campaign_raised: campaignRaised[campaign.id] || 0,
+      hide_campaign_target: campaign.hide_campaign_target === true,
       team_member_id: member.id,
       participant_token: member.token,
       individual_goal: parseFloat(member.individual_goal || 0),
@@ -211,6 +210,13 @@ async function fetchDashboardData(supabase, tenantId, email) {
       donors: donorsByMember[member.id] || [],
       wellwishers: wellwishersByMember[member.id] || []
     };
+
+    if (campaign.hide_campaign_target !== true) {
+      result.campaign_goal = parseFloat(campaign.goal_amount || 0);
+      result.campaign_raised = campaignRaised[campaign.id] || 0;
+    }
+
+    return result;
   }).filter(Boolean);
 
   return {

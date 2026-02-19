@@ -133,6 +133,9 @@ ALTER TABLE fundraising_team_member ADD COLUMN IF NOT EXISTS team_name TEXT;
 CREATE INDEX IF NOT EXISTS idx_fundraising_team_name
   ON fundraising_team_member(tenant_id, campaign_id, team_name)
   WHERE team_name IS NOT NULL;
+
+ALTER TABLE fundraising_campaign ADD COLUMN IF NOT EXISTS unlimited_team_size BOOLEAN DEFAULT false;
+ALTER TABLE fundraising_campaign ADD COLUMN IF NOT EXISTS hide_campaign_target BOOLEAN DEFAULT false;
 `;
 
 export default async function handler(req, res) {
