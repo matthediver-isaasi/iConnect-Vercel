@@ -1043,12 +1043,12 @@ export default function DonatePage() {
           </div>
         )}
 
-        {other_team_members && other_team_members.length > 0 && (
+        {other_team_members && other_team_members.length > 0 && team_member.team_name && (
           <Card>
             <CardContent className="pt-6">
               <h3 className="font-semibold flex items-center gap-2 mb-4">
                 <Users className="w-4 h-4" />
-                Other Team Members
+                {team_member.team_name}
               </h3>
               <div className="grid gap-3 sm:grid-cols-2">
                 {other_team_members.map((m, i) => (

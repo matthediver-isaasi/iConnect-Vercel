@@ -149,16 +149,19 @@ export default async function handler(req, res) {
     } catch (e) {
     }
 
-    const { data: allMembers } = await supabase
-      .from('fundraising_team_member')
-      .select('id, first_name, last_name, photo_url, token')
-      .eq('campaign_id', campaign.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true });
+    let otherMembers = [];
+    const teamName = (teamMember.team_name || '').trim() || null;
+    if (teamName) {
+      const { data: allMembers } = await supabase
+        .from('fundraising_team_member')
+        .select('id, first_name, last_name, photo_url, token')
+        .eq('campaign_id', campaign.id)
+        .eq('team_name', teamMember.team_name)
+        .eq('is_active', true)
+        .neq('id', teamMember.id)
+        .order('created_at', { ascending: true });
 
-    const otherMembers = (allMembers || [])
-      .filter(m => m.id !== teamMember.id)
-      .map(m => {
+      otherMembers = (allMembers || []).map(m => {
         const mDonations = (allTeamDonations || []).filter(d => d.team_member_id === m.id);
         const mTotal = mDonations.reduce((s, d) => s + parseFloat(d.amount || 0), 0);
         return {
@@ -169,6 +172,7 @@ export default async function handler(req, res) {
           total_raised: mTotal
         };
       });
+    }
 
     const hideCampaignTarget = campaign.hide_campaign_target === true;
 
@@ -209,7 +213,8 @@ export default async function handler(req, res) {
         first_name: teamMember.first_name,
         last_name: teamMember.last_name,
         photo_url: teamMember.photo_url,
-        individual_goal: teamMember.individual_goal ? parseFloat(teamMember.individual_goal) : null
+        individual_goal: teamMember.individual_goal ? parseFloat(teamMember.individual_goal) : null,
+        team_name: teamName
       },
       progress: progressResponse,
       recent_donations: sanitizedDonations,
