@@ -106,7 +106,7 @@ export default async function handler(req, res) {
         .eq('setting_key', 'membership_stripe_enabled')
         .eq('tenant_id', tenantId)
         .maybeSingle();
-      stripeEnabled = stripeSetting?.setting_value !== 'false';
+      stripeEnabled = stripeSetting?.setting_value === 'true';
     } catch {}
 
 
@@ -155,6 +155,8 @@ export default async function handler(req, res) {
       rolloverDiscount: simResult.rolloverDiscount || 0,
       proRataEnabled: simResult.proRataEnabled,
       overrideType: simResult.overrideType || null,
+      overrideDiscountType: simResult.overrideDiscountType || null,
+      overrideDiscountValue: simResult.overrideDiscountValue || null,
       vatRatePercent: simResult.vatRatePercent || null,
       vatAmount: simResult.vatAmount || 0,
       totalWithVat: simResult.totalWithVat || finalCost,
@@ -252,8 +254,11 @@ export default async function handler(req, res) {
     }
 
     if (costBreakdown.overrideType) {
-      const overrideLabels = { structure: 'Structure Override', manual_price: 'Manual Price Override', discount: 'Discount Override' };
-      breakdownRows.push({ label: overrideLabels[costBreakdown.overrideType] || 'Override', value: 'Applied', isNote: true });
+      if (costBreakdown.overrideType === 'price') {
+        breakdownRows.push({ label: 'Manual Price Override', value: 'Applied', isNote: true });
+      } else if (costBreakdown.overrideType === 'structure') {
+        breakdownRows.push({ label: 'Structure Override', value: 'Applied', isNote: true });
+      }
     }
 
     const hasVat = costBreakdown.vatRatePercent && costBreakdown.vatAmount > 0;

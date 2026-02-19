@@ -74,7 +74,7 @@ export default async function handler(req, res) {
           .eq('tenant_id', feeToken.tenant_id)
           .maybeSingle();
 
-        const stripeSettingEnabled = stripeSetting?.setting_value !== 'false';
+        const stripeSettingEnabled = stripeSetting?.setting_value === 'true';
 
         if (stripeSettingEnabled) {
           const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
