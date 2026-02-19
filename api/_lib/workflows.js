@@ -313,7 +313,7 @@ async function getMembersByRoleInOrganization(roleId, organizationId) {
   
   const { data: members, error } = await supabase
     .from('member')
-    .select('id, email, first_name, last_name, role_id, organization_id')
+    .select('*')
     .eq('role_id', roleId)
     .eq('organization_id', organizationId)
     .not('email', 'is', null);
