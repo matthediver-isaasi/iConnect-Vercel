@@ -16,6 +16,7 @@ import {
   Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare,
   Sparkles, Send, FileText, Shield, Megaphone
 } from "lucide-react";
+import PostImageGallery from "@/components/PostImageGallery";
 
 function formatCurrency(amount, currency) {
   const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
@@ -374,7 +375,7 @@ export default function DonatePage() {
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
         {!team_member.custom_header_image_url && !campaign.cover_image_url && (
           <div className="text-center pt-4">
             <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-campaign-name-no-img">
@@ -1029,18 +1030,20 @@ export default function DonatePage() {
         </Card>
 
         {updates.length > 0 && (
-          <Card>
+          <Card className="border-primary/20">
             <CardContent className="pt-6">
               <h3 className="font-semibold flex items-center gap-2 mb-4" data-testid="text-updates-heading">
-                <MessageSquare className="w-4 h-4 text-primary" />
-                Updates
+                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+                  <MessageSquare className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <span className="text-primary">Updates</span>
               </h3>
               <div className="space-y-4">
                 {updates.map((u) => (
                   <div key={u.id} className="space-y-2" data-testid={`update-${u.id}`}>
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
-                        u.posted_by === 'tenant' ? 'bg-primary/10 text-primary' : 'bg-primary/10 text-primary'
+                        u.posted_by === 'tenant' ? 'bg-primary/15 text-primary' : 'bg-primary/10 text-primary'
                       }`}>
                         {u.posted_by === 'tenant' ? <Megaphone className="w-3.5 h-3.5" /> : u.author_initials}
                       </div>
@@ -1048,7 +1051,7 @@ export default function DonatePage() {
                         <p className="text-sm font-medium truncate flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
                           {u.author_name}
                           {u.posted_by === 'tenant' && (
-                            <span className="text-xs font-normal text-muted-foreground">Campaign Update</span>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Campaign Update</Badge>
                           )}
                         </p>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -1058,20 +1061,11 @@ export default function DonatePage() {
                       </div>
                     </div>
                     <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
-                    {((u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])).length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {((u.image_urls && u.image_urls.length > 0) ? u.image_urls : [u.image_url]).map((imgUrl, idx) => (
-                          <img
-                            key={idx}
-                            src={imgUrl}
-                            alt=""
-                            className="rounded-md max-h-64 object-cover cursor-pointer"
-                            onClick={() => setFullSizeImage(imgUrl)}
-                            data-testid={`img-update-${u.id}-${idx}`}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    <PostImageGallery
+                      images={(u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])}
+                      updateId={u.id}
+                      onImageClick={(imgUrl) => setFullSizeImage(imgUrl)}
+                    />
                     {u !== updates[updates.length - 1] && <div className="border-t" />}
                   </div>
                 ))}

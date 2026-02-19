@@ -17,6 +17,7 @@ import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
 } from "@/components/ui/tooltip";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
+import PostImageGallery from "@/components/PostImageGallery";
 
 function getSessionKey() {
   const slug = getTenantSlugFromLocation();
@@ -488,8 +489,10 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
         data-testid="button-toggle-updates"
       >
         <span className="text-sm font-medium flex items-center gap-2">
-          <MessageSquare className="w-4 h-4" />
-          Post an Update
+          <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+            <MessageSquare className="w-3 h-3 text-primary" />
+          </div>
+          <span className="text-primary">Post an Update</span>
           {updates.length > 0 && (
             <Badge variant="secondary" className="text-xs">{updates.length}</Badge>
           )}
@@ -731,19 +734,10 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
                     ) : (
                       <>
                         <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
-                        {(u.image_urls && u.image_urls.length > 0 ? u.image_urls : (u.image_url ? [u.image_url] : [])).length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {(u.image_urls && u.image_urls.length > 0 ? u.image_urls : [u.image_url]).map((imgUrl, idx) => (
-                              <img
-                                key={idx}
-                                src={imgUrl}
-                                alt=""
-                                className="rounded-md max-h-48 object-cover"
-                                data-testid={`img-update-${u.id}-${idx}`}
-                              />
-                            ))}
-                          </div>
-                        )}
+                        <PostImageGallery
+                          images={(u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])}
+                          updateId={u.id}
+                        />
                       </>
                     )}
                   </div>
@@ -1759,7 +1753,7 @@ export default function FundraiserDashboardPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         {tenantBranding?.logo_url && (
           <div className="flex justify-center">
             <img
