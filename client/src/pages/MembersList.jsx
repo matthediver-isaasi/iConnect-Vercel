@@ -220,14 +220,14 @@ export default function MembersListPage() {
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member');
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_admin_list !== false);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_admin_list !== false);
         } catch {
           return [];
         }

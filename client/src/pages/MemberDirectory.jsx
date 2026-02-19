@@ -168,7 +168,7 @@ export default function MemberDirectoryPage() {
           filter: { is_active: true, entity_scope: 'member', is_filterable: true },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable);
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.is_filterable && f.show_in_member_directory !== false);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
@@ -176,7 +176,7 @@ export default function MemberDirectoryPage() {
             sort: { display_order: 'asc' }
           });
           return (allFields || []).filter(f => 
-            (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable
+            (!f.entity_scope || f.entity_scope === 'member') && f.is_filterable && f.show_in_member_directory !== false
           );
         } catch {
           return [];

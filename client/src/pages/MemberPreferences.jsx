@@ -66,7 +66,7 @@ export default function MemberPreferencesPage() {
         filter: { is_active: true, entity_scope: 'member' },
         sort: { display_order: 'asc' }
       });
-      return (fields || []).filter(f => f.entity_scope === 'member');
+      return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_my_preferences !== false);
     },
     enabled: accessChecked,
   });

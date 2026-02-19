@@ -143,6 +143,13 @@ const VISIBILITY_LOCATIONS = [
   { key: 'show_in_admin_list', label: 'Admin List', description: 'Admin organisations CRM page' }
 ];
 
+// Visibility location options for member fields
+const MEMBER_VISIBILITY_LOCATIONS = [
+  { key: 'show_in_my_preferences', label: 'My Preferences', description: 'Member\'s own preferences page' },
+  { key: 'show_in_member_directory', label: 'Member Directory', description: 'Member directory listing' },
+  { key: 'show_in_member_admin_list', label: 'Admin List', description: 'Admin members CRM page' }
+];
+
 function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState(null);
@@ -167,6 +174,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
   const [showInDirectoryCard, setShowInDirectoryCard] = useState(true);
   const [showInAdminList, setShowInAdminList] = useState(true);
+  // Visibility toggles for member fields
+  const [showInMyPreferences, setShowInMyPreferences] = useState(true);
+  const [showInMemberDirectory, setShowInMemberDirectory] = useState(true);
+  const [showInMemberAdminList, setShowInMemberAdminList] = useState(true);
 
   const { data: preferenceFields = [], isLoading } = useQuery({
     queryKey: ['/api/entities/PreferenceField', entityScope],
@@ -285,6 +296,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setShowInMyOrganisation(true);
     setShowInDirectoryCard(true);
     setShowInAdminList(true);
+    setShowInMyPreferences(true);
+    setShowInMemberDirectory(true);
+    setShowInMemberAdminList(true);
   };
 
   const handleOpenCreateDialog = () => {
@@ -335,6 +349,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
     setShowInDirectoryCard(field.show_in_directory_card !== false);
     setShowInAdminList(field.show_in_admin_list !== false);
+    setShowInMyPreferences(field.show_in_my_preferences !== false);
+    setShowInMemberDirectory(field.show_in_member_directory !== false);
+    setShowInMemberAdminList(field.show_in_member_admin_list !== false);
     setIsDialogOpen(true);
   };
 
@@ -409,10 +426,14 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       selected_countries: (fieldType === 'country' || fieldType === 'countries') && !allCountries ? selectedCountries : null,
       default_country: validDefaultCountry,
       default_countries: validDefaultCountries,
-      // Visibility settings (only relevant for organization fields)
+      // Visibility settings for organization fields
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
       show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
-      show_in_admin_list: entityScope === 'organization' ? showInAdminList : true
+      show_in_admin_list: entityScope === 'organization' ? showInAdminList : true,
+      // Visibility settings for member fields
+      show_in_my_preferences: entityScope === 'member' ? showInMyPreferences : true,
+      show_in_member_directory: entityScope === 'member' ? showInMemberDirectory : true,
+      show_in_member_admin_list: entityScope === 'member' ? showInMemberAdminList : true
     };
 
     if (editingField) {
@@ -523,6 +544,23 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                   <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
                                 )}
                                 {field.show_in_my_organisation === false && field.show_in_directory_card === false && field.show_in_admin_list === false && (
+                                  <span className="text-xs text-slate-400 italic">None</span>
+                                )}
+                              </div>
+                            )}
+                            {entityScope === 'member' && (
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                <span className="text-xs text-slate-400">Visible in:</span>
+                                {field.show_in_my_preferences !== false && (
+                                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Prefs</span>
+                                )}
+                                {field.show_in_member_directory !== false && (
+                                  <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Directory</span>
+                                )}
+                                {field.show_in_member_admin_list !== false && (
+                                  <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
+                                )}
+                                {field.show_in_my_preferences === false && field.show_in_member_directory === false && field.show_in_member_admin_list === false && (
                                   <span className="text-xs text-slate-400 italic">None</span>
                                 )}
                               </div>
@@ -1059,6 +1097,53 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                       checked={showInAdminList}
                       onCheckedChange={setShowInAdminList}
                       data-testid="switch-show-admin"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {entityScope === 'member' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <Label className="text-sm font-medium">Display Locations</Label>
+                <p className="text-xs text-slate-500 -mt-1">
+                  Choose where this field should be displayed
+                </p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMyPrefs" className="cursor-pointer text-sm">My Preferences</Label>
+                      <p className="text-xs text-slate-400">Member's own preferences page</p>
+                    </div>
+                    <Switch
+                      id="showInMyPrefs"
+                      checked={showInMyPreferences}
+                      onCheckedChange={setShowInMyPreferences}
+                      data-testid="switch-show-my-prefs"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMemberDir" className="cursor-pointer text-sm">Member Directory</Label>
+                      <p className="text-xs text-slate-400">Member directory listing</p>
+                    </div>
+                    <Switch
+                      id="showInMemberDir"
+                      checked={showInMemberDirectory}
+                      onCheckedChange={setShowInMemberDirectory}
+                      data-testid="switch-show-member-directory"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMemberAdmin" className="cursor-pointer text-sm">Admin List</Label>
+                      <p className="text-xs text-slate-400">Admin members CRM page</p>
+                    </div>
+                    <Switch
+                      id="showInMemberAdmin"
+                      checked={showInMemberAdminList}
+                      onCheckedChange={setShowInMemberAdminList}
+                      data-testid="switch-show-member-admin"
                     />
                   </div>
                 </div>

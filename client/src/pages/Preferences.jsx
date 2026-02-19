@@ -581,7 +581,7 @@ export default function PreferencesPage() {
           filter: { is_active: true, entity_scope: 'member' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+        return (fields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.show_in_my_preferences !== false);
       } catch {
         // Fallback: if entity_scope column doesn't exist, fetch all active and filter client-side
         try {
@@ -589,7 +589,7 @@ export default function PreferencesPage() {
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+          return (allFields || []).filter(f => (!f.entity_scope || f.entity_scope === 'member') && f.show_in_my_preferences !== false);
         } catch {
           return [];
         }
