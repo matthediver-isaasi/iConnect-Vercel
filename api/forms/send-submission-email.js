@@ -269,6 +269,37 @@ export default async function handler(req, res) {
       return value;
     };
 
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const orgNameCache = {};
+    const resolveOrgName = async (uuid) => {
+      if (!uuid || !supabase || !uuidRegex.test(uuid)) return uuid;
+      if (uuid in orgNameCache) return orgNameCache[uuid];
+      try {
+        const { data: org } = await supabase
+          .from('organization')
+          .select('name')
+          .eq('id', uuid)
+          .single();
+        orgNameCache[uuid] = org?.name || uuid;
+        return orgNameCache[uuid];
+      } catch {}
+      orgNameCache[uuid] = uuid;
+      return uuid;
+    };
+
+    const orgDropdownFieldIds = new Set(
+      (fields || []).filter(f => f.type === 'organisation_dropdown').map(f => f.id)
+    );
+
+    const resolveFieldValue = async (fieldId, rawValue) => {
+      if (orgDropdownFieldIds.has(fieldId) && rawValue) {
+        if (typeof rawValue === 'string') {
+          return await resolveOrgName(rawValue);
+        }
+      }
+      return Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue || '');
+    };
+
     // Helper to replace placeholders in template content (async for set_password_url generation)
     const replacePlaceholders = async (text, emailConfig) => {
       if (!text) return '';
@@ -280,7 +311,7 @@ export default async function handler(req, res) {
       for (const [placeholder, fieldId] of Object.entries(fieldMapping)) {
         if (fieldId && form_values) {
           const fieldValue = form_values[fieldId];
-          const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
+          const displayValue = await resolveFieldValue(fieldId, fieldValue);
           const placeholderPattern = `{{${placeholder}}}`;
           result = result.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
         }
@@ -292,7 +323,7 @@ export default async function handler(req, res) {
           const fieldValue = form_values[field.id];
           const placeholder = `{{${field.id}}}`;
           const labelPlaceholder = field.label ? `{{${field.label}}}` : null;
-          const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
+          const displayValue = await resolveFieldValue(field.id, fieldValue);
           
           result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
           if (labelPlaceholder) {
