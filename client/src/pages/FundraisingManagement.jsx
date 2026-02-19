@@ -18,7 +18,7 @@ import {
   Heart, Plus, Trash2, Users, Link as LinkIcon, Copy, Check,
   ArrowLeft, Target, Calendar, Loader2, Search, ExternalLink, UserPlus,
   Eye, BarChart3, Gift, PoundSterling, TrendingUp, Award, Clock,
-  ChevronRight, ChevronDown, ChevronUp, MessageSquare, Shield, HandHeart, FileText, Save
+  ChevronRight, ChevronDown, ChevronUp, MessageSquare, HandHeart
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
@@ -626,9 +626,6 @@ function CampaignDetail({ campaignId, onBack }) {
           <TabsTrigger value="donations" data-testid="tab-donations">
             Donations ({campaign.donation_count || 0})
           </TabsTrigger>
-          <TabsTrigger value="settings" data-testid="tab-settings">
-            Settings
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -913,9 +910,6 @@ function CampaignDetail({ campaignId, onBack }) {
           <DonationsList campaignId={campaignId} campaign={campaign} />
         </TabsContent>
 
-        <TabsContent value="settings" className="mt-4">
-          <CampaignSettings campaignId={campaignId} campaign={campaign} />
-        </TabsContent>
       </Tabs>
 
       {showAddMember && (
@@ -929,90 +923,6 @@ function CampaignDetail({ campaignId, onBack }) {
   );
 }
 
-function CampaignSettings({ campaignId, campaign }) {
-  const [termsAndConditions, setTermsAndConditions] = useState(campaign.terms_and_conditions || '');
-  const [privacyStatement, setPrivacyStatement] = useState(campaign.privacy_statement || '');
-  const [saving, setSaving] = useState(false);
-  const queryClient = useQueryClient();
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await apiRequest('PUT', `/api/fundraising/campaigns?id=${campaignId}`, {
-        terms_and_conditions: termsAndConditions,
-        privacy_statement: privacyStatement
-      });
-      queryClient.invalidateQueries({ queryKey: ['fundraising-campaign', campaignId] });
-      toast.success('Settings saved successfully');
-    } catch (err) {
-      toast.error('Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            <CardTitle className="text-base">Terms and Conditions</CardTitle>
-          </div>
-          <CardDescription>
-            Donors will be required to agree to these terms before making a payment.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            value={termsAndConditions}
-            onChange={(e) => setTermsAndConditions(e.target.value)}
-            placeholder="Enter your fundraising terms and conditions..."
-            rows={10}
-            className="text-sm"
-            data-testid="textarea-terms-conditions"
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4" />
-            <CardTitle className="text-base">Privacy Statement</CardTitle>
-          </div>
-          <CardDescription>
-            A link to this privacy statement will be shown at the bottom of the donation page.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            value={privacyStatement}
-            onChange={(e) => setPrivacyStatement(e.target.value)}
-            placeholder="Enter your privacy statement..."
-            rows={10}
-            className="text-sm"
-            data-testid="textarea-privacy-statement"
-          />
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          data-testid="button-save-settings"
-        >
-          {saving ? (
-            <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving...</>
-          ) : (
-            <><Save className="w-4 h-4 mr-2" /> Save Settings</>
-          )}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 function DonationsList({ campaignId, campaign }) {
   const { data: donations, isLoading } = useQuery({

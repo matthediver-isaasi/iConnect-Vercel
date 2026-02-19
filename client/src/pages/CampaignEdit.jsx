@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Loader2, Save, UserPlus, Building2 } from "lucide-react";
+import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -45,7 +45,9 @@ export default function CampaignEdit() {
     allow_org_signup: false,
     auto_create_organisations: false,
     unlimited_team_size: false,
-    hide_campaign_target: false
+    hide_campaign_target: false,
+    terms_and_conditions: '',
+    privacy_statement: ''
   });
 
   const [formLoaded, setFormLoaded] = useState(false);
@@ -78,7 +80,9 @@ export default function CampaignEdit() {
         allow_org_signup: campaignData.allow_org_signup || false,
         auto_create_organisations: campaignData.auto_create_organisations || false,
         unlimited_team_size: campaignData.unlimited_team_size || false,
-        hide_campaign_target: campaignData.hide_campaign_target || false
+        hide_campaign_target: campaignData.hide_campaign_target || false,
+        terms_and_conditions: campaignData.terms_and_conditions || '',
+        privacy_statement: campaignData.privacy_statement || ''
       });
       setFormLoaded(true);
     }
@@ -125,6 +129,8 @@ export default function CampaignEdit() {
       max_team_size: (form.campaign_type === 'team' || form.campaign_type === 'both') && !form.unlimited_team_size ? parseInt(form.max_team_size) || 5 : null,
       unlimited_team_size: form.unlimited_team_size || false,
       hide_campaign_target: form.hide_campaign_target || false,
+      terms_and_conditions: form.terms_and_conditions || null,
+      privacy_statement: form.privacy_statement || null,
       registration_message: form.registration_message || null,
       public_description: form.public_description || null,
       auto_create_members: form.auto_create_members || false,
@@ -402,6 +408,53 @@ export default function CampaignEdit() {
                 checked={form.allow_org_signup}
                 onCheckedChange={(v) => setForm(f => ({ ...f, allow_org_signup: v }))}
                 data-testid="switch-allow-org-signup"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Legal & Privacy
+            </CardTitle>
+            <CardDescription>Terms and privacy information shown to donors</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" />
+                Terms and Conditions
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Donors will be required to agree to these terms before making a payment.
+              </p>
+              <Textarea
+                value={form.terms_and_conditions}
+                onChange={(e) => setForm(f => ({ ...f, terms_and_conditions: e.target.value }))}
+                placeholder="Enter your fundraising terms and conditions..."
+                rows={6}
+                className="text-sm"
+                data-testid="textarea-terms-conditions"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" />
+                Privacy Statement
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                A link to this privacy statement will be shown at the bottom of the donation page.
+              </p>
+              <Textarea
+                value={form.privacy_statement}
+                onChange={(e) => setForm(f => ({ ...f, privacy_statement: e.target.value }))}
+                placeholder="Enter your privacy statement..."
+                rows={6}
+                className="text-sm"
+                data-testid="textarea-privacy-statement"
               />
             </div>
           </CardContent>
