@@ -162,19 +162,33 @@ export default function EmailCampaignEdit() {
     staleTime: 60000
   });
 
-  // Fetch forms that have a communication category linked (for newsletter targeting)
   const { data: formsWithCategory = [] } = useQuery({
     queryKey: ['forms-with-category'],
     queryFn: async () => {
       try {
         const allForms = await base44.entities.Form.list();
-        // Only show forms that have a communication category assigned
         return (allForms || []).filter(f => f.communication_category_id && f.is_active !== false);
       } catch (e) {
         console.error('Failed to fetch forms:', e);
         return [];
       }
     },
+    staleTime: 60000
+  });
+
+  const { data: fundraisingCampaigns = [] } = useQuery({
+    queryKey: ['fundraising-campaigns-list'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/fundraising/campaigns', { credentials: 'include' });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data || [];
+      } catch (e) {
+        return [];
+      }
+    },
+    enabled: formData.target_type === 'fundraisers' || formData.target_type === 'donors',
     staleTime: 60000
   });
 
@@ -656,6 +670,8 @@ export default function EmailCampaignEdit() {
                     <SelectItem value="member_group">Member Groups</SelectItem>
                     <SelectItem value="role">Roles</SelectItem>
                     <SelectItem value="form">Form Subscribers</SelectItem>
+                    <SelectItem value="fundraisers">Fundraisers</SelectItem>
+                    <SelectItem value="donors">Donors</SelectItem>
                     <SelectItem value="all_members">All Members</SelectItem>
                   </SelectContent>
                 </Select>
@@ -666,7 +682,9 @@ export default function EmailCampaignEdit() {
                   <Label>
                     Select {formData.target_type === 'communication_category' ? 'Categories' : 
                             formData.target_type === 'member_group' ? 'Groups' : 
-                            formData.target_type === 'form' ? 'Forms' : 'Roles'}
+                            formData.target_type === 'form' ? 'Forms' : 
+                            formData.target_type === 'fundraisers' ? 'Campaigns' :
+                            formData.target_type === 'donors' ? 'Campaigns' : 'Roles'}
                   </Label>
                   <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
                     {formData.target_type === 'form' && (
@@ -751,6 +769,64 @@ export default function EmailCampaignEdit() {
                         <span className="text-sm">{role.name}</span>
                       </label>
                     ))}
+                    {(formData.target_type === 'fundraisers' || formData.target_type === 'donors') && (
+                      fundraisingCampaigns.length === 0 ? (
+                        <div className="text-sm text-muted-foreground py-2">
+                          No fundraising campaigns found.
+                        </div>
+                      ) : (
+                        <>
+                          <label className="flex items-center gap-2 cursor-pointer font-medium border-b pb-2 mb-1">
+                            <input
+                              type="checkbox"
+                              checked={formData.target_ids.includes('all') || (fundraisingCampaigns.length > 0 && fundraisingCampaigns.every(c => formData.target_ids.includes(c.id)))}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData(prev => ({ ...prev, target_ids: ['all'] }));
+                                } else {
+                                  setFormData(prev => ({ ...prev, target_ids: [] }));
+                                }
+                              }}
+                              className="rounded"
+                            />
+                            <span className="text-sm">{formData.target_type === 'fundraisers' ? 'All fundraisers' : 'All donors'}</span>
+                          </label>
+                          {fundraisingCampaigns.map(campaign => (
+                            <label key={campaign.id} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={formData.target_ids.includes('all') || formData.target_ids.includes(campaign.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setFormData(prev => {
+                                      const newIds = prev.target_ids.filter(id => id !== 'all');
+                                      newIds.push(campaign.id);
+                                      if (newIds.length === fundraisingCampaigns.length) {
+                                        return { ...prev, target_ids: ['all'] };
+                                      }
+                                      return { ...prev, target_ids: newIds };
+                                    });
+                                  } else {
+                                    setFormData(prev => {
+                                      let currentIds = prev.target_ids;
+                                      if (currentIds.includes('all')) {
+                                        currentIds = fundraisingCampaigns.map(c => c.id);
+                                      }
+                                      return { ...prev, target_ids: currentIds.filter(id => id !== campaign.id) };
+                                    });
+                                  }
+                                }}
+                                className="rounded"
+                              />
+                              <span className="text-sm">{campaign.name}</span>
+                              {campaign.status && (
+                                <span className="text-xs text-muted-foreground ml-1">({campaign.status})</span>
+                              )}
+                            </label>
+                          ))}
+                        </>
+                      )
+                    )}
                   </div>
                 </div>
               )}

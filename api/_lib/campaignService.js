@@ -470,6 +470,87 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
           }
         }
       }
+    } else if (targetType === 'fundraisers') {
+      const campaignFilter = targetIds.includes('all') ? null : targetIds;
+
+      let allTeamMembers = [];
+      let tmOffset = 0;
+      const tmBatchSize = 1000;
+      let hasMoreTm = true;
+
+      while (hasMoreTm) {
+        let query = supabase
+          .from('fundraising_team_member')
+          .select('id, email, first_name, last_name, campaign_id')
+          .eq('tenant_id', tenantId);
+
+        if (campaignFilter && campaignFilter.length > 0) {
+          query = query.in('campaign_id', campaignFilter);
+        }
+
+        const { data: batch } = await query.range(tmOffset, tmOffset + tmBatchSize - 1);
+
+        if (batch && batch.length > 0) {
+          allTeamMembers.push(...batch);
+          tmOffset += batch.length;
+          hasMoreTm = batch.length === tmBatchSize;
+        } else {
+          hasMoreTm = false;
+        }
+      }
+
+      recipients = allTeamMembers
+        .filter(tm => tm.email)
+        .map(tm => ({
+          id: tm.id,
+          member_id: null,
+          email: tm.email,
+          first_name: tm.first_name,
+          last_name: tm.last_name
+        }));
+
+    } else if (targetType === 'donors') {
+      const campaignFilter = targetIds.includes('all') ? null : targetIds;
+
+      let allDonations = [];
+      let donOffset = 0;
+      const donBatchSize = 1000;
+      let hasMoreDon = true;
+
+      while (hasMoreDon) {
+        let query = supabase
+          .from('fundraising_donation')
+          .select('id, donor_name, donor_email, campaign_id')
+          .eq('tenant_id', tenantId)
+          .eq('payment_status', 'succeeded');
+
+        if (campaignFilter && campaignFilter.length > 0) {
+          query = query.in('campaign_id', campaignFilter);
+        }
+
+        const { data: batch } = await query.range(donOffset, donOffset + donBatchSize - 1);
+
+        if (batch && batch.length > 0) {
+          allDonations.push(...batch);
+          donOffset += batch.length;
+          hasMoreDon = batch.length === donBatchSize;
+        } else {
+          hasMoreDon = false;
+        }
+      }
+
+      recipients = allDonations
+        .filter(d => d.donor_email)
+        .map(d => {
+          const nameParts = (d.donor_name || '').split(' ');
+          return {
+            id: d.id,
+            member_id: null,
+            email: d.donor_email,
+            first_name: nameParts[0] || '',
+            last_name: nameParts.slice(1).join(' ') || ''
+          };
+        });
     }
 
     // Get global unsubscribes
