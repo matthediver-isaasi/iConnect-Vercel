@@ -159,6 +159,8 @@ export default function WorkflowManagementPage() {
   const [dryRunActionIndex, setDryRunActionIndex] = useState(null);
   const [dryRunEntityId, setDryRunEntityId] = useState('');
   const [dryRunMemberSearch, setDryRunMemberSearch] = useState('');
+  const [dryRunOrgSearch, setDryRunOrgSearch] = useState('');
+  const [dryRunOrgListOpen, setDryRunOrgListOpen] = useState(false);
   const [dryRunResult, setDryRunResult] = useState(null);
   const [dryRunLoading, setDryRunLoading] = useState(false);
 
@@ -245,8 +247,8 @@ export default function WorkflowManagementPage() {
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations'],
     queryFn: async () => {
-      const result = await base44.entities.Organization.list();
-      return result || [];
+      const result = await base44.entities.Organization.listAll();
+      return (result || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     enabled: accessChecked,
   });
@@ -2394,6 +2396,8 @@ export default function WorkflowManagementPage() {
         if (!open) {
           setShowDryRunDialog(false);
           setDryRunResult(null);
+          setDryRunOrgSearch('');
+          setDryRunOrgListOpen(false);
         }
       }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -2407,22 +2411,69 @@ export default function WorkflowManagementPage() {
           <div className="space-y-4">
             {formData.entity_type === 'organization' ? (
               <div className="space-y-2">
-                <Label>Select Organisation</Label>
-                <Select
-                  value={dryRunEntityId}
-                  onValueChange={setDryRunEntityId}
-                >
-                  <SelectTrigger data-testid="select-dry-run-entity">
-                    <SelectValue placeholder="Choose an organisation..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {organizations.map(org => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {org.name || org.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Search Organisation</Label>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    value={dryRunOrgSearch}
+                    onChange={(e) => {
+                      setDryRunOrgSearch(e.target.value);
+                      setDryRunOrgListOpen(e.target.value.length >= 1);
+                    }}
+                    placeholder="Type to search by name..."
+                    data-testid="input-dry-run-org-search"
+                  />
+                  {dryRunEntityId && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setDryRunEntityId('');
+                        setDryRunOrgSearch('');
+                        setDryRunOrgListOpen(true);
+                      }}
+                      data-testid="button-dry-run-org-clear"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                {dryRunEntityId && !dryRunOrgListOpen && (
+                  <p className="text-sm text-muted-foreground" data-testid="text-dry-run-org-selected">
+                    Selected: <span className="font-medium text-foreground">{organizations.find(o => o.id === dryRunEntityId)?.name || dryRunEntityId}</span>
+                  </p>
+                )}
+                {dryRunOrgListOpen && dryRunOrgSearch.length >= 1 && (() => {
+                  const search = dryRunOrgSearch.toLowerCase();
+                  const filtered = organizations.filter(org => (org.name || '').toLowerCase().includes(search));
+                  return (
+                    <div className="border rounded-md max-h-[200px] overflow-y-auto" data-testid="list-dry-run-org-results">
+                      {filtered.slice(0, 30).map(org => (
+                        <Button
+                          key={org.id}
+                          type="button"
+                          variant={dryRunEntityId === org.id ? 'secondary' : 'ghost'}
+                          className="w-full justify-start rounded-none"
+                          size="sm"
+                          onClick={() => {
+                            setDryRunEntityId(org.id);
+                            setDryRunOrgSearch(org.name || org.id);
+                            setDryRunOrgListOpen(false);
+                          }}
+                          data-testid={`button-dry-run-org-${org.id}`}
+                        >
+                          {org.name || org.id}
+                        </Button>
+                      ))}
+                      {filtered.length === 0 && (
+                        <p className="px-3 py-2 text-sm text-muted-foreground" data-testid="text-dry-run-no-orgs">No organisations found</p>
+                      )}
+                      {filtered.length > 30 && (
+                        <p className="px-3 py-2 text-xs text-muted-foreground">Showing 30 of {filtered.length} results. Type more to narrow down.</p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <div className="space-y-2">
