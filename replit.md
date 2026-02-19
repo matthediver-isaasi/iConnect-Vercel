@@ -45,6 +45,45 @@ The system supports membership pricing based on organization attributes with his
 ## UI/UX
 The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent, responsive user experience with a collapsible sidebar.
 
+# Database Connection Instructions
+**WARNING: NEVER REMOVE THIS SECTION - These instructions are essential for database access**
+
+This project uses Supabase PostgreSQL databases. Direct psql commands and execute_sql_tool DO NOT WORK on Replit due to IPv6 connectivity issues.
+
+## Available Database Secrets
+| Secret | Database | Purpose |
+|--------|----------|---------|
+| SOURCE_DATABASE_URL | Legacy single-tenant Supabase | Original data source for migrations |
+| DEST_DATABASE_URL | New multi-tenant Supabase | Production destination database |
+| DEST_SUPABASE_KEY | New multi-tenant Supabase | Service role key for Supabase client |
+
+## How to Query the Database
+USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool
+
+```javascript
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const { data, error } = await supabase
+  .from('member')
+  .select('*')
+  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
+  .limit(10);
+
+console.log(data);
+```
+
+Run with: `node scripts/debug-query.mjs` or inline with `node -e "..."`
+
+## Important Notes
+- Replit's built-in database tools won't work - execute_sql_tool and psql fail due to IPv6 routing issues
+- Always use Supabase client (`@supabase/supabase-js`) for all database operations
+- Tenant ID for migrations: `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+- See `scripts/debug-tenant.mjs` for a working example of database queries
+
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.
 -   **Stripe:** Payment processing.

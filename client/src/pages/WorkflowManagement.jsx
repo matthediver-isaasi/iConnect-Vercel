@@ -245,9 +245,11 @@ export default function WorkflowManagementPage() {
   });
 
   const { data: organizations = [] } = useQuery({
-    queryKey: ['organizations'],
+    queryKey: ['organizations', 'all-unfiltered'],
     queryFn: async () => {
-      const result = await base44.entities.Organization.listAll();
+      const result = await base44.entities.Organization.listAll({
+        queryParams: { skipDirectoryFilters: 'true' }
+      });
       return (result || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     },
     enabled: accessChecked,
