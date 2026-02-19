@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,8 @@ import {
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
   TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
   Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2,
-  Megaphone, Lock, Pencil, Trash2, Camera, Save, Image, FileText, Download
+  Megaphone, Lock, Pencil, Trash2, Camera, Save, Image, FileText, Download,
+  CornerDownRight
 } from "lucide-react";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
@@ -342,7 +343,7 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
     } catch {} finally {
       setLoadingUpdates(false);
     }
-  }, [campaignId, tenantSlug]);
+  }, [campaignId, tenantSlug, sessionToken]);
 
   useEffect(() => {
     fetchUpdates();
@@ -572,196 +573,27 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
           ) : updates.length > 0 ? (
-            <div className="space-y-3">
-              {updates.map((u) => {
-                const isOwn = u.posted_by !== 'tenant' && u.team_member_id === teamMemberId;
-                const isEditing = editingId === u.id;
-
-                return (
-                  <div
-                    key={u.id}
-                    className={`border rounded-md p-3 space-y-2 ${u.posted_by === 'tenant' ? 'border-primary/20 bg-primary/5' : ''}`}
-                    data-testid={`update-${u.id}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
-                        {u.posted_by === 'tenant' && <Megaphone className="w-3.5 h-3.5 text-primary" />}
-                        {u.author_name}
-                        {u.posted_by === 'tenant' && u.visibility === 'private' && (
-                          <Badge variant="secondary" className="text-xs">
-                            <Lock className="w-3 h-3 mr-0.5" />Private
-                          </Badge>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        {isOwn && !isEditing && (
-                          <>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                setEditingId(u.id);
-                                setEditContent(u.content);
-                                setEditExistingImages(u.image_urls || (u.image_url ? [u.image_url] : []));
-                                setEditNewFiles([]);
-                                setEditNewPreviews([]);
-                              }}
-                              data-testid={`button-edit-update-${u.id}`}
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              disabled={deletingId === u.id}
-                              onClick={() => {
-                                if (window.confirm('Delete this update?')) {
-                                  handleDelete(u.id);
-                                }
-                              }}
-                              data-testid={`button-delete-update-${u.id}`}
-                            >
-                              {deletingId === u.id
-                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                : <Trash2 className="w-3.5 h-3.5" />}
-                            </Button>
-                          </>
-                        )}
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {formatTimeAgo(u.created_at)}
-                        </span>
-                      </div>
-                    </div>
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        <Textarea
-                          value={editContent}
-                          onChange={(e) => setEditContent(e.target.value)}
-                          className="resize-none"
-                          rows={3}
-                          data-testid={`textarea-edit-update-${u.id}`}
-                        />
-                        {(editExistingImages.length > 0 || editNewPreviews.length > 0) && (
-                          <div className="flex flex-wrap gap-2">
-                            {editExistingImages.map((imgUrl, idx) => (
-                              <div key={`existing-${idx}`} className="relative inline-block">
-                                <img
-                                  src={imgUrl}
-                                  alt=""
-                                  className="w-20 h-20 object-cover rounded-md"
-                                  data-testid={`img-edit-existing-${idx}`}
-                                />
-                                <Button
-                                  size="icon"
-                                  variant="secondary"
-                                  className="absolute -top-2 -right-2 rounded-full"
-                                  onClick={() => setEditExistingImages(prev => prev.filter((_, i) => i !== idx))}
-                                  data-testid={`button-remove-edit-existing-${idx}`}
-                                >
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                            {editNewPreviews.map((preview, idx) => (
-                              <div key={`new-${idx}`} className="relative inline-block">
-                                <img
-                                  src={preview}
-                                  alt=""
-                                  className="w-20 h-20 object-cover rounded-md"
-                                  data-testid={`img-edit-new-${idx}`}
-                                />
-                                <Button
-                                  size="icon"
-                                  variant="secondary"
-                                  className="absolute -top-2 -right-2 rounded-full"
-                                  onClick={() => {
-                                    setEditNewFiles(prev => prev.filter((_, i) => i !== idx));
-                                    setEditNewPreviews(prev => prev.filter((_, i) => i !== idx));
-                                  }}
-                                  data-testid={`button-remove-edit-new-${idx}`}
-                                >
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <input
-                            ref={editFileInputRef}
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={handleEditImageSelect}
-                            className="hidden"
-                            data-testid={`input-edit-image-${u.id}`}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => editFileInputRef.current?.click()}
-                            data-testid={`button-add-edit-image-${u.id}`}
-                          >
-                            <ImagePlus className="w-4 h-4 mr-1" />
-                            Add Photo
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={!editContent.trim() || savingEdit}
-                            onClick={() => handleEdit(u.id)}
-                            data-testid={`button-save-update-${u.id}`}
-                          >
-                            {savingEdit && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
-                            Save
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditContent('');
-                              setEditExistingImages([]);
-                              setEditNewFiles([]);
-                              setEditNewPreviews([]);
-                            }}
-                            data-testid={`button-cancel-edit-${u.id}`}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
-                        <PostImageGallery
-                          images={(u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])}
-                          updateId={u.id}
-                        />
-                        {u.attachment_urls && u.attachment_urls.length > 0 && (
-                          <div className="space-y-1">
-                            {u.attachment_urls.map((att, idx) => (
-                              <a
-                                key={idx}
-                                href={att.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
-                                data-testid={`link-attachment-${u.id}-${idx}`}
-                              >
-                                <FileText className="w-4 h-4 shrink-0" />
-                                <span className="truncate">{att.filename}</span>
-                                <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <ThreadedUpdates
+              updates={updates}
+              teamMemberId={teamMemberId}
+              editingId={editingId}
+              setEditingId={setEditingId}
+              editContent={editContent}
+              setEditContent={setEditContent}
+              editExistingImages={editExistingImages}
+              setEditExistingImages={setEditExistingImages}
+              editNewFiles={editNewFiles}
+              setEditNewFiles={setEditNewFiles}
+              editNewPreviews={editNewPreviews}
+              setEditNewPreviews={setEditNewPreviews}
+              savingEdit={savingEdit}
+              deletingId={deletingId}
+              handleEdit={handleEdit}
+              handleDelete={handleDelete}
+              handleEditImageSelect={handleEditImageSelect}
+              editFileInputRef={editFileInputRef}
+              formatTimeAgo={formatTimeAgo}
+            />
           ) : (
             <p className="text-xs text-muted-foreground text-center py-2" data-testid="text-no-updates">
               No updates yet. Share your first update with supporters.
@@ -769,6 +601,238 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ThreadedUpdates({
+  updates, teamMemberId, editingId, setEditingId,
+  editContent, setEditContent, editExistingImages, setEditExistingImages,
+  editNewFiles, setEditNewFiles, editNewPreviews, setEditNewPreviews,
+  savingEdit, deletingId, handleEdit, handleDelete,
+  handleEditImageSelect, editFileInputRef, formatTimeAgo
+}) {
+  const topLevelUpdates = useMemo(() => {
+    if (!updates) return [];
+    return updates.filter(u => !u.parent_id);
+  }, [updates]);
+
+  const repliesByParent = useMemo(() => {
+    if (!updates) return {};
+    const map = {};
+    updates.filter(u => u.parent_id).forEach(u => {
+      if (!map[u.parent_id]) map[u.parent_id] = [];
+      map[u.parent_id].push(u);
+    });
+    Object.values(map).forEach(arr => arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
+    return map;
+  }, [updates]);
+
+  const renderUpdateItem = (u, isReply = false) => {
+    const isOwn = u.posted_by !== 'tenant' && u.team_member_id === teamMemberId;
+    const isEditing = editingId === u.id;
+
+    return (
+      <div
+        key={u.id}
+        className={`${isReply
+          ? 'ml-6 border-l-2 border-primary/20 pl-3 py-2'
+          : `border rounded-md p-3 ${u.posted_by === 'tenant' ? 'border-primary/20 bg-primary/5' : ''}`
+        } space-y-2`}
+        data-testid={`update-${u.id}`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-medium flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
+            {isReply && <CornerDownRight className="w-3 h-3 text-muted-foreground shrink-0" />}
+            {u.posted_by === 'tenant' && <Megaphone className="w-3.5 h-3.5 text-primary" />}
+            {u.author_name}
+            {u.posted_by === 'tenant' && u.visibility === 'private' && (
+              <Badge variant="secondary" className="text-xs">
+                <Lock className="w-3 h-3 mr-0.5" />Private
+              </Badge>
+            )}
+          </span>
+          <div className="flex items-center gap-1">
+            {isOwn && !isEditing && (
+              <>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditingId(u.id);
+                    setEditContent(u.content);
+                    setEditExistingImages(u.image_urls || (u.image_url ? [u.image_url] : []));
+                    setEditNewFiles([]);
+                    setEditNewPreviews([]);
+                  }}
+                  data-testid={`button-edit-update-${u.id}`}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  disabled={deletingId === u.id}
+                  onClick={() => {
+                    if (window.confirm('Delete this update?')) {
+                      handleDelete(u.id);
+                    }
+                  }}
+                  data-testid={`button-delete-update-${u.id}`}
+                >
+                  {deletingId === u.id
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Trash2 className="w-3.5 h-3.5" />}
+                </Button>
+              </>
+            )}
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {formatTimeAgo(u.created_at)}
+            </span>
+          </div>
+        </div>
+        {isEditing ? (
+          <div className="space-y-2">
+            <Textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="resize-none"
+              rows={3}
+              data-testid={`textarea-edit-update-${u.id}`}
+            />
+            {(editExistingImages.length > 0 || editNewPreviews.length > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {editExistingImages.map((imgUrl, idx) => (
+                  <div key={`existing-${idx}`} className="relative inline-block">
+                    <img
+                      src={imgUrl}
+                      alt=""
+                      className="w-20 h-20 object-cover rounded-md"
+                      data-testid={`img-edit-existing-${idx}`}
+                    />
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      className="absolute -top-2 -right-2 rounded-full"
+                      onClick={() => setEditExistingImages(prev => prev.filter((_, i) => i !== idx))}
+                      data-testid={`button-remove-edit-existing-${idx}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ))}
+                {editNewPreviews.map((preview, idx) => (
+                  <div key={`new-${idx}`} className="relative inline-block">
+                    <img
+                      src={preview}
+                      alt=""
+                      className="w-20 h-20 object-cover rounded-md"
+                      data-testid={`img-edit-new-${idx}`}
+                    />
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      className="absolute -top-2 -right-2 rounded-full"
+                      onClick={() => {
+                        setEditNewFiles(prev => prev.filter((_, i) => i !== idx));
+                        setEditNewPreviews(prev => prev.filter((_, i) => i !== idx));
+                      }}
+                      data-testid={`button-remove-edit-new-${idx}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                ref={editFileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleEditImageSelect}
+                className="hidden"
+                data-testid={`input-edit-image-${u.id}`}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => editFileInputRef.current?.click()}
+                data-testid={`button-add-edit-image-${u.id}`}
+              >
+                <ImagePlus className="w-4 h-4 mr-1" />
+                Add Photo
+              </Button>
+              <Button
+                size="sm"
+                disabled={!editContent.trim() || savingEdit}
+                onClick={() => handleEdit(u.id)}
+                data-testid={`button-save-update-${u.id}`}
+              >
+                {savingEdit && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                Save
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditingId(null);
+                  setEditContent('');
+                  setEditExistingImages([]);
+                  setEditNewFiles([]);
+                  setEditNewPreviews([]);
+                }}
+                data-testid={`button-cancel-edit-${u.id}`}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm" data-testid={`text-update-content-${u.id}`}>{u.content}</p>
+            <PostImageGallery
+              images={(u.image_urls && u.image_urls.length > 0) ? u.image_urls : (u.image_url ? [u.image_url] : [])}
+              updateId={u.id}
+            />
+            {u.attachment_urls && u.attachment_urls.length > 0 && (
+              <div className="space-y-1">
+                {u.attachment_urls.map((att, idx) => (
+                  <a
+                    key={idx}
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
+                    data-testid={`link-attachment-${u.id}-${idx}`}
+                  >
+                    <FileText className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{att.filename}</span>
+                    <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      {topLevelUpdates.map((u) => (
+        <div key={u.id} className="space-y-0">
+          {renderUpdateItem(u, false)}
+          {repliesByParent[u.id] && repliesByParent[u.id].length > 0 && (
+            <div className="space-y-0 mt-1">
+              {repliesByParent[u.id].map(reply => renderUpdateItem(reply, true))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

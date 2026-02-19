@@ -81,6 +81,7 @@ export default async function handler(req, res) {
           posted_by_name,
           created_at,
           team_member_id,
+          parent_id,
           fundraising_team_member (
             first_name,
             last_name
@@ -89,7 +90,7 @@ export default async function handler(req, res) {
         .eq('campaign_id', targetCampaignId)
         .eq('tenant_id', targetTenantId)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(200);
 
       if (!includePrivate) {
         query = query.or('visibility.eq.public,visibility.is.null');
@@ -116,6 +117,7 @@ export default async function handler(req, res) {
         posted_by: u.posted_by || 'fundraiser',
         posted_by_name: u.posted_by_name,
         team_member_id: u.team_member_id,
+        parent_id: u.parent_id || null,
         created_at: u.created_at,
         author_name: u.posted_by === 'tenant'
           ? (u.posted_by_name || 'Campaign Organiser')
