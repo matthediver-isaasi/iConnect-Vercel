@@ -252,7 +252,7 @@ async function handlePut(req, res, tenantId) {
     return res.status(400).json({ error: 'Campaign ID is required' });
   }
 
-  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id, allow_org_signup, auto_create_organisations, terms_and_conditions, privacy_statement } = req.body;
+  const { name, description, cover_image_url, goal_amount, currency, start_date, end_date, status, allow_anonymous_donations, campaign_type, max_team_size, registration_open, registration_message, public_description, auto_create_members, member_role_id, allow_org_signup, auto_create_organisations, terms_and_conditions, privacy_statement, unlimited_team_size, hide_campaign_target } = req.body;
 
   const updates = {};
   if (name !== undefined) updates.name = name;
@@ -275,6 +275,8 @@ async function handlePut(req, res, tenantId) {
   if (auto_create_organisations !== undefined) updates.auto_create_organisations = auto_create_organisations;
   if (terms_and_conditions !== undefined) updates.terms_and_conditions = terms_and_conditions;
   if (privacy_statement !== undefined) updates.privacy_statement = privacy_statement;
+  if (unlimited_team_size !== undefined) updates.unlimited_team_size = unlimited_team_size;
+  if (hide_campaign_target !== undefined) updates.hide_campaign_target = hide_campaign_target;
   updates.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
