@@ -90,7 +90,7 @@ export default async function handler(req, res) {
         .limit(50);
 
       if (!includePrivate) {
-        query = query.eq('visibility', 'public');
+        query = query.or('visibility.eq.public,visibility.is.null');
       }
 
       const { data: updates, error: updatesError } = await query;
