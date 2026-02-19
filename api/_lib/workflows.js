@@ -5,7 +5,14 @@ import { simulateMembershipForOrg } from './membershipSimulation.js';
 
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {
-  if (!supabase || !memberId) return null;
+  if (!supabase || !memberId) {
+    console.warn(`[Workflows] generatePasswordSetupUrl: missing params - supabase=${!!supabase}, memberId=${memberId}`);
+    return null;
+  }
+  if (!baseUrl) {
+    console.warn(`[Workflows] generatePasswordSetupUrl: baseUrl is empty/missing, cannot generate URL`);
+    return null;
+  }
   
   try {
     // First fetch the member's email
@@ -16,7 +23,7 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
       .single();
     
     if (memberError || !member?.email) {
-      console.error('[Workflows] Could not fetch member email for password setup URL:', memberError);
+      console.error(`[Workflows] Could not fetch member email for password setup URL (memberId=${memberId}):`, memberError?.message || 'no email found');
       return null;
     }
     
@@ -124,7 +131,9 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
   // Matches: {{set_password_url}}, {{ set_password_url }}, {{SET_PASSWORD_URL}}, etc.
   // Note: Use separate regex instances to avoid lastIndex issues with global flag
   const hasPlaceholder = /\{\{\s*set_password_url\s*\}\}/gi.test(decodedContent) || 
-                         /\{\{\s*set_password_url\s*\}\}/gi.test(result);
+                         /\{\{\s*set_password_url\s*\}\}/gi.test(result) ||
+                         /\[\[\s*set_password_url\s*\]\]/gi.test(decodedContent) ||
+                         /\[\[\s*set_password_url\s*\]\]/gi.test(result);
   
   // Also check URL-encoded version
   const hasUrlEncodedPlaceholder = result.includes('%7B%7Bset_password_url%7D%7D') || 
@@ -140,6 +149,8 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
     if (passwordUrl) {
       // Replace all forms of the placeholder (flexible regex with whitespace support)
       result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordUrl);
+      // Also replace [[set_password_url]] syntax
+      result = result.replace(/\[\[\s*set_password_url\s*\]\]/gi, passwordUrl);
       // HTML entity encoded versions
       result = result.replace(/&#123;&#123;\s*set_password_url\s*&#125;&#125;/gi, passwordUrl);
       result = result.replace(/&lcub;&lcub;\s*set_password_url\s*&rcub;&rcub;/gi, passwordUrl);
@@ -147,7 +158,13 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
       result = result.replace(/%7B%7Bset_password_url%7D%7D/gi, passwordUrl);
       console.log(`[Workflows] Replaced {{set_password_url}} with ${passwordUrl}`);
     } else {
-      console.warn('[Workflows] Failed to generate password setup URL, placeholder not replaced');
+      console.warn(`[Workflows] Failed to generate password setup URL for member ${entityId}, removing placeholder to avoid raw text in email`);
+      // Remove the placeholder rather than leaving raw {{set_password_url}} text in the email
+      result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, '');
+      result = result.replace(/\[\[\s*set_password_url\s*\]\]/gi, '');
+      result = result.replace(/&#123;&#123;\s*set_password_url\s*&#125;&#125;/gi, '');
+      result = result.replace(/&lcub;&lcub;\s*set_password_url\s*&rcub;&rcub;/gi, '');
+      result = result.replace(/%7B%7Bset_password_url%7D%7D/gi, '');
     }
   } else {
     console.log(`[processSpecialPlaceholders] No set_password_url placeholder found in content`);
@@ -167,8 +184,16 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
   
   let result = template;
   
+  const SPECIAL_PLACEHOLDERS = ['set_password_url', 'communication_preferences_link', 'communication_preferences_url'];
+  
   for (const [placeholder, mapping] of Object.entries(fieldMappings)) {
     if (!mapping) continue; // Skip auto mappings (null)
+    
+    // Never touch special placeholders - they are handled by dedicated processors later
+    if (SPECIAL_PLACEHOLDERS.includes(placeholder)) {
+      console.log(`[Workflows] Skipping special placeholder "${placeholder}" - handled by dedicated processor`);
+      continue;
+    }
     
     // Handle prefixes: org_core, org_custom, member_core, member_custom, core, custom
     const parts = mapping.split(':');
@@ -709,8 +734,34 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       console.log(`[Workflows] baseUrl: "${baseUrl}", entityType: "${entityType}", entityId: "${entityId}"`);
       console.log(`[Workflows] Body contains set_password_url: ${body?.includes('set_password_url')}`);
       if (baseUrl) {
-        subject = await processSpecialPlaceholders(subject, entityType, entityId, baseUrl);
-        body = await processSpecialPlaceholders(body, entityType, entityId, baseUrl);
+        if (entityType === 'member') {
+          // Direct member trigger - use the entity ID
+          subject = await processSpecialPlaceholders(subject, 'member', entityId, baseUrl);
+          body = await processSpecialPlaceholders(body, 'member', entityId, baseUrl);
+        } else if ((body?.includes('set_password_url') || subject?.includes('set_password_url')) && to) {
+          // Non-member trigger but template has set_password_url - look up member by recipient email
+          console.log(`[Workflows] Non-member trigger has set_password_url placeholder, looking up member by email: "${to}"`);
+          const { data: recipientMember } = await supabase
+            .from('member')
+            .select('id')
+            .eq('email', to.trim().toLowerCase())
+            .eq('tenant_id', tenantId)
+            .single();
+          if (recipientMember) {
+            console.log(`[Workflows] Found member ${recipientMember.id} for email ${to}, processing special placeholders`);
+            subject = await processSpecialPlaceholders(subject, 'member', recipientMember.id, baseUrl);
+            body = await processSpecialPlaceholders(body, 'member', recipientMember.id, baseUrl);
+          } else {
+            console.warn(`[Workflows] Could not find member for email "${to}" in tenant ${tenantId} - cannot generate set_password_url`);
+            // Clean up the placeholder to avoid raw text in email
+            subject = subject?.replace(/\{\{\s*set_password_url\s*\}\}/gi, '').replace(/\[\[\s*set_password_url\s*\]\]/gi, '');
+            body = body?.replace(/\{\{\s*set_password_url\s*\}\}/gi, '').replace(/\[\[\s*set_password_url\s*\]\]/gi, '');
+          }
+        } else {
+          // No special placeholders to process for non-member entities
+          subject = await processSpecialPlaceholders(subject, entityType, entityId, baseUrl);
+          body = await processSpecialPlaceholders(body, entityType, entityId, baseUrl);
+        }
       } else {
         console.warn(`[Workflows] baseUrl is empty/undefined, cannot process special placeholders`);
       }
@@ -1274,24 +1325,69 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
   const baseSubject = subject;
   const baseBody = body;
   
+  // Pre-fetch org data once for member-triggered workflows (avoid per-member DB calls)
+  let triggerMemberOrgData = null;
+  if (entityType === 'member' && entityData?.organization_id) {
+    const { data: orgData } = await supabase
+      .from('organization')
+      .select('*')
+      .eq('id', entityData.organization_id)
+      .single();
+    triggerMemberOrgData = orgData;
+    console.log(`[Workflows] Role-based email: pre-fetched org data for member-triggered workflow (org=${entityData.organization_id}, name="${orgData?.name}")`);
+  }
+  
   for (const member of members) {
     try {
       // Start with fresh template for each member
       let memberSubject = baseSubject;
       let memberBody = baseBody;
       
+      // Debug: Log member data and entity data for first member to trace placeholder issues
+      if (members.indexOf(member) === 0) {
+        console.log(`[Workflows] Role-based email DEBUG - entityType: "${entityType}", entityId: "${entityId}"`);
+        console.log(`[Workflows] Role-based email DEBUG - entityData keys: ${entityData ? Object.keys(entityData).join(', ') : 'null'}`);
+        console.log(`[Workflows] Role-based email DEBUG - entityData.name: "${entityData?.name}", entityData.id: "${entityData?.id}"`);
+        console.log(`[Workflows] Role-based email DEBUG - field_mappings: ${JSON.stringify(action.config?.field_mappings)}`);
+        console.log(`[Workflows] Role-based email DEBUG - member keys: ${Object.keys(member).join(', ')}`);
+        console.log(`[Workflows] Role-based email DEBUG - member.first_name: "${member.first_name}", member.id: "${member.id}", member.email: "${member.email}"`);
+        console.log(`[Workflows] Role-based email DEBUG - baseUrl: "${baseUrl}"`);
+        // Log a snippet of the template to see if placeholders are present
+        const bodySnippet = memberBody?.substring(0, 300) || '(empty)';
+        console.log(`[Workflows] Role-based email DEBUG - template body snippet (first 300 chars): ${bodySnippet}`);
+      }
+      
       // Step 1: Apply field mappings for BOTH contexts (trigger entity + member)
       // Use preserveEmpty=true for trigger context so member placeholders survive
       if (action.config?.field_mappings && Object.keys(action.config.field_mappings).length > 0) {
         // Apply trigger entity field mappings first (with preserveEmpty=true)
-        console.log(`[Workflows] Role-based email: applying trigger entity field mappings for ${entityType}:${entityId} (preserveEmpty=true)`);
-        memberSubject = await applyFieldMappings(memberSubject, action.config.field_mappings, entityType, entityId, entityData, true);
-        memberBody = await applyFieldMappings(memberBody, action.config.field_mappings, entityType, entityId, entityData, true);
+        // IMPORTANT: When trigger entity is 'member', skip this pass entirely to prevent
+        // the trigger member's data from overwriting placeholders meant for role members
+        if (entityType !== 'member') {
+          console.log(`[Workflows] Role-based email: applying trigger entity field mappings for ${entityType}:${entityId} (preserveEmpty=true)`);
+          memberSubject = await applyFieldMappings(memberSubject, action.config.field_mappings, entityType, entityId, entityData, true);
+          memberBody = await applyFieldMappings(memberBody, action.config.field_mappings, entityType, entityId, entityData, true);
+        } else {
+          console.log(`[Workflows] Role-based email: SKIPPING trigger entity pass (entityType is 'member' - would overwrite role member placeholders)`);
+          // For member-triggered workflows, we need to resolve org fields separately
+          // Use pre-fetched org data to avoid per-member DB calls
+          if (triggerMemberOrgData) {
+            console.log(`[Workflows] Role-based email: applying org field mappings from member's org ${entityData.organization_id}`);
+            memberSubject = await applyFieldMappings(memberSubject, action.config.field_mappings, 'organization', entityData.organization_id, triggerMemberOrgData, true);
+            memberBody = await applyFieldMappings(memberBody, action.config.field_mappings, 'organization', entityData.organization_id, triggerMemberOrgData, true);
+          }
+        }
         
-        // Then apply member-specific field mappings (with preserveEmpty=false for final cleanup)
-        console.log(`[Workflows] Role-based email: applying member field mappings for member ${member.id}`);
+        // Then apply member-specific field mappings using each ROLE MEMBER's data (not trigger member)
+        console.log(`[Workflows] Role-based email: applying member field mappings for member ${member.id} (first_name="${member.first_name}")`);
         memberSubject = await applyFieldMappings(memberSubject, action.config.field_mappings, 'member', member.id, member, false);
         memberBody = await applyFieldMappings(memberBody, action.config.field_mappings, 'member', member.id, member, false);
+        
+        // Debug: Log after field mappings for first member
+        if (members.indexOf(member) === 0) {
+          const afterMappingsSnippet = memberBody?.substring(0, 300) || '(empty)';
+          console.log(`[Workflows] Role-based email DEBUG - body after field mappings (first 300 chars): ${afterMappingsSnippet}`);
+        }
       }
       
       // Step 2: Resolve UUID-style field ID placeholders for member's custom fields
@@ -1308,10 +1404,31 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
       memberSubject = replacePlaceholders(memberSubject, entityType, entityData, null);
       memberBody = replacePlaceholders(memberBody, entityType, entityData, null);
       
+      // For member-triggered workflows, also resolve org placeholders via replacePlaceholders
+      if (entityType === 'member' && triggerMemberOrgData) {
+        memberSubject = replacePlaceholders(memberSubject, 'organization', triggerMemberOrgData, null);
+        memberBody = replacePlaceholders(memberBody, 'organization', triggerMemberOrgData, null);
+      }
+      
       // Step 4: Process special placeholders like {{set_password_url}} for THIS member
+      // Always attempt this regardless of baseUrl - log if baseUrl is missing
       if (baseUrl) {
         memberSubject = await processSpecialPlaceholders(memberSubject, 'member', member.id, baseUrl);
         memberBody = await processSpecialPlaceholders(memberBody, 'member', member.id, baseUrl);
+      } else {
+        console.warn(`[Workflows] Role-based email: baseUrl is empty/missing - cannot process {{set_password_url}} placeholder`);
+      }
+      
+      // Debug: Log final body for first member to verify all placeholders resolved
+      if (members.indexOf(member) === 0) {
+        const finalSnippet = memberBody?.substring(0, 300) || '(empty)';
+        console.log(`[Workflows] Role-based email DEBUG - FINAL body (first 300 chars): ${finalSnippet}`);
+        // Check for any remaining unresolved placeholders
+        const remainingCurly = memberBody?.match(/\{\{[^}]+\}\}/g) || [];
+        const remainingBracket = memberBody?.match(/\[\[[^\]]+\]\]/g) || [];
+        if (remainingCurly.length > 0 || remainingBracket.length > 0) {
+          console.warn(`[Workflows] Role-based email DEBUG - UNRESOLVED placeholders remaining: {{}} = [${remainingCurly.join(', ')}], [[]] = [${remainingBracket.join(', ')}]`);
+        }
       }
       
       console.log(`[Workflows] Role-based email: sending to ${member.email}`);
