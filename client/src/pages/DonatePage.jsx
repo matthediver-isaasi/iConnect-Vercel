@@ -407,9 +407,12 @@ export default function DonatePage() {
         {team_member.personal_message && (
           <Card>
             <CardContent className="pt-6">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap" data-testid="text-personal-message">
-                {team_member.personal_message}
-              </p>
+              <div className="flex items-start gap-3">
+                <Heart className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                <p className="text-sm leading-relaxed whitespace-pre-wrap" data-testid="text-personal-message">
+                  {team_member.personal_message}
+                </p>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -464,7 +467,14 @@ export default function DonatePage() {
         {campaign.description && (
           <Card>
             <CardContent className="pt-6">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{campaign.description}</p>
+              <div className="flex items-start gap-3">
+                {tenant?.logo_url ? (
+                  <img src={tenant.logo_url} alt={tenant.name} className="w-5 h-5 object-contain mt-0.5 shrink-0" data-testid="img-tenant-logo" />
+                ) : (
+                  <Megaphone className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                )}
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{campaign.description}</p>
+              </div>
             </CardContent>
           </Card>
         )}
