@@ -238,7 +238,7 @@ async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
 
 // Helper: Send confirmation emails using event_email configuration
 // personalizedZoomUrl: Optional attendee-specific Zoom join URL from webinar registration
-async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null) {
+async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null) {
   if (!supabase) return [];
   
   const results = [];
@@ -303,7 +303,12 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
     const bookingData = {
       attendee_first_name: attendee?.first_name || booking?.attendee_first_name || '',
       attendee_last_name: attendee?.last_name || booking?.attendee_last_name || '',
-      attendee_email: attendee?.email || booking?.attendee_email || ''
+      attendee_email: attendee?.email || booking?.attendee_email || '',
+      booking_reference: booking?.booking_reference || '',
+      ticket_price: booking?.ticket_price || 0,
+      total_cost: booking?.total_cost || 0,
+      ticket_class_name: booking?.ticket_class_name || 'Standard',
+      pricingDetails: pricingDetails || null
     };
 
     for (const emailConfig of confirmationEmails) {
@@ -365,6 +370,46 @@ function replacePlaceholders(template, data) {
   result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date));
   result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
   
+  // Handle booking/pricing placeholders
+  result = result.replace(/\{\{booking_reference\}\}/gi, booking?.booking_reference || '');
+  result = result.replace(/\[\[booking\.reference\]\]/gi, booking?.booking_reference || '');
+  result = result.replace(/\[\[booking\.booking_reference\]\]/gi, booking?.booking_reference || '');
+  result = result.replace(/\{\{ticket_class\}\}/gi, booking?.ticket_class_name || 'Standard');
+  result = result.replace(/\[\[booking\.ticket_class\]\]/gi, booking?.ticket_class_name || 'Standard');
+  
+  const ticketPrice = Number(booking?.ticket_price || 0);
+  const totalCost = Number(booking?.total_cost || 0);
+  result = result.replace(/\{\{ticket_price\}\}/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
+  result = result.replace(/\[\[booking\.ticket_price\]\]/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
+  result = result.replace(/\{\{total_cost\}\}/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
+  result = result.replace(/\[\[booking\.total_cost\]\]/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
+  
+  // Pricing details (discounts, free tickets) - conditionally rendered sections
+  const pd = booking?.pricingDetails;
+  if (pd?.freeTickets > 0) {
+    result = result.replace(/\{\{#offer_discount\}\}([\s\S]*?)\{\{\/offer_discount\}\}/gi, '$1');
+    const discountDesc = pd.discountDescription || `${pd.freeTickets} free ticket(s)`;
+    result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
+    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
+    const discountSaving = `£${(pd.freeTickets * ticketPrice).toFixed(2)}`;
+    result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountSaving);
+    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountSaving);
+  } else if (pd?.discount > 0) {
+    result = result.replace(/\{\{#offer_discount\}\}([\s\S]*?)\{\{\/offer_discount\}\}/gi, '$1');
+    const discountDesc = pd.discountDescription || 'Discount';
+    result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
+    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
+    const discountAmount = `£${pd.discount.toFixed(2)}`;
+    result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountAmount);
+    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountAmount);
+  } else {
+    result = result.replace(/\{\{#offer_discount\}\}[\s\S]*?\{\{\/offer_discount\}\}/gi, '');
+    result = result.replace(/\{\{offer_discount_description\}\}/gi, '');
+    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, '');
+    result = result.replace(/\{\{offer_discount_amount\}\}/gi, '');
+    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, '');
+  }
+
   // Handle zoom link - check event first, then booking (if field exists)
   const zoomLink = event?.zoom_join_url || booking?.zoom_join_url || '';
   if (zoomLink) {
@@ -2705,10 +2750,9 @@ const functionHandlers = {
     
     for (const booking of createdBookings) {
       const attendee = bookingAttendees.find(a => a.email === booking.attendee_email);
-      // Get personalized Zoom join URL from registration results if available
       const zoomResult = zoomRegistrationResults.find(r => r.email === booking.attendee_email);
       const personalizedZoomUrl = zoomResult?.join_url || null;
-      const results = await sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl);
+      const results = await sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl, pricingDetails);
       emailResults.push(...results);
     }
     

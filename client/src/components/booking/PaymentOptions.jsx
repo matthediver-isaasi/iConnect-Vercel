@@ -321,7 +321,9 @@ export default function PaymentOptions({
               attendees: savedPayload.attendees || attendees.filter(a => a.isValid),
               ticketsRequired: savedPayload.ticketsRequired || ticketsRequired,
               totalCost: savedPayload.totalCost || totalCost,
-              ticketClassName: savedPayload.ticketClassName || selectedTicketClass?.name || 'Standard'
+              ticketClassName: savedPayload.ticketClassName || selectedTicketClass?.name || 'Standard',
+              ticketClassPrice: savedPayload.ticketClassPrice || selectedTicketClass?.price || ticketPrice,
+              pricingDetails: savedPayload.pricingDetails || oneOffCostDetails
             });
           } else {
             setTimeout(() => {
@@ -813,7 +815,9 @@ export default function PaymentOptions({
             attendees: attendees.filter(a => a.isValid),
             ticketsRequired: ticketsRequired,
             totalCost: totalCost,
-            ticketClassName: selectedTicketClass?.name || 'Standard'
+            ticketClassName: selectedTicketClass?.name || 'Standard',
+            ticketClassPrice: selectedTicketClass?.price || ticketPrice,
+            pricingDetails: oneOffCostDetails
           });
           toast.success("Booking confirmed!");
         } else {
@@ -1399,9 +1403,22 @@ export default function PaymentOptions({
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
                     {conf.ticketsRequired} x {conf.ticketClassName}
+                    {conf.ticketClassPrice > 0 ? ` @ ${'\u00a3'}${Number(conf.ticketClassPrice).toFixed(2)}` : ''}
                   </span>
-                  <span className="font-medium">{'\u00a3'}{conf.totalCost.toFixed(2)}</span>
+                  <span className="font-medium">{'\u00a3'}{(conf.ticketsRequired * (conf.ticketClassPrice || 0)).toFixed(2)}</span>
                 </div>
+                {conf.pricingDetails?.freeTickets > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-700">
+                    <span>{conf.pricingDetails.discountDescription || `${conf.pricingDetails.freeTickets} free ticket(s)`}</span>
+                    <span>-{'\u00a3'}{(conf.pricingDetails.freeTickets * (conf.ticketClassPrice || 0)).toFixed(2)}</span>
+                  </div>
+                )}
+                {conf.pricingDetails?.discount > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-700">
+                    <span>{conf.pricingDetails.discountDescription || 'Discount'}</span>
+                    <span>-{'\u00a3'}{conf.pricingDetails.discount.toFixed(2)}</span>
+                  </div>
+                )}
                 {conf.paymentDetails?.voucher_amount > 0 && (
                   <div className="flex items-center justify-between text-sm text-green-700">
                     <span>Voucher applied</span>
@@ -1416,7 +1433,7 @@ export default function PaymentOptions({
                 )}
                 {conf.paymentDetails?.discount_code_amount > 0 && (
                   <div className="flex items-center justify-between text-sm text-green-700">
-                    <span>Discount applied</span>
+                    <span>Discount code applied</span>
                     <span>-{'\u00a3'}{conf.paymentDetails.discount_code_amount.toFixed(2)}</span>
                   </div>
                 )}
