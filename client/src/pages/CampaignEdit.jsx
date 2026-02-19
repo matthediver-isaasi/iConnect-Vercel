@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
+import ImageSelector from "@/components/ImageSelector";
 
 const CURRENCIES = [
   { value: 'GBP', label: 'GBP', symbol: '\u00a3' },
@@ -195,15 +196,12 @@ export default function CampaignEdit() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Cover Image URL</Label>
-              <Input
-                value={form.cover_image_url}
-                onChange={(e) => setForm(f => ({ ...f, cover_image_url: e.target.value }))}
-                placeholder="https://..."
-                data-testid="input-campaign-image"
-              />
-            </div>
+            <ImageSelector
+              value={form.cover_image_url}
+              onChange={(url) => setForm(f => ({ ...f, cover_image_url: url }))}
+              label="Cover Image"
+              helpText="Displayed on the campaign page and registration page"
+            />
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
