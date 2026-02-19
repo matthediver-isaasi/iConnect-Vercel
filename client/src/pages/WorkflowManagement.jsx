@@ -155,6 +155,13 @@ export default function WorkflowManagementPage() {
   const [builderStep, setBuilderStep] = useState(1);
   const [accessChecked, setAccessChecked] = useState(false);
   
+  const [showDryRunDialog, setShowDryRunDialog] = useState(false);
+  const [dryRunActionIndex, setDryRunActionIndex] = useState(null);
+  const [dryRunEntityId, setDryRunEntityId] = useState('');
+  const [dryRunMemberSearch, setDryRunMemberSearch] = useState('');
+  const [dryRunResult, setDryRunResult] = useState(null);
+  const [dryRunLoading, setDryRunLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -244,10 +251,62 @@ export default function WorkflowManagementPage() {
     enabled: accessChecked,
   });
 
+  const { data: members = [] } = useQuery({
+    queryKey: ['members-for-dry-run'],
+    queryFn: async () => {
+      const result = await base44.entities.Member.list();
+      return result || [];
+    },
+    enabled: accessChecked && showDryRunDialog && formData.entity_type === 'member',
+  });
+
   // Get role name by ID
   const getRoleName = (roleId) => {
     const role = roles.find(r => r.id === roleId);
     return role?.name || roleId;
+  };
+
+  const executeDryRun = async () => {
+    if (!dryRunEntityId) {
+      toast.error('Please select an entity first');
+      return;
+    }
+    const action = formData.actions[dryRunActionIndex];
+    if (!action) return;
+
+    setDryRunLoading(true);
+    setDryRunResult(null);
+    try {
+      const workflowId = editingWorkflow?.id;
+      if (!workflowId) {
+        toast.error('Please save the workflow first before running a dry run');
+        setDryRunLoading(false);
+        return;
+      }
+      const res = await fetch('/api/dry-run-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action,
+          workflow_id: workflowId,
+          entity_type: formData.entity_type,
+          entity_id: dryRunEntityId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Dry run failed');
+        setDryRunResult({ success: false, error: data.error });
+      } else {
+        setDryRunResult(data);
+      }
+    } catch (err) {
+      toast.error('Dry run failed: ' + err.message);
+      setDryRunResult({ success: false, error: err.message });
+    } finally {
+      setDryRunLoading(false);
+    }
   };
 
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
@@ -1738,6 +1797,28 @@ export default function WorkflowManagementPage() {
                                   )}
                                 </>
                               )}
+
+                              {/* Dry Run Button */}
+                              {(action.config?.template_id || action.config?.subject || action.config?.body) && (
+                                <div className="pt-2 border-t">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setDryRunActionIndex(index);
+                                      setDryRunEntityId('');
+                                      setDryRunMemberSearch('');
+                                      setDryRunResult(null);
+                                      setShowDryRunDialog(true);
+                                    }}
+                                    data-testid={`button-dry-run-${index}`}
+                                  >
+                                    <Play className="w-3 h-3 mr-1" />
+                                    Dry Run Preview
+                                  </Button>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -2305,6 +2386,187 @@ export default function WorkflowManagementPage() {
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dry Run Email Preview Dialog */}
+      <Dialog open={showDryRunDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowDryRunDialog(false);
+          setDryRunResult(null);
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Dry Run Email Preview</DialogTitle>
+            <DialogDescription>
+              Select {formData.entity_type === 'member' ? 'a member' : 'an organisation'} to preview the email with all placeholders resolved. No email will be sent.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {formData.entity_type === 'organization' ? (
+              <div className="space-y-2">
+                <Label>Select Organisation</Label>
+                <Select
+                  value={dryRunEntityId}
+                  onValueChange={setDryRunEntityId}
+                >
+                  <SelectTrigger data-testid="select-dry-run-entity">
+                    <SelectValue placeholder="Choose an organisation..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {organizations.map(org => (
+                      <SelectItem key={org.id} value={org.id}>
+                        {org.name || org.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Search Member</Label>
+                <Input
+                  value={dryRunMemberSearch}
+                  onChange={(e) => setDryRunMemberSearch(e.target.value)}
+                  placeholder="Type to search by name or email..."
+                  data-testid="input-dry-run-member-search"
+                />
+                {dryRunMemberSearch.length >= 2 && (() => {
+                  const filtered = members.filter(m => {
+                    const search = dryRunMemberSearch.toLowerCase();
+                    return (
+                      (m.first_name || '').toLowerCase().includes(search) ||
+                      (m.last_name || '').toLowerCase().includes(search) ||
+                      (m.email || '').toLowerCase().includes(search)
+                    );
+                  });
+                  return (
+                    <div className="border rounded-md max-h-[200px] overflow-y-auto" data-testid="list-dry-run-member-results">
+                      {filtered.slice(0, 20).map(m => (
+                        <Button
+                          key={m.id}
+                          type="button"
+                          variant={dryRunEntityId === m.id ? 'secondary' : 'ghost'}
+                          className="w-full justify-start rounded-none"
+                          size="sm"
+                          onClick={() => {
+                            setDryRunEntityId(m.id);
+                            setDryRunMemberSearch(`${m.first_name || ''} ${m.last_name || ''} (${m.email || ''})`);
+                          }}
+                          data-testid={`button-dry-run-member-${m.id}`}
+                        >
+                          <span className="font-medium">{m.first_name} {m.last_name}</span>
+                          <span className="text-muted-foreground ml-2 truncate">{m.email}</span>
+                        </Button>
+                      ))}
+                      {filtered.length === 0 && (
+                        <p className="px-3 py-2 text-sm text-muted-foreground" data-testid="text-dry-run-no-members">No members found</p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            <Button
+              onClick={executeDryRun}
+              disabled={!dryRunEntityId || dryRunLoading}
+              data-testid="button-execute-dry-run"
+            >
+              {dryRunLoading ? (
+                <>
+                  <Settings className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Run Preview
+                </>
+              )}
+            </Button>
+
+            {dryRunResult && !dryRunResult.success && (
+              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20" data-testid="text-dry-run-error">
+                <p className="text-sm text-destructive font-medium">
+                  <AlertCircle className="w-4 h-4 inline mr-1" />
+                  {dryRunResult.error}
+                </p>
+              </div>
+            )}
+
+            {dryRunResult?.success && (
+              <div className="space-y-4 border-t pt-4" data-testid="section-dry-run-result">
+                {dryRunResult.warning && (
+                  <div className="p-3 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800" data-testid="text-dry-run-warning">
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                      <AlertTriangle className="w-4 h-4 inline mr-1" />
+                      {dryRunResult.warning}
+                    </p>
+                  </div>
+                )}
+
+                {dryRunResult.unresolved_placeholders?.length > 0 && (
+                  <div className="p-3 rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800" data-testid="text-dry-run-unresolved">
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
+                      <AlertTriangle className="w-4 h-4 inline mr-1" />
+                      Unresolved placeholders detected:
+                    </p>
+                    <ul className="mt-1 ml-5 list-disc text-xs text-yellow-600 dark:text-yellow-400">
+                      {dryRunResult.unresolved_placeholders.map((p, i) => (
+                        <li key={i}><code>{p}</code></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {dryRunResult.is_role_based && dryRunResult.recipients?.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium" data-testid="text-dry-run-recipients-count">
+                      Recipients ({dryRunResult.recipients.length} member{dryRunResult.recipients.length !== 1 ? 's' : ''})
+                    </Label>
+                    <div className="flex flex-wrap gap-1" data-testid="list-dry-run-recipients">
+                      {dryRunResult.recipients.map((r, i) => (
+                        <Badge key={i} variant="secondary" data-testid={`badge-recipient-${i}`}>
+                          {r.first_name} {r.last_name} ({r.email})
+                        </Badge>
+                      ))}
+                    </div>
+                    {dryRunResult.preview_member && (
+                      <p className="text-xs text-muted-foreground" data-testid="text-dry-run-preview-member">
+                        Preview shown for: {dryRunResult.preview_member.first_name} {dryRunResult.preview_member.last_name}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {!dryRunResult.is_role_based && dryRunResult.to && (
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">To</Label>
+                    <p className="text-sm" data-testid="text-dry-run-to">{dryRunResult.to}</p>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Subject</Label>
+                  <div className="p-2 rounded-md bg-muted text-sm" data-testid="text-dry-run-subject">
+                    {dryRunResult.subject || '(empty)'}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Body</Label>
+                  <div 
+                    className="p-3 rounded-md border bg-background text-sm max-h-[300px] overflow-y-auto"
+                    data-testid="text-dry-run-body"
+                    dangerouslySetInnerHTML={{ __html: dryRunResult.body || '<em>(empty)</em>' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

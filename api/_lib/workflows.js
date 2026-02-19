@@ -2085,6 +2085,208 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
 }
 
 // Execute a workflow that was pending user confirmation
+// Dry-run an email action: runs the full placeholder resolution pipeline without sending
+// Returns the resolved subject, body, recipient info, and any role member list
+export async function dryRunEmail(action, workflow, entityType, entityId, baseUrl) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+  
+  const tenantId = workflow.tenant_id;
+  
+  // Fetch entity data
+  let entityData = null;
+  if (entityType === 'organization') {
+    const { data } = await supabase.from('organization').select('*').eq('id', entityId).single();
+    entityData = data;
+  } else if (entityType === 'member') {
+    const { data } = await supabase.from('member').select('*').eq('id', entityId).single();
+    entityData = data;
+  } else if (entityType === 'job_posting') {
+    const { data } = await supabase.from('job_posting').select('*').eq('id', entityId).single();
+    entityData = data;
+  }
+  
+  if (!entityData) {
+    return { success: false, error: `Could not find ${entityType} with id ${entityId}` };
+  }
+  
+  // Get template or custom content
+  let subject, body;
+  const useTemplateMode = (action.config?.mode === 'template' || action.config?.template_id) && action.config?.template_id;
+  if (useTemplateMode) {
+    const { data: template } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', action.config.template_id)
+      .single();
+    if (!template) {
+      return { success: false, error: 'Email template not found' };
+    }
+    subject = template.subject || '';
+    body = template.body || '';
+  } else {
+    subject = action.config?.subject || '';
+    body = action.config?.body || '';
+  }
+  
+  // Check if role-based
+  const toRoleIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
+  const isRoleBased = action.config?.to_mode === 'role' && toRoleIds.length > 0;
+  
+  if (isRoleBased) {
+    // Role-based: resolve for first member of the role
+    const organizationId = await getOrganizationIdFromEntity(entityType, entityId, entityData);
+    if (!organizationId) {
+      return { success: false, error: 'Could not determine organization for role-based email' };
+    }
+    
+    const membersByRole = await Promise.all(
+      toRoleIds.map(roleId => getMembersByRoleInOrganization(roleId, organizationId))
+    );
+    const seenIds = new Set();
+    const members = [];
+    for (const roleMembers of membersByRole) {
+      for (const member of roleMembers) {
+        if (!seenIds.has(member.id)) {
+          seenIds.add(member.id);
+          members.push(member);
+        }
+      }
+    }
+    
+    if (members.length === 0) {
+      return { 
+        success: true, 
+        subject, 
+        body, 
+        is_role_based: true,
+        recipients: [],
+        warning: 'No members found with the selected role(s) in this organization'
+      };
+    }
+    
+    // Resolve placeholders for the first member as preview
+    const member = members[0];
+    
+    // Pre-fetch org data for member-triggered workflows
+    let triggerMemberOrgData = null;
+    if (entityType === 'member' && entityData?.organization_id) {
+      const { data: orgData } = await supabase.from('organization').select('*').eq('id', entityData.organization_id).single();
+      triggerMemberOrgData = orgData;
+    }
+    
+    // Step 1: Apply field mappings
+    if (action.config?.field_mappings && Object.keys(action.config.field_mappings).length > 0) {
+      if (entityType !== 'member') {
+        subject = await applyFieldMappings(subject, action.config.field_mappings, entityType, entityId, entityData, true);
+        body = await applyFieldMappings(body, action.config.field_mappings, entityType, entityId, entityData, true);
+      } else if (triggerMemberOrgData) {
+        subject = await applyFieldMappings(subject, action.config.field_mappings, 'organization', entityData.organization_id, triggerMemberOrgData, true);
+        body = await applyFieldMappings(body, action.config.field_mappings, 'organization', entityData.organization_id, triggerMemberOrgData, true);
+      }
+      subject = await applyFieldMappings(subject, action.config.field_mappings, 'member', member.id, member, false);
+      body = await applyFieldMappings(body, action.config.field_mappings, 'member', member.id, member, false);
+    }
+    
+    // Step 2: Resolve UUID-style field ID placeholders
+    subject = await resolveFieldIdPlaceholder(subject, 'member', member.id);
+    body = await resolveFieldIdPlaceholder(body, 'member', member.id);
+    
+    // Step 3: Replace standard placeholders
+    const memberPrefContext = member.id ? { tenantBaseUrl: baseUrl, tenantId, memberId: member.id } : null;
+    subject = replacePlaceholders(subject, 'member', member, memberPrefContext);
+    body = replacePlaceholders(body, 'member', member, memberPrefContext);
+    subject = replacePlaceholders(subject, entityType, entityData, null);
+    body = replacePlaceholders(body, entityType, entityData, null);
+    if (entityType === 'member' && triggerMemberOrgData) {
+      subject = replacePlaceholders(subject, 'organization', triggerMemberOrgData, null);
+      body = replacePlaceholders(body, 'organization', triggerMemberOrgData, null);
+    }
+    
+    // Step 4: Process special placeholders (skip actual URL generation for dry run)
+    // Replace with placeholder text instead of generating real tokens
+    subject = subject?.replace(/\{\{\s*set_password_url\s*\}\}/gi, '[Password Setup URL will be generated]');
+    body = body?.replace(/\{\{\s*set_password_url\s*\}\}/gi, '[Password Setup URL will be generated]');
+    subject = subject?.replace(/\[\[\s*set_password_url\s*\]\]/gi, '[Password Setup URL will be generated]');
+    body = body?.replace(/\[\[\s*set_password_url\s*\]\]/gi, '[Password Setup URL will be generated]');
+    
+    // Detect any remaining unresolved placeholders
+    const unresolved = collectUnresolvedPlaceholders(subject, body);
+    
+    return {
+      success: true,
+      subject,
+      body,
+      is_role_based: true,
+      preview_member: { id: member.id, first_name: member.first_name, last_name: member.last_name, email: member.email },
+      recipients: members.map(m => ({ id: m.id, first_name: m.first_name, last_name: m.last_name, email: m.email })),
+      unresolved_placeholders: unresolved
+    };
+  } else {
+    // Standard email: resolve for the entity
+    
+    // Apply field mappings (use preserveEmpty=true to keep unresolved placeholders visible in preview)
+    if (action.config?.field_mappings && Object.keys(action.config.field_mappings).length > 0) {
+      subject = await applyFieldMappings(subject, action.config.field_mappings, entityType, entityId, entityData, true);
+      body = await applyFieldMappings(body, action.config.field_mappings, entityType, entityId, entityData, true);
+    }
+    
+    // Resolve UUID-style field ID placeholders
+    subject = await resolveFieldIdPlaceholder(subject, entityType, entityId);
+    body = await resolveFieldIdPlaceholder(body, entityType, entityId);
+    
+    // Resolve recipient
+    let toResolved = action.config?.to || '';
+    if (action.config?.to_mode === 'field') {
+      toResolved = await resolveFieldIdPlaceholder(toResolved, entityType, entityId);
+    }
+    const to = replacePlaceholders(toResolved, entityType, entityData);
+    
+    // Replace standard placeholders
+    const prefContext = entityType === 'member' && entityId ? { tenantBaseUrl: baseUrl, tenantId, memberId: entityId } : null;
+    subject = replacePlaceholders(subject, entityType, entityData, prefContext);
+    body = replacePlaceholders(body, entityType, entityData, prefContext);
+    
+    // Special placeholder replacement (dry run - don't generate real tokens)
+    subject = subject?.replace(/\{\{\s*set_password_url\s*\}\}/gi, '[Password Setup URL will be generated]');
+    body = body?.replace(/\{\{\s*set_password_url\s*\}\}/gi, '[Password Setup URL will be generated]');
+    subject = subject?.replace(/\[\[\s*set_password_url\s*\]\]/gi, '[Password Setup URL will be generated]');
+    body = body?.replace(/\[\[\s*set_password_url\s*\]\]/gi, '[Password Setup URL will be generated]');
+    
+    // Detect any remaining unresolved placeholders
+    const unresolved = collectUnresolvedPlaceholders(subject, body);
+    
+    return {
+      success: true,
+      subject,
+      body,
+      is_role_based: false,
+      to,
+      unresolved_placeholders: unresolved
+    };
+  }
+}
+
+// Helper: collect any remaining {{...}} or [[...]] placeholders after resolution
+function collectUnresolvedPlaceholders(subject, body) {
+  const all = new Set();
+  const curlyRegex = /\{\{([^}]+)\}\}/g;
+  const bracketRegex = /\[\[([^\]]+)\]\]/g;
+  
+  for (const text of [subject, body]) {
+    if (!text) continue;
+    let match;
+    while ((match = curlyRegex.exec(text)) !== null) {
+      all.add(`{{${match[1]}}}`);
+    }
+    while ((match = bracketRegex.exec(text)) !== null) {
+      all.add(`[[${match[1]}]]`);
+    }
+  }
+  return Array.from(all);
+}
+
 export async function executeConfirmedWorkflow(workflowId, entityType, entityId, beforeData, afterData, baseUrl) {
   console.log(`[Workflows] executeConfirmedWorkflow called: workflowId=${workflowId}, entityType=${entityType}, entityId=${entityId}`);
   
