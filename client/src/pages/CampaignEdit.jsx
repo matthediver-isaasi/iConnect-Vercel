@@ -9,7 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield, Sparkles } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
+} from "@/components/ui/dialog";
+import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield, Sparkles, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
 import ImageSelector from "@/components/ImageSelector";
@@ -53,18 +56,35 @@ export default function CampaignEdit() {
 
   const [formLoaded, setFormLoaded] = useState(false);
   const [aiGenerating, setAiGenerating] = useState({});
+  const [aiModal, setAiModal] = useState({ open: false, field: null, suggestion: '', fieldLabel: '' });
+
+  const AI_FIELD_LABELS = {
+    name: 'Campaign Name',
+    description: 'Description',
+    public_description: 'Public Description',
+    registration_message: 'Registration Message'
+  };
 
   const handleAiGenerate = async (field) => {
-    if (!form.name?.trim()) {
+    if (field !== 'name' && !form.name?.trim()) {
       toast.error('Please enter a campaign name first so the AI has context to work with.');
       return;
     }
 
     setAiGenerating(prev => ({ ...prev, [field]: true }));
 
+    const campaignContext = form.description ? ` Additional context: ${form.description}` : '';
+    const goalContext = form.goal_amount ? ` The fundraising goal is ${form.goal_amount} ${form.currency || 'GBP'}.` : '';
+    const currentContent = form[field]?.trim();
+    const improvePrefix = currentContent
+      ? `The current ${AI_FIELD_LABELS[field].toLowerCase()} is: "${currentContent}". Please suggest an improved version. `
+      : '';
+
     const prompts = {
-      public_description: `Write a compelling, warm public description for a fundraising campaign called "${form.name}".${form.description ? ` Additional context: ${form.description}` : ''}${form.goal_amount ? ` The fundraising goal is ${form.goal_amount} ${form.currency || 'GBP'}.` : ''} The description should be 2-3 short paragraphs that inspire potential participants to sign up and fundraise. Use an encouraging, professional tone. Do not use emojis. Return only the description text, no headings or labels.`,
-      registration_message: `Write a brief, friendly thank-you message for someone who just registered as a fundraiser for a campaign called "${form.name}".${form.description ? ` Campaign context: ${form.description}` : ''} The message should be 2-3 sentences, welcoming them and letting them know what to expect next. Use a warm, professional tone. Do not use emojis. Return only the message text, no headings or labels.`
+      name: `${improvePrefix}Suggest a compelling, memorable name for a fundraising campaign.${form.description ? ` Context: ${form.description}` : ''}${goalContext} The name should be concise (3-8 words), inspiring, and professional. Do not use emojis. Return only the name, nothing else.`,
+      description: `${improvePrefix}Write a clear, informative internal description for a fundraising campaign called "${form.name}".${goalContext} The description should be 1-2 short paragraphs explaining the purpose and goals. Use a professional tone. Do not use emojis. Return only the description text, no headings or labels.`,
+      public_description: `${improvePrefix}Write a compelling, warm public description for a fundraising campaign called "${form.name}".${campaignContext}${goalContext} The description should be 2-3 short paragraphs that inspire potential participants to sign up and fundraise. Use an encouraging, professional tone. Do not use emojis. Return only the description text, no headings or labels.`,
+      registration_message: `${improvePrefix}Write a brief, friendly thank-you message for someone who just registered as a fundraiser for a campaign called "${form.name}".${campaignContext} The message should be 2-3 sentences, welcoming them and letting them know what to expect next. Use a warm, professional tone. Do not use emojis. Return only the message text, no headings or labels.`
     };
 
     try {
@@ -72,8 +92,12 @@ export default function CampaignEdit() {
         prompt: prompts[field]
       });
       if (res.response) {
-        setForm(f => ({ ...f, [field]: res.response.trim() }));
-        toast.success('AI suggestion generated. Feel free to edit it.');
+        setAiModal({
+          open: true,
+          field,
+          suggestion: res.response.trim(),
+          fieldLabel: AI_FIELD_LABELS[field]
+        });
       } else {
         toast.error('Could not generate a suggestion. Please try again.');
       }
@@ -83,6 +107,18 @@ export default function CampaignEdit() {
     } finally {
       setAiGenerating(prev => ({ ...prev, [field]: false }));
     }
+  };
+
+  const handleAcceptSuggestion = () => {
+    if (aiModal.field && aiModal.suggestion) {
+      setForm(f => ({ ...f, [aiModal.field]: aiModal.suggestion }));
+      toast.success('Suggestion applied.');
+    }
+    setAiModal({ open: false, field: null, suggestion: '', fieldLabel: '' });
+  };
+
+  const handleRejectSuggestion = () => {
+    setAiModal({ open: false, field: null, suggestion: '', fieldLabel: '' });
   };
 
   const { data: campaignData, isLoading: campaignLoading } = useQuery({
@@ -208,7 +244,24 @@ export default function CampaignEdit() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Campaign Name *</Label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Campaign Name *</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAiGenerate('name')}
+                  disabled={aiGenerating.name}
+                  data-testid="button-ai-name"
+                >
+                  {aiGenerating.name ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {aiGenerating.name ? 'Generating...' : 'AI Suggest'}
+                </Button>
+              </div>
               <Input
                 value={form.name}
                 onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
@@ -218,7 +271,24 @@ export default function CampaignEdit() {
             </div>
 
             <div className="space-y-2">
-              <Label>Description</Label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Description</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAiGenerate('description')}
+                  disabled={aiGenerating.description}
+                  data-testid="button-ai-description"
+                >
+                  {aiGenerating.description ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {aiGenerating.description ? 'Generating...' : 'AI Suggest'}
+                </Button>
+              </div>
               <Textarea
                 value={form.description}
                 onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
@@ -620,6 +690,51 @@ export default function CampaignEdit() {
           </Button>
         </div>
       </form>
+
+      <Dialog open={aiModal.open} onOpenChange={(open) => { if (!open) handleRejectSuggestion(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              AI Suggestion for {aiModal.fieldLabel}
+            </DialogTitle>
+            <DialogDescription>
+              Review the suggestion below. Accept to replace the current content, or reject to keep it as is.
+            </DialogDescription>
+          </DialogHeader>
+          {aiModal.field && form[aiModal.field]?.trim() && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Current content</Label>
+              <div className="text-sm border rounded-md p-3 bg-muted/50 max-h-32 overflow-y-auto whitespace-pre-wrap" data-testid="text-ai-current">
+                {form[aiModal.field]}
+              </div>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Suggested content</Label>
+            <div className="text-sm border rounded-md p-3 border-primary/30 bg-primary/5 max-h-48 overflow-y-auto whitespace-pre-wrap" data-testid="text-ai-suggestion">
+              {aiModal.suggestion}
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={handleRejectSuggestion}
+              data-testid="button-ai-reject"
+            >
+              <X className="w-4 h-4 mr-1.5" />
+              Reject
+            </Button>
+            <Button
+              onClick={handleAcceptSuggestion}
+              data-testid="button-ai-accept"
+            >
+              <Check className="w-4 h-4 mr-1.5" />
+              Accept
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
