@@ -14,7 +14,7 @@ import {
 import {
   Heart, Loader2, CheckCircle2, Users, Target, Gift,
   Clock, ChevronDown, ChevronUp, ArrowRight, MessageSquare,
-  Sparkles, Send, FileText, Shield
+  Sparkles, Send, FileText, Shield, Megaphone
 } from "lucide-react";
 
 function formatCurrency(amount, currency) {
@@ -115,7 +115,7 @@ export default function DonatePage() {
 
   useEffect(() => {
     if (!token) return;
-    fetch(`/api/public/fundraising/updates?token=${encodeURIComponent(token)}`)
+    fetch(`/api/public/fundraising/updates?token=${encodeURIComponent(token)}&context=donate`)
       .then(res => res.ok ? res.json() : [])
       .then(data => setUpdates(data || []))
       .catch(() => {});
@@ -992,12 +992,17 @@ export default function DonatePage() {
                 {updates.map((u) => (
                   <div key={u.id} className="space-y-2" data-testid={`update-${u.id}`}>
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
-                        {u.author_initials}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
+                        u.posted_by === 'tenant' ? 'bg-primary/10 text-primary' : 'bg-primary/10 text-primary'
+                      }`}>
+                        {u.posted_by === 'tenant' ? <Megaphone className="w-3.5 h-3.5" /> : u.author_initials}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate" data-testid={`text-update-author-${u.id}`}>
+                        <p className="text-sm font-medium truncate flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
                           {u.author_name}
+                          {u.posted_by === 'tenant' && (
+                            <span className="text-xs font-normal text-muted-foreground">Campaign Update</span>
+                          )}
                         </p>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
                           <Clock className="w-3 h-3" />

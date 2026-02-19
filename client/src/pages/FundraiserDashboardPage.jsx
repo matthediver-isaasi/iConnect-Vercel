@@ -10,7 +10,8 @@ import {
   ExternalLink, AlertCircle, ImagePlus, MessageSquare,
   ChevronDown, ChevronUp, X, Clock, ArrowLeft, DollarSign,
   TrendingUp, TrendingDown, Send, Mail, Globe, Sparkles,
-  Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2
+  Trophy, Medal, Star, Flame, Zap, Award, Minus, Building2,
+  Megaphone, Lock
 } from "lucide-react";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider
@@ -277,7 +278,8 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
   const fetchUpdates = useCallback(async () => {
     setLoadingUpdates(true);
     try {
-      let url = `/api/public/fundraising/updates?campaign_id=${campaignId}`;
+      let url = `/api/public/fundraising/updates?campaign_id=${campaignId}&context=dashboard`;
+      if (sessionToken) url += `&session_token=${encodeURIComponent(sessionToken)}`;
       if (tenantSlug) url += `&tenant=${tenantSlug}`;
       const res = await fetch(url);
       if (res.ok) {
@@ -434,10 +436,20 @@ function CampaignUpdates({ campaignId, teamMemberId }) {
           ) : updates.length > 0 ? (
             <div className="space-y-3">
               {updates.map((u) => (
-                <div key={u.id} className="border rounded-md p-3 space-y-2" data-testid={`update-${u.id}`}>
+                <div
+                  key={u.id}
+                  className={`border rounded-md p-3 space-y-2 ${u.posted_by === 'tenant' ? 'border-primary/20 bg-primary/5' : ''}`}
+                  data-testid={`update-${u.id}`}
+                >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium" data-testid={`text-update-author-${u.id}`}>
+                    <span className="text-sm font-medium flex items-center gap-1.5" data-testid={`text-update-author-${u.id}`}>
+                      {u.posted_by === 'tenant' && <Megaphone className="w-3.5 h-3.5 text-primary" />}
                       {u.author_name}
+                      {u.posted_by === 'tenant' && u.visibility === 'private' && (
+                        <Badge variant="secondary" className="text-xs">
+                          <Lock className="w-3 h-3 mr-0.5" />Private
+                        </Badge>
+                      )}
                     </span>
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock className="w-3 h-3" />

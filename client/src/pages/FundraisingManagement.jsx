@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,10 +15,14 @@ import {
   Tabs, TabsContent, TabsList, TabsTrigger
 } from "@/components/ui/tabs";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
+import {
   Heart, Plus, Trash2, Users, Link as LinkIcon, Copy, Check,
   ArrowLeft, Target, Calendar, Loader2, Search, ExternalLink, UserPlus,
   Eye, BarChart3, Gift, PoundSterling, TrendingUp, Award, Clock,
-  ChevronRight, ChevronDown, ChevronUp, MessageSquare, HandHeart
+  ChevronRight, ChevronDown, ChevronUp, MessageSquare, HandHeart,
+  ImagePlus, X, Megaphone, Lock
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
@@ -626,6 +630,10 @@ function CampaignDetail({ campaignId, onBack }) {
           <TabsTrigger value="donations" data-testid="tab-donations">
             Donations ({campaign.donation_count || 0})
           </TabsTrigger>
+          <TabsTrigger value="updates" data-testid="tab-updates">
+            <Megaphone className="w-3.5 h-3.5 mr-1.5" />
+            Updates
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -908,6 +916,10 @@ function CampaignDetail({ campaignId, onBack }) {
 
         <TabsContent value="donations" className="mt-4">
           <DonationsList campaignId={campaignId} campaign={campaign} />
+        </TabsContent>
+
+        <TabsContent value="updates" className="mt-4">
+          <CampaignUpdatesAdmin campaignId={campaignId} />
         </TabsContent>
 
       </Tabs>
@@ -1197,5 +1209,278 @@ function AddTeamMemberModal({ campaignId, onClose }) {
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+function CampaignUpdatesAdmin({ campaignId }) {
+  const queryClient = useQueryClient();
+  const [content, setContent] = useState('');
+  const [visibility, setVisibility] = useState('public');
+  const [postedByName, setPostedByName] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [posting, setPosting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const { data: updates, isLoading } = useQuery({
+    queryKey: ['campaign-updates-admin', campaignId],
+    queryFn: () => apiRequest('GET', `/api/fundraising/campaign-updates?campaign_id=${campaignId}`)
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => apiRequest('DELETE', `/api/fundraising/campaign-updates?id=${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign-updates-admin', campaignId] });
+      toast.success('Update deleted');
+    },
+    onError: (err) => toast.error(err.message)
+  });
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handlePost = async () => {
+    if (!content.trim()) return;
+    setPosting(true);
+    try {
+      let imageUrl = null;
+
+      if (imageFile) {
+        const formData = new FormData();
+        formData.append('file', imageFile);
+        const uploadRes = await fetch('/api/fundraising/upload-update-image', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include'
+        });
+        if (!uploadRes.ok) throw new Error('Image upload failed');
+        const uploadData = await uploadRes.json();
+        imageUrl = uploadData.url;
+      }
+
+      await apiRequest('POST', '/api/fundraising/campaign-updates', {
+        campaign_id: campaignId,
+        content: content.trim(),
+        image_url: imageUrl,
+        visibility,
+        posted_by_name: postedByName.trim() || null
+      });
+
+      setContent('');
+      setVisibility('public');
+      setPostedByName('');
+      removeImage();
+      queryClient.invalidateQueries({ queryKey: ['campaign-updates-admin', campaignId] });
+      toast.success('Update posted');
+    } catch (err) {
+      toast.error(err.message || 'Failed to post update');
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Megaphone className="w-4 h-4 text-primary" />
+            <CardTitle className="text-base">Post an Update</CardTitle>
+          </div>
+          <CardDescription>
+            Share announcements with fundraisers and supporters
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Message</Label>
+            <Textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Write your update message..."
+              className="resize-none"
+              rows={4}
+              data-testid="textarea-admin-update-content"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Visibility</Label>
+              <Select value={visibility} onValueChange={setVisibility}>
+                <SelectTrigger data-testid="select-visibility">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">
+                    <span className="flex items-center gap-2">
+                      <Eye className="w-3.5 h-3.5" />
+                      Public - visible on donation pages
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="private">
+                    <span className="flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5" />
+                      Private - fundraiser dashboard only
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Posted by (optional)</Label>
+              <Input
+                value={postedByName}
+                onChange={(e) => setPostedByName(e.target.value)}
+                placeholder="e.g. Campaign Team"
+                data-testid="input-posted-by-name"
+              />
+            </div>
+          </div>
+
+          {imagePreview && (
+            <div className="relative inline-block">
+              <img
+                src={imagePreview}
+                alt="Preview"
+                className="w-24 h-24 object-cover rounded-md"
+                data-testid="img-admin-update-preview"
+              />
+              <Button
+                size="icon"
+                variant="secondary"
+                className="absolute -top-2 -right-2 rounded-full"
+                onClick={removeImage}
+                data-testid="button-admin-remove-image"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageSelect}
+              className="hidden"
+              data-testid="input-admin-update-image"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              data-testid="button-admin-add-image"
+            >
+              <ImagePlus className="w-4 h-4 mr-1" />
+              Add Photo
+            </Button>
+            <Button
+              size="sm"
+              disabled={!content.trim() || posting}
+              onClick={handlePost}
+              data-testid="button-admin-post-update"
+            >
+              {posting && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+              Post Update
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">All Updates</CardTitle>
+          <CardDescription>
+            Updates from you and your fundraisers
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !updates || updates.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p>No updates yet. Post your first update above.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {updates.map((u) => (
+                <div key={u.id} className="border rounded-md p-4 space-y-2" data-testid={`admin-update-${u.id}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
+                        u.posted_by === 'tenant' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {u.posted_by === 'tenant' ? <Megaphone className="w-3.5 h-3.5" /> : u.author_initials}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium flex items-center gap-2 flex-wrap" data-testid={`text-admin-update-author-${u.id}`}>
+                          {u.author_name}
+                          {u.posted_by === 'tenant' && (
+                            <Badge variant="secondary" className="text-xs">Organiser</Badge>
+                          )}
+                          <Badge variant={u.visibility === 'public' ? 'outline' : 'secondary'} className="text-xs">
+                            {u.visibility === 'public' ? (
+                              <><Eye className="w-3 h-3 mr-1" />Public</>
+                            ) : (
+                              <><Lock className="w-3 h-3 mr-1" />Private</>
+                            )}
+                          </Badge>
+                        </p>
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatRelativeTime(u.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                    {u.posted_by === 'tenant' && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          if (window.confirm('Delete this update?')) {
+                            deleteMutation.mutate(u.id);
+                          }
+                        }}
+                        data-testid={`button-delete-update-${u.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-sm" data-testid={`text-admin-update-content-${u.id}`}>{u.content}</p>
+                  {u.image_url && (
+                    <img
+                      src={u.image_url}
+                      alt=""
+                      className="rounded-md max-h-48 object-cover"
+                      data-testid={`img-admin-update-${u.id}`}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

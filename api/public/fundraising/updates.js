@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const { token, campaign_id } = req.query;
+      const { token, campaign_id, context } = req.query;
 
       let targetCampaignId = campaign_id;
       let targetTenantId = null;
@@ -50,12 +50,33 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'token or campaign_id is required' });
       }
 
-      const { data: updates, error: updatesError } = await supabase
+      // For dashboard context, require a valid session token to include private updates
+      let includePrivate = false;
+      if (context === 'dashboard') {
+        const sessionToken = req.query.session_token;
+        if (sessionToken) {
+          const { data: tokenRecord } = await supabase
+            .from('fundraising_login_token')
+            .select('email, expires_at')
+            .eq('token', sessionToken)
+            .eq('type', 'session')
+            .single();
+
+          if (tokenRecord && new Date(tokenRecord.expires_at) > new Date()) {
+            includePrivate = true;
+          }
+        }
+      }
+
+      let query = supabase
         .from('fundraising_update')
         .select(`
           id,
           content,
           image_url,
+          visibility,
+          posted_by,
+          posted_by_name,
           created_at,
           team_member_id,
           fundraising_team_member (
@@ -68,6 +89,12 @@ export default async function handler(req, res) {
         .order('created_at', { ascending: false })
         .limit(50);
 
+      if (!includePrivate) {
+        query = query.eq('visibility', 'public');
+      }
+
+      const { data: updates, error: updatesError } = await query;
+
       if (updatesError) {
         console.error('[Fundraising Updates] GET error:', updatesError);
         return res.status(500).json({ error: 'Failed to fetch updates' });
@@ -77,13 +104,20 @@ export default async function handler(req, res) {
         id: u.id,
         content: u.content,
         image_url: u.image_url,
+        visibility: u.visibility || 'public',
+        posted_by: u.posted_by || 'fundraiser',
+        posted_by_name: u.posted_by_name,
         created_at: u.created_at,
-        author_name: u.fundraising_team_member
-          ? `${u.fundraising_team_member.first_name} ${u.fundraising_team_member.last_name}`
-          : 'Unknown',
-        author_initials: u.fundraising_team_member
-          ? `${u.fundraising_team_member.first_name?.[0] || ''}${u.fundraising_team_member.last_name?.[0] || ''}`
-          : '?'
+        author_name: u.posted_by === 'tenant'
+          ? (u.posted_by_name || 'Campaign Organiser')
+          : u.fundraising_team_member
+            ? `${u.fundraising_team_member.first_name} ${u.fundraising_team_member.last_name}`
+            : 'Unknown',
+        author_initials: u.posted_by === 'tenant'
+          ? (u.posted_by_name ? u.posted_by_name.split(' ').map(n => n[0]).join('').substring(0, 2) : 'CO')
+          : u.fundraising_team_member
+            ? `${u.fundraising_team_member.first_name?.[0] || ''}${u.fundraising_team_member.last_name?.[0] || ''}`
+            : '?'
       }));
 
       return res.json(result);
@@ -152,7 +186,9 @@ export default async function handler(req, res) {
           campaign_id,
           team_member_id,
           content: content.trim(),
-          image_url: image_url || null
+          image_url: image_url || null,
+          visibility: 'public',
+          posted_by: 'fundraiser'
         })
         .select()
         .single();
