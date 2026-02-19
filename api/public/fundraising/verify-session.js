@@ -140,6 +140,20 @@ async function fetchDashboardData(supabase, tenantId, email) {
     });
   });
 
+  const { data: latestUpdates } = await supabase
+    .from('fundraising_update')
+    .select('campaign_id, created_at')
+    .eq('tenant_id', tenantId)
+    .in('campaign_id', campaignIds)
+    .order('created_at', { ascending: false });
+
+  const latestUpdatePerCampaign = {};
+  (latestUpdates || []).forEach(u => {
+    if (!latestUpdatePerCampaign[u.campaign_id]) {
+      latestUpdatePerCampaign[u.campaign_id] = u.created_at;
+    }
+  });
+
   const { data: memberWellwishers } = await supabase
     .from('fundraising_wellwisher')
     .select('id, team_member_id, name, email, message, created_at')
@@ -208,7 +222,8 @@ async function fetchDashboardData(supabase, tenantId, email) {
       organization_name: org?.name || null,
       role: isLead ? 'lead' : 'member',
       donors: donorsByMember[member.id] || [],
-      wellwishers: wellwishersByMember[member.id] || []
+      wellwishers: wellwishersByMember[member.id] || [],
+      latest_update_at: latestUpdatePerCampaign[campaign.id] || null
     };
 
     if (campaign.hide_campaign_target !== true) {

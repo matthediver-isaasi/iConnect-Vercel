@@ -915,7 +915,7 @@ function SummaryCards({ campaigns }) {
   );
 }
 
-function CampaignTile({ campaign, onClick }) {
+function CampaignTile({ campaign, onClick, hasNewUpdates }) {
   const individualPercent = campaign.individual_goal > 0
     ? Math.round((campaign.individual_raised / campaign.individual_goal) * 100)
     : 0;
@@ -943,8 +943,14 @@ function CampaignTile({ campaign, onClick }) {
 
           <div className="flex-1 min-w-0 space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold truncate" data-testid={`text-tile-name-${campaign.campaign_id}`}>
+              <h3 className="text-sm font-semibold truncate flex items-center gap-2" data-testid={`text-tile-name-${campaign.campaign_id}`}>
                 {campaign.campaign_name}
+                {hasNewUpdates && (
+                  <Badge variant="default" className="text-xs" data-testid={`badge-new-updates-${campaign.campaign_id}`}>
+                    <MessageSquare className="w-3 h-3 mr-1" />
+                    New
+                  </Badge>
+                )}
               </h3>
               <StatusBadge status={campaign.campaign_status} />
             </div>
@@ -1137,6 +1143,20 @@ export default function FundraiserDashboardPage() {
   const [error, setError] = useState(null);
   const [tenantBranding, setTenantBranding] = useState(null);
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
+
+  const getLastViewedKey = (campaignId) => `fundraiser_last_viewed_${campaignId}`;
+
+  const hasNewUpdates = useCallback((campaign) => {
+    if (!campaign.latest_update_at) return false;
+    const lastViewed = localStorage.getItem(getLastViewedKey(campaign.campaign_id));
+    if (!lastViewed) return true;
+    return new Date(campaign.latest_update_at) > new Date(lastViewed);
+  }, []);
+
+  const handleSelectCampaign = useCallback((campaignId) => {
+    localStorage.setItem(getLastViewedKey(campaignId), new Date().toISOString());
+    setSelectedCampaignId(campaignId);
+  }, []);
 
   useEffect(() => {
     const tenantSlug = getTenantSlugFromLocation();
@@ -1337,7 +1357,8 @@ export default function FundraiserDashboardPage() {
                       <CampaignTile
                         key={campaign.campaign_id}
                         campaign={campaign}
-                        onClick={() => setSelectedCampaignId(campaign.campaign_id)}
+                        hasNewUpdates={hasNewUpdates(campaign)}
+                        onClick={() => handleSelectCampaign(campaign.campaign_id)}
                       />
                     ))}
                   </div>
@@ -1349,7 +1370,8 @@ export default function FundraiserDashboardPage() {
                   <CampaignTile
                     key={campaign.campaign_id}
                     campaign={campaign}
-                    onClick={() => setSelectedCampaignId(campaign.campaign_id)}
+                    hasNewUpdates={hasNewUpdates(campaign)}
+                    onClick={() => handleSelectCampaign(campaign.campaign_id)}
                   />
                 ))}
               </div>
