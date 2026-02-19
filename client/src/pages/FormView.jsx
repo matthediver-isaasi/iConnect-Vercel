@@ -804,13 +804,9 @@ export default function FormViewPage() {
       
       // Send submission email if configured
       // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
-      console.log('[FormView] === EMAIL SECTION REACHED ===');
-      console.log('[FormView] hasEntityPipelines:', (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0));
-      console.log('[FormView] createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
-      console.log('[FormView] submissionResult:', submissionResult?.id);
-      console.log('[FormView] form.id:', form?.id);
       try {
-        console.log('[FormView] Building email payload...');
+        console.log('[FormView] Calling email endpoint for form submission...');
+        console.log('[FormView] Passing createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
         const emailPayload = {
           form_id: form.id,
           submission_id: submissionResult?.id,
@@ -826,30 +822,17 @@ export default function FormViewPage() {
             legacyRecipient: form?.submission_email_recipient || null
           }
         };
-        console.log('[FormView] Email payload size:', JSON.stringify(emailPayload).length, 'bytes');
-        console.log('[FormView] Email payload field count:', emailPayload.fields?.length || 0, 'fields');
         
-        const emailUrl = '/api/forms/send-submission-email';
-        console.log('[FormView] Fetching email endpoint:', emailUrl);
-        const emailResponse = await fetch(emailUrl, {
+        const emailResponse = await fetch('/api/forms/send-submission-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(emailPayload)
         });
-        console.log('[FormView] Email response status:', emailResponse.status, 'statusText:', emailResponse.statusText);
-        console.log('[FormView] Email response headers content-type:', emailResponse.headers.get('content-type'));
-        const emailResponseText = await emailResponse.text();
-        console.log('[FormView] Email response raw body (first 500 chars):', emailResponseText.substring(0, 500));
-        try {
-          const emailResult = JSON.parse(emailResponseText);
-          console.log('[FormView] Submission email result:', emailResult);
-        } catch (parseErr) {
-          console.error('[FormView] Email response was not valid JSON:', parseErr.message);
-        }
+        console.log('[FormView] Email response status:', emailResponse.status);
+        const emailResult = await emailResponse.json();
+        console.log('[FormView] Submission email result:', emailResult);
       } catch (error) {
         console.error('[FormView] Error sending submission email:', error);
-        console.error('[FormView] Email error name:', error.name, 'message:', error.message);
-        console.error('[FormView] Email error stack:', error.stack);
       }
       
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });

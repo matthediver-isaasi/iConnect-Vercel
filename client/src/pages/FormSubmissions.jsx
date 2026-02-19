@@ -117,13 +117,11 @@ export default function FormSubmissionsPage() {
 
   const rerunSubmissionMutation = useMutation({
     mutationFn: async (submission) => {
-      // Get the form to access its configuration
       const form = forms.find(f => f.id === submission.form_id);
       if (!form) {
         throw new Error('Form not found');
       }
       
-      // Call the process-application endpoint with the stored submission data
       const response = await fetch('/api/forms/process-application', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -149,7 +147,42 @@ export default function FormSubmissionsPage() {
         throw new Error(error.error || 'Failed to re-run submission');
       }
       
-      return await response.json();
+      const result = await response.json();
+
+      try {
+        console.log('[FormSubmissions] Sending submission email after re-run...');
+        const emailResponse = await fetch('/api/forms/send-submission-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            form_id: form.id,
+            submission_id: submission.id,
+            form_values: submission.submission_data,
+            fields: form.fields,
+            created_member_id: result.created_member_id || null,
+            created_organization_id: result.created_organization_id || null,
+            _debug_form_email_config: {
+              hasSubmissionEmails: !!form?.submission_emails,
+              submissionEmailsCount: form?.submission_emails?.length || 0,
+              submissionEmailsValue: form?.submission_emails || null,
+              legacyTemplateId: form?.submission_email_template_id || null,
+              legacyRecipient: form?.submission_email_recipient || null
+            }
+          })
+        });
+        console.log('[FormSubmissions] Email response status:', emailResponse.status);
+        if (emailResponse.ok) {
+          const emailResult = await emailResponse.json();
+          console.log('[FormSubmissions] Submission email result:', emailResult);
+        } else {
+          const errorText = await emailResponse.text();
+          console.error('[FormSubmissions] Email endpoint error:', emailResponse.status, errorText.substring(0, 500));
+        }
+      } catch (emailError) {
+        console.error('[FormSubmissions] Error sending submission email:', emailError);
+      }
+
+      return result;
     },
     onSuccess: (result) => {
       toast.success('Submission re-processed successfully');
