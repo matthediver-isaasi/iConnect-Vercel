@@ -1601,6 +1601,11 @@ export default function FundraiserDashboardPage() {
     }
   }, []);
 
+  const avatarInputRef = useRef(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const tenantSlugForAvatar = getTenantSlugFromLocation();
+  const { uploadImage: avatarUpload } = useProfileUpload(tenantSlugForAvatar);
+
   const handleLogout = useCallback(() => {
     localStorage.removeItem(getSessionKey());
     setDashboardData(null);
@@ -1726,11 +1731,6 @@ export default function FundraiserDashboardPage() {
   const selectedCampaign = selectedCampaignId
     ? campaigns.find(c => c.campaign_id === selectedCampaignId)
     : null;
-
-  const avatarInputRef = useRef(null);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const tenantSlugForAvatar = getTenantSlugFromLocation();
-  const { uploadImage: avatarUpload } = useProfileUpload(tenantSlugForAvatar);
 
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0];
