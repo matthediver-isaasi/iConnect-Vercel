@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield } from "lucide-react";
+import { ArrowLeft, Loader2, Save, UserPlus, Building2, FileText, Shield, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
 import ImageSelector from "@/components/ImageSelector";
@@ -52,6 +52,38 @@ export default function CampaignEdit() {
   });
 
   const [formLoaded, setFormLoaded] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState({});
+
+  const handleAiGenerate = async (field) => {
+    if (!form.name?.trim()) {
+      toast.error('Please enter a campaign name first so the AI has context to work with.');
+      return;
+    }
+
+    setAiGenerating(prev => ({ ...prev, [field]: true }));
+
+    const prompts = {
+      public_description: `Write a compelling, warm public description for a fundraising campaign called "${form.name}".${form.description ? ` Additional context: ${form.description}` : ''}${form.goal_amount ? ` The fundraising goal is ${form.goal_amount} ${form.currency || 'GBP'}.` : ''} The description should be 2-3 short paragraphs that inspire potential participants to sign up and fundraise. Use an encouraging, professional tone. Do not use emojis. Return only the description text, no headings or labels.`,
+      registration_message: `Write a brief, friendly thank-you message for someone who just registered as a fundraiser for a campaign called "${form.name}".${form.description ? ` Campaign context: ${form.description}` : ''} The message should be 2-3 sentences, welcoming them and letting them know what to expect next. Use a warm, professional tone. Do not use emojis. Return only the message text, no headings or labels.`
+    };
+
+    try {
+      const res = await apiRequest('POST', '/api/integrations/invoke-llm', {
+        prompt: prompts[field]
+      });
+      if (res.response) {
+        setForm(f => ({ ...f, [field]: res.response.trim() }));
+        toast.success('AI suggestion generated. Feel free to edit it.');
+      } else {
+        toast.error('Could not generate a suggestion. Please try again.');
+      }
+    } catch (err) {
+      console.error('AI generate error:', err);
+      toast.error('Failed to generate suggestion. Please try again.');
+    } finally {
+      setAiGenerating(prev => ({ ...prev, [field]: false }));
+    }
+  };
 
   const { data: campaignData, isLoading: campaignLoading } = useQuery({
     queryKey: ['fundraising-campaigns', id],
@@ -375,7 +407,24 @@ export default function CampaignEdit() {
             </div>
 
             <div className="space-y-2">
-              <Label>Public Description</Label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Public Description</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAiGenerate('public_description')}
+                  disabled={aiGenerating.public_description}
+                  data-testid="button-ai-public-description"
+                >
+                  {aiGenerating.public_description ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {aiGenerating.public_description ? 'Generating...' : 'AI Suggest'}
+                </Button>
+              </div>
               <Textarea
                 value={form.public_description}
                 onChange={(e) => setForm(f => ({ ...f, public_description: e.target.value }))}
@@ -386,7 +435,24 @@ export default function CampaignEdit() {
             </div>
 
             <div className="space-y-2">
-              <Label>Registration Message</Label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Registration Message</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAiGenerate('registration_message')}
+                  disabled={aiGenerating.registration_message}
+                  data-testid="button-ai-registration-message"
+                >
+                  {aiGenerating.registration_message ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {aiGenerating.registration_message ? 'Generating...' : 'AI Suggest'}
+                </Button>
+              </div>
               <Textarea
                 value={form.registration_message}
                 onChange={(e) => setForm(f => ({ ...f, registration_message: e.target.value }))}
