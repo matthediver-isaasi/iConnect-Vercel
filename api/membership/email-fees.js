@@ -217,7 +217,7 @@ export default async function handler(req, res) {
 
     if (costBreakdown.customDiscountDetails && costBreakdown.customDiscountDetails.length > 0) {
       costBreakdown.customDiscountDetails.forEach(d => {
-        breakdownRows.push({ label: `Discount: ${d.label || d.ruleName || 'Custom'}`, value: `-${currencySymbol}${parseFloat(d.amount || 0).toFixed(2)}`, isDiscount: true });
+        breakdownRows.push({ label: `Discount: ${d.label || d.ruleName || 'Custom'}`, value: `-${currencySymbol}${parseFloat(d.applied_amount || d.amount || 0).toFixed(2)}`, isDiscount: true });
       });
     } else if (costBreakdown.customDiscountTotal > 0) {
       breakdownRows.push({ label: 'Discounts', value: `-${currencySymbol}${parseFloat(costBreakdown.customDiscountTotal).toFixed(2)}`, isDiscount: true });
