@@ -94,9 +94,21 @@ export default async function handler(req, res) {
 
     const { data: tenant } = await supabase
       .from('tenant')
-      .select('name, slug, logo_url, primary_color')
+      .select('name, slug, primary_color')
       .eq('id', tenantId)
       .single();
+
+    let stripeEnabled = false;
+    try {
+      const { data: stripeSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'membership_stripe_enabled')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      stripeEnabled = stripeSetting?.setting_value !== 'false';
+    } catch {}
+
 
     let toEmail = recipientEmail;
     if (!toEmail) {
@@ -259,9 +271,15 @@ export default async function handler(req, res) {
       </tr>
     `).join('');
 
+    const ctaMessage = stripeEnabled
+      ? 'You can provide a Purchase Order number or make an immediate payment using the link below:'
+      : 'Please review your fee details and submit a Purchase Order number using the link below:';
+    const ctaButtonText = stripeEnabled
+      ? 'View & Pay Membership Fee'
+      : 'View & Submit Purchase Order';
+
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        ${tenant?.logo_url ? `<div style="text-align: center; padding: 20px 0;"><img src="${tenant.logo_url}" alt="${tenantName}" style="max-height: 60px;" /></div>` : ''}
         <div style="padding: 20px; border: 1px solid #e5e5e5; border-radius: 8px;">
           <h2 style="color: ${primaryColor}; margin-top: 0;">Membership Fee for ${yearLabel}</h2>
           <p>Dear ${org.name},</p>
@@ -282,9 +300,9 @@ export default async function handler(req, res) {
               </tr>
             </table>
           </div>
-          <p>You can provide a Purchase Order number or make an immediate payment using the link below:</p>
+          <p>${ctaMessage}</p>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${paymentUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">View & Pay Membership Fee</a>
+            <a href="${paymentUrl}" style="display: inline-block; background: ${primaryColor}; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600;">${ctaButtonText}</a>
           </div>
           <p style="color: #999; font-size: 12px;">This link expires on ${expiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>
         </div>
