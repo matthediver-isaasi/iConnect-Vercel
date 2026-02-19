@@ -136,6 +136,11 @@ CREATE INDEX IF NOT EXISTS idx_fundraising_team_name
 
 ALTER TABLE fundraising_campaign ADD COLUMN IF NOT EXISTS unlimited_team_size BOOLEAN DEFAULT false;
 ALTER TABLE fundraising_campaign ADD COLUMN IF NOT EXISTS hide_campaign_target BOOLEAN DEFAULT false;
+
+ALTER TABLE fundraising_update ALTER COLUMN team_member_id DROP NOT NULL;
+ALTER TABLE fundraising_update ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private'));
+ALTER TABLE fundraising_update ADD COLUMN IF NOT EXISTS posted_by TEXT NOT NULL DEFAULT 'fundraiser' CHECK (posted_by IN ('fundraiser', 'tenant'));
+ALTER TABLE fundraising_update ADD COLUMN IF NOT EXISTS posted_by_name TEXT;
 `;
 
 export default async function handler(req, res) {
