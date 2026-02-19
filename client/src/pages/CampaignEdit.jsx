@@ -247,13 +247,14 @@ export default function CampaignEdit() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>End Date</Label>
+                <Label>End Date <span className="text-muted-foreground font-normal">(optional)</span></Label>
                 <Input
                   type="date"
                   value={form.end_date}
                   onChange={(e) => setForm(f => ({ ...f, end_date: e.target.value }))}
                   data-testid="input-campaign-end"
                 />
+                <p className="text-xs text-muted-foreground">Leave blank for open-ended campaigns</p>
               </div>
             </div>
 
