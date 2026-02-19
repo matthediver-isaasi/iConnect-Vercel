@@ -48,6 +48,7 @@ export default async function handler(req, res) {
           posted_by_name,
           created_at,
           team_member_id,
+          parent_id,
           fundraising_team_member (
             first_name,
             last_name
@@ -56,7 +57,7 @@ export default async function handler(req, res) {
         .eq('campaign_id', campaign_id)
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(200);
 
       if (fetchError) {
         console.error('[Campaign Updates] GET error:', fetchError);
@@ -72,6 +73,8 @@ export default async function handler(req, res) {
         posted_by: u.posted_by || 'fundraiser',
         posted_by_name: u.posted_by_name,
         created_at: u.created_at,
+        team_member_id: u.team_member_id,
+        parent_id: u.parent_id || null,
         author_name: u.posted_by === 'tenant'
           ? (u.posted_by_name || 'Campaign Organiser')
           : u.fundraising_team_member
@@ -88,7 +91,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { campaign_id, content, image_url, visibility, posted_by_name, attachment_urls } = req.body;
+      const { campaign_id, content, image_url, visibility, posted_by_name, attachment_urls, parent_id } = req.body;
 
       if (!campaign_id || !content?.trim()) {
         return res.status(400).json({ error: 'campaign_id and content are required' });
@@ -109,6 +112,20 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Campaign not found' });
       }
 
+      if (parent_id) {
+        const { data: parentUpdate } = await supabase
+          .from('fundraising_update')
+          .select('id')
+          .eq('id', parent_id)
+          .eq('campaign_id', campaign_id)
+          .eq('tenant_id', tenantId)
+          .single();
+
+        if (!parentUpdate) {
+          return res.status(404).json({ error: 'Parent update not found' });
+        }
+      }
+
       const { data: update, error: insertError } = await supabase
         .from('fundraising_update')
         .insert({
@@ -120,7 +137,8 @@ export default async function handler(req, res) {
           attachment_urls: attachment_urls && attachment_urls.length > 0 ? attachment_urls : null,
           visibility: visibility || 'public',
           posted_by: 'tenant',
-          posted_by_name: posted_by_name?.trim() || null
+          posted_by_name: posted_by_name?.trim() || null,
+          parent_id: parent_id || null
         })
         .select()
         .single();

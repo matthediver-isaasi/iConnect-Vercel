@@ -22,7 +22,8 @@ import {
   ArrowLeft, Target, Calendar, Loader2, Search, ExternalLink, UserPlus,
   Eye, BarChart3, Gift, PoundSterling, TrendingUp, Award, Clock,
   ChevronRight, ChevronDown, ChevronUp, MessageSquare, HandHeart,
-  ImagePlus, X, Megaphone, Lock, Paperclip, FileText, Download
+  ImagePlus, X, Megaphone, Lock, Paperclip, FileText, Download,
+  Reply, CornerDownRight, Filter
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
@@ -1284,6 +1285,13 @@ function CampaignUpdatesAdmin({ campaignId }) {
   const fileInputRef = useRef(null);
   const docInputRef = useRef(null);
 
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyContent, setReplyContent] = useState('');
+  const [replyVisibility, setReplyVisibility] = useState('public');
+  const [replyPosting, setReplyPosting] = useState(false);
+
+  const [fundraiserSearch, setFundraiserSearch] = useState('');
+
   const { data: updates, isLoading } = useQuery({
     queryKey: ['campaign-updates-admin', campaignId],
     queryFn: () => apiRequest('GET', `/api/fundraising/campaign-updates?campaign_id=${campaignId}`)
@@ -1322,17 +1330,6 @@ function CampaignUpdatesAdmin({ campaignId }) {
 
   const removeAttachment = (index) => {
     setAttachmentFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const getFileIcon = (filename) => {
-    const ext = (filename || '').split('.').pop()?.toLowerCase();
-    if (ext === 'pdf') return 'PDF';
-    if (['doc', 'docx'].includes(ext)) return 'DOC';
-    if (['xls', 'xlsx'].includes(ext)) return 'XLS';
-    if (['ppt', 'pptx'].includes(ext)) return 'PPT';
-    if (ext === 'csv') return 'CSV';
-    if (ext === 'txt') return 'TXT';
-    return 'FILE';
   };
 
   const formatFileSize = (bytes) => {
@@ -1406,6 +1403,170 @@ function CampaignUpdatesAdmin({ campaignId }) {
       setPosting(false);
     }
   };
+
+  const handleReply = async (parentId) => {
+    if (!replyContent.trim()) return;
+    setReplyPosting(true);
+    try {
+      await apiRequest('POST', '/api/fundraising/campaign-updates', {
+        campaign_id: campaignId,
+        content: replyContent.trim(),
+        visibility: replyVisibility,
+        parent_id: parentId
+      });
+
+      setReplyContent('');
+      setReplyVisibility('public');
+      setReplyingTo(null);
+      queryClient.invalidateQueries({ queryKey: ['campaign-updates-admin', campaignId] });
+      toast.success('Reply posted');
+    } catch (err) {
+      toast.error(err.message || 'Failed to post reply');
+    } finally {
+      setReplyPosting(false);
+    }
+  };
+
+  const topLevelUpdates = useMemo(() => {
+    if (!updates) return [];
+    return updates.filter(u => !u.parent_id);
+  }, [updates]);
+
+  const repliesByParent = useMemo(() => {
+    if (!updates) return {};
+    const map = {};
+    updates.filter(u => u.parent_id).forEach(u => {
+      if (!map[u.parent_id]) map[u.parent_id] = [];
+      map[u.parent_id].push(u);
+    });
+    Object.values(map).forEach(arr => arr.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
+    return map;
+  }, [updates]);
+
+  const fundraiserNames = useMemo(() => {
+    if (!updates) return [];
+    const nameMap = new Map();
+    updates.forEach(u => {
+      if (u.posted_by !== 'tenant' && u.team_member_id && u.author_name && u.author_name !== 'Unknown') {
+        nameMap.set(u.team_member_id, u.author_name);
+      }
+    });
+    return Array.from(nameMap.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [updates]);
+
+  const filteredTopLevel = useMemo(() => {
+    if (!fundraiserSearch.trim()) return topLevelUpdates;
+    const q = fundraiserSearch.toLowerCase();
+    const matchingTeamMemberIds = new Set();
+    fundraiserNames.forEach(f => {
+      if (f.name.toLowerCase().includes(q)) matchingTeamMemberIds.add(f.id);
+    });
+    return topLevelUpdates.filter(u =>
+      u.posted_by !== 'tenant' && u.team_member_id && matchingTeamMemberIds.has(u.team_member_id)
+    );
+  }, [topLevelUpdates, fundraiserSearch, fundraiserNames]);
+
+  const renderUpdateCard = (u, isReply = false) => (
+    <div
+      key={u.id}
+      className={`${isReply ? 'ml-8 border-l-2 border-primary/20 pl-4' : 'border rounded-md p-4'} space-y-2 ${isReply ? 'py-3' : ''}`}
+      data-testid={`admin-update-${u.id}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-3">
+          {isReply && <CornerDownRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
+            u.posted_by === 'tenant' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+          }`}>
+            {u.posted_by === 'tenant' ? <Megaphone className="w-3 h-3" /> : u.author_initials}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium flex items-center gap-2 flex-wrap" data-testid={`text-admin-update-author-${u.id}`}>
+              {u.author_name}
+              {u.posted_by === 'tenant' && (
+                <Badge variant="secondary" className="text-xs">Organiser</Badge>
+              )}
+              <Badge variant={u.visibility === 'public' ? 'outline' : 'secondary'} className="text-xs">
+                {u.visibility === 'public' ? (
+                  <><Eye className="w-3 h-3 mr-1" />Public</>
+                ) : (
+                  <><Lock className="w-3 h-3 mr-1" />Private</>
+                )}
+              </Badge>
+            </p>
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {formatRelativeTime(u.created_at)}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {!isReply && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (replyingTo === u.id) {
+                  setReplyingTo(null);
+                  setReplyContent('');
+                  setReplyVisibility('public');
+                } else {
+                  setReplyingTo(u.id);
+                  setReplyContent('');
+                  setReplyVisibility('public');
+                }
+              }}
+              data-testid={`button-reply-update-${u.id}`}
+            >
+              <Reply className="w-4 h-4" />
+            </Button>
+          )}
+          {u.posted_by === 'tenant' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (window.confirm('Delete this update?')) {
+                  deleteMutation.mutate(u.id);
+                }
+              }}
+              data-testid={`button-delete-update-${u.id}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="text-sm" data-testid={`text-admin-update-content-${u.id}`}>{u.content}</p>
+      {u.image_url && (
+        <img
+          src={u.image_url}
+          alt=""
+          className="rounded-md max-h-48 object-cover"
+          data-testid={`img-admin-update-${u.id}`}
+        />
+      )}
+      {u.attachment_urls && u.attachment_urls.length > 0 && (
+        <div className="space-y-1 pt-1">
+          {u.attachment_urls.map((att, idx) => (
+            <a
+              key={idx}
+              href={att.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
+              data-testid={`link-admin-attachment-${u.id}-${idx}`}
+            >
+              <FileText className="w-4 h-4 shrink-0" />
+              <span className="truncate">{att.filename}</span>
+              {att.size && <span className="text-xs shrink-0">({formatFileSize(att.size)})</span>}
+              <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -1558,10 +1719,37 @@ function CampaignUpdatesAdmin({ campaignId }) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">All Updates</CardTitle>
-          <CardDescription>
-            Updates from you and your fundraisers
-          </CardDescription>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <CardTitle className="text-base">All Updates</CardTitle>
+              <CardDescription>
+                Updates from you and your fundraisers
+              </CardDescription>
+            </div>
+          </div>
+          {fundraiserNames.length > 0 && (
+            <div className="relative mt-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={fundraiserSearch}
+                onChange={(e) => setFundraiserSearch(e.target.value)}
+                placeholder="Filter by fundraiser name..."
+                className="pl-9"
+                data-testid="input-filter-fundraiser"
+              />
+              {fundraiserSearch && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                  onClick={() => setFundraiserSearch('')}
+                  data-testid="button-clear-fundraiser-filter"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -1573,78 +1761,80 @@ function CampaignUpdatesAdmin({ campaignId }) {
               <MessageSquare className="w-8 h-8 mx-auto mb-3 opacity-50" />
               <p>No updates yet. Post your first update above.</p>
             </div>
+          ) : filteredTopLevel.length === 0 && fundraiserSearch ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              <Search className="w-8 h-8 mx-auto mb-3 opacity-50" />
+              <p>No updates found for "{fundraiserSearch}"</p>
+            </div>
           ) : (
             <div className="space-y-4">
-              {updates.map((u) => (
-                <div key={u.id} className="border rounded-md p-4 space-y-2" data-testid={`admin-update-${u.id}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
-                        u.posted_by === 'tenant' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {u.posted_by === 'tenant' ? <Megaphone className="w-3.5 h-3.5" /> : u.author_initials}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium flex items-center gap-2 flex-wrap" data-testid={`text-admin-update-author-${u.id}`}>
-                          {u.author_name}
-                          {u.posted_by === 'tenant' && (
-                            <Badge variant="secondary" className="text-xs">Organiser</Badge>
-                          )}
-                          <Badge variant={u.visibility === 'public' ? 'outline' : 'secondary'} className="text-xs">
-                            {u.visibility === 'public' ? (
-                              <><Eye className="w-3 h-3 mr-1" />Public</>
-                            ) : (
-                              <><Lock className="w-3 h-3 mr-1" />Private</>
-                            )}
-                          </Badge>
-                        </p>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {formatRelativeTime(u.created_at)}
-                        </span>
-                      </div>
+              {filteredTopLevel.map((u) => (
+                <div key={u.id} className="space-y-0">
+                  {renderUpdateCard(u, false)}
+
+                  {repliesByParent[u.id] && repliesByParent[u.id].length > 0 && (
+                    <div className="space-y-0 mt-2">
+                      {repliesByParent[u.id].map(reply => renderUpdateCard(reply, true))}
                     </div>
-                    {u.posted_by === 'tenant' && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          if (window.confirm('Delete this update?')) {
-                            deleteMutation.mutate(u.id);
-                          }
-                        }}
-                        data-testid={`button-delete-update-${u.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-sm" data-testid={`text-admin-update-content-${u.id}`}>{u.content}</p>
-                  {u.image_url && (
-                    <img
-                      src={u.image_url}
-                      alt=""
-                      className="rounded-md max-h-48 object-cover"
-                      data-testid={`img-admin-update-${u.id}`}
-                    />
                   )}
-                  {u.attachment_urls && u.attachment_urls.length > 0 && (
-                    <div className="space-y-1 pt-1">
-                      {u.attachment_urls.map((att, idx) => (
-                        <a
-                          key={idx}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-sm text-muted-foreground hover-elevate rounded-md p-1.5"
-                          data-testid={`link-admin-attachment-${u.id}-${idx}`}
+
+                  {replyingTo === u.id && (
+                    <div className="ml-8 border-l-2 border-primary/20 pl-4 pt-3 space-y-3" data-testid={`reply-form-${u.id}`}>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Reply className="w-3.5 h-3.5" />
+                        <span>Replying to {u.author_name}</span>
+                      </div>
+                      <Textarea
+                        value={replyContent}
+                        onChange={(e) => setReplyContent(e.target.value)}
+                        placeholder="Write your reply..."
+                        className="resize-none"
+                        rows={2}
+                        autoFocus
+                        data-testid={`textarea-reply-${u.id}`}
+                      />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Select value={replyVisibility} onValueChange={setReplyVisibility}>
+                          <SelectTrigger className="w-auto" data-testid={`select-reply-visibility-${u.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="public">
+                              <span className="flex items-center gap-1.5">
+                                <Eye className="w-3 h-3" />
+                                Public
+                              </span>
+                            </SelectItem>
+                            <SelectItem value="private">
+                              <span className="flex items-center gap-1.5">
+                                <Lock className="w-3 h-3" />
+                                Private
+                              </span>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          disabled={!replyContent.trim() || replyPosting}
+                          onClick={() => handleReply(u.id)}
+                          data-testid={`button-submit-reply-${u.id}`}
                         >
-                          <FileText className="w-4 h-4 shrink-0" />
-                          <span className="truncate">{att.filename}</span>
-                          {att.size && <span className="text-xs shrink-0">({formatFileSize(att.size)})</span>}
-                          <Download className="w-3.5 h-3.5 ml-auto shrink-0" />
-                        </a>
-                      ))}
+                          {replyPosting && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                          Reply
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setReplyingTo(null);
+                            setReplyContent('');
+                            setReplyVisibility('public');
+                          }}
+                          data-testid={`button-cancel-reply-${u.id}`}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
