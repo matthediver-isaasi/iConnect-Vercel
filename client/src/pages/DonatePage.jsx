@@ -1048,7 +1048,7 @@ export default function DonatePage() {
             <CardContent className="pt-6">
               <h3 className="font-semibold flex items-center gap-2 mb-4">
                 <Users className="w-4 h-4" />
-                {team_member.team_name}
+                Other {team_member.team_name} Members
               </h3>
               <div className="grid gap-3 sm:grid-cols-2">
                 {other_team_members.map((m, i) => (
