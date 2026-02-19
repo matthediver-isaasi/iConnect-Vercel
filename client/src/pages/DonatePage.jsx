@@ -332,6 +332,24 @@ export default function DonatePage() {
             <p className="text-sm text-muted-foreground">
               {campaign.name}
             </p>
+
+            <div className="border-t pt-4 mt-2 space-y-2">
+              <p className="text-sm font-medium">
+                Inspired to make an even bigger impact?
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Start your own fundraiser and rally your friends and family to support this cause.
+              </p>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => { window.location.href = '/campaigns'; }}
+                data-testid="button-start-fundraising"
+              >
+                <Heart className="w-4 h-4 mr-1" />
+                Start Your Own Fundraiser
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

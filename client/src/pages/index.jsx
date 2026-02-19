@@ -297,6 +297,8 @@ import FundraiserLoginPage from "./FundraiserLoginPage";
 
 import FundraiserDashboardPage from "./FundraiserDashboardPage";
 
+import CampaignsPage from "./CampaignsPage";
+
 import MembershipFeePage from "./MembershipFeePage";
 
 import MembershipFees from "./MembershipFees";
@@ -979,6 +981,7 @@ function StandaloneRoutes() {
             <Route path="/fundraise/:slug" element={<CampaignRegisterPage />} />
             <Route path="/fundraiser/login" element={<FundraiserLoginPage />} />
             <Route path="/fundraiser/dashboard" element={<FundraiserDashboardPage />} />
+            <Route path="/campaigns" element={<CampaignsPage />} />
             <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
@@ -1067,6 +1070,7 @@ function AppRoutes() {
     const isFundraisePage = location.pathname.toLowerCase().startsWith('/fundraise/');
     const isFundraiserPage = location.pathname.toLowerCase().startsWith('/fundraiser/');
     const isMembershipFeePage = location.pathname.toLowerCase().startsWith('/membership-fees/');
+    const isCampaignsPage = location.pathname.toLowerCase() === '/campaigns';
     
     // Use window.location.search to reliably detect embed param (works even before routing)
     const hasEmbedParam = new URLSearchParams(window.location.search).get('embed') === 'true';
@@ -1074,7 +1078,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     
