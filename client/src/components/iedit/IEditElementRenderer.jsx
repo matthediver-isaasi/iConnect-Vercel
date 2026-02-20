@@ -60,7 +60,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
   const Component = elementComponents[element.element_type];
 
   if (!Component) {
-    // Fallback for unknown element types
+    console.error('[IEditElementRenderer] Unknown element type:', element.element_type, 'Available types:', Object.keys(elementComponents), 'Timeline component value:', elementComponents['timeline']);
     return (
       <div className="bg-amber-50 border border-amber-200 p-4 my-4">
         <p className="text-sm text-amber-900">
