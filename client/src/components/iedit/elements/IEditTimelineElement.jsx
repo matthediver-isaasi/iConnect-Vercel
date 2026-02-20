@@ -482,8 +482,13 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     setIsUploading(prev => ({ ...prev, [index]: true }));
     try {
       const response = await base44.integrations.Core.UploadFile({ file });
-      updateItemMedia(index, 'src', response.file_url);
-      updateItemMedia(index, 'type', 'image');
+      const newItems = [...items];
+      const currentMedia = newItems[index].media || { type: 'image', src: '', alt: '' };
+      newItems[index] = {
+        ...newItems[index],
+        media: { ...currentMedia, src: response.file_url, type: 'image' }
+      };
+      updateContent('items', newItems);
     } catch (error) {
       alert('Failed to upload image: ' + error.message);
     } finally {
@@ -692,8 +697,12 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                             />
                             <button
                               onClick={() => {
-                                updateItemMedia(index, 'src', '');
-                                updateItemMedia(index, 'alt', '');
+                                const newItems = [...items];
+                                newItems[index] = {
+                                  ...newItems[index],
+                                  media: { type: 'image', src: '', alt: '' }
+                                };
+                                updateContent('items', newItems);
                               }}
                               className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
                               title="Remove image"
