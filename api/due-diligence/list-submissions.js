@@ -45,6 +45,8 @@ export default async function handler(req, res) {
         archived_reason,
         swapped_from_submission_id,
         swapped_to_submission_id,
+        owner_member_id,
+        owner_name,
         form_submission:form_submission_id(
           id,
           form_id,

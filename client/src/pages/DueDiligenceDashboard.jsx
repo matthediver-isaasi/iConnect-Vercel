@@ -535,6 +535,13 @@ export default function DueDiligenceDashboardPage() {
     }
   }, [selectedFormId, availableStages, statusFilter]);
 
+  // Reset owner filter when form changes to 'all'
+  useEffect(() => {
+    if (selectedFormId === 'all') {
+      setOwnerFilter('all');
+    }
+  }, [selectedFormId]);
+
   // Reset risk filter when form changes to 'all' or current level is not in the new form's levels
   useEffect(() => {
     if (selectedFormId === 'all') {
@@ -780,10 +787,11 @@ export default function DueDiligenceDashboardPage() {
               <Select
                 value={ownerFilter}
                 onValueChange={setOwnerFilter}
+                disabled={selectedFormId === 'all'}
                 data-testid="select-owner-filter"
               >
                 <SelectTrigger className="w-44">
-                  <SelectValue placeholder="All Owners" />
+                  <SelectValue placeholder={selectedFormId === 'all' ? 'Select a form first' : 'All Owners'} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all" data-testid="option-owner-all">All Owners</SelectItem>
