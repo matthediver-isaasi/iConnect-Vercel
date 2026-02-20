@@ -77,7 +77,10 @@ export default async function handler(req, res) {
         price: tc.price,
         currency: tc.currency,
         visibility_mode: tc.visibility_mode,
-        is_public: tc.is_public
+        is_public: tc.is_public,
+        is_group_ticket: tc.is_group_ticket || false,
+        group_size: tc.group_size || null,
+        group_cutoff_date: tc.group_cutoff_date || null
       }));
 
     const publicEvent = {

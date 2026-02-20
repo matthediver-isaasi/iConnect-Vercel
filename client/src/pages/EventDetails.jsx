@@ -434,7 +434,11 @@ export default function EventDetailsPage() {
           bulk_discount_percentage: Number(tc.bulk_discount_percentage) || 0,
           // Ticket class availability fields
           available_count: tc.available_count,
-          is_unlimited_tickets: tc.is_unlimited_tickets
+          is_unlimited_tickets: tc.is_unlimited_tickets,
+          // Group ticket fields
+          is_group_ticket: Boolean(tc.is_group_ticket),
+          group_size: tc.group_size ? Number(tc.group_size) : null,
+          group_cutoff_date: tc.group_cutoff_date || null
         };
       });
   }, [isOneOffEvent, pricingConfig]);
@@ -1833,8 +1837,21 @@ export default function EventDetailsPage() {
                                 htmlFor={`ticket-${ticketId}`} 
                                 className={`font-medium ${purchasable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                               >
-                                {String(tc.name || 'Ticket')}
+                                <span className="flex items-center gap-2 flex-wrap">
+                                  {String(tc.name || 'Ticket')}
+                                  {tc.is_group_ticket && (
+                                    <Badge variant="secondary" className="text-xs" data-testid={`badge-group-ticket-${ticketId}`}>
+                                      <Users className="w-3 h-3 mr-1" />
+                                      Group ({tc.group_size})
+                                    </Badge>
+                                  )}
+                                </span>
                               </Label>
+                              {tc.is_group_ticket && tc.group_size && (
+                                <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-group-info-${ticketId}`}>
+                                  Covers {tc.group_size} participants — manage your group after booking
+                                </p>
+                              )}
                               {/* Hide offers for guest checkout - they can only purchase 1 ticket */}
                               {!isGuestCheckout && tc.offer_type && tc.offer_type !== 'none' && (
                                 <div className="text-xs text-green-600 mt-0.5">

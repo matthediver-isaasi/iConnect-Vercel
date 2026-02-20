@@ -316,6 +316,7 @@ export default function PaymentOptions({
               bookings: response.data.bookings || [],
               paymentDetails: response.data.payment_details,
               xeroInvoice: response.data.xero_invoice,
+              groupBooking: response.data.group_booking || null,
               event: event,
               guestInfo: savedPayload.guestInfo || guestInfo,
               attendees: savedPayload.attendees || attendees.filter(a => a.isValid),
@@ -810,6 +811,7 @@ export default function PaymentOptions({
             bookings: response.data.bookings || [],
             paymentDetails: response.data.payment_details,
             xeroInvoice: response.data.xero_invoice,
+            groupBooking: response.data.group_booking || null,
             event: event,
             guestInfo: guestInfo,
             attendees: attendees.filter(a => a.isValid),
@@ -1448,6 +1450,42 @@ export default function PaymentOptions({
                     <span>Invoice</span>
                     <span>{conf.xeroInvoice.invoice_number}</span>
                   </div>
+                )}
+              </div>
+            )}
+
+            {conf.groupBooking && (
+              <div className="p-4 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 space-y-3">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Group Booking
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  You have {conf.groupBooking.group_size} places to fill. Use the link below to add your participants:
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => window.open(conf.groupBooking.group_url, '_blank')}
+                  data-testid="button-manage-group"
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Manage Your Group
+                </Button>
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground w-full text-center"
+                  onClick={() => {
+                    navigator.clipboard.writeText(conf.groupBooking.group_url);
+                    toast.success('Group link copied');
+                  }}
+                  data-testid="button-copy-group-link"
+                >
+                  Copy link to clipboard
+                </button>
+                {conf.groupBooking.cutoff_date && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Add participants before {new Date(conf.groupBooking.cutoff_date).toLocaleDateString('en-GB', { dateStyle: 'long' })}
+                  </p>
                 )}
               </div>
             )}

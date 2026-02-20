@@ -80,7 +80,10 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   is_unlimited_tickets: true, // When true, ticket has no quantity limit
   vat_rate_key: defaultVatRate?.taxType || null, // Xero TaxType identifier
   vat_rate_label: defaultVatRate?.name || null, // Display name (e.g., "Standard Rate (20%)")
-  vat_rate_percentage: defaultVatRate?.effectiveRate || null // Percentage value (e.g., 20)
+  vat_rate_percentage: defaultVatRate?.effectiveRate || null, // Percentage value (e.g., 20)
+  is_group_ticket: false,
+  group_size: "",
+  group_cutoff_date: ""
 });
 
 export default function EditEvent() {
@@ -779,7 +782,10 @@ export default function EditEvent() {
               // VAT rate fields for Xero invoice generation
               vat_rate_key: tc.vat_rate_key || null,
               vat_rate_label: tc.vat_rate_label || null,
-              vat_rate_percentage: tc.vat_rate_percentage || null
+              vat_rate_percentage: tc.vat_rate_percentage || null,
+              is_group_ticket: tc.is_group_ticket || false,
+              group_size: tc.group_size !== null && tc.group_size !== undefined ? String(tc.group_size) : "",
+              group_cutoff_date: tc.group_cutoff_date || ""
             };
           });
           setTicketClasses(loadedTickets);
@@ -1053,6 +1059,14 @@ export default function EditEvent() {
           }
         }
 
+        if (ticket.is_group_ticket) {
+          const groupSize = parseInt(ticket.group_size);
+          if (!ticket.group_size || isNaN(groupSize) || groupSize < 2) {
+            toast.error(`Group size for "${ticket.name}" must be at least 2`);
+            return;
+          }
+        }
+
         // Validate ticket availability is not reduced below sold count
         if (!ticket.is_unlimited_tickets && ticket.available_count !== undefined && ticket.available_count !== "") {
           const soldCount = ticketClassSoldCounts[ticket.id] || 0;
@@ -1142,7 +1156,10 @@ export default function EditEvent() {
           // VAT rate fields for Xero invoice generation
           vat_rate_key: ticket.vat_rate_key || null,
           vat_rate_label: ticket.vat_rate_label || null,
-          vat_rate_percentage: ticket.vat_rate_percentage || null
+          vat_rate_percentage: ticket.vat_rate_percentage || null,
+          is_group_ticket: ticket.is_group_ticket || false,
+          group_size: ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
+          group_cutoff_date: ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null
         };
 
         if (ticket.offer_type === "bogo") {
@@ -1972,6 +1989,12 @@ export default function EditEvent() {
                                 Public Only
                               </Badge>
                             )}
+                            {ticket.is_group_ticket && (
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                                <Users className="h-3 w-3 mr-1" />
+                                Group ({ticket.group_size || '?'})
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 text-sm text-slate-500">
                             <span>£{ticket.price || "0.00"}</span>
@@ -2093,6 +2116,59 @@ export default function EditEvent() {
                               </div>
                             )}
                           </div>
+                        </div>
+
+                        {/* Group Ticket */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id={`ticket-group-${ticket.id}`}
+                              checked={ticket.is_group_ticket || false}
+                              onCheckedChange={(checked) => updateTicketClass(ticket.id, 'is_group_ticket', checked)}
+                              data-testid={`switch-group-ticket-${ticket.id}`}
+                            />
+                            <Label htmlFor={`ticket-group-${ticket.id}`} className="text-sm font-medium flex items-center gap-1.5">
+                              <Users className="h-4 w-4 text-slate-500" />
+                              Group Ticket
+                            </Label>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            A group ticket covers multiple participants. The booker receives a link to add people by email.
+                          </p>
+                          {ticket.is_group_ticket && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-blue-200 ml-1">
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`ticket-group-size-${ticket.id}`} className="text-sm">
+                                  Group Size (max participants) *
+                                </Label>
+                                <Input
+                                  id={`ticket-group-size-${ticket.id}`}
+                                  type="number"
+                                  min="2"
+                                  value={ticket.group_size || ""}
+                                  onChange={(e) => updateTicketClass(ticket.id, 'group_size', e.target.value)}
+                                  placeholder="e.g. 10"
+                                  className="w-28"
+                                  data-testid={`input-group-size-${ticket.id}`}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`ticket-group-cutoff-${ticket.id}`} className="text-sm">
+                                  Cut-off Date/Time
+                                </Label>
+                                <Input
+                                  id={`ticket-group-cutoff-${ticket.id}`}
+                                  type="datetime-local"
+                                  value={ticket.group_cutoff_date || ""}
+                                  onChange={(e) => updateTicketClass(ticket.id, 'group_cutoff_date', e.target.value)}
+                                  data-testid={`input-group-cutoff-${ticket.id}`}
+                                />
+                                <p className="text-xs text-slate-400">
+                                  After this time, no more changes to the group can be made.
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Role Assignment */}

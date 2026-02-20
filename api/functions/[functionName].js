@@ -2855,10 +2855,100 @@ const functionHandlers = {
       }
     }
 
+    // If this is a group ticket, create the group booking record with a secure token
+    let groupBookingResult = null;
+    const selectedTicketClass = event.pricing_config?.ticket_classes?.find(tc => tc.id === ticketClassId);
+    if (selectedTicketClass?.is_group_ticket && selectedTicketClass.group_size) {
+      try {
+        const groupToken = crypto.randomBytes(32).toString('hex');
+        const bookerEmail = isGuestBooking ? guestInfo?.email : memberEmail;
+        const bookerFirstName = isGuestBooking ? guestInfo?.first_name : (member?.first_name || null);
+        const bookerLastName = isGuestBooking ? guestInfo?.last_name : (member?.last_name || null);
+
+        const { data: groupBooking, error: groupError } = await supabase
+          .from('event_group_booking')
+          .insert({
+            tenant_id: event.tenant_id,
+            event_id: event.id,
+            ticket_class_id: ticketClassId,
+            booker_email: bookerEmail?.toLowerCase(),
+            booker_first_name: bookerFirstName,
+            booker_last_name: bookerLastName,
+            token: groupToken,
+            status: 'active',
+            group_size: selectedTicketClass.group_size,
+            stripe_payment_intent_id: stripePaymentIntentId,
+            booking_reference: bookingReference,
+            payment_method: paymentMethod,
+            total_cost: totalCost
+          })
+          .select()
+          .single();
+
+        if (groupError) {
+          console.error('[createOneOffEventBooking] Failed to create group booking:', groupError.message);
+        } else {
+          console.log('[createOneOffEventBooking] Group booking created:', groupBooking.id, 'token:', groupToken.substring(0, 8) + '...');
+
+          // Build the group management URL
+          let tenantSlug = null;
+          const { data: tenantData } = await supabase
+            .from('tenant')
+            .select('slug')
+            .eq('id', event.tenant_id)
+            .single();
+          tenantSlug = tenantData?.slug;
+
+          const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+          let groupUrl;
+          if (tenantSlug) {
+            groupUrl = `https://${tenantSlug}.${APP_DOMAIN}/group-booking/${groupToken}`;
+          } else {
+            groupUrl = `${process.env.APP_URL || 'http://localhost:5000'}/group-booking/${groupToken}`;
+          }
+
+          groupBookingResult = {
+            group_booking_id: groupBooking.id,
+            token: groupToken,
+            group_url: groupUrl,
+            group_size: selectedTicketClass.group_size,
+            cutoff_date: selectedTicketClass.group_cutoff_date || null
+          };
+
+          // Send group booking management email to the booker
+          try {
+            const cutoffText = selectedTicketClass.group_cutoff_date
+              ? `\n\nPlease note: You must add all participants before ${new Date(selectedTicketClass.group_cutoff_date).toLocaleString('en-GB', { dateStyle: 'long', timeStyle: 'short' })}. After this time, no further changes can be made.`
+              : '';
+
+            await sendEmail({
+              to: bookerEmail,
+              subject: `Your Group Booking for ${event.title} - Add Your Participants`,
+              html: `
+                <p>Hi ${bookerFirstName || 'there'},</p>
+                <p>Thank you for your group booking for <strong>${event.title}</strong>.</p>
+                <p>Your booking reference is: <strong>${bookingReference}</strong></p>
+                <p>You have <strong>${selectedTicketClass.group_size} places</strong> available in your group. To add your participants, please use the link below:</p>
+                <p><a href="${groupUrl}" style="display:inline-block;padding:12px 24px;background-color:#2563eb;color:white;text-decoration:none;border-radius:6px;font-weight:bold;">Manage Your Group</a></p>
+                <p>You can return to this link at any time to add or remove people from your group.${cutoffText}</p>
+                <p>If you have any questions, please don't hesitate to contact us.</p>
+              `,
+              tenantId: event.tenant_id
+            });
+            console.log('[createOneOffEventBooking] Group booking email sent to:', bookerEmail);
+          } catch (emailErr) {
+            console.error('[createOneOffEventBooking] Failed to send group booking email:', emailErr.message);
+          }
+        }
+      } catch (groupErr) {
+        console.error('[createOneOffEventBooking] Group booking creation error:', groupErr.message);
+      }
+    }
+
     const response = {
       success: true,
       booking_reference: bookingReference,
-      booking_group_reference: bookingReference, // Base reference for grouping
+      booking_group_reference: bookingReference,
       bookings: createdBookings,
       payment_details: {
         total_cost: totalCost,
@@ -2868,7 +2958,8 @@ const functionHandlers = {
         account_amount: paymentMethod === 'account' ? validatedRemainingBalance : 0,
         card_amount: paymentMethod === 'card' ? validatedRemainingBalance : 0
       },
-      xero_invoice: xeroInvoiceResult
+      xero_invoice: xeroInvoiceResult,
+      group_booking: groupBookingResult
     };
 
     // Add confirmation email results
