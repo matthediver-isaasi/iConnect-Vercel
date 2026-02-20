@@ -40,7 +40,7 @@ const DEFAULT_COLUMN_WIDTHS = {
   riskLevel: 130,
   created: 120,
   lastUpdated: 120,
-  reviewedBy: 160,
+  owner: 160,
   swap: 160,
   actions: 80
 };
@@ -117,7 +117,7 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
     displayReference = linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
   }
 
-  const reviewerDisplay = submission.reviewed_by_name || submission.reviewed_by || '--';
+  const ownerDisplay = submission.owner_name || '--';
 
   const handleDeleteClick = (e) => {
     e.stopPropagation();
@@ -171,8 +171,8 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDele
       <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.lastUpdated, minWidth: columnWidths.lastUpdated }}>
         {submission.updated_at ? format(new Date(submission.updated_at), 'MMM d, yyyy') : '--'}
       </TableCell>
-      <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.reviewedBy, minWidth: columnWidths.reviewedBy }}>
-        {reviewerDisplay}
+      <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.owner, minWidth: columnWidths.owner }}>
+        {ownerDisplay}
       </TableCell>
       <TableCell style={{ width: columnWidths.swap, minWidth: columnWidths.swap }} onClick={(e) => e.stopPropagation()}>
         {!isSwapAllowed ? (
@@ -274,6 +274,7 @@ export default function DueDiligenceDashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [riskFilter, setRiskFilter] = useState('all');
+  const [ownerFilter, setOwnerFilter] = useState('all');
   const [selectedFormId, setSelectedFormId] = useState('all');
   
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
@@ -416,29 +417,51 @@ export default function DueDiligenceDashboardPage() {
     };
   }, [submissions]);
 
-  const filteredSubmissions = useMemo(() => {
-    if (!searchQuery.trim()) return submissions;
-    
-    const query = searchQuery.toLowerCase();
-    return submissions.filter(sub => {
-      const uid = sub.application_uid?.toLowerCase() || '';
-      const formValues = sub.form_submission?.submission_data || {};
-      const linkedOrgName = sub.form_submission?.organization?.name || '';
-      const formId = sub.form_submission?.form_id;
-      const refField = formId ? cardReferenceFieldByFormId[formId] : null;
-      
-      let displayRef = '';
-      if (refField === '__organization_name__' && linkedOrgName) {
-        displayRef = linkedOrgName.toLowerCase();
-      } else if (refField && formValues[refField]) {
-        displayRef = String(formValues[refField]).toLowerCase();
-      } else {
-        displayRef = (linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || '').toLowerCase();
+  const uniqueOwners = useMemo(() => {
+    const owners = new Map();
+    submissions.forEach(sub => {
+      if (sub.owner_member_id && sub.owner_name) {
+        owners.set(sub.owner_member_id, sub.owner_name);
       }
-      
-      return uid.includes(query) || displayRef.includes(query);
     });
-  }, [submissions, searchQuery, cardReferenceFieldByFormId]);
+    return Array.from(owners.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [submissions]);
+
+  const filteredSubmissions = useMemo(() => {
+    let filtered = submissions;
+
+    if (ownerFilter !== 'all') {
+      if (ownerFilter === '__unassigned__') {
+        filtered = filtered.filter(sub => !sub.owner_member_id);
+      } else {
+        filtered = filtered.filter(sub => sub.owner_member_id === ownerFilter);
+      }
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(sub => {
+        const uid = sub.application_uid?.toLowerCase() || '';
+        const formValues = sub.form_submission?.submission_data || {};
+        const linkedOrgName = sub.form_submission?.organization?.name || '';
+        const formId = sub.form_submission?.form_id;
+        const refField = formId ? cardReferenceFieldByFormId[formId] : null;
+        
+        let displayRef = '';
+        if (refField === '__organization_name__' && linkedOrgName) {
+          displayRef = linkedOrgName.toLowerCase();
+        } else if (refField && formValues[refField]) {
+          displayRef = String(formValues[refField]).toLowerCase();
+        } else {
+          displayRef = (linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || '').toLowerCase();
+        }
+        
+        return uid.includes(query) || displayRef.includes(query);
+      });
+    }
+
+    return filtered;
+  }, [submissions, searchQuery, ownerFilter, cardReferenceFieldByFormId]);
 
   // Derive available stages based on selected form
   const availableStages = useMemo(() => {
@@ -754,6 +777,24 @@ export default function DueDiligenceDashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select
+                value={ownerFilter}
+                onValueChange={setOwnerFilter}
+                data-testid="select-owner-filter"
+              >
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="All Owners" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" data-testid="option-owner-all">All Owners</SelectItem>
+                  <SelectItem value="__unassigned__" data-testid="option-owner-unassigned">Unassigned</SelectItem>
+                  {uniqueOwners.map(owner => (
+                    <SelectItem key={owner.id} value={owner.id} data-testid={`option-owner-${owner.id}`}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
@@ -773,7 +814,7 @@ export default function DueDiligenceDashboardPage() {
                     <ResizableTableHead label="Risk Level" columnKey="riskLevel" width={columnWidths.riskLevel} onResize={handleColumnResize} />
                     <ResizableTableHead label="Created" columnKey="created" width={columnWidths.created} onResize={handleColumnResize} />
                     <ResizableTableHead label="Last Updated" columnKey="lastUpdated" width={columnWidths.lastUpdated} onResize={handleColumnResize} />
-                    <ResizableTableHead label="Reviewed By" columnKey="reviewedBy" width={columnWidths.reviewedBy} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Owner" columnKey="owner" width={columnWidths.owner} onResize={handleColumnResize} />
                     <ResizableTableHead label="Swap Form" columnKey="swap" width={columnWidths.swap} onResize={handleColumnResize} />
                     <TableHead style={{ width: columnWidths.actions, minWidth: columnWidths.actions }}>Actions</TableHead>
                   </TableRow>
