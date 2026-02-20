@@ -1184,6 +1184,34 @@ export default function ReviewSubmissionPage() {
     enabled: accessChecked
   });
 
+  const ownerRoleIds = ddConfig?.owner_role_ids || [];
+  const { data: ownerCandidates = [] } = useQuery({
+    queryKey: ['dd-owner-candidates', ownerRoleIds.join(',')],
+    queryFn: async () => {
+      const res = await apiRequest('GET', `/api/due-diligence/members-by-roles?roleIds=${ownerRoleIds.join(',')}`);
+      return res.members || [];
+    },
+    enabled: ownerRoleIds.length > 0,
+    staleTime: 5 * 60 * 1000
+  });
+
+  const updateOwnerMutation = useMutation({
+    mutationFn: async ({ memberId, memberName }) => {
+      return apiRequest('POST', '/api/due-diligence/update-owner', {
+        submissionId: ddSubmission.id,
+        ownerMemberId: memberId,
+        ownerName: memberName
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dd-submission', submissionId] });
+      toast.success('Owner updated');
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Failed to update owner');
+    }
+  });
+
   const displayReference = useMemo(() => {
     if (!ddSubmission) return '';
     const cardReferenceField = ddConfig?.card_reference_field;
@@ -2321,6 +2349,36 @@ export default function ReviewSubmissionPage() {
                   {currentStage?.label || workflowStatus}
                 </Badge>
               </div>
+              {ownerRoleIds.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-muted-foreground">Owner</span>
+                  <Select
+                    value={ddSubmission.owner_member_id || '__unassigned__'}
+                    onValueChange={(value) => {
+                      if (value === '__unassigned__') {
+                        updateOwnerMutation.mutate({ memberId: null, memberName: null });
+                      } else {
+                        const selected = ownerCandidates.find(m => m.id === value);
+                        const name = selected ? [selected.first_name, selected.last_name].filter(Boolean).join(' ') : null;
+                        updateOwnerMutation.mutate({ memberId: value, memberName: name });
+                      }
+                    }}
+                    disabled={updateOwnerMutation.isPending}
+                  >
+                    <SelectTrigger className="w-full" data-testid="select-dd-owner">
+                      <SelectValue placeholder="Unassigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unassigned__" data-testid="option-dd-owner-unassigned">Unassigned</SelectItem>
+                      {ownerCandidates.map(m => (
+                        <SelectItem key={m.id} value={m.id} data-testid={`option-dd-owner-${m.id}`}>
+                          {[m.first_name, m.last_name].filter(Boolean).join(' ')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </CardContent>
           </Card>
 

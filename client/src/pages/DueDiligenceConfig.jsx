@@ -68,6 +68,7 @@ export default function DueDiligenceConfigPage() {
   const [customRiskLevels, setCustomRiskLevels] = useState(DEFAULT_RISK_LEVELS);
   const [workflowStages, setWorkflowStages] = useState(DEFAULT_WORKFLOW_STAGES);
   const [statusWebhooks, setStatusWebhooks] = useState([]);
+  const [ownerRoleIds, setOwnerRoleIds] = useState([]);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
@@ -612,6 +613,7 @@ export default function DueDiligenceConfigPage() {
       setCustomRiskLevels(ddConfig.custom_risk_levels?.length > 0 ? ddConfig.custom_risk_levels : DEFAULT_RISK_LEVELS);
       setWorkflowStages(ddConfig.workflow_stages?.length > 0 ? ddConfig.workflow_stages : DEFAULT_WORKFLOW_STAGES);
       setStatusWebhooks(ddConfig.status_change_webhooks || []);
+      setOwnerRoleIds(ddConfig.owner_role_ids || []);
       setHasInitialized(true);
     }
   }, [ddConfig, hasInitialized]);
@@ -632,6 +634,7 @@ export default function DueDiligenceConfigPage() {
         custom_risk_levels: data.customRiskLevels,
         workflow_stages: data.workflowStages.map((s, i) => ({ ...s, order: i })),
         status_change_webhooks: data.statusWebhooks,
+        owner_role_ids: data.ownerRoleIds || [],
         is_active: true
       };
 
@@ -662,7 +665,8 @@ export default function DueDiligenceConfigPage() {
       staticQuestions,
       customRiskLevels,
       workflowStages,
-      statusWebhooks
+      statusWebhooks,
+      ownerRoleIds
     });
   };
 
@@ -1155,6 +1159,37 @@ export default function DueDiligenceConfigPage() {
                     }
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <Label className="text-base font-medium">Submission Owner Roles</Label>
+                <p className="text-sm text-muted-foreground">
+                  Select which roles can be assigned as owners of a submission. Members with these roles will appear in the Owner dropdown on the review page.
+                </p>
+                <div className="space-y-2 max-w-md">
+                  {roles.map((role) => (
+                    <Label
+                      key={role.id}
+                      className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={ownerRoleIds.includes(role.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setOwnerRoleIds(prev => [...prev, role.id]);
+                          } else {
+                            setOwnerRoleIds(prev => prev.filter(id => id !== role.id));
+                          }
+                        }}
+                        data-testid={`checkbox-owner-role-${role.id}`}
+                      />
+                      <span className="text-sm">{role.name}</span>
+                    </Label>
+                  ))}
+                  {roles.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No roles found. Create roles in Role Management first.</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
