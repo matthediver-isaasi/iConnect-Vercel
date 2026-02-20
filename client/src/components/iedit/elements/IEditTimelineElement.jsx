@@ -15,7 +15,9 @@ import {
   ChevronUp,
   Upload,
   Image,
-  X
+  X,
+  Maximize2,
+  Minimize2
 } from "lucide-react";
 
 const timelineQuillModules = {
@@ -40,9 +42,11 @@ const timelineQuillFormats = [
 export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const isMobile = useIsMobile();
   const [activeYear, setActiveYear] = useState(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
   const observerRef = useRef(null);
+  const scrollContainerRef = useRef(null);
   const isClickScrolling = useRef(false);
   const prefersReducedMotion = useRef(false);
 
@@ -55,6 +59,22 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     header_offset = 80,
     anchor
   } = content || {};
+
+  useEffect(() => {
+    if (isExpanded) {
+      document.body.style.overflow = 'hidden';
+      const handleEsc = (e) => {
+        if (e.key === 'Escape') setIsExpanded(false);
+      };
+      document.addEventListener('keydown', handleEsc);
+      return () => {
+        document.body.style.overflow = '';
+        document.removeEventListener('keydown', handleEsc);
+      };
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [isExpanded]);
 
   useEffect(() => {
     prefersReducedMotion.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -88,8 +108,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       }
     };
 
+    const effectiveOffset = isExpanded ? 80 : header_offset;
     observerRef.current = new IntersectionObserver(handleIntersect, {
-      rootMargin: `-${header_offset}px 0px -40% 0px`,
+      root: isExpanded ? scrollContainerRef.current : null,
+      rootMargin: `-${effectiveOffset}px 0px -40% 0px`,
       threshold: [0, 0.25, 0.5, 0.75, 1]
     });
 
@@ -100,7 +122,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
     };
-  }, [items, header_offset]);
+  }, [items, header_offset, isExpanded]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -127,18 +149,27 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     setActiveYear(year);
 
     const behavior = prefersReducedMotion.current ? 'auto' : 'smooth';
-    const top = el.getBoundingClientRect().top + window.scrollY - header_offset;
+    const container = scrollContainerRef.current;
+    const effectiveOffset = isExpanded ? 80 : header_offset;
 
-    window.scrollTo({ top, behavior });
+    if (container && isExpanded) {
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const top = container.scrollTop + (elRect.top - containerRect.top) - effectiveOffset;
+      container.scrollTo({ top, behavior });
+    } else {
+      const top = el.getBoundingClientRect().top + window.scrollY - effectiveOffset;
+      window.scrollTo({ top, behavior });
+    }
 
-    if (typeof window !== 'undefined' && window.history) {
+    if (!isExpanded && typeof window !== 'undefined' && window.history) {
       window.history.replaceState(null, '', `#year-${year}`);
     }
 
     setTimeout(() => {
       isClickScrolling.current = false;
     }, 800);
-  }, [header_offset]);
+  }, [header_offset, isExpanded]);
 
   const setSectionRef = useCallback((year, el) => {
     sectionRefs.current[year] = el;
@@ -152,10 +183,275 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   }
 
-  /* ── Mobile layout ── */
+  const expandButton = (
+    <button
+      onClick={() => setIsExpanded(!isExpanded)}
+      className="absolute top-0 right-0 z-30 p-2 rounded-md bg-white/80 hover:bg-white border border-slate-200 shadow-sm transition-colors"
+      title={isExpanded ? 'Exit fullscreen' : 'View fullscreen'}
+      aria-label={isExpanded ? 'Exit fullscreen' : 'View fullscreen'}
+      data-testid="button-timeline-expand"
+    >
+      {isExpanded ? <Minimize2 className="w-4 h-4 text-slate-600" /> : <Maximize2 className="w-4 h-4 text-slate-600" />}
+    </button>
+  );
+
+  const markerNav = (idx, item) => {
+    const isActive = activeYear === item.year;
+    return (
+      <button
+        key={item.year}
+        onClick={() => scrollToSection(item.year)}
+        role="tab"
+        aria-selected={isActive}
+        aria-current={isActive ? 'true' : undefined}
+        className="relative z-10 flex flex-col items-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+        style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            const next = items[idx + 1];
+            if (next) {
+              scrollToSection(next.year);
+              e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[idx + 1]?.focus();
+            }
+          } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const prev = items[idx - 1];
+            if (prev) {
+              scrollToSection(prev.year);
+              e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[idx - 1]?.focus();
+            }
+          } else if (e.key === 'Home') {
+            e.preventDefault();
+            scrollToSection(items[0].year);
+            e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[0]?.focus();
+          } else if (e.key === 'End') {
+            e.preventDefault();
+            const last = items[items.length - 1];
+            scrollToSection(last.year);
+            e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[items.length - 1]?.focus();
+          }
+        }}
+        data-testid={`timeline-marker-${item.year}`}
+      >
+        <div
+          className="rounded-full transition-all duration-200 ring-2 ring-white"
+          style={{
+            width: `${isActive ? marker_size + 4 : marker_size}px`,
+            height: `${isActive ? marker_size + 4 : marker_size}px`,
+            backgroundColor: isActive ? active_color : line_color,
+            boxShadow: isActive ? `0 0 0 3px ${active_color}33` : 'none'
+          }}
+        />
+        <span
+          className="mt-1.5 text-sm transition-colors duration-200"
+          style={{
+            fontWeight: isActive ? 700 : 500,
+            color: isActive ? active_color : '#9ca3af'
+          }}
+        >
+          {item.year}
+        </span>
+      </button>
+    );
+  };
+
+  const contentSection = (item, idx) => {
+    const isActive = activeYear === item.year;
+    const effectiveOffset = isExpanded ? 80 : header_offset;
+    return (
+      <div
+        key={item.year}
+        ref={(el) => setSectionRef(item.year, el)}
+        data-year={item.year}
+        style={{
+          scrollMarginTop: `${effectiveOffset + 8}px`,
+          marginBottom: idx < items.length - 1 ? '48px' : 0
+        }}
+        data-testid={`timeline-section-${item.year}`}
+      >
+        <div className="flex items-baseline gap-3 mb-3">
+          <span
+            className="text-2xl font-bold transition-colors duration-200"
+            style={{ color: isActive ? active_color : '#9ca3af' }}
+          >
+            {item.year}
+          </span>
+          {item.heading && (
+            <h3 className="text-xl font-semibold text-slate-800">{item.heading}</h3>
+          )}
+        </div>
+
+        {item.media?.src && (
+          <div className="mb-4 rounded-lg overflow-hidden">
+            {item.media.type === 'video' ? (
+              <video
+                src={item.media.src}
+                controls
+                className="w-full max-w-2xl rounded-lg"
+                data-testid={`timeline-video-${item.year}`}
+              />
+            ) : (
+              <img
+                src={item.media.src}
+                alt={item.media.alt || item.heading || item.year}
+                className="w-full max-w-2xl rounded-lg object-cover max-h-80"
+                loading="lazy"
+                data-testid={`timeline-image-${item.year}`}
+              />
+            )}
+          </div>
+        )}
+
+        {item.body && (
+          <div
+            className="prose prose-slate max-w-none"
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const mobileContentSection = (item) => (
+    <div
+      key={item.year}
+      ref={(el) => setSectionRef(item.year, el)}
+      data-year={item.year}
+      className="scroll-mt-32"
+      data-testid={`timeline-section-${item.year}`}
+    >
+      <div className="flex items-center gap-3 mb-3">
+        <div
+          className="w-3 h-3 rounded-full shrink-0"
+          style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
+        />
+        <span
+          className="text-lg font-bold"
+          style={{ color: activeYear === item.year ? active_color : '#374151' }}
+        >
+          {item.year}
+        </span>
+      </div>
+      {item.heading && (
+        <h3 className="text-xl font-semibold text-slate-800 mb-2">{item.heading}</h3>
+      )}
+      {item.media?.src && (
+        <div className="mb-3 rounded-lg overflow-hidden">
+          {item.media.type === 'video' ? (
+            <video src={item.media.src} controls className="w-full rounded-lg" data-testid={`timeline-video-${item.year}`} />
+          ) : (
+            <img src={item.media.src} alt={item.media.alt || item.heading || item.year} className="w-full rounded-lg object-cover max-h-64" loading="lazy" data-testid={`timeline-image-${item.year}`} />
+          )}
+        </div>
+      )}
+      {item.body && (
+        <div className="prose prose-sm prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />
+      )}
+    </div>
+  );
+
+  const desktopTimeline = (inOverlay) => (
+    <div className="flex gap-8 lg:gap-12">
+      <div
+        ref={railRef}
+        className="shrink-0 w-28 lg:w-36 self-start"
+        style={{ position: 'sticky', top: inOverlay ? '80px' : `${header_offset + 16}px` }}
+      >
+        <nav className="relative flex flex-col items-center" role="tablist" aria-label="Timeline years">
+          <div
+            className="absolute left-1/2 -translate-x-1/2 w-0.5 rounded-full"
+            style={{ backgroundColor: line_color, top: `${marker_size / 2}px`, bottom: `${marker_size / 2}px` }}
+            aria-hidden="true"
+          />
+          {items.map((item, idx) => markerNav(idx, item))}
+        </nav>
+      </div>
+      <div className="flex-1 min-w-0">
+        {items.map((item, idx) => contentSection(item, idx))}
+      </div>
+    </div>
+  );
+
+  /* ── Expanded overlay ── */
+  if (isExpanded) {
+    return (
+      <>
+        <div id={anchor || undefined} className="relative" data-testid="timeline-desktop">
+          {expandButton}
+        </div>
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setIsExpanded(false); }}
+          data-testid="timeline-overlay"
+        >
+          <div
+            className="relative bg-white rounded-xl shadow-2xl flex flex-col"
+            style={{ width: '95vw', height: '95vh' }}
+          >
+            <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-2xl font-bold text-slate-900" data-testid="timeline-overlay-title">
+                {title || 'Timeline'}
+              </h2>
+              <button
+                onClick={() => setIsExpanded(false)}
+                className="p-2 rounded-md hover:bg-slate-100 transition-colors"
+                aria-label="Close fullscreen"
+                data-testid="button-timeline-close-overlay"
+              >
+                <X className="w-5 h-5 text-slate-600" />
+              </button>
+            </div>
+            <div
+              ref={scrollContainerRef}
+              className="flex-1 overflow-y-auto px-8 py-6"
+            >
+              {isMobile ? (
+                <>
+                  <div
+                    className="flex overflow-x-auto gap-2 pb-3 mb-6 sticky z-20 bg-white/95 backdrop-blur-sm pt-2"
+                    style={{ top: 0 }}
+                    role="tablist"
+                    aria-label="Timeline years"
+                  >
+                    {items.map((item) => (
+                      <button
+                        key={item.year}
+                        onClick={() => scrollToSection(item.year)}
+                        role="tab"
+                        aria-selected={activeYear === item.year}
+                        className="shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap"
+                        style={{
+                          backgroundColor: activeYear === item.year ? active_color : 'transparent',
+                          color: activeYear === item.year ? '#ffffff' : '#6b7280',
+                          border: `1px solid ${activeYear === item.year ? active_color : '#d1d5db'}`
+                        }}
+                        data-testid={`timeline-overlay-marker-${item.year}`}
+                      >
+                        {item.year}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="space-y-8">
+                    {items.map((item) => mobileContentSection(item))}
+                  </div>
+                </>
+              ) : (
+                desktopTimeline(true)
+              )}
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  /* ── Mobile layout (inline) ── */
   if (isMobile) {
     return (
-      <div id={anchor || undefined} data-testid="timeline-mobile">
+      <div id={anchor || undefined} className="relative" data-testid="timeline-mobile">
+        {expandButton}
         {title && (
           <h2 className="text-2xl font-bold text-slate-900 mb-6" data-testid="timeline-title">{title}</h2>
         )}
@@ -186,217 +482,20 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         </div>
 
         <div className="space-y-8">
-          {items.map((item) => (
-            <div
-              key={item.year}
-              ref={(el) => setSectionRef(item.year, el)}
-              data-year={item.year}
-              className="scroll-mt-32"
-              data-testid={`timeline-section-${item.year}`}
-            >
-              <div className="flex items-center gap-3 mb-3">
-                <div
-                  className="w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
-                />
-                <span
-                  className="text-lg font-bold"
-                  style={{ color: activeYear === item.year ? active_color : '#374151' }}
-                >
-                  {item.year}
-                </span>
-              </div>
-              {item.heading && (
-                <h3 className="text-xl font-semibold text-slate-800 mb-2">{item.heading}</h3>
-              )}
-              {item.media?.src && (
-                <div className="mb-3 rounded-lg overflow-hidden">
-                  {item.media.type === 'video' ? (
-                    <video
-                      src={item.media.src}
-                      controls
-                      className="w-full rounded-lg"
-                      data-testid={`timeline-video-${item.year}`}
-                    />
-                  ) : (
-                    <img
-                      src={item.media.src}
-                      alt={item.media.alt || item.heading || item.year}
-                      className="w-full rounded-lg object-cover max-h-64"
-                      loading="lazy"
-                      data-testid={`timeline-image-${item.year}`}
-                    />
-                  )}
-                </div>
-              )}
-              {item.body && (
-                <div
-                  className="prose prose-sm prose-slate max-w-none"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
-                />
-              )}
-            </div>
-          ))}
+          {items.map((item) => mobileContentSection(item))}
         </div>
       </div>
     );
   }
 
-  /* ── Desktop layout ── */
+  /* ── Desktop layout (inline) ── */
   return (
     <div id={anchor || undefined} className="relative" data-testid="timeline-desktop">
+      {expandButton}
       {title && (
         <h2 className="text-3xl font-bold text-slate-900 mb-10" data-testid="timeline-title">{title}</h2>
       )}
-
-      <div className="flex gap-8 lg:gap-12">
-        {/* Left sticky rail */}
-        <div
-          ref={railRef}
-          className="shrink-0 w-28 lg:w-36 self-start"
-          style={{ position: 'sticky', top: `${header_offset + 16}px` }}
-        >
-          <nav
-            className="relative flex flex-col items-center"
-            role="tablist"
-            aria-label="Timeline years"
-          >
-            {/* Vertical line behind markers */}
-            <div
-              className="absolute left-1/2 -translate-x-1/2 w-0.5 rounded-full"
-              style={{
-                backgroundColor: line_color,
-                top: `${marker_size / 2}px`,
-                bottom: `${marker_size / 2}px`
-              }}
-              aria-hidden="true"
-            />
-
-            {items.map((item, idx) => {
-              const isActive = activeYear === item.year;
-              return (
-                <button
-                  key={item.year}
-                  onClick={() => scrollToSection(item.year)}
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-current={isActive ? 'true' : undefined}
-                  className="relative z-10 flex flex-col items-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                  style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-                      e.preventDefault();
-                      const next = items[idx + 1];
-                      if (next) {
-                        scrollToSection(next.year);
-                        e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[idx + 1]?.focus();
-                      }
-                    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-                      e.preventDefault();
-                      const prev = items[idx - 1];
-                      if (prev) {
-                        scrollToSection(prev.year);
-                        e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[idx - 1]?.focus();
-                      }
-                    } else if (e.key === 'Home') {
-                      e.preventDefault();
-                      scrollToSection(items[0].year);
-                      e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[0]?.focus();
-                    } else if (e.key === 'End') {
-                      e.preventDefault();
-                      const last = items[items.length - 1];
-                      scrollToSection(last.year);
-                      e.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[items.length - 1]?.focus();
-                    }
-                  }}
-                  data-testid={`timeline-marker-${item.year}`}
-                >
-                  {/* Marker dot */}
-                  <div
-                    className="rounded-full transition-all duration-200 ring-2 ring-white"
-                    style={{
-                      width: `${isActive ? marker_size + 4 : marker_size}px`,
-                      height: `${isActive ? marker_size + 4 : marker_size}px`,
-                      backgroundColor: isActive ? active_color : line_color,
-                      boxShadow: isActive ? `0 0 0 3px ${active_color}33` : 'none'
-                    }}
-                  />
-                  {/* Year label */}
-                  <span
-                    className="mt-1.5 text-sm transition-colors duration-200"
-                    style={{
-                      fontWeight: isActive ? 700 : 500,
-                      color: isActive ? active_color : '#9ca3af'
-                    }}
-                  >
-                    {item.year}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Right scrolling content */}
-        <div className="flex-1 min-w-0">
-          {items.map((item, idx) => {
-            const isActive = activeYear === item.year;
-            return (
-              <div
-                key={item.year}
-                ref={(el) => setSectionRef(item.year, el)}
-                data-year={item.year}
-                className="scroll-mt-24"
-                style={{
-                  scrollMarginTop: `${header_offset + 8}px`,
-                  marginBottom: idx < items.length - 1 ? '48px' : 0
-                }}
-                data-testid={`timeline-section-${item.year}`}
-              >
-                <div className="flex items-baseline gap-3 mb-3">
-                  <span
-                    className="text-2xl font-bold transition-colors duration-200"
-                    style={{ color: isActive ? active_color : '#9ca3af' }}
-                  >
-                    {item.year}
-                  </span>
-                  {item.heading && (
-                    <h3 className="text-xl font-semibold text-slate-800">{item.heading}</h3>
-                  )}
-                </div>
-
-                {item.media?.src && (
-                  <div className="mb-4 rounded-lg overflow-hidden">
-                    {item.media.type === 'video' ? (
-                      <video
-                        src={item.media.src}
-                        controls
-                        className="w-full max-w-2xl rounded-lg"
-                        data-testid={`timeline-video-${item.year}`}
-                      />
-                    ) : (
-                      <img
-                        src={item.media.src}
-                        alt={item.media.alt || item.heading || item.year}
-                        className="w-full max-w-2xl rounded-lg object-cover max-h-80"
-                        loading="lazy"
-                        data-testid={`timeline-image-${item.year}`}
-                      />
-                    )}
-                  </div>
-                )}
-
-                {item.body && (
-                  <div
-                    className="prose prose-slate max-w-none"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {desktopTimeline(false)}
     </div>
   );
 }
