@@ -10,18 +10,312 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, CheckCircle2, Users, Wifi, LogIn, Lock, Calendar, MapPin, Copy, ArrowRight } from "lucide-react";
+import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, CheckCircle2, Users, Wifi, LogIn, Lock, Calendar, MapPin, Copy, ArrowRight, Heart } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
-import DonationModal from "./DonationModal";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
+
+function InlineDonationSection({ donationConfig, event, paymentEmail, bookingReference, stripeReady }) {
+  const [selectedAmount, setSelectedAmount] = useState(null);
+  const [customAmount, setCustomAmount] = useState('');
+  const [giftAid, setGiftAid] = useState(false);
+  const [giftAidAddress1, setGiftAidAddress1] = useState('');
+  const [giftAidAddress2, setGiftAidAddress2] = useState('');
+  const [giftAidCity, setGiftAidCity] = useState('');
+  const [giftAidPostcode, setGiftAidPostcode] = useState('');
+  const [donationSubmitting, setDonationSubmitting] = useState(false);
+  const [donationClientSecret, setDonationClientSecret] = useState(null);
+  const [donationCompleted, setDonationCompleted] = useState(false);
+  const [donationError, setDonationError] = useState(null);
+
+  const presetAmounts = donationConfig?.preset_amounts || [5, 10, 25, 50];
+  const allowCustomAmount = donationConfig?.allow_custom_amount !== false;
+  const customMessage = donationConfig?.custom_message || '';
+  const donationAmount = selectedAmount || parseFloat(customAmount) || 0;
+  const giftAidBonus = giftAid ? donationAmount * 0.25 : 0;
+  const isGiftAidValid = !giftAid || (giftAidAddress1.trim() && giftAidCity.trim() && giftAidPostcode.trim());
+  const canDonate = donationAmount > 0 && isGiftAidValid && !donationSubmitting && stripeReady;
+
+  const handleDonate = async () => {
+    if (!canDonate) return;
+    setDonationSubmitting(true);
+    setDonationError(null);
+    try {
+      const response = await base44.functions.invoke('createStripePaymentIntent', {
+        amount: donationAmount,
+        currency: 'gbp',
+        memberEmail: paymentEmail,
+        metadata: {
+          event_id: event.id,
+          event_title: (event.title || '').substring(0, 200),
+          payment_type: 'donation',
+          booking_reference: bookingReference || '',
+          gift_aid: giftAid ? 'true' : 'false',
+          gift_aid_amount: giftAid ? giftAidBonus.toFixed(2) : '0',
+          member_email: paymentEmail
+        }
+      });
+
+      if (response.data.success) {
+        setDonationClientSecret(response.data.clientSecret);
+      } else {
+        setDonationError('Could not set up donation payment. Please try again.');
+        setDonationSubmitting(false);
+      }
+    } catch (err) {
+      console.error('[InlineDonation] Error creating payment intent:', err);
+      setDonationError('Something went wrong. Please try again.');
+      setDonationSubmitting(false);
+    }
+  };
+
+  const handleDonationPaymentSuccess = async () => {
+    setDonationCompleted(true);
+    setDonationClientSecret(null);
+    setDonationSubmitting(false);
+
+    try {
+      await base44.functions.invoke('recordDonation', {
+        event_id: event.id,
+        booking_reference: bookingReference,
+        amount: donationAmount,
+        currency: 'gbp',
+        gift_aid: giftAid,
+        gift_aid_address: giftAid ? {
+          address_line_1: giftAidAddress1.trim(),
+          address_line_2: giftAidAddress2.trim(),
+          city: giftAidCity.trim(),
+          postcode: giftAidPostcode.trim()
+        } : null,
+        donor_email: paymentEmail
+      });
+    } catch (err) {
+      console.error('[InlineDonation] Error recording donation:', err);
+    }
+
+    toast.success('Thank you for your generous donation!');
+  };
+
+  if (donationCompleted) {
+    return (
+      <div className="p-4 rounded-md border border-pink-200 bg-pink-50 dark:border-pink-800 dark:bg-pink-950/20 space-y-2 text-center">
+        <div className="flex justify-center">
+          <Heart className="w-6 h-6 text-pink-600" />
+        </div>
+        <p className="text-sm font-medium" data-testid="text-donation-thank-you">Thank you for your donation of {'\u00a3'}{donationAmount.toFixed(2)}</p>
+        {giftAid && (
+          <p className="text-xs text-muted-foreground">
+            With Gift Aid, your total contribution is worth {'\u00a3'}{(donationAmount + giftAidBonus).toFixed(2)}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (donationClientSecret) {
+    if (!stripePromise) {
+      return (
+        <div className="p-4 rounded-md border border-pink-200 bg-pink-50/50 dark:border-pink-800 dark:bg-pink-950/10 flex items-center justify-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-pink-600" />
+          <span className="text-sm text-muted-foreground">Loading payment...</span>
+        </div>
+      );
+    }
+    return (
+      <div className="p-4 rounded-md border border-pink-200 bg-pink-50/50 dark:border-pink-800 dark:bg-pink-950/10 space-y-3">
+        <h3 className="text-sm font-medium flex items-center gap-2">
+          <Heart className="w-4 h-4 text-pink-600" />
+          Complete Your Donation
+        </h3>
+        <Elements stripe={stripePromise} options={{ clientSecret: donationClientSecret }}>
+          <StripePaymentForm
+            clientSecret={donationClientSecret}
+            onSuccess={handleDonationPaymentSuccess}
+            onCancel={() => {
+              setDonationClientSecret(null);
+              setDonationSubmitting(false);
+            }}
+            amount={donationAmount}
+            returnUrl={window.location.href}
+          />
+        </Elements>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 rounded-md border border-pink-200 bg-pink-50/50 dark:border-pink-800 dark:bg-pink-950/10 space-y-4">
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium flex items-center gap-2">
+          <Heart className="w-4 h-4 text-pink-600" />
+          Would you like to make a donation?
+        </h3>
+        {customMessage && (
+          <p className="text-xs text-muted-foreground">{customMessage}</p>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-4 gap-2">
+          {presetAmounts.map((amount) => (
+            <Button
+              key={amount}
+              type="button"
+              size="sm"
+              variant={selectedAmount === amount ? 'default' : 'outline'}
+              className={selectedAmount === amount ? 'ring-2 ring-pink-300' : ''}
+              onClick={() => {
+                setSelectedAmount(amount);
+                setCustomAmount('');
+              }}
+              data-testid={`button-donation-amount-${amount}`}
+            >
+              {'\u00a3'}{amount}
+            </Button>
+          ))}
+        </div>
+
+        {allowCustomAmount && (
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+              {'\u00a3'}
+            </span>
+            <Input
+              type="number"
+              min="1"
+              step="0.01"
+              placeholder="Custom amount"
+              value={customAmount}
+              onChange={(e) => {
+                setCustomAmount(e.target.value);
+                setSelectedAmount(null);
+              }}
+              className="pl-7"
+              data-testid="input-custom-donation-amount"
+            />
+          </div>
+        )}
+      </div>
+
+      {donationAmount > 0 && (
+        <div className="space-y-3 pt-2 border-t border-pink-200 dark:border-pink-800">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="inline-gift-aid" className="text-xs flex items-center gap-1.5">
+                <Gift className="w-3.5 h-3.5 text-green-600" />
+                Boost with Gift Aid (25%)
+              </Label>
+              <p className="text-xs text-muted-foreground">UK taxpayers only</p>
+            </div>
+            <Switch
+              id="inline-gift-aid"
+              checked={giftAid}
+              onCheckedChange={setGiftAid}
+              data-testid="switch-donation-gift-aid"
+            />
+          </div>
+
+          {giftAid && (
+            <div className="space-y-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-md border border-green-200 dark:border-green-800">
+              <p className="text-xs text-green-800 dark:text-green-300 flex items-start gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                I confirm I am a UK taxpayer and understand that if I pay less Income Tax and/or Capital Gains Tax
+                than the Gift Aid claimed, it is my responsibility to pay any difference.
+              </p>
+              <div className="space-y-1.5">
+                <Input
+                  placeholder="Address line 1 *"
+                  value={giftAidAddress1}
+                  onChange={(e) => setGiftAidAddress1(e.target.value)}
+                  className="text-sm"
+                  data-testid="input-donation-gift-aid-address1"
+                />
+                <Input
+                  placeholder="Address line 2"
+                  value={giftAidAddress2}
+                  onChange={(e) => setGiftAidAddress2(e.target.value)}
+                  className="text-sm"
+                  data-testid="input-donation-gift-aid-address2"
+                />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Input
+                    placeholder="City / Town *"
+                    value={giftAidCity}
+                    onChange={(e) => setGiftAidCity(e.target.value)}
+                    className="text-sm"
+                    data-testid="input-donation-gift-aid-city"
+                  />
+                  <Input
+                    placeholder="Postcode *"
+                    value={giftAidPostcode}
+                    onChange={(e) => setGiftAidPostcode(e.target.value)}
+                    className="text-sm"
+                    data-testid="input-donation-gift-aid-postcode"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="p-2 rounded-md bg-pink-100/50 dark:bg-pink-900/20 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Your donation</span>
+              <span className="font-semibold">{'\u00a3'}{donationAmount.toFixed(2)}</span>
+            </div>
+            {giftAid && (
+              <>
+                <div className="flex items-center justify-between mt-0.5">
+                  <span className="text-green-600 text-xs">Gift Aid (25%)</span>
+                  <span className="text-green-600 text-xs font-semibold">+ {'\u00a3'}{giftAidBonus.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between mt-0.5 pt-1 border-t border-pink-200 dark:border-pink-800">
+                  <span className="font-medium text-xs">Total impact</span>
+                  <span className="font-bold text-sm">{'\u00a3'}{(donationAmount + giftAidBonus).toFixed(2)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {donationError && (
+        <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 text-red-600 shrink-0" />
+          <p className="text-xs text-red-800">{donationError}</p>
+        </div>
+      )}
+
+      {donationAmount > 0 && (
+        <Button
+          type="button"
+          onClick={handleDonate}
+          disabled={!canDonate}
+          className="w-full bg-gradient-to-r from-pink-500 to-rose-500 text-white"
+          data-testid="button-confirm-donation"
+        >
+          {donationSubmitting ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              Setting up...
+            </>
+          ) : (
+            <>
+              <Heart className="w-4 h-4 mr-1.5" />
+              Donate {'\u00a3'}{donationAmount.toFixed(2)}
+            </>
+          )}
+        </Button>
+      )}
+    </div>
+  );
+}
 
 // Stripe Payment Form Component
 function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount, returnUrl }) {
@@ -169,11 +463,6 @@ export default function PaymentOptions({
   const [discountCodeInput, setDiscountCodeInput] = useState("");
   const [appliedDiscount, setAppliedDiscount] = useState(null);
   const [applyingDiscount, setApplyingDiscount] = useState(false);
-
-  // Donation state
-  const [showDonationModal, setShowDonationModal] = useState(false);
-  const [donationData, setDonationData] = useState(null);
-  const donationAmount = donationData?.amount || 0;
 
   const queryClient = useQueryClient();
 
@@ -601,23 +890,8 @@ export default function PaymentOptions({
         return;
       }
 
-      const eventDonationEnabled = event?.donation_config?.enabled === true;
-      if (eventDonationEnabled && !donationData) {
-        setShowDonationModal(true);
-        return;
-      }
-
       await proceedToStripePayment(paymentEmail);
       return;
-    }
-
-    // For free events with donations enabled, show the donation modal before proceeding
-    if (remainingBalance === 0) {
-      const eventDonationEnabled = event?.donation_config?.enabled === true;
-      if (eventDonationEnabled && !donationData) {
-        setShowDonationModal(true);
-        return;
-      }
     }
 
     // If paying by account and user indicated they have a PO number, require it
@@ -631,12 +905,11 @@ export default function PaymentOptions({
     await processOneOffBooking();
   };
 
-  const proceedToStripePayment = async (paymentEmail, donationAmt = donationAmount) => {
-    const chargeAmount = remainingBalance + donationAmt;
-    console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount, '(event:', remainingBalance, '+ donation:', donationAmt, ')');
+  const proceedToStripePayment = async (paymentEmail) => {
+    const chargeAmount = remainingBalance;
+    console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount);
     setSubmitting(true);
     try {
-      // Build enhanced metadata for payment reconciliation
       const attendeeEmails = isGuestCheckout 
         ? (guestInfo?.email ? [guestInfo.email] : [])
         : attendees.filter(a => a.isValid).map(a => a.email).filter(Boolean);
@@ -651,7 +924,6 @@ export default function PaymentOptions({
           organization_id: organizationInfo?.id || null,
           booking_type: isGuestCheckout ? 'guest_one_off_event' : 'one_off_event',
           is_guest: isGuestCheckout ? 'true' : 'false',
-          donation_amount: donationAmt > 0 ? donationAmt.toString() : undefined,
           attendee_emails: attendeeEmails.slice(0, 5).join(',').substring(0, 450),
           ticket_class: selectedTicketClass?.name || 'default',
           tickets_required: String(ticketsRequired),
@@ -683,7 +955,6 @@ export default function PaymentOptions({
           isGuestBooking: isGuestCheckout,
           discountCodeId: appliedDiscount?.discount_code_id || null,
           discountCodeAmount: discountCodeSavings || 0,
-          donationData: donationAmt > 0 ? (donationData || { amount: donationAmt }) : null
         };
         
         if (!isGuestCheckout) {
@@ -720,29 +991,6 @@ export default function PaymentOptions({
     }
   };
 
-  const handleDonationConfirm = async (data) => {
-    setDonationData(data);
-    setShowDonationModal(false);
-    const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
-    const donationAmt = data.amount || 0;
-    const totalCharge = remainingBalance + donationAmt;
-    if (totalCharge > 0) {
-      await proceedToStripePayment(paymentEmail, donationAmt);
-    } else {
-      await processOneOffBooking();
-    }
-  };
-
-  const handleDonationSkip = async () => {
-    setDonationData({ amount: 0, gift_aid: false, gift_aid_address: null });
-    setShowDonationModal(false);
-    if (remainingBalance > 0) {
-      const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
-      await proceedToStripePayment(paymentEmail, 0);
-    } else {
-      await processOneOffBooking();
-    }
-  };
 
   const processOneOffBooking = async (stripePaymentId = null, testMode = false) => {
     console.log('[PaymentOptions] processOneOffBooking started');
@@ -770,7 +1018,6 @@ export default function PaymentOptions({
         isGuestBooking: isGuestCheckout,
         discountCodeId: appliedDiscount?.discount_code_id || null,
         discountCodeAmount: discountCodeSavings || 0,
-        donationData: donationAmount > 0 ? donationData : null,
         _testMode: testMode
       };
 
@@ -1335,10 +1582,11 @@ export default function PaymentOptions({
     }) : null;
     const eventTime = conf.event?.start_time || null;
     const paymentAmount = conf.paymentDetails?.card_amount || conf.paymentDetails?.account_amount || 0;
+    const donationEnabled = event?.donation_config?.enabled === true;
 
     return (
       <Dialog open={!!bookingConfirmation} onOpenChange={(open) => { if (!open) setBookingConfirmation(null); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="sr-only">Booking Confirmed</DialogTitle>
             <DialogDescription className="sr-only">Your booking confirmation details</DialogDescription>
@@ -1357,6 +1605,16 @@ export default function PaymentOptions({
                 Your booking has been confirmed. A confirmation email will be sent to you shortly.
               </p>
             </div>
+
+            {donationEnabled && (
+              <InlineDonationSection
+                donationConfig={event.donation_config}
+                event={event}
+                paymentEmail={isGuestCheckout ? guestInfo?.email : memberInfo?.email}
+                bookingReference={conf.bookingReference}
+                stripeReady={stripeAvailable}
+              />
+            )}
 
             <div className="p-4 rounded-md border bg-muted/30 space-y-3">
               <div className="flex items-center justify-between gap-2 text-sm">
@@ -1629,17 +1887,6 @@ export default function PaymentOptions({
         </CardContent>
       </Card>
 
-      {/* Donation Modal */}
-      {event?.donation_config?.enabled && (
-        <DonationModal
-          open={showDonationModal}
-          onOpenChange={setShowDonationModal}
-          donationConfig={event.donation_config}
-          onConfirm={handleDonationConfirm}
-          onSkip={handleDonationSkip}
-        />
-      )}
-
       {/* Stripe Payment Drawer */}
       <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
         <SheetContent side="right" className="w-full sm:max-w-md flex flex-col h-full">
@@ -1665,7 +1912,7 @@ export default function PaymentOptions({
                     const savedPayloadKey = `pending_booking_payload_${event.id}`;
                     sessionStorage.removeItem(savedPayloadKey);
                   }}
-                  amount={remainingBalance + donationAmount}
+                  amount={remainingBalance}
                   returnUrl={window.location.href}
                 />
               </Elements>
