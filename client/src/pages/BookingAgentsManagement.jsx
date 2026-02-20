@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
@@ -103,6 +104,7 @@ export default function BookingAgentsManagement() {
     meeting_type: 'phone',
     is_active: true,
     email_template_id: '',
+    confirmation_email_template_id: '',
     max_days_ahead: 30,
     zoom_user_id: '',
     zoom_user_email: ''
@@ -305,6 +307,7 @@ export default function BookingAgentsManagement() {
       meeting_type: 'phone',
       is_active: true,
       email_template_id: '',
+      confirmation_email_template_id: '',
       max_days_ahead: 30,
       zoom_user_id: '',
       zoom_user_email: ''
@@ -320,6 +323,7 @@ export default function BookingAgentsManagement() {
       meeting_type: template.meeting_type,
       is_active: template.is_active,
       email_template_id: template.email_template_id || '',
+      confirmation_email_template_id: template.confirmation_email_template_id || '',
       max_days_ahead: template.max_days_ahead || 30,
       zoom_user_id: template.zoom_user_id || '',
       zoom_user_email: template.zoom_user_email || ''
@@ -621,217 +625,14 @@ export default function BookingAgentsManagement() {
                   Define different types of meetings that agents can offer
                 </CardDescription>
               </div>
-              <Dialog open={templateDialogOpen} onOpenChange={(open) => {
-                setTemplateDialogOpen(open);
-                if (!open) {
-                  setEditingTemplate(null);
-                  resetTemplateForm();
-                }
+              <Button data-testid="button-add-template" onClick={() => {
+                resetTemplateForm();
+                setEditingTemplate(null);
+                setTemplateDialogOpen(true);
               }}>
-                <DialogTrigger asChild>
-                  <Button data-testid="button-add-template">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Meeting Type
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>
-                      {editingTemplate ? 'Edit Meeting Type' : 'New Meeting Type'}
-                    </DialogTitle>
-                    <DialogDescription>
-                      Configure the meeting type details
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name">Name</Label>
-                      <Input
-                        id="name"
-                        value={templateForm.name}
-                        onChange={(e) => setTemplateForm(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="e.g., Discovery Call"
-                        data-testid="input-template-name"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="description">Description</Label>
-                      <Textarea
-                        id="description"
-                        value={templateForm.description}
-                        onChange={(e) => setTemplateForm(prev => ({ ...prev, description: e.target.value }))}
-                        placeholder="Brief description of this meeting type"
-                        data-testid="input-template-description"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Duration</Label>
-                        <Select
-                          value={String(templateForm.duration_minutes)}
-                          onValueChange={(v) => setTemplateForm(prev => ({ ...prev, duration_minutes: parseInt(v) }))}
-                        >
-                          <SelectTrigger data-testid="select-duration">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DURATION_OPTIONS.map(opt => (
-                              <SelectItem key={opt.value} value={String(opt.value)}>
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Meeting Type</Label>
-                        <Select
-                          value={templateForm.meeting_type}
-                          onValueChange={(v) => setTemplateForm(prev => ({ ...prev, meeting_type: v }))}
-                        >
-                          <SelectTrigger data-testid="select-meeting-type">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {MEETING_TYPES.map(opt => {
-                              const isZoomDisabled = opt.value === 'zoom' && !zoomConnected;
-                              return (
-                                <SelectItem key={opt.value} value={opt.value} disabled={isZoomDisabled}>
-                                  <div className="flex items-center gap-2">
-                                    <opt.icon className={`h-4 w-4 ${isZoomDisabled ? 'opacity-50' : ''}`} />
-                                    <span className={isZoomDisabled ? 'opacity-50' : ''}>{opt.label}</span>
-                                    {isZoomDisabled && (
-                                      <span className="text-xs text-muted-foreground ml-1">(not connected)</span>
-                                    )}
-                                  </div>
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {templateForm.meeting_type === 'zoom' && (
-                        <div className="space-y-2">
-                          <Label>Zoom Host</Label>
-                          {zoomUsersLoading ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Loading Zoom users...
-                            </div>
-                          ) : (zoomUsersData && zoomUsersData.length > 0) ? (
-                            <Select
-                              value={templateForm.zoom_user_id || ''}
-                              onValueChange={(v) => {
-                                const selectedUser = zoomUsersData.find(u => u.id === v);
-                                setTemplateForm(prev => ({
-                                  ...prev,
-                                  zoom_user_id: v,
-                                  zoom_user_email: selectedUser?.email || ''
-                                }));
-                              }}
-                            >
-                              <SelectTrigger data-testid="select-zoom-user">
-                                <SelectValue placeholder="Select Zoom host..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {zoomUsersData.map(user => (
-                                  <SelectItem key={user.id} value={user.id}>
-                                    <div className="flex items-center gap-2">
-                                      <Video className="h-4 w-4" />
-                                      <span>{user.first_name} {user.last_name}</span>
-                                      <span className="text-muted-foreground text-xs">({user.email})</span>
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">
-                              No Zoom users found. Please check your Zoom integration settings.
-                            </p>
-                          )}
-                          {templateForm.zoom_user_email && (
-                            <p className="text-xs text-muted-foreground">
-                              Meetings will be created under: {templateForm.zoom_user_email}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      <div className="space-y-2">
-                        <Label>Booking Window</Label>
-                        <Select
-                          value={String(templateForm.max_days_ahead)}
-                          onValueChange={(v) => setTemplateForm(prev => ({ ...prev, max_days_ahead: parseInt(v) }))}
-                        >
-                          <SelectTrigger data-testid="select-max-days-ahead">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="7">7 days ahead</SelectItem>
-                            <SelectItem value="14">14 days ahead</SelectItem>
-                            <SelectItem value="30">30 days ahead</SelectItem>
-                            <SelectItem value="60">60 days ahead</SelectItem>
-                            <SelectItem value="90">90 days ahead</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Invitation Email Template</Label>
-                      <Select
-                        value={templateForm.email_template_id || 'none'}
-                        onValueChange={(v) => setTemplateForm(prev => ({ ...prev, email_template_id: v === 'none' ? '' : v }))}
-                      >
-                        <SelectTrigger data-testid="select-email-template">
-                          <SelectValue placeholder="Select email template (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No email template</SelectItem>
-                          {emailTemplates.map(template => (
-                            <SelectItem key={template.id} value={template.id}>
-                              {template.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Used when inviting to meetings from workflows
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="is_active"
-                        checked={templateForm.is_active}
-                        onCheckedChange={(checked) => setTemplateForm(prev => ({ ...prev, is_active: checked }))}
-                        data-testid="switch-template-active"
-                      />
-                      <Label htmlFor="is_active">Active</Label>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setTemplateDialogOpen(false);
-                        setEditingTemplate(null);
-                        resetTemplateForm();
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleSaveTemplate}
-                      disabled={createTemplateMutation.isPending || updateTemplateMutation.isPending}
-                      data-testid="button-save-template"
-                    >
-                      {(createTemplateMutation.isPending || updateTemplateMutation.isPending) && (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      )}
-                      {editingTemplate ? 'Update' : 'Create'}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Meeting Type
+              </Button>
             </CardHeader>
             <CardContent>
               {templatesLoading ? (
@@ -1157,6 +958,239 @@ export default function BookingAgentsManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={templateDialogOpen} onOpenChange={(open) => {
+        setTemplateDialogOpen(open);
+        if (!open) {
+          setEditingTemplate(null);
+          resetTemplateForm();
+        }
+      }}>
+        <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>
+              {editingTemplate ? 'Edit Meeting Type' : 'New Meeting Type'}
+            </SheetTitle>
+            <SheetDescription>
+              Configure the meeting type details
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-6">
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                value={templateForm.name}
+                onChange={(e) => setTemplateForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g., Discovery Call"
+                data-testid="input-template-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={templateForm.description}
+                onChange={(e) => setTemplateForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description of this meeting type"
+                data-testid="input-template-description"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <Select
+                  value={String(templateForm.duration_minutes)}
+                  onValueChange={(v) => setTemplateForm(prev => ({ ...prev, duration_minutes: parseInt(v) }))}
+                >
+                  <SelectTrigger data-testid="select-duration">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DURATION_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Meeting Type</Label>
+                <Select
+                  value={templateForm.meeting_type}
+                  onValueChange={(v) => setTemplateForm(prev => ({ ...prev, meeting_type: v }))}
+                >
+                  <SelectTrigger data-testid="select-meeting-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MEETING_TYPES.map(opt => {
+                      const isZoomDisabled = opt.value === 'zoom' && !zoomConnected;
+                      return (
+                        <SelectItem key={opt.value} value={opt.value} disabled={isZoomDisabled}>
+                          <div className="flex items-center gap-2">
+                            <opt.icon className={`h-4 w-4 ${isZoomDisabled ? 'opacity-50' : ''}`} />
+                            <span className={isZoomDisabled ? 'opacity-50' : ''}>{opt.label}</span>
+                            {isZoomDisabled && (
+                              <span className="text-xs text-muted-foreground ml-1">(not connected)</span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              {templateForm.meeting_type === 'zoom' && (
+                <div className="space-y-2">
+                  <Label>Zoom Host</Label>
+                  {zoomUsersLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading Zoom users...
+                    </div>
+                  ) : (zoomUsersData && zoomUsersData.length > 0) ? (
+                    <Select
+                      value={templateForm.zoom_user_id || ''}
+                      onValueChange={(v) => {
+                        const selectedUser = zoomUsersData.find(u => u.id === v);
+                        setTemplateForm(prev => ({
+                          ...prev,
+                          zoom_user_id: v,
+                          zoom_user_email: selectedUser?.email || ''
+                        }));
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-zoom-user">
+                        <SelectValue placeholder="Select Zoom host..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {zoomUsersData.map(user => (
+                          <SelectItem key={user.id} value={user.id}>
+                            <div className="flex items-center gap-2">
+                              <Video className="h-4 w-4" />
+                              <span>{user.first_name} {user.last_name}</span>
+                              <span className="text-muted-foreground text-xs">({user.email})</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No Zoom users found. Please check your Zoom integration settings.
+                    </p>
+                  )}
+                  {templateForm.zoom_user_email && (
+                    <p className="text-xs text-muted-foreground">
+                      Meetings will be created under: {templateForm.zoom_user_email}
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label>Booking Window</Label>
+                <Select
+                  value={String(templateForm.max_days_ahead)}
+                  onValueChange={(v) => setTemplateForm(prev => ({ ...prev, max_days_ahead: parseInt(v) }))}
+                >
+                  <SelectTrigger data-testid="select-max-days-ahead">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7">7 days ahead</SelectItem>
+                    <SelectItem value="14">14 days ahead</SelectItem>
+                    <SelectItem value="30">30 days ahead</SelectItem>
+                    <SelectItem value="60">60 days ahead</SelectItem>
+                    <SelectItem value="90">90 days ahead</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t">
+              <Label className="text-sm font-medium">Email Templates</Label>
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Invitation Email</Label>
+                <Select
+                  value={templateForm.email_template_id || 'none'}
+                  onValueChange={(v) => setTemplateForm(prev => ({ ...prev, email_template_id: v === 'none' ? '' : v }))}
+                >
+                  <SelectTrigger data-testid="select-email-template">
+                    <SelectValue placeholder="Select email template (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No email template</SelectItem>
+                    {emailTemplates.map(template => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Used when inviting to meetings from workflows
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Booking Confirmation Email</Label>
+                <Select
+                  value={templateForm.confirmation_email_template_id || 'none'}
+                  onValueChange={(v) => setTemplateForm(prev => ({ ...prev, confirmation_email_template_id: v === 'none' ? '' : v }))}
+                >
+                  <SelectTrigger data-testid="select-confirmation-email-template">
+                    <SelectValue placeholder="Select confirmation template (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No confirmation email</SelectItem>
+                    {emailTemplates.map(template => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Sent to the person who books a meeting as a confirmation
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                id="is_active"
+                checked={templateForm.is_active}
+                onCheckedChange={(checked) => setTemplateForm(prev => ({ ...prev, is_active: checked }))}
+                data-testid="switch-template-active"
+              />
+              <Label htmlFor="is_active">Active</Label>
+            </div>
+          </div>
+          <SheetFooter className="flex flex-row justify-end gap-2 pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setTemplateDialogOpen(false);
+                setEditingTemplate(null);
+                resetTemplateForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveTemplate}
+              disabled={createTemplateMutation.isPending || updateTemplateMutation.isPending}
+              data-testid="button-save-template"
+            >
+              {(createTemplateMutation.isPending || updateTemplateMutation.isPending) && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              {editingTemplate ? 'Update' : 'Create'}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
       </div>
     </div>
   );

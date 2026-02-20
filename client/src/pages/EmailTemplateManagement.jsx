@@ -114,7 +114,7 @@ const PLACEHOLDER_GROUPS = [
     ]
   },
   {
-    label: 'Meeting Booking',
+    label: 'Meeting Booking (Invitation)',
     placeholders: [
       { value: '{{recipient_name}}', label: 'Invitee Name' },
       { value: '{{recipient_email}}', label: 'Invitee Email' },
@@ -123,6 +123,25 @@ const PLACEHOLDER_GROUPS = [
       { value: '{{agent_name}}', label: 'Host Name' },
       { value: '{{booking_url}}', label: 'Booking URL' },
       { value: '{{booking_link}}', label: 'Booking Link (HTML)' },
+    ]
+  },
+  {
+    label: 'Booking Confirmation',
+    placeholders: [
+      { value: '{{attendee_name}}', label: 'Attendee Name' },
+      { value: '{{attendee_email}}', label: 'Attendee Email' },
+      { value: '{{meeting_date}}', label: 'Meeting Date (e.g. Monday, 3 March 2026)' },
+      { value: '{{meeting_time}}', label: 'Meeting Start Time' },
+      { value: '{{meeting_end_time}}', label: 'Meeting End Time' },
+      { value: '{{meeting_timezone}}', label: 'Meeting Timezone' },
+      { value: '{{agent_name}}', label: 'Host/Agent Name' },
+      { value: '{{meeting_type}}', label: 'Meeting Type Name' },
+      { value: '{{duration}}', label: 'Duration (e.g. 30 minutes)' },
+      { value: '{{meeting_title}}', label: 'Meeting Title' },
+      { value: '{{zoom_join_url}}', label: 'Zoom Join URL' },
+      { value: '{{zoom_password}}', label: 'Zoom Password' },
+      { value: '{{tenant_name}}', label: 'Organisation Name' },
+      { value: '{{attendee_notes}}', label: 'Attendee Notes' },
     ]
   },
   {

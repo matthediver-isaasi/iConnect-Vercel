@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, max_days_ahead, zoom_user_id, zoom_user_email } = req.body;
+      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, confirmation_email_template_id, max_days_ahead, zoom_user_id, zoom_user_email } = req.body;
 
       if (!name) {
         return res.status(400).json({ error: 'Name is required' });
@@ -82,6 +82,7 @@ export default async function handler(req, res) {
           buffer_after_minutes: buffer_after_minutes || 0,
           sort_order: sort_order || 0,
           email_template_id: email_template_id || null,
+          confirmation_email_template_id: confirmation_email_template_id || null,
           max_days_ahead: validatedMaxDays,
           zoom_user_id: meeting_type === 'zoom' ? (zoom_user_id || null) : null,
           zoom_user_email: meeting_type === 'zoom' ? (zoom_user_email || null) : null

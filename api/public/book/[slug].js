@@ -3,6 +3,7 @@ import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
 import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
 import { formatInTimeZone } from 'date-fns-tz';
+import { sendEmail } from '../../_lib/emailService.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
         is_active,
         custom_duration_minutes,
         template:meeting_template_id(
-          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order, max_days_ahead, zoom_user_id, zoom_user_email
+          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order, max_days_ahead, zoom_user_id, zoom_user_email, confirmation_email_template_id
         )
       `)
       .eq('tenant_id', tenantId)
@@ -123,7 +124,8 @@ export default async function handler(req, res) {
         sort_order: at.template.sort_order,
         max_days_ahead: at.template.max_days_ahead || 30,
         zoom_user_id: at.template.zoom_user_id || null,
-        zoom_user_email: at.template.zoom_user_email || null
+        zoom_user_email: at.template.zoom_user_email || null,
+        confirmation_email_template_id: at.template.confirmation_email_template_id || null
       }))
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
@@ -468,6 +470,64 @@ export default async function handler(req, res) {
       } catch (linkError) {
         console.error('[Public Booking] Error linking DD meeting request:', linkError);
         // Don't fail the booking if linking fails
+      }
+
+      // Send booking confirmation email if template is configured
+      if (selectedTemplate?.confirmation_email_template_id) {
+        try {
+          const { data: confirmTemplate } = await supabase
+            .from('email_template')
+            .select('*')
+            .eq('id', selectedTemplate.confirmation_email_template_id)
+            .eq('tenant_id', tenantId)
+            .single();
+
+          if (confirmTemplate) {
+            const agentName = `${identity.first_name || ''} ${identity.last_name || ''}`.trim();
+            const agentTimezone = attendee_timezone || profile.timezone || 'Europe/London';
+            const formattedDate = formatInTimeZone(startTime, agentTimezone, 'EEEE, d MMMM yyyy');
+            const formattedTime = formatInTimeZone(startTime, agentTimezone, 'h:mm a');
+            const formattedEndTime = formatInTimeZone(endTime, agentTimezone, 'h:mm a');
+
+            const bookingPlaceholders = {
+              attendee_name: attendee_name || '',
+              attendee_email: attendee_email || '',
+              meeting_date: formattedDate,
+              meeting_time: formattedTime,
+              meeting_end_time: formattedEndTime,
+              meeting_timezone: agentTimezone,
+              agent_name: agentName,
+              meeting_type: selectedTemplate.name || '',
+              duration: `${duration} minutes`,
+              meeting_title: meetingTitle,
+              zoom_join_url: zoomMeetingData?.join_url || '',
+              zoom_password: zoomMeetingData?.password || '',
+              tenant_name: tenant?.name || '',
+              attendee_notes: attendee_notes || ''
+            };
+
+            let subject = confirmTemplate.subject || 'Booking Confirmation';
+            let body = confirmTemplate.body_html || confirmTemplate.body || '';
+
+            Object.entries(bookingPlaceholders).forEach(([key, value]) => {
+              const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+              subject = subject.replace(regex, value);
+              body = body.replace(regex, value);
+            });
+
+            await sendEmail({
+              to: attendee_email,
+              subject,
+              html: body,
+              from: confirmTemplate.from_email,
+              replyTo: confirmTemplate.reply_to,
+              tenantId
+            });
+            console.log(`[Public Booking] Confirmation email sent to ${attendee_email}`);
+          }
+        } catch (confirmEmailError) {
+          console.error('[Public Booking] Confirmation email failed:', confirmEmailError);
+        }
       }
 
       return res.status(201).json({
