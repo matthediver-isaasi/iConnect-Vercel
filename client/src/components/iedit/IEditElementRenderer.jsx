@@ -24,6 +24,7 @@ import { IEditCardDeckElementRenderer } from "./elements/IEditCardDeckElement";
 import { IEditLogoGridElementRenderer } from "./elements/IEditLogoGridElement";
 import IEditEventSpotlightElement from "./elements/IEditEventSpotlightElement";
 import { IEditVideoElementRenderer } from "./elements/IEditVideoElement";
+import { IEditTimelineElementRenderer } from "./elements/IEditTimelineElement";
 
 export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst, previewViewport }) {
   // Map element types to their corresponding components
@@ -53,6 +54,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
     'logo_grid': IEditLogoGridElementRenderer,
     'event_spotlight': IEditEventSpotlightElement,
     'video': IEditVideoElementRenderer,
+    'timeline': IEditTimelineElementRenderer,
   };
 
   const Component = elementComponents[element.element_type];

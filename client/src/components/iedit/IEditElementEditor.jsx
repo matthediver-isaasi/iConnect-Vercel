@@ -34,6 +34,7 @@ import { IEditCtaButtonElementEditor } from "./elements/IEditCtaButtonElement";
 import { IEditImageElementEditor } from "./elements/IEditImageElement";
 import { IEditImageHeroElementEditor } from "./elements/IEditImageHeroElement";
 import { IEditVideoElementEditor } from "./elements/IEditVideoElement";
+import { IEditTimelineElementEditor } from "./elements/IEditTimelineElement";
 
 export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -206,6 +207,9 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
 
   // Check if this is a Video element (custom editor)
   const isVideo = element.element_type === 'video';
+
+  // Check if this is a Timeline element (custom editor)
+  const isTimeline = element.element_type === 'timeline';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -560,6 +564,8 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
                 updateContent={updateContent}
                 updateSetting={updateSetting}
               />
+            ) : isTimeline ? (
+              <IEditTimelineElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : (
               renderContentFields()
             )}
@@ -806,6 +812,11 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
             />
           ) : isTextBlock ? (
             <IEditTextBlockElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isTimeline ? (
+            <IEditTimelineElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={handleContentChangeFromEditor}
             />
