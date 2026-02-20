@@ -1615,27 +1615,6 @@ export default function PaymentOptions({
             </Button>
           )}
 
-          {isOneOffEvent && totalCost > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => processOneOffBooking(null, true)}
-              disabled={!canProceed || submitting}
-              className="w-full border-dashed border-orange-400 text-orange-600"
-              size="lg"
-              data-testid="button-test-booking"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Processing (Test)...
-                </>
-              ) : (
-                `DEV: Test Booking (Skip Stripe)`
-              )}
-            </Button>
-          )}
-
           {ticketsRequired === 0 && registrationMode === 'colleagues' && (
             <p className="text-xs text-center text-slate-500">
               Add attendees to proceed with booking
