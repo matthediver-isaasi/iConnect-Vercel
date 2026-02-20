@@ -395,6 +395,31 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           .replace(/\{\{sign_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
 
+        // Resolve dd_owner for contract emails - with config default fallback
+        const { data: contractDdConfig } = await supabase
+          .from('form_due_diligence_config')
+          .select('default_owner_name')
+          .eq('form_id', formSubmission.form_id || ddSubmission.form_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        const contractOwnerName = ddSubmission.owner_name || contractDdConfig?.default_owner_name || '';
+        let contractOwnerEmail = '';
+        if (ddSubmission.owner_member_id) {
+          const { data: ownerMbr } = await supabase
+            .from('member')
+            .select('email')
+            .eq('id', ddSubmission.owner_member_id)
+            .eq('tenant_id', tenantId)
+            .single();
+          contractOwnerEmail = ownerMbr?.email || '';
+        }
+        subject = subject
+          .replace(/\{\{dd_owner\}\}/gi, contractOwnerName)
+          .replace(/\{\{dd_owner_email\}\}/gi, contractOwnerEmail);
+        body = body
+          .replace(/\{\{dd_owner\}\}/gi, contractOwnerName)
+          .replace(/\{\{dd_owner_email\}\}/gi, contractOwnerEmail);
+
         // Replace [[...]] style placeholders (e.g., [[organization.name]], [[tenant.name]])
         const doubleBracketPlaceholders = {
           'organization.name': organizationName,
@@ -403,7 +428,8 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           'signer.first_name': signerFirstName,
           'signer.last_name': signerLastName,
           'signer.email': signer.email || '',
-          'contract.name': contractForm.name || ''
+          'contract.name': contractForm.name || '',
+          'dd_owner': contractOwnerName
         };
         subject = replaceDoubleBracketPlaceholders(subject, doubleBracketPlaceholders);
         body = replaceDoubleBracketPlaceholders(body, doubleBracketPlaceholders);
@@ -756,6 +782,32 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .replace(/\{\{booking_url\}\}/gi, bookingUrl)
         .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
 
+      // Resolve dd_owner for meeting request emails
+      let meetingOwnerName = ddSubmission.owner_name || '';
+      let meetingOwnerEmail = '';
+      if (ddSubmission.owner_member_id) {
+        const { data: ownerMbrMeeting } = await supabase
+          .from('member')
+          .select('email')
+          .eq('id', ddSubmission.owner_member_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        meetingOwnerEmail = ownerMbrMeeting?.email || '';
+      }
+      if (!meetingOwnerName) {
+        const { data: meetingDdCfg } = await supabase
+          .from('form_due_diligence_config')
+          .select('default_owner_name')
+          .eq('form_id', formSubmission.form_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        meetingOwnerName = meetingDdCfg?.default_owner_name || '';
+      }
+
+      subject = subject
+        .replace(/\{\{dd_owner\}\}/gi, meetingOwnerName)
+        .replace(/\{\{dd_owner_email\}\}/gi, meetingOwnerEmail);
+
       body = body
         .replace(/\{\{recipient_name\}\}/gi, recipientName)
         .replace(/\{\{recipient_email\}\}/gi, normalizedEmail)
@@ -763,7 +815,9 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
         .replace(/\{\{agent_name\}\}/gi, agentName)
         .replace(/\{\{booking_url\}\}/gi, bookingUrl)
-        .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
+        .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`)
+        .replace(/\{\{dd_owner\}\}/gi, meetingOwnerName)
+        .replace(/\{\{dd_owner_email\}\}/gi, meetingOwnerEmail);
 
       try {
         console.log('[DD Meeting Request] About to send email:', {
@@ -860,6 +914,30 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     }
 
     const formId = formSubmission.form_id;
+
+    // Fetch DD config for default_owner_name fallback
+    const { data: ddConfig } = await supabase
+      .from('form_due_diligence_config')
+      .select('default_owner_name')
+      .eq('form_id', formId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    // Resolve owner name: submission owner_name > config default_owner_name > empty
+    const ownerName = ddSubmission.owner_name || ddConfig?.default_owner_name || '';
+
+    // Resolve owner email from owner_member_id if set
+    let ownerEmail = '';
+    if (ddSubmission.owner_member_id) {
+      const { data: ownerMember } = await supabase
+        .from('member')
+        .select('email')
+        .eq('id', ddSubmission.owner_member_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      ownerEmail = ownerMember?.email || '';
+    }
+
     console.log('[DD Email Action] Querying stage_email_action for stageId:', stageId, 'tenantId:', tenantId, 'formId:', formId);
     
     // Fetch email action configs for this stage AND form
@@ -1011,7 +1089,9 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
           .replace(/\{\{first_name\}\}/gi, firstName || 'there')
           .replace(/\{\{last_name\}\}/gi, lastName)
           .replace(/\{\{name\}\}/gi, fullName || 'there')
-          .replace(/\{\{email\}\}/gi, normalizedEmail);
+          .replace(/\{\{email\}\}/gi, normalizedEmail)
+          .replace(/\{\{dd_owner\}\}/gi, ownerName)
+          .replace(/\{\{dd_owner_email\}\}/gi, ownerEmail);
       };
 
       subject = replacePlaceholders(subject);

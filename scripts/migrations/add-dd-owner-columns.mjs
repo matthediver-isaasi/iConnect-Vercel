@@ -37,6 +37,11 @@ async function main() {
       table: 'form_submission_due_diligence',
       column: 'owner_name',
       sql: `ALTER TABLE form_submission_due_diligence ADD COLUMN IF NOT EXISTS owner_name TEXT;`
+    },
+    {
+      table: 'form_due_diligence_config',
+      column: 'default_owner_name',
+      sql: `ALTER TABLE form_due_diligence_config ADD COLUMN IF NOT EXISTS default_owner_name TEXT;`
     }
   ];
 

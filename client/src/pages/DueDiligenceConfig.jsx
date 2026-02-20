@@ -69,6 +69,7 @@ export default function DueDiligenceConfigPage() {
   const [workflowStages, setWorkflowStages] = useState(DEFAULT_WORKFLOW_STAGES);
   const [statusWebhooks, setStatusWebhooks] = useState([]);
   const [ownerRoleIds, setOwnerRoleIds] = useState([]);
+  const [defaultOwnerName, setDefaultOwnerName] = useState('');
   const [hasInitialized, setHasInitialized] = useState(false);
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
   const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
@@ -614,6 +615,7 @@ export default function DueDiligenceConfigPage() {
       setWorkflowStages(ddConfig.workflow_stages?.length > 0 ? ddConfig.workflow_stages : DEFAULT_WORKFLOW_STAGES);
       setStatusWebhooks(ddConfig.status_change_webhooks || []);
       setOwnerRoleIds(ddConfig.owner_role_ids || []);
+      setDefaultOwnerName(ddConfig.default_owner_name || '');
       setHasInitialized(true);
     }
   }, [ddConfig, hasInitialized]);
@@ -635,6 +637,7 @@ export default function DueDiligenceConfigPage() {
         workflow_stages: data.workflowStages.map((s, i) => ({ ...s, order: i })),
         status_change_webhooks: data.statusWebhooks,
         owner_role_ids: data.ownerRoleIds || [],
+        default_owner_name: data.defaultOwnerName || null,
         is_active: true
       };
 
@@ -666,7 +669,8 @@ export default function DueDiligenceConfigPage() {
       customRiskLevels,
       workflowStages,
       statusWebhooks,
-      ownerRoleIds
+      ownerRoleIds,
+      defaultOwnerName
     });
   };
 
@@ -1189,6 +1193,19 @@ export default function DueDiligenceConfigPage() {
                   {roles.length === 0 && (
                     <p className="text-sm text-muted-foreground">No roles found. Create roles in Role Management first.</p>
                   )}
+                </div>
+                <div className="space-y-2 pt-3">
+                  <Label className="text-sm font-medium">Default Owner Name</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Used as the fallback for the {"{{dd_owner}}"} email placeholder when no individual owner is assigned to a submission.
+                  </p>
+                  <Input
+                    value={defaultOwnerName}
+                    onChange={(e) => setDefaultOwnerName(e.target.value)}
+                    placeholder='e.g. "Global Schools Forum Team"'
+                    className="max-w-md"
+                    data-testid="input-default-owner-name"
+                  />
                 </div>
               </div>
             </CardContent>

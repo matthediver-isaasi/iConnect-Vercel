@@ -339,6 +339,39 @@ export default async function handler(req, res) {
       }
     }
 
+    // Resolve dd_owner from DD submission if form_submission_id is available
+    let ddOwnerName = '';
+    let ddOwnerEmail = '';
+    if (instance.form_submission_id) {
+      const { data: ddSub } = await supabase
+        .from('form_submission_due_diligence')
+        .select('owner_name, owner_member_id')
+        .eq('form_submission_id', instance.form_submission_id)
+        .eq('tenant_id', tenantId)
+        .single();
+      if (ddSub) {
+        ddOwnerName = ddSub.owner_name || '';
+        if (ddSub.owner_member_id) {
+          const { data: ownerMbr } = await supabase
+            .from('member')
+            .select('email')
+            .eq('id', ddSub.owner_member_id)
+            .eq('tenant_id', tenantId)
+            .single();
+          ddOwnerEmail = ownerMbr?.email || '';
+        }
+      }
+      if (!ddOwnerName) {
+        const { data: ddCfg } = await supabase
+          .from('form_due_diligence_config')
+          .select('default_owner_name')
+          .eq('form_id', form.id)
+          .eq('tenant_id', tenantId)
+          .single();
+        ddOwnerName = ddCfg?.default_owner_name || '';
+      }
+    }
+
     const tenantSlug = tenant?.slug || '';
     const appUrl = process.env.APP_URL || process.env.VERCEL_URL || 'https://iconn.app';
     const signingUrl = tenantSlug 
@@ -356,7 +389,8 @@ export default async function handler(req, res) {
       'signer.name': signerName,
       'signer.first_name': signer.first_name || '',
       'signer.last_name': signer.last_name || '',
-      'signer.email': signer.email || ''
+      'signer.email': signer.email || '',
+      'dd_owner': ddOwnerName
     };
 
     let emailSubject = `Reminder: Please sign ${form.name}`;
@@ -385,7 +419,9 @@ export default async function handler(req, res) {
           .replace(/{{signer_first_name}}/g, signer.first_name || signerName)
           .replace(/{{signer_last_name}}/g, signer.last_name || '')
           .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
-          .replace(/{{days_since_sent}}/g, daysSinceSent.toString());
+          .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
+          .replace(/{{dd_owner}}/gi, ddOwnerName)
+          .replace(/{{dd_owner_email}}/gi, ddOwnerEmail);
         
         emailBody = template.body
           .replace(/{{contract_name}}/g, form.name)
@@ -395,7 +431,9 @@ export default async function handler(req, res) {
           .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
           .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
           .replace(/{{sign_url}}/g, signingUrl)
-          .replace(/{{signing_url}}/g, signingUrl);
+          .replace(/{{signing_url}}/g, signingUrl)
+          .replace(/{{dd_owner}}/gi, ddOwnerName)
+          .replace(/{{dd_owner_email}}/gi, ddOwnerEmail);
         
         // Replace [[...]] style placeholders (e.g., [[organization.name]])
         emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);

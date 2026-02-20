@@ -151,6 +151,41 @@ async function buildEmailDetails(params) {
     }
   }
 
+  // Resolve dd_owner from DD submission
+  let ddOwnerName = '';
+  let ddOwnerEmail = '';
+  if (instance.form_submission_id) {
+    const { data: ddSub } = await supabase
+      .from('form_submission_due_diligence')
+      .select('owner_name, owner_member_id')
+      .eq('form_submission_id', instance.form_submission_id)
+      .eq('tenant_id', tenantId)
+      .single();
+    if (ddSub) {
+      ddOwnerName = ddSub.owner_name || '';
+      if (ddSub.owner_member_id) {
+        const { data: ownerMbr } = await supabase
+          .from('member')
+          .select('email')
+          .eq('id', ddSub.owner_member_id)
+          .eq('tenant_id', tenantId)
+          .single();
+        ddOwnerEmail = ownerMbr?.email || '';
+      }
+    }
+    if (!ddOwnerName) {
+      const { data: ddCfg } = await supabase
+        .from('form_due_diligence_config')
+        .select('default_owner_name')
+        .eq('form_id', form.id)
+        .eq('tenant_id', tenantId)
+        .single();
+      ddOwnerName = ddCfg?.default_owner_name || '';
+    }
+  }
+  placeholders.dd_owner = ddOwnerName;
+  placeholders.dd_owner_email = ddOwnerEmail;
+
   let emailBody = emailTemplate.body || '';
   let emailSubject = emailTemplate.subject || 'Contract Signing Timeout';
 
@@ -166,7 +201,8 @@ async function buildEmailDetails(params) {
     'organization.name': organizationName || '',
     'tenant.name': tenant?.name || '',
     'applicant.name': applicantName,
-    'contract.name': form.name
+    'contract.name': form.name,
+    'dd_owner': ddOwnerName
   };
   emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
   emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);

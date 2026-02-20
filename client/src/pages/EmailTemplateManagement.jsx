@@ -109,6 +109,8 @@ const PLACEHOLDER_GROUPS = [
     label: 'Stage Actions',
     placeholders: [
       { value: '{{custom_message}}', label: 'Custom Message (from DD stage action)' },
+      { value: '{{dd_owner}}', label: 'DD Owner Name (or default)' },
+      { value: '{{dd_owner_email}}', label: 'DD Owner Email' },
     ]
   },
   {
