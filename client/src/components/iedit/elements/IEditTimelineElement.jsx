@@ -60,7 +60,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     header_offset = 80,
     anchor,
     background_image,
-    background_opacity = 0.15
+    background_opacity = 0.15,
+    gradient_stops,
+    gradient_angle = 180
   } = content || {};
 
   useEffect(() => {
@@ -469,7 +471,26 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   right: 0,
                   bottom: 0,
                   zIndex: 1,
-                  backgroundColor: `rgba(255, 255, 255, ${background_opacity})`,
+                  background: (() => {
+                    const stops = gradient_stops && gradient_stops.length >= 2
+                      ? gradient_stops
+                      : [
+                          { color: '#ffffff', opacity: background_opacity, position: 0 },
+                          { color: '#ffffff', opacity: background_opacity, position: 100 }
+                        ];
+                    const angle = gradient_stops && gradient_stops.length >= 2 ? gradient_angle : 180;
+                    return `linear-gradient(${angle}deg, ${
+                      [...stops]
+                        .sort((a, b) => a.position - b.position)
+                        .map(s => {
+                          const r = parseInt(s.color.slice(1, 3), 16);
+                          const g = parseInt(s.color.slice(3, 5), 16);
+                          const b = parseInt(s.color.slice(5, 7), 16);
+                          return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
+                        })
+                        .join(', ')
+                    })`;
+                  })(),
                 }}
                 aria-hidden="true"
               />
@@ -615,6 +636,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 export function IEditTimelineElementEditor({ element, onChange }) {
   const [expandedItem, setExpandedItem] = useState(null);
   const [isUploading, setIsUploading] = useState({});
+  const [isBgUploading, setIsBgUploading] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
 
   const content = element.content || {};
@@ -673,6 +695,62 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     newItems.splice(toIndex, 0, moved);
     updateContent('items', newItems);
     setExpandedItem(toIndex);
+  };
+
+  const handleBgUpload = async (file) => {
+    if (!file) return;
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please upload a valid image file (JPEG, PNG, GIF, WebP)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be smaller than 10MB');
+      return;
+    }
+    setIsBgUploading(true);
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      onChange({
+        ...element,
+        content: {
+          ...(element.content || {}),
+          background_image: response.file_url,
+          gradient_stops: [
+            { color: '#000000', opacity: 0, position: 0 },
+            { color: '#000000', opacity: 0.4, position: 100 }
+          ],
+          gradient_angle: 180
+        }
+      });
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsBgUploading(false);
+    }
+  };
+
+  const gradientStops = content.gradient_stops || [
+    { color: '#000000', opacity: 0, position: 0 },
+    { color: '#000000', opacity: 0.4, position: 100 }
+  ];
+  const gradientAngle = content.gradient_angle ?? 180;
+
+  const updateGradientStop = (idx, key, value) => {
+    const newStops = [...gradientStops];
+    newStops[idx] = { ...newStops[idx], [key]: value };
+    updateContent('gradient_stops', newStops);
+  };
+
+  const addGradientStop = () => {
+    const lastPos = gradientStops.length > 0 ? gradientStops[gradientStops.length - 1].position : 0;
+    const newPos = Math.min(100, lastPos + 10);
+    updateContent('gradient_stops', [...gradientStops, { color: '#000000', opacity: 0.3, position: newPos }]);
+  };
+
+  const removeGradientStop = (idx) => {
+    if (gradientStops.length <= 2) return;
+    updateContent('gradient_stops', gradientStops.filter((_, i) => i !== idx));
   };
 
   const handleImageUpload = async (index, file) => {
@@ -785,45 +863,164 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       <div className="space-y-3 border border-slate-200 rounded-lg p-3">
         <Label className="text-sm font-medium text-slate-700">Background Image (optional)</Label>
         <p className="text-xs text-slate-400">Fixed background behind the content panel — stays still while content scrolls over it.</p>
-        <div className="flex gap-2">
-          <Input
-            value={content.background_image || ''}
-            onChange={(e) => updateContent('background_image', e.target.value)}
-            placeholder="Enter image URL..."
-            className="flex-1"
-            data-testid="input-timeline-bg-image"
-          />
-          {content.background_image && (
-            <button
-              onClick={() => { updateContent('background_image', ''); updateContent('background_opacity', 0.15); }}
-              className="p-2 rounded-md text-red-400 hover:text-red-600 border border-slate-200"
-              title="Remove background"
-              type="button"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-        {content.background_image && (
-          <>
-            <div className="rounded-lg overflow-hidden border border-slate-200 h-24">
+
+        {content.background_image ? (
+          <div className="space-y-3">
+            <div className="relative rounded-lg overflow-hidden border border-slate-200 h-32">
               <img src={content.background_image} alt="Background preview" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+              <button
+                onClick={() => {
+                  updateContent('background_image', '');
+                  updateContent('gradient_stops', undefined);
+                  updateContent('gradient_angle', undefined);
+                }}
+                className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
+                title="Remove background"
+                type="button"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
-            <div>
-              <Label className="text-xs text-slate-600">Overlay Opacity ({Math.round((content.background_opacity ?? 0.15) * 100)}%)</Label>
-              <input
-                type="range"
-                min="0"
-                max="0.8"
-                step="0.05"
-                value={content.background_opacity ?? 0.15}
-                onChange={(e) => updateContent('background_opacity', parseFloat(e.target.value))}
-                className="w-full mt-1"
-                data-testid="input-timeline-bg-opacity"
+
+            {/* Gradient Overlay */}
+            <div className="space-y-3 border border-slate-100 rounded-lg p-3 bg-slate-50">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium text-slate-700">Gradient Overlay</Label>
+              </div>
+              <p className="text-xs text-slate-400">Add a gradient over the background to improve text readability.</p>
+
+              <div className="flex items-center gap-3">
+                <Label className="text-xs text-slate-600 shrink-0">Angle</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="1"
+                  value={gradientAngle}
+                  onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+                  className="flex-1"
+                  data-testid="input-timeline-gradient-angle"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  max="360"
+                  value={gradientAngle}
+                  onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value) || 0)}
+                  className="w-16 text-xs"
+                />
+                <span className="text-xs text-slate-400">°</span>
+              </div>
+
+              {/* Gradient preview */}
+              <div
+                className="h-8 rounded-md border border-slate-200"
+                style={{
+                  background: `linear-gradient(${gradientAngle}deg, ${
+                    [...gradientStops]
+                      .sort((a, b) => a.position - b.position)
+                      .map(s => {
+                        const r = parseInt(s.color.slice(1, 3), 16);
+                        const g = parseInt(s.color.slice(3, 5), 16);
+                        const b = parseInt(s.color.slice(5, 7), 16);
+                        return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
+                      })
+                      .join(', ')
+                  })`
+                }}
+                data-testid="timeline-gradient-preview"
               />
-              <p className="text-xs text-slate-400 mt-1">Controls how much the white overlay covers the image (higher = more washed out, easier to read)</p>
+
+              {/* Stops */}
+              <div className="space-y-2">
+                {gradientStops.map((stop, idx) => (
+                  <div key={idx} className="flex items-center gap-2 bg-white rounded-md p-2 border border-slate-100">
+                    <input
+                      type="color"
+                      value={stop.color}
+                      onChange={(e) => updateGradientStop(idx, 'color', e.target.value)}
+                      className="w-7 h-7 rounded border border-slate-200 cursor-pointer shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-[10px] text-slate-400 w-10 shrink-0">Opacity</Label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={stop.opacity}
+                          onChange={(e) => updateGradientStop(idx, 'opacity', parseFloat(e.target.value))}
+                          className="flex-1"
+                        />
+                        <span className="text-[10px] text-slate-500 w-8 text-right">{Math.round(stop.opacity * 100)}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="text-[10px] text-slate-400 w-10 shrink-0">Position</Label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={stop.position}
+                          onChange={(e) => updateGradientStop(idx, 'position', parseInt(e.target.value))}
+                          className="flex-1"
+                        />
+                        <span className="text-[10px] text-slate-500 w-8 text-right">{stop.position}%</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeGradientStop(idx)}
+                      disabled={gradientStops.length <= 2}
+                      className="p-1 rounded text-slate-400 hover:text-red-500 disabled:opacity-30 shrink-0"
+                      title="Remove stop"
+                      type="button"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={addGradientStop}
+                className="w-full"
+                data-testid="button-add-gradient-stop"
+              >
+                <Plus className="w-3 h-3 mr-1" />
+                Add Stop
+              </Button>
             </div>
-          </>
+          </div>
+        ) : (
+          <label className="cursor-pointer block" data-testid="input-timeline-bg-upload">
+            <div className={`flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-slate-200 rounded-lg transition-colors ${
+              isBgUploading ? 'bg-slate-100 cursor-not-allowed' : 'hover:border-blue-400 hover:bg-blue-50/50'
+            }`}>
+              {isBgUploading ? (
+                <span className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+              ) : (
+                <>
+                  <Upload className="w-6 h-6 text-slate-400" />
+                  <span className="text-sm text-slate-500">Click to upload background image</span>
+                  <span className="text-xs text-slate-400">JPEG, PNG, GIF, WebP — max 10MB</span>
+                </>
+              )}
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleBgUpload(file);
+                e.target.value = '';
+              }}
+              className="hidden"
+              disabled={isBgUploading}
+            />
+          </label>
         )}
       </div>
 
