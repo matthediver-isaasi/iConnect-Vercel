@@ -149,6 +149,53 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   }, [items]);
 
   useEffect(() => {
+    if (!isExpanded || !scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    container.scrollTop = 0;
+
+    const observer = new MutationObserver(() => {
+      if (container.scrollTop !== 0 && isClickScrolling.current === false) {
+        container.scrollTop = 0;
+      }
+    });
+    observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['height', 'style'] });
+
+    const images = container.querySelectorAll('img');
+    let loaded = 0;
+    const total = images.length;
+    const onLoad = () => {
+      loaded++;
+      if (loaded >= total) {
+        observer.disconnect();
+      }
+    };
+    images.forEach((img) => {
+      if (img.complete) {
+        loaded++;
+      } else {
+        img.addEventListener('load', onLoad, { once: true });
+        img.addEventListener('error', onLoad, { once: true });
+      }
+    });
+    if (loaded >= total) {
+      observer.disconnect();
+    }
+
+    const timeout = setTimeout(() => {
+      observer.disconnect();
+    }, 5000);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeout);
+      images.forEach((img) => {
+        img.removeEventListener('load', onLoad);
+        img.removeEventListener('error', onLoad);
+      });
+    };
+  }, [isExpanded]);
+
+  useEffect(() => {
     if (!items.length) return;
 
     const effectiveOffset = isExpanded ? 16 : header_offset;
