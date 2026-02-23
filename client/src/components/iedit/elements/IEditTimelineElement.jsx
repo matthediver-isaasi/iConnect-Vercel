@@ -126,7 +126,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   useEffect(() => {
     if (!items.length) return;
 
-    const effectiveOffset = isExpanded ? 80 : header_offset;
+    const effectiveOffset = isExpanded ? 16 : header_offset;
 
     const handleScroll = () => {
       if (isClickScrolling.current) return;
@@ -210,7 +210,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     const behavior = prefersReducedMotion.current ? 'auto' : 'smooth';
     const container = scrollContainerRef.current;
-    const effectiveOffset = isExpanded ? 80 : header_offset;
+    const effectiveOffset = isExpanded ? 16 : header_offset;
 
     if (container && isExpanded) {
       const containerRect = container.getBoundingClientRect();
@@ -318,7 +318,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   const contentSection = (item, idx) => {
     const isActive = activeYear === item.year;
-    const effectiveOffset = isExpanded ? 80 : header_offset;
+    const effectiveOffset = isExpanded ? 16 : header_offset;
     return (
       <div
         key={item.year}
@@ -412,8 +412,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   );
 
   const desktopTimeline = (inOverlay) => {
-    const stickyTop = inOverlay ? 80 : (header_offset + 16);
-    const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${stickyTop + 32}px)`;
+    const stickyTop = inOverlay ? 0 : (header_offset + 16);
+    const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${header_offset + 48}px)`;
     const hasBg = !!background_image;
     return (
       <div className="flex gap-8 lg:gap-12">
