@@ -54,6 +54,15 @@ export default function FormSubmissionView() {
     enabled: !!submission?.organization_id
   });
 
+  const { data: submittedByMember } = useQuery({
+    queryKey: ['member-for-submission', submission?.submitted_by_email],
+    queryFn: async () => {
+      const results = await base44.entities.Member.filter({ email: submission.submitted_by_email });
+      return results?.[0] || null;
+    },
+    enabled: !!submission?.submitted_by_email
+  });
+
   const toggleSection = (sectionId) => {
     setExpandedSections(prev => ({
       ...prev,
@@ -316,9 +325,15 @@ export default function FormSubmissionView() {
                   <User className="w-4 h-4 text-slate-400" />
                   <div>
                     <p className="text-slate-500 dark:text-slate-400">Submitted by</p>
-                    <p className="font-medium text-slate-900 dark:text-slate-100">
-                      {submission.submitted_by_name}
-                    </p>
+                    {submittedByMember?.id ? (
+                      <Link to={`/members/${submittedByMember.id}`} className="font-medium text-primary hover:underline" data-testid="link-submitted-by-member">
+                        {submission.submitted_by_name}
+                      </Link>
+                    ) : (
+                      <p className="font-medium text-slate-900 dark:text-slate-100">
+                        {submission.submitted_by_name}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -328,9 +343,9 @@ export default function FormSubmissionView() {
                   <Building2 className="w-4 h-4 text-slate-400" />
                   <div>
                     <p className="text-slate-500 dark:text-slate-400">Organisation</p>
-                    <p className="font-medium text-slate-900 dark:text-slate-100">
+                    <Link to={`/organisations?selected=${organization.id}`} className="font-medium text-primary hover:underline" data-testid="link-organisation">
                       {organization.name}
-                    </p>
+                    </Link>
                   </div>
                 </div>
               )}
