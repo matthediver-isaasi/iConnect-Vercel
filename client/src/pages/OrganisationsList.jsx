@@ -169,7 +169,7 @@ export default function OrganisationsListPage() {
     }
   });
 
-  const { data: directOrg, isLoading: directOrgLoading } = useQuery({
+  const { data: directOrg, isLoading: directOrgLoading, isFetched: directOrgFetched } = useQuery({
     queryKey: ['organization-direct', urlOrgId],
     enabled: !!urlOrgId && accessChecked,
     queryFn: async () => {
@@ -191,11 +191,11 @@ export default function OrganisationsListPage() {
   }, [urlOrgId, organizations, directOrg]);
 
   useEffect(() => {
-    if (!urlOrgId || directOrgLoading || orgsLoading) return;
+    if (!urlOrgId || !directOrgFetched) return;
     if (!selectedOrg) {
       navigate('/organisations', { replace: true });
     }
-  }, [urlOrgId, selectedOrg, directOrgLoading, orgsLoading, navigate]);
+  }, [urlOrgId, selectedOrg, directOrgFetched, navigate]);
 
   useEffect(() => {
     if (autoSelectHandledRef.current || orgsLoading || organizations.length === 0) return;
