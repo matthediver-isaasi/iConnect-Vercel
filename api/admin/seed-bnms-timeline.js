@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.DEST_SUPABASE_KEY;
 
 const BNMS_TIMELINE_ITEMS = [
   {
@@ -634,8 +634,6 @@ export default async function handler(req, res) {
         paddingTop: 32,
         paddingBottom: 32
       },
-      created_date: new Date().toISOString(),
-      updated_date: new Date().toISOString()
     };
 
     const { data, error } = await supabase
