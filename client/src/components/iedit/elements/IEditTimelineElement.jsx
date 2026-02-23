@@ -45,7 +45,6 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
-  const observerRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const isClickScrolling = useRef(false);
   const prefersReducedMotion = useRef(false);
@@ -81,6 +80,23 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   }, []);
 
   useEffect(() => {
+    if (!activeYear || !railRef.current) return;
+    const activeMarker = railRef.current.querySelector(`[data-testid="timeline-marker-${activeYear}"]`);
+    if (activeMarker) {
+      const rail = railRef.current;
+      const railRect = rail.getBoundingClientRect();
+      const markerRect = activeMarker.getBoundingClientRect();
+      const markerCenter = markerRect.top + markerRect.height / 2;
+      const railCenter = railRect.top + railRect.height / 2;
+      const offset = markerCenter - railCenter;
+      rail.scrollTo({
+        top: rail.scrollTop + offset,
+        behavior: prefersReducedMotion.current ? 'auto' : 'smooth'
+      });
+    }
+  }, [activeYear]);
+
+  useEffect(() => {
     if (items.length > 0 && !activeYear) {
       setActiveYear(items[0].year);
     }
@@ -89,38 +105,61 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   useEffect(() => {
     if (!items.length) return;
 
-    const handleIntersect = (entries) => {
+    const effectiveOffset = isExpanded ? 80 : header_offset;
+
+    const handleScroll = () => {
       if (isClickScrolling.current) return;
 
-      let bestEntry = null;
-      let bestRatio = 0;
+      const container = isExpanded ? scrollContainerRef.current : null;
+      const scrollTop = container ? container.scrollTop : window.scrollY;
+      const containerTop = container ? container.getBoundingClientRect().top : 0;
+      const threshold = effectiveOffset + 40;
 
-      entries.forEach((entry) => {
-        if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
-          bestRatio = entry.intersectionRatio;
-          bestEntry = entry;
+      let bestYear = null;
+      let bestDistance = Infinity;
+
+      for (const year of Object.keys(sectionRefs.current)) {
+        const el = sectionRefs.current[year];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        const topRelative = container
+          ? rect.top - containerTop
+          : rect.top;
+        const distance = topRelative - threshold;
+
+        if (distance <= 0 && Math.abs(distance) < bestDistance) {
+          bestDistance = Math.abs(distance);
+          bestYear = year;
         }
-      });
-
-      if (bestEntry) {
-        const year = bestEntry.target.dataset.year;
-        if (year) setActiveYear(year);
       }
+
+      if (!bestYear) {
+        let closestAbove = null;
+        let closestDist = Infinity;
+        for (const year of Object.keys(sectionRefs.current)) {
+          const el = sectionRefs.current[year];
+          if (!el) continue;
+          const rect = el.getBoundingClientRect();
+          const topRelative = container ? rect.top - containerTop : rect.top;
+          if (topRelative < closestDist) {
+            closestDist = topRelative;
+            closestAbove = year;
+          }
+        }
+        bestYear = closestAbove;
+      }
+
+      if (bestYear) setActiveYear(bestYear);
     };
 
-    const effectiveOffset = isExpanded ? 80 : header_offset;
-    observerRef.current = new IntersectionObserver(handleIntersect, {
-      root: isExpanded ? scrollContainerRef.current : null,
-      rootMargin: `-${effectiveOffset}px 0px -40% 0px`,
-      threshold: [0, 0.25, 0.5, 0.75, 1]
-    });
-
-    Object.values(sectionRefs.current).forEach((el) => {
-      if (el) observerRef.current.observe(el);
-    });
+    const target = isExpanded ? scrollContainerRef.current : window;
+    if (target) {
+      target.addEventListener('scroll', handleScroll, { passive: true });
+      handleScroll();
+    }
 
     return () => {
-      if (observerRef.current) observerRef.current.disconnect();
+      if (target) target.removeEventListener('scroll', handleScroll);
     };
   }, [items, header_offset, isExpanded]);
 
@@ -351,27 +390,40 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     </div>
   );
 
-  const desktopTimeline = (inOverlay) => (
-    <div className="flex gap-8 lg:gap-12">
-      <div
-        ref={railRef}
-        className="shrink-0 w-28 lg:w-36 self-start"
-        style={{ position: 'sticky', top: inOverlay ? '80px' : `${header_offset + 16}px` }}
-      >
-        <nav className="relative flex flex-col items-center" role="tablist" aria-label="Timeline years">
-          <div
-            className="absolute left-1/2 -translate-x-1/2 w-0.5 rounded-full"
-            style={{ backgroundColor: line_color, top: `${marker_size / 2}px`, bottom: `${marker_size / 2}px` }}
-            aria-hidden="true"
-          />
-          {items.map((item, idx) => markerNav(idx, item))}
-        </nav>
+  const desktopTimeline = (inOverlay) => {
+    const stickyTop = inOverlay ? 80 : (header_offset + 16);
+    const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${stickyTop + 32}px)`;
+    return (
+      <div className="flex gap-8 lg:gap-12">
+        <div
+          ref={railRef}
+          data-timeline-rail
+          className="shrink-0 w-28 lg:w-36 self-start"
+          style={{
+            position: 'sticky',
+            top: `${stickyTop}px`,
+            maxHeight: maxH,
+            overflowY: 'auto',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
+        >
+          <style>{`[data-timeline-rail]::-webkit-scrollbar { display: none; }`}</style>
+          <nav className="relative flex flex-col items-center py-2" role="tablist" aria-label="Timeline years">
+            <div
+              className="absolute left-1/2 -translate-x-1/2 w-0.5 rounded-full"
+              style={{ backgroundColor: line_color, top: `${marker_size / 2}px`, bottom: `${marker_size / 2}px` }}
+              aria-hidden="true"
+            />
+            {items.map((item, idx) => markerNav(idx, item))}
+          </nav>
+        </div>
+        <div className="flex-1 min-w-0">
+          {items.map((item, idx) => contentSection(item, idx))}
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        {items.map((item, idx) => contentSection(item, idx))}
-      </div>
-    </div>
-  );
+    );
+  };
 
   /* ── Expanded overlay ── */
   if (isExpanded) {
