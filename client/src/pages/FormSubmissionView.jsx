@@ -27,7 +27,7 @@ export default function FormSubmissionView() {
 
   const fromOrg = searchParams.get('from') === 'org';
   const orgId = searchParams.get('orgId');
-  const backPath = fromOrg && orgId ? `/organisations?selected=${orgId}` : '/FormSubmissions';
+  const backPath = fromOrg && orgId ? `/organisations/${orgId}` : '/FormSubmissions';
   const backLabel = fromOrg ? 'Back to Organisation' : 'Back to Submissions';
 
   const { data: submission, isLoading: submissionLoading, error: submissionError } = useQuery({
@@ -343,7 +343,7 @@ export default function FormSubmissionView() {
                   <Building2 className="w-4 h-4 text-slate-400" />
                   <div>
                     <p className="text-slate-500 dark:text-slate-400">Organisation</p>
-                    <Link to={`/organisations?selected=${organization.id}`} className="font-medium text-primary hover:underline" data-testid="link-organisation">
+                    <Link to={`/organisations/${organization.id}`} className="font-medium text-primary hover:underline" data-testid="link-organisation">
                       {organization.name}
                     </Link>
                   </div>

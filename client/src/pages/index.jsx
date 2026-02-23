@@ -826,6 +826,7 @@ function PagesContent() {
                 
                 <Route path="/OrganisationDirectory" element={<OrganisationDirectory />} />
                 
+                <Route path="/organisations/:id" element={<OrganisationsList />} />
                 <Route path="/organisations" element={<OrganisationsList />} />
                 
                 <Route path="/members/:id" element={<MemberDetail />} />

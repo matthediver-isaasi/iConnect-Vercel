@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -92,6 +92,8 @@ export default function OrganisationsListPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { id: urlOrgId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accessChecked, setAccessChecked] = useState(false);
   const lastLoadedSlugRef = useRef(undefined);
@@ -108,7 +110,6 @@ export default function OrganisationsListPage() {
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
-  const [selectedOrg, setSelectedOrg] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedOrgs, setSelectedOrgs] = useState([]);
@@ -168,32 +169,45 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Sync selectedOrg with latest data when organizations list updates (e.g., from realtime)
-  useEffect(() => {
-    if (selectedOrg && !orgsLoading) {
-      const updatedOrg = organizations.find(org => org.id === selectedOrg.id);
-      if (!updatedOrg) {
-        // Organization was deleted or no longer in list, clear selection
-        setSelectedOrg(null);
-      } else if (updatedOrg !== selectedOrg) {
-        // Organization object changed, sync with latest data
-        setSelectedOrg(updatedOrg);
+  const { data: directOrg, isLoading: directOrgLoading } = useQuery({
+    queryKey: ['organization-direct', urlOrgId],
+    enabled: !!urlOrgId && accessChecked,
+    queryFn: async () => {
+      try {
+        return await base44.entities.Organization.get(urlOrgId);
+      } catch {
+        return null;
       }
+    },
+    staleTime: 30000,
+  });
+
+  const selectedOrg = useMemo(() => {
+    if (!urlOrgId) return null;
+    const fromList = organizations.find(org => org.id === urlOrgId);
+    if (fromList) return fromList;
+    if (directOrg) return directOrg;
+    return null;
+  }, [urlOrgId, organizations, directOrg]);
+
+  useEffect(() => {
+    if (!urlOrgId || directOrgLoading || orgsLoading) return;
+    if (!selectedOrg) {
+      navigate('/organisations', { replace: true });
     }
-  }, [organizations, selectedOrg, orgsLoading]);
+  }, [urlOrgId, selectedOrg, directOrgLoading, orgsLoading, navigate]);
 
   useEffect(() => {
     if (autoSelectHandledRef.current || orgsLoading || organizations.length === 0) return;
+    autoSelectHandledRef.current = true;
     const selectedId = searchParams.get('selected');
     if (selectedId) {
       const org = organizations.find(o => o.id === selectedId);
       if (org) {
-        setSelectedOrg(org);
+        navigate(`/organisations/${org.id}`, { replace: true });
       }
-      autoSelectHandledRef.current = true;
-      setSearchParams({}, { replace: true });
     }
-  }, [organizations, orgsLoading, searchParams, setSearchParams]);
+  }, [organizations, orgsLoading, searchParams, navigate]);
 
   const { data: members = [] } = useQuery({
     queryKey: ['all-members-for-org-list'],
@@ -603,7 +617,7 @@ export default function OrganisationsListPage() {
         isNew={true}
         onCreated={(createdOrg) => {
           setIsCreatingNew(false);
-          setSelectedOrg(createdOrg);
+          navigate(`/organisations/${createdOrg.id}`, { replace: true });
         }}
       />
     );
@@ -613,7 +627,7 @@ export default function OrganisationsListPage() {
     return (
       <OrganisationDetailView 
         organization={selectedOrg}
-        onBack={() => setSelectedOrg(null)}
+        onBack={() => navigate('/organisations')}
         orgCustomFields={orgCustomFields}
         memberCount={organizationMemberCounts[selectedOrg.id] || 0}
       />
@@ -999,7 +1013,7 @@ export default function OrganisationsListPage() {
                       <tr 
                         key={org.id} 
                         className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedOrgs.includes(org.id) ? 'bg-blue-50' : ''}`}
-                        onClick={() => setSelectedOrg(org)}
+                        onClick={() => navigate(`/organisations/${org.id}`)}
                         data-testid={`row-org-${org.id}`}
                       >
                         <td className="w-12 px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -1196,7 +1210,7 @@ export default function OrganisationsListPage() {
                   <Card 
                     key={org.id} 
                     className="cursor-pointer hover:shadow-md transition-shadow hover-elevate"
-                    onClick={() => setSelectedOrg(org)}
+                    onClick={() => navigate(`/organisations/${org.id}`)}
                     data-testid={`card-org-${org.id}`}
                   >
                     <CardContent className="p-4">
