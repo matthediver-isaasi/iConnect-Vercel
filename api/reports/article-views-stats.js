@@ -19,20 +19,30 @@ export default async function handler(req, res) {
     const { tenantId } = tenantContext;
     const now = new Date();
 
-    const { data: tenantPosts, error: postsError } = await supabase
-      .from('blog_post')
-      .select('id, title, slug')
-      .eq('tenant_id', tenantId);
+    let tenantPosts = [];
+    let postsFrom = 0;
+    const postsPageSize = 1000;
+    while (true) {
+      const { data: batch, error: postsError } = await supabase
+        .from('blog_post')
+        .select('id, title, slug')
+        .eq('tenant_id', tenantId)
+        .range(postsFrom, postsFrom + postsPageSize - 1);
 
-    if (postsError) {
-      console.error('Error fetching tenant blog posts:', postsError);
-      return res.status(500).json({ error: 'Failed to fetch tenant articles' });
+      if (postsError) {
+        console.error('Error fetching tenant blog posts:', postsError);
+        return res.status(500).json({ error: 'Failed to fetch tenant articles' });
+      }
+      if (!batch || batch.length === 0) break;
+      tenantPosts = tenantPosts.concat(batch);
+      if (batch.length < postsPageSize) break;
+      postsFrom += postsPageSize;
     }
 
-    const articleIds = (tenantPosts || []).map(p => p.id);
+    const articleIds = tenantPosts.map(p => p.id);
     const totalArticles = articleIds.length;
     const articleMap = {};
-    (tenantPosts || []).forEach(p => { articleMap[p.id] = p; });
+    tenantPosts.forEach(p => { articleMap[p.id] = p; });
 
     const emptyPeriodStats = {};
     const emptyViewsByPeriod = {};

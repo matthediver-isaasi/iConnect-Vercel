@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { apiRequest } from "@/lib/queryClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -166,14 +167,14 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch all views for sorting - only for authenticated users
-  const { data: allViews = [] } = useQuery({
-    queryKey: ['all-article-views'],
-    queryFn: async () => {
-      return await base44.entities.ArticleView.list();
-    },
-    enabled: isAuthenticated
+  // Fetch unique view counts per article from dedicated endpoint
+  const { data: viewCountsData } = useQuery({
+    queryKey: ['/api/reports/article-view-counts'],
+    queryFn: () => apiRequest('GET', '/api/reports/article-view-counts'),
+    enabled: isAuthenticated,
+    staleTime: 60000
   });
+  const viewCounts = viewCountsData?.counts || {};
 
   // Fetch all reactions for sorting - only for authenticated users
   const { data: allReactions = [] } = useQuery({
@@ -354,12 +355,12 @@ export default function ArticlesPage() {
     const stats = {};
     articles.forEach(article => {
       stats[article.id] = {
-        viewCount: allViews.filter(v => v.article_id === article.id).length,
+        viewCount: viewCounts[article.id] || 0,
         likeCount: allReactions.filter(r => r.article_id === article.id && r.reaction_type === 'up').length
       };
     });
     return stats;
-  }, [articles, allViews, allReactions]);
+  }, [articles, viewCounts, allReactions]);
 
   const filteredArticles = useMemo(() => {
     return articles.filter(article => {
