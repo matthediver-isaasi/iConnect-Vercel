@@ -42,7 +42,7 @@ const timelineQuillFormats = [
 export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const isMobile = useIsMobile();
   const [activeYear, setActiveYear] = useState(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(!!(content || {}).auto_expand);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
   const contentPanelRef = useRef(null);
@@ -923,6 +923,20 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           className="mt-1"
         />
         <p className="text-xs text-slate-400 mt-1">Accounts for a fixed header when scrolling</p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Open in Popup View</Label>
+          <p className="text-xs text-slate-400 mt-0.5">Automatically opens the timeline in the fullscreen popup when the page loads</p>
+        </div>
+        <input
+          type="checkbox"
+          checked={!!content.auto_expand}
+          onChange={(e) => updateContent('auto_expand', e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          data-testid="checkbox-auto-expand"
+        />
       </div>
 
       {/* Background Image */}
