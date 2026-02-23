@@ -1977,54 +1977,64 @@ export default function MembershipTierManagement() {
                 </div>
 
                 <div className="border rounded-md overflow-auto">
-                  <table className="w-full text-sm" data-testid="table-preview">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="text-left p-3 font-medium">Organisation</th>
-                        <th className="text-left p-3 font-medium">{selectedFieldLabel || 'Value'}</th>
-                        <th className="text-left p-3 font-medium">Tier</th>
-                        <th className="text-right p-3 font-medium">Cost ({currencySymbol})</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredPreviewOrgs.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="p-6 text-center text-muted-foreground">
-                            No organisations found
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredPreviewOrgs.map((org) => (
-                          <tr key={org.id} className="border-b last:border-0" data-testid={`row-preview-${org.id}`}>
-                            <td className="p-3">
-                              <span className="font-medium">{org.name}</span>
-                              {org.status && org.status !== 'active' && (
-                                <Badge variant="outline" className="ml-2 text-xs">{org.status}</Badge>
-                              )}
-                            </td>
-                            <td className="p-3">
-                              {org.fieldValue !== null && org.fieldValue !== undefined
-                                ? org.fieldValue.toLocaleString()
-                                : <span className="text-muted-foreground">N/A</span>
-                              }
-                            </td>
-                            <td className="p-3">
-                              {org.tierLabel
-                                ? <Badge variant="secondary">{org.tierLabel}</Badge>
-                                : <Badge variant="outline" className="text-muted-foreground">Unmapped</Badge>
-                              }
-                            </td>
-                            <td className="p-3 text-right">
-                              {org.annualCost != null
-                                ? <span className="font-medium">{currencySymbol}{org.annualCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                : <span className="text-muted-foreground">-</span>
-                              }
-                            </td>
+                  {(() => {
+                    const previewIsFlat = previewData?.config?.pricing_model === 'flat';
+                    const colCount = previewIsFlat ? 3 : 4;
+                    return (
+                      <table className="w-full text-sm" data-testid="table-preview">
+                        <thead>
+                          <tr className="border-b bg-muted/50">
+                            <th className="text-left p-3 font-medium">Organisation</th>
+                            {!previewIsFlat && (
+                              <th className="text-left p-3 font-medium">{selectedFieldLabel || 'Value'}</th>
+                            )}
+                            <th className="text-left p-3 font-medium">Tier</th>
+                            <th className="text-right p-3 font-medium">Cost ({currencySymbol})</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        </thead>
+                        <tbody>
+                          {filteredPreviewOrgs.length === 0 ? (
+                            <tr>
+                              <td colSpan={colCount} className="p-6 text-center text-muted-foreground">
+                                No organisations found
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredPreviewOrgs.map((org) => (
+                              <tr key={org.id} className="border-b last:border-0" data-testid={`row-preview-${org.id}`}>
+                                <td className="p-3">
+                                  <span className="font-medium">{org.name}</span>
+                                  {org.status && org.status !== 'active' && (
+                                    <Badge variant="outline" className="ml-2 text-xs">{org.status}</Badge>
+                                  )}
+                                </td>
+                                {!previewIsFlat && (
+                                  <td className="p-3">
+                                    {org.fieldValue !== null && org.fieldValue !== undefined
+                                      ? org.fieldValue.toLocaleString()
+                                      : <span className="text-muted-foreground">N/A</span>
+                                    }
+                                  </td>
+                                )}
+                                <td className="p-3">
+                                  {org.tierLabel
+                                    ? <Badge variant="secondary">{org.tierLabel}</Badge>
+                                    : <Badge variant="outline" className="text-muted-foreground">Unmapped</Badge>
+                                  }
+                                </td>
+                                <td className="p-3 text-right">
+                                  {org.annualCost != null
+                                    ? <span className="font-medium">{currencySymbol}{org.annualCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    : <span className="text-muted-foreground">-</span>
+                                  }
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
                 </div>
               </>
             )}

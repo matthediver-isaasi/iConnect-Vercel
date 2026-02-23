@@ -135,29 +135,45 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log('Check Existing Record', `No existing record for ${membershipYear.label} - creation would proceed`);
   }
 
-  const bands = await getBandsForConfig(config.id, tenantId);
-  log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
-
-  const fieldValue = await getOrgFieldValue(organizationId, tenantId, config);
-  const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
-    ? 'Member Count' : (config.field_name || 'Value');
-  log('Get Organisation Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
-
-  let matchedBand = matchBand(fieldValue, bands);
-  if (!matchedBand) {
-    log('Match Tier Band', `No band matches the current field value (${fieldValue})`, 'error');
-    return { success: false, steps, error: `Organisation does not match any tier band (field value: ${fieldValue})` };
-  }
-  log('Match Tier Band', `Matched: "${matchedBand.label}" (range: ${matchedBand.min_value}-${matchedBand.max_value || '∞'}, annual cost: ${matchedBand.annual_cost})`);
-
-  let annualCostRaw = parseFloat(matchedBand.annual_cost);
-  let annualCost = annualCostRaw;
-  let tierLabel = matchedBand.label;
+  const isFlat = config.pricing_model === 'flat';
+  let annualCostRaw;
+  let annualCost;
+  let tierLabel;
+  let matchedBand = null;
   let customDiscountTotal = 0;
   let customDiscountDetails = [];
   let usedConfigId = config.id;
-  let usedBandId = matchedBand.id;
+  let usedBandId = null;
   let overrideApplied = false;
+
+  let fieldValue = null;
+
+  if (isFlat) {
+    annualCostRaw = parseFloat(config.flat_cost) || 0;
+    annualCost = annualCostRaw;
+    tierLabel = 'Flat Rate';
+    log('Pricing Model', `Flat rate pricing: ${annualCostRaw}`);
+  } else {
+    const bands = await getBandsForConfig(config.id, tenantId);
+    log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
+
+    fieldValue = await getOrgFieldValue(organizationId, tenantId, config);
+    const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
+      ? 'Member Count' : (config.field_name || 'Value');
+    log('Get Organisation Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
+
+    matchedBand = matchBand(fieldValue, bands);
+    if (!matchedBand) {
+      log('Match Tier Band', `No band matches the current field value (${fieldValue})`, 'error');
+      return { success: false, steps, error: `Organisation does not match any tier band (field value: ${fieldValue})` };
+    }
+    log('Match Tier Band', `Matched: "${matchedBand.label}" (range: ${matchedBand.min_value}-${matchedBand.max_value || '∞'}, annual cost: ${matchedBand.annual_cost})`);
+
+    annualCostRaw = parseFloat(matchedBand.annual_cost);
+    annualCost = annualCostRaw;
+    tierLabel = matchedBand.label;
+    usedBandId = matchedBand.id;
+  }
 
   const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
   if (discountResult.discountDetails.length > 0) {

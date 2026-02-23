@@ -248,37 +248,54 @@ async function getPreview(req, res, tenantId, configId) {
     orgs = orgs.filter(o => matchingOrgIds.has(o.id));
   }
 
+  const isFlat = config.pricing_model === 'flat';
+  const flatCost = isFlat ? parseFloat(config.flat_cost) || 0 : null;
+
   let orgValues = {};
 
-  if (config.field_source === 'core' && config.field_name === 'member_count') {
-    const { data: members } = await supabase
-      .from('member')
-      .select('organization_id')
-      .eq('tenant_id', tenantId)
-      .not('organization_id', 'is', null);
+  if (!isFlat) {
+    if (config.field_source === 'core' && config.field_name === 'member_count') {
+      const { data: members } = await supabase
+        .from('member')
+        .select('organization_id')
+        .eq('tenant_id', tenantId)
+        .not('organization_id', 'is', null);
 
-    const counts = {};
-    (members || []).forEach(m => {
-      counts[m.organization_id] = (counts[m.organization_id] || 0) + 1;
-    });
-    orgValues = counts;
-  } else if (config.field_id) {
-    const orgIds = (orgs || []).map(o => o.id);
-    const { data: prefValues } = await supabase
-      .from('organization_preference_value')
-      .select('organization_id, value')
-      .eq('field_id', config.field_id)
-      .in('organization_id', orgIds.length > 0 ? orgIds : ['__none__']);
+      const counts = {};
+      (members || []).forEach(m => {
+        counts[m.organization_id] = (counts[m.organization_id] || 0) + 1;
+      });
+      orgValues = counts;
+    } else if (config.field_id) {
+      const orgIds = (orgs || []).map(o => o.id);
+      const { data: prefValues } = await supabase
+        .from('organization_preference_value')
+        .select('organization_id, value')
+        .eq('field_id', config.field_id)
+        .in('organization_id', orgIds.length > 0 ? orgIds : ['__none__']);
 
-    (prefValues || []).forEach(pv => {
-      const numVal = parseFloat(pv.value);
-      if (!isNaN(numVal)) {
-        orgValues[pv.organization_id] = numVal;
-      }
-    });
+      (prefValues || []).forEach(pv => {
+        const numVal = parseFloat(pv.value);
+        if (!isNaN(numVal)) {
+          orgValues[pv.organization_id] = numVal;
+        }
+      });
+    }
   }
 
   const results = (orgs || []).map(org => {
+    if (isFlat) {
+      return {
+        id: org.id,
+        name: org.name,
+        status: org.status,
+        fieldValue: null,
+        tierLabel: 'Flat Rate',
+        annualCost: flatCost,
+        bandId: 'flat'
+      };
+    }
+
     const fieldValue = orgValues[org.id] ?? null;
     let matchedBand = null;
 
@@ -421,6 +438,8 @@ async function handlePost(req, res, tenantId) {
         rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
         structure_field_id: config.structure_field_id || null,
         structure_match_value: config.structure_match_value || null,
+        pricing_model: config.pricing_model || 'tiered',
+        flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -516,6 +535,8 @@ async function handlePost(req, res, tenantId) {
       rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
       structure_field_id: structureFieldId,
       structure_match_value: structureMatchValue,
+      pricing_model: config.pricing_model || 'tiered',
+      flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
     })
     .select()
     .single();
