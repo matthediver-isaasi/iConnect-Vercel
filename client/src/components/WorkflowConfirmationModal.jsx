@@ -242,7 +242,14 @@ export function WorkflowConfirmationModal({
       w => !processedWorkflows.find(p => p.id === w.workflow_id)
     );
     if (unprocessedWorkflows.length > 0) {
-      onSkipAll?.(unprocessedWorkflows);
+      if (hasCompletedWorkflows) {
+        const dismissedWorkflows = unprocessedWorkflows.map(w => 
+          (w.conditions_met === false && w.revert_on_fail) ? { ...w, revert_on_fail: false } : w
+        );
+        onSkipAll?.(dismissedWorkflows);
+      } else {
+        onSkipAll?.(unprocessedWorkflows);
+      }
     }
     onOpenChange(false);
   };
@@ -261,11 +268,35 @@ export function WorkflowConfirmationModal({
     w => w.conditions_met === false && w.revert_on_fail && w.revert_field_id
   );
 
+  const hasCompletedWorkflows = processedWorkflows.some(p => p.action === 'confirmed');
+
+  const handleDismissWithoutRevert = (workflow) => {
+    onSkip?.({ ...workflow, revert_on_fail: false });
+    setProcessedWorkflows(prev => {
+      const newProcessed = [...prev, { id: workflow.workflow_id, action: 'skipped' }];
+      const newRemaining = pendingWorkflows.filter(
+        w => !newProcessed.find(p => p.id === w.workflow_id)
+      );
+      if (newRemaining.length === 0) {
+        setTimeout(() => {
+          setProcessedWorkflows([]);
+          setWorkflowResults({});
+          onOpenChange(false);
+        }, 0);
+      }
+      return newProcessed;
+    });
+  };
+
   const handleClose = () => {
-    if (hasRevertRequired) return;
+    if (hasRevertRequired && !hasCompletedWorkflows) return;
     if (!allProcessed && remainingWorkflows.length > 0) {
       for (const w of remainingWorkflows) {
-        onSkip?.(w);
+        if (hasCompletedWorkflows && w.conditions_met === false && w.revert_on_fail) {
+          onSkip?.({ ...w, revert_on_fail: false });
+        } else {
+          onSkip?.(w);
+        }
       }
     }
     setProcessedWorkflows([]);
@@ -276,15 +307,15 @@ export function WorkflowConfirmationModal({
   return (
     <Dialog open={open} onOpenChange={(isOpen) => {
       if (!isOpen) {
-        if (hasRevertRequired) return;
+        if (hasRevertRequired && !hasCompletedWorkflows) return;
         handleClose();
       }
     }}>
       <DialogContent
         className="sm:max-w-lg"
-        hideCloseButton={hasRevertRequired}
-        onPointerDownOutside={hasRevertRequired ? (e) => e.preventDefault() : undefined}
-        onEscapeKeyDown={hasRevertRequired ? (e) => e.preventDefault() : undefined}
+        hideCloseButton={hasRevertRequired && !hasCompletedWorkflows}
+        onPointerDownOutside={(hasRevertRequired && !hasCompletedWorkflows) ? (e) => e.preventDefault() : undefined}
+        onEscapeKeyDown={(hasRevertRequired && !hasCompletedWorkflows) ? (e) => e.preventDefault() : undefined}
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -348,26 +379,53 @@ export function WorkflowConfirmationModal({
                     <ActionStepList actions={workflow.actions || []} />
                   </div>
 
+                  {hasCompletedWorkflows && workflow.conditions_met === false && workflow.revert_on_fail && (
+                    <div className="flex items-start gap-2 p-2 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                      <Info className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        Other workflows have already completed successfully for this change. Reverting would undo the triggering field change but not the completed workflow actions.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleSkip(workflow)}
-                      disabled={processingWorkflowId === workflow.workflow_id}
-                      data-testid={`button-skip-workflow-${workflow.workflow_id}`}
-                    >
-                      {workflow.conditions_met === false && workflow.revert_on_fail ? (
-                        <>
+                    {workflow.conditions_met === false && workflow.revert_on_fail ? (
+                      <>
+                        {hasCompletedWorkflows && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDismissWithoutRevert(workflow)}
+                            disabled={processingWorkflowId === workflow.workflow_id}
+                            data-testid={`button-dismiss-workflow-${workflow.workflow_id}`}
+                          >
+                            <X className="h-4 w-4 mr-1" />
+                            Dismiss
+                          </Button>
+                        )}
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleSkip(workflow)}
+                          disabled={processingWorkflowId === workflow.workflow_id}
+                          data-testid={`button-skip-workflow-${workflow.workflow_id}`}
+                        >
                           <Undo2 className="h-4 w-4 mr-1" />
                           Revert & Dismiss
-                        </>
-                      ) : (
-                        <>
-                          <X className="h-4 w-4 mr-1" />
-                          Skip
-                        </>
-                      )}
-                    </Button>
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSkip(workflow)}
+                        disabled={processingWorkflowId === workflow.workflow_id}
+                        data-testid={`button-skip-workflow-${workflow.workflow_id}`}
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Skip
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       onClick={() => handleConfirm(workflow)}
@@ -389,17 +447,17 @@ export function WorkflowConfirmationModal({
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
-          {!allProcessed && remainingWorkflows.length > 1 && !hasRevertRequired && (
+          {!allProcessed && remainingWorkflows.length > 1 && (!hasRevertRequired || hasCompletedWorkflows) && (
             <Button
               variant="ghost"
               onClick={handleSkipAll}
               className="w-full sm:w-auto"
               data-testid="button-skip-all-workflows"
             >
-              Skip All
+              {hasCompletedWorkflows && hasRevertRequired ? 'Dismiss All' : 'Skip All'}
             </Button>
           )}
-          {!hasRevertRequired && (
+          {(!hasRevertRequired || hasCompletedWorkflows) && (
             <Button
               variant={allProcessed ? "default" : "outline"}
               onClick={handleClose}
