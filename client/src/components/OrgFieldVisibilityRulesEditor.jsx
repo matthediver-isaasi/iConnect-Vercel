@@ -16,7 +16,8 @@ import {
   ChevronDown,
   ChevronUp,
   Eye,
-  EyeOff
+  EyeOff,
+  LayoutGrid
 } from "lucide-react";
 import { CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { OPERATORS } from "@/hooks/useOrgFieldVisibilityRules";
@@ -31,6 +32,7 @@ export default function OrgFieldVisibilityRulesEditor({
   onOpenChange,
   rulesConfig, 
   customFields = [],
+  layoutCards = [],
   onSave, 
   onCancel,
   isSaving 
@@ -96,7 +98,7 @@ export default function OrgFieldVisibilityRulesEditor({
         { id: generateId(), field_id: '', operator: 'equals', value: '' }
       ],
       actions: [
-        { id: generateId(), action_type: 'hide', target_field_id: '' }
+        { id: generateId(), action_type: 'hide', target_type: 'field', target_field_id: '', target_card_id: '' }
       ]
     };
     
@@ -171,7 +173,7 @@ export default function OrgFieldVisibilityRulesEditor({
           ...r,
           actions: [
             ...r.actions,
-            { id: generateId(), action_type: 'hide', target_field_id: '' }
+            { id: generateId(), action_type: 'hide', target_type: 'field', target_field_id: '', target_card_id: '' }
           ]
         };
       })
@@ -458,7 +460,7 @@ export default function OrgFieldVisibilityRulesEditor({
                             {actions.map((action, actionIndex) => (
                               <div 
                                 key={action.id} 
-                                className="flex items-center gap-2 p-2 bg-white rounded border"
+                                className="flex items-center gap-2 p-2 bg-white rounded border flex-wrap"
                                 data-testid={`action-row-${ruleIndex}-${actionIndex}`}
                               >
                                 <span className="text-xs text-slate-400 w-8">THEN</span>
@@ -485,31 +487,70 @@ export default function OrgFieldVisibilityRulesEditor({
                                 </Select>
 
                                 <Select
-                                  value={action.target_field_id || undefined}
-                                  onValueChange={(value) => updateAction(rule.id, action.id, { target_field_id: value })}
+                                  value={action.target_type || 'field'}
+                                  onValueChange={(value) => updateAction(rule.id, action.id, { target_type: value, target_field_id: '', target_card_id: '' })}
                                 >
-                                  <SelectTrigger className="h-8 flex-1" data-testid={`select-action-target-${ruleIndex}-${actionIndex}`}>
-                                    <SelectValue placeholder="Select field to show/hide..." />
+                                  <SelectTrigger className="h-8 w-24" data-testid={`select-target-type-${ruleIndex}-${actionIndex}`}>
+                                    <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <div className="px-2 py-1 text-xs font-medium text-slate-500">Core Fields</div>
-                                    {allFields.filter(f => f.fieldType === 'core').map(field => (
-                                      <SelectItem key={field.id} value={field.id}>
-                                        {field.label}
-                                      </SelectItem>
-                                    ))}
-                                    {allFields.filter(f => f.fieldType === 'custom').length > 0 && (
-                                      <>
-                                        <div className="px-2 py-1 text-xs font-medium text-slate-500 mt-1">Custom Fields</div>
-                                        {allFields.filter(f => f.fieldType === 'custom').map(field => (
-                                          <SelectItem key={field.id} value={field.id}>
-                                            {field.label}
-                                          </SelectItem>
-                                        ))}
-                                      </>
-                                    )}
+                                    <SelectItem value="field">Field</SelectItem>
+                                    <SelectItem value="card">
+                                      <span className="flex items-center gap-1">
+                                        <LayoutGrid className="w-3 h-3" /> Card
+                                      </span>
+                                    </SelectItem>
                                   </SelectContent>
                                 </Select>
+
+                                {(!action.target_type || action.target_type === 'field') ? (
+                                  <Select
+                                    value={action.target_field_id || undefined}
+                                    onValueChange={(value) => updateAction(rule.id, action.id, { target_field_id: value })}
+                                  >
+                                    <SelectTrigger className="h-8 flex-1 min-w-[140px]" data-testid={`select-action-target-${ruleIndex}-${actionIndex}`}>
+                                      <SelectValue placeholder="Select field..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <div className="px-2 py-1 text-xs font-medium text-slate-500">Core Fields</div>
+                                      {allFields.filter(f => f.fieldType === 'core').map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label}
+                                        </SelectItem>
+                                      ))}
+                                      {allFields.filter(f => f.fieldType === 'custom').length > 0 && (
+                                        <>
+                                          <div className="px-2 py-1 text-xs font-medium text-slate-500 mt-1">Custom Fields</div>
+                                          {allFields.filter(f => f.fieldType === 'custom').map(field => (
+                                            <SelectItem key={field.id} value={field.id}>
+                                              {field.label}
+                                            </SelectItem>
+                                          ))}
+                                        </>
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  <Select
+                                    value={action.target_card_id || undefined}
+                                    onValueChange={(value) => updateAction(rule.id, action.id, { target_card_id: value })}
+                                  >
+                                    <SelectTrigger className="h-8 flex-1 min-w-[140px]" data-testid={`select-action-card-target-${ruleIndex}-${actionIndex}`}>
+                                      <SelectValue placeholder="Select card..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {layoutCards.length > 0 ? (
+                                        layoutCards.map(card => (
+                                          <SelectItem key={card.id} value={card.id}>
+                                            {card.title}
+                                          </SelectItem>
+                                        ))
+                                      ) : (
+                                        <div className="px-2 py-2 text-xs text-slate-400">No cards configured</div>
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                )}
 
                                 {actions.length > 1 && (
                                   <Button

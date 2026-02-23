@@ -67,16 +67,23 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
   const hiddenFields = new Set();
   const shownFields = new Set();
   const fieldsWithShowRules = new Set();
+  const hiddenCards = new Set();
+  const shownCards = new Set();
+  const cardsWithShowRules = new Set();
   
   if (!rules || !rules.rules || rules.rules.length === 0) {
-    return hiddenFields;
+    return { hiddenFields, hiddenCards };
   }
   
   for (const rule of rules.rules) {
     if (!rule.actions) continue;
     for (const action of rule.actions) {
-      if (action.action_type === 'show' && action.target_field_id) {
-        fieldsWithShowRules.add(action.target_field_id);
+      if (action.action_type === 'show') {
+        if (action.target_type === 'card' && action.target_card_id) {
+          cardsWithShowRules.add(action.target_card_id);
+        } else if (action.target_field_id) {
+          fieldsWithShowRules.add(action.target_field_id);
+        }
       }
     }
   }
@@ -99,10 +106,18 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
     
     if (conditionsMet && rule.actions) {
       for (const action of rule.actions) {
-        if (action.action_type === 'hide') {
-          hiddenFields.add(action.target_field_id);
-        } else if (action.action_type === 'show') {
-          shownFields.add(action.target_field_id);
+        if (action.target_type === 'card' && action.target_card_id) {
+          if (action.action_type === 'hide') {
+            hiddenCards.add(action.target_card_id);
+          } else if (action.action_type === 'show') {
+            shownCards.add(action.target_card_id);
+          }
+        } else {
+          if (action.action_type === 'hide') {
+            hiddenFields.add(action.target_field_id);
+          } else if (action.action_type === 'show') {
+            shownFields.add(action.target_field_id);
+          }
         }
       }
     }
@@ -114,7 +129,13 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
     }
   }
   
-  return hiddenFields;
+  for (const cardId of cardsWithShowRules) {
+    if (!shownCards.has(cardId)) {
+      hiddenCards.add(cardId);
+    }
+  }
+  
+  return { hiddenFields, hiddenCards };
 }
 
 function evaluateCondition(condition, formData, customFields) {

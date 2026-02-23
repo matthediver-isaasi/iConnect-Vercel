@@ -1087,7 +1087,7 @@ export default function OrganisationDetailView({
     );
   };
 
-  const hiddenFields = evaluateVisibilityRules(
+  const { hiddenFields, hiddenCards } = evaluateVisibilityRules(
     rulesConfig, 
     { ...formData, custom_field_values: customFieldValues }, 
     orgCustomFields
@@ -1095,6 +1095,7 @@ export default function OrganisationDetailView({
 
   const renderLayoutCard = (card) => {
     if (card.fields.length === 0) return null;
+    if (hiddenCards.has(card.id)) return null;
     
     const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
     
@@ -1309,6 +1310,7 @@ export default function OrganisationDetailView({
         onOpenChange={setShowRulesEditor}
         rulesConfig={rulesConfig}
         customFields={orgCustomFields}
+        layoutCards={effectiveLayout?.cards || []}
         onSave={saveRules}
         onCancel={() => setShowRulesEditor(false)}
         isSaving={isRulesSaving}
