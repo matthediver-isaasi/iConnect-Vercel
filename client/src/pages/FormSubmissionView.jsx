@@ -125,7 +125,7 @@ export default function FormSubmissionView() {
   const submissionData = submission.submission_data || {};
   const fields = form?.fields || [];
   
-  const hasPages = form?.pages && form.pages.length > 0;
+  const hasPages = form?.layout_type !== 'card_swipe' && form?.pages && form.pages.length > 0;
   
   // Fields are linked to pages via field.page_id
   // Filter out due_diligence fields - they should not be shown to end users
