@@ -50,6 +50,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const isClickScrolling = useRef(false);
   const prefersReducedMotion = useRef(false);
   const [bgLeft, setBgLeft] = useState(0);
+  const overlayScrollRef = useRef(null);
+  const [overlayRect, setOverlayRect] = useState(null);
 
   const {
     title,
@@ -101,6 +103,27 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       ro.disconnect();
     };
   }, [background_image, isExpanded]);
+
+  useEffect(() => {
+    if (!isExpanded || !background_image || !overlayScrollRef.current) {
+      setOverlayRect(null);
+      return;
+    }
+    const update = () => {
+      if (overlayScrollRef.current) {
+        const r = overlayScrollRef.current.getBoundingClientRect();
+        setOverlayRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    const ro = new ResizeObserver(update);
+    ro.observe(overlayScrollRef.current);
+    return () => {
+      window.removeEventListener('resize', update);
+      ro.disconnect();
+    };
+  }, [isExpanded, background_image]);
 
   useEffect(() => {
     if (!activeYear || !railRef.current) return;
@@ -413,6 +436,27 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     </div>
   );
 
+  const buildGradientCss = () => {
+    const stops = gradient_stops && gradient_stops.length >= 2
+      ? gradient_stops
+      : [
+          { color: '#ffffff', opacity: background_opacity, position: 0 },
+          { color: '#ffffff', opacity: background_opacity, position: 100 }
+        ];
+    const angle = gradient_stops && gradient_stops.length >= 2 ? gradient_angle : 180;
+    return `linear-gradient(${angle}deg, ${
+      [...stops]
+        .sort((a, b) => a.position - b.position)
+        .map(s => {
+          const r = parseInt(s.color.slice(1, 3), 16);
+          const g = parseInt(s.color.slice(3, 5), 16);
+          const b = parseInt(s.color.slice(5, 7), 16);
+          return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
+        })
+        .join(', ')
+    })`;
+  };
+
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
     const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${header_offset + 48}px)`;
@@ -442,38 +486,17 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {items.map((item, idx) => markerNav(idx, item))}
           </nav>
         </div>
-        <div ref={contentPanelRef} className="flex-1 min-w-0 relative" style={inOverlay ? { overflow: 'hidden' } : undefined}>
-          {hasBg && (() => {
-            const pos = inOverlay ? 'absolute' : 'fixed';
-            const leftVal = inOverlay ? 0 : `${bgLeft}px`;
-            const gradientCss = (() => {
-              const stops = gradient_stops && gradient_stops.length >= 2
-                ? gradient_stops
-                : [
-                    { color: '#ffffff', opacity: background_opacity, position: 0 },
-                    { color: '#ffffff', opacity: background_opacity, position: 100 }
-                  ];
-              const angle = gradient_stops && gradient_stops.length >= 2 ? gradient_angle : 180;
-              return `linear-gradient(${angle}deg, ${
-                [...stops]
-                  .sort((a, b) => a.position - b.position)
-                  .map(s => {
-                    const r = parseInt(s.color.slice(1, 3), 16);
-                    const g = parseInt(s.color.slice(3, 5), 16);
-                    const b = parseInt(s.color.slice(5, 7), 16);
-                    return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
-                  })
-                  .join(', ')
-              })`;
-            })();
+        <div ref={contentPanelRef} className="flex-1 min-w-0 relative">
+          {hasBg && !inOverlay && (() => {
+            const gradientCss = buildGradientCss();
             return (
               <>
                 <div
                   className="pointer-events-none"
                   style={{
-                    position: pos,
+                    position: 'fixed',
                     top: 0,
-                    left: leftVal,
+                    left: `${bgLeft}px`,
                     right: 0,
                     bottom: 0,
                     zIndex: 0,
@@ -488,9 +511,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                 <div
                   className="pointer-events-none"
                   style={{
-                    position: pos,
+                    position: 'fixed',
                     top: 0,
-                    left: leftVal,
+                    left: `${bgLeft}px`,
                     right: 0,
                     bottom: 0,
                     zIndex: 1,
@@ -523,7 +546,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           data-testid="timeline-overlay"
         >
           <div
-            className="relative bg-white rounded-xl shadow-2xl flex flex-col"
+            className="relative bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden"
             style={{ width: '95vw', height: '95vh' }}
           >
             <div className="flex items-center justify-between px-8 py-5 border-b border-slate-200 shrink-0">
@@ -540,42 +563,80 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               </button>
             </div>
             <div
-              ref={scrollContainerRef}
+              ref={(el) => { scrollContainerRef.current = el; overlayScrollRef.current = el; }}
               className="flex-1 overflow-y-auto px-8 py-6"
             >
-              {isMobile ? (
+              {!!background_image && overlayRect && (
                 <>
                   <div
-                    className="flex overflow-x-auto gap-2 pb-3 mb-6 sticky z-20 bg-white/95 backdrop-blur-sm pt-2"
-                    style={{ top: 0 }}
-                    role="tablist"
-                    aria-label="Timeline years"
-                  >
-                    {items.map((item) => (
-                      <button
-                        key={item.year}
-                        onClick={() => scrollToSection(item.year)}
-                        role="tab"
-                        aria-selected={activeYear === item.year}
-                        className="shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap"
-                        style={{
-                          backgroundColor: activeYear === item.year ? active_color : 'transparent',
-                          color: activeYear === item.year ? '#ffffff' : '#6b7280',
-                          border: `1px solid ${activeYear === item.year ? active_color : '#d1d5db'}`
-                        }}
-                        data-testid={`timeline-overlay-marker-${item.year}`}
-                      >
-                        {item.year}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="space-y-8">
-                    {items.map((item) => mobileContentSection(item))}
-                  </div>
+                    className="pointer-events-none"
+                    style={{
+                      position: 'fixed',
+                      top: `${overlayRect.top}px`,
+                      left: `${overlayRect.left}px`,
+                      width: `${overlayRect.width}px`,
+                      height: `${overlayRect.height}px`,
+                      zIndex: 0,
+                      backgroundImage: `url(${background_image})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      backgroundRepeat: 'no-repeat',
+                      clipPath: `inset(0 0 0 0 round 0 0 0.75rem 0.75rem)`,
+                    }}
+                    aria-hidden="true"
+                    data-testid="timeline-overlay-background"
+                  />
+                  <div
+                    className="pointer-events-none"
+                    style={{
+                      position: 'fixed',
+                      top: `${overlayRect.top}px`,
+                      left: `${overlayRect.left}px`,
+                      width: `${overlayRect.width}px`,
+                      height: `${overlayRect.height}px`,
+                      zIndex: 1,
+                      background: buildGradientCss(),
+                      clipPath: `inset(0 0 0 0 round 0 0 0.75rem 0.75rem)`,
+                    }}
+                    aria-hidden="true"
+                  />
                 </>
-              ) : (
-                desktopTimeline(true)
               )}
+              <div style={{ position: 'relative', zIndex: 2 }}>
+                {isMobile ? (
+                  <>
+                    <div
+                      className="flex overflow-x-auto gap-2 pb-3 mb-6 sticky z-20 bg-white/95 backdrop-blur-sm pt-2"
+                      style={{ top: 0 }}
+                      role="tablist"
+                      aria-label="Timeline years"
+                    >
+                      {items.map((item) => (
+                        <button
+                          key={item.year}
+                          onClick={() => scrollToSection(item.year)}
+                          role="tab"
+                          aria-selected={activeYear === item.year}
+                          className="shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap"
+                          style={{
+                            backgroundColor: activeYear === item.year ? active_color : 'transparent',
+                            color: activeYear === item.year ? '#ffffff' : '#6b7280',
+                            border: `1px solid ${activeYear === item.year ? active_color : '#d1d5db'}`
+                          }}
+                          data-testid={`timeline-overlay-marker-${item.year}`}
+                        >
+                          {item.year}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="space-y-8">
+                      {items.map((item) => mobileContentSection(item))}
+                    </div>
+                  </>
+                ) : (
+                  desktopTimeline(true)
+                )}
+              </div>
             </div>
           </div>
         </div>
