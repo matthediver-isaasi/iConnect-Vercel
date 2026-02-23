@@ -1,6 +1,54 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
+async function fetchPaginatedArticleViews(articleIds, selectFields, filters = {}) {
+  const chunkSize = 200;
+  const pageSize = 1000;
+  let allRecords = [];
+
+  for (let c = 0; c < articleIds.length; c += chunkSize) {
+    const idChunk = articleIds.slice(c, c + chunkSize);
+    let from = 0;
+    while (true) {
+      let query = supabase
+        .from('article_view')
+        .select(selectFields)
+        .in('article_id', idChunk);
+
+      if (filters.startDate) query = query.gte('viewed_at', filters.startDate);
+      if (filters.endDate) query = query.lte('viewed_at', filters.endDate);
+      if (filters.order) query = query.order(filters.order.column, { ascending: filters.order.ascending });
+
+      query = query.range(from, from + pageSize - 1);
+
+      const { data: page, error } = await query;
+      if (error) {
+        console.error('Error fetching article_view records:', error);
+        break;
+      }
+      if (!page || page.length === 0) break;
+      allRecords = allRecords.concat(page);
+      if (page.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  return allRecords;
+}
+
+function deduplicateViews(records) {
+  const seen = new Set();
+  const unique = [];
+  for (const v of records) {
+    const key = `${v.article_id}::${v.user_identifier}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(v);
+    }
+  }
+  return unique;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -67,63 +115,38 @@ export default async function handler(req, res) {
       });
     }
 
-    const countViewsInRange = async (startDate, endDate) => {
-      let query = supabase
-        .from('article_view')
-        .select('*', { count: 'exact', head: true })
-        .in('article_id', articleIds);
+    const allViewRecords = await fetchPaginatedArticleViews(
+      articleIds,
+      'article_id, user_identifier, viewed_at'
+    );
 
-      if (startDate) query = query.gte('viewed_at', startDate.toISOString());
-      if (endDate) query = query.lte('viewed_at', endDate.toISOString());
+    const uniqueViews = deduplicateViews(allViewRecords);
 
-      const { count, error } = await query;
-      if (error) {
-        console.error('Error counting views in range:', error);
-        return 0;
-      }
-      return count || 0;
-    };
+    const totalViews = uniqueViews.length;
+    const uniqueArticleSet = new Set(uniqueViews.map(v => v.article_id));
+    const uniqueArticles = uniqueArticleSet.size;
+    const uniqueViewerSet = new Set(uniqueViews.map(v => v.user_identifier));
+    const uniqueViewers = uniqueViewerSet.size;
 
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
-
     const weekStart = new Date(now);
     weekStart.setDate(weekStart.getDate() - 7);
-
     const monthStart = new Date(now);
     monthStart.setMonth(monthStart.getMonth() - 1);
 
-    const [totalViews, viewsToday, viewsThisWeek, viewsThisMonth] = await Promise.all([
-      countViewsInRange(null, null),
-      countViewsInRange(todayStart, now),
-      countViewsInRange(weekStart, now),
-      countViewsInRange(monthStart, now)
-    ]);
+    const countUniqueInRange = (views, startDate, endDate) => {
+      return views.filter(v => {
+        const d = new Date(v.viewed_at);
+        if (startDate && d < startDate) return false;
+        if (endDate && d > endDate) return false;
+        return true;
+      }).length;
+    };
 
-    let allViewRecords = [];
-    let from = 0;
-    const pageSize = 1000;
-    while (true) {
-      const { data: page, error: pageErr } = await supabase
-        .from('article_view')
-        .select('article_id, user_identifier')
-        .in('article_id', articleIds)
-        .range(from, from + pageSize - 1);
-
-      if (pageErr) {
-        console.error('Error fetching view records page:', pageErr);
-        break;
-      }
-      if (!page || page.length === 0) break;
-      allViewRecords = allViewRecords.concat(page);
-      if (page.length < pageSize) break;
-      from += pageSize;
-    }
-
-    const uniqueArticleSet = new Set(allViewRecords.map(v => v.article_id));
-    const uniqueArticles = uniqueArticleSet.size;
-    const uniqueViewerSet = new Set(allViewRecords.map(v => v.user_identifier));
-    const uniqueViewers = uniqueViewerSet.size;
+    const viewsToday = countUniqueInRange(uniqueViews, todayStart, now);
+    const viewsThisWeek = countUniqueInRange(uniqueViews, weekStart, now);
+    const viewsThisMonth = countUniqueInRange(uniqueViews, monthStart, now);
 
     const getDateRange = (period) => {
       const end = new Date(now);
@@ -159,7 +182,7 @@ export default async function handler(req, res) {
       return { start, end, prevStart, prevEnd };
     };
 
-    const calculatePeriodStats = async (period) => {
+    const calculatePeriodStats = (period) => {
       if (period === 'all') {
         return {
           period,
@@ -172,10 +195,8 @@ export default async function handler(req, res) {
       }
 
       const { start, end, prevStart, prevEnd } = getDateRange(period);
-      const [current, previous] = await Promise.all([
-        countViewsInRange(start, end),
-        countViewsInRange(prevStart, prevEnd)
-      ]);
+      const current = countUniqueInRange(uniqueViews, start, end);
+      const previous = countUniqueInRange(uniqueViews, prevStart, prevEnd);
       const change = previous > 0 ? ((current - previous) / previous * 100) : (current > 0 ? 100 : 0);
 
       return {
@@ -189,11 +210,10 @@ export default async function handler(req, res) {
     };
 
     const periods = ['week', 'month', 'quarter', 'year', 'all'];
-    const periodStatsResults = await Promise.all(periods.map(p => calculatePeriodStats(p)));
     const periodStats = {};
-    periods.forEach((p, i) => { periodStats[p] = periodStatsResults[i]; });
+    periods.forEach(p => { periodStats[p] = calculatePeriodStats(p); });
 
-    const getViewsDataForPeriod = async (period) => {
+    const getViewsDataForPeriod = (period) => {
       let startDate = new Date(now);
 
       switch (period) {
@@ -215,18 +235,6 @@ export default async function handler(req, res) {
           break;
       }
 
-      const { data: periodViews, error: pvError } = await supabase
-        .from('article_view')
-        .select('viewed_at')
-        .in('article_id', articleIds)
-        .gte('viewed_at', startDate.toISOString())
-        .order('viewed_at', { ascending: true });
-
-      if (pvError) {
-        console.error('Error fetching chart data:', pvError);
-        return [];
-      }
-
       let groupBy;
       if (period === 'week' || period === 'month') {
         groupBy = 'day';
@@ -237,8 +245,9 @@ export default async function handler(req, res) {
       }
 
       const buckets = {};
-      (periodViews || []).forEach(v => {
+      uniqueViews.forEach(v => {
         const d = new Date(v.viewed_at);
+        if (d < startDate) return;
         let key;
         if (groupBy === 'day') {
           key = d.toISOString().slice(0, 10);
@@ -258,12 +267,11 @@ export default async function handler(req, res) {
       }));
     };
 
-    const viewsByPeriodResults = await Promise.all(periods.map(p => getViewsDataForPeriod(p)));
     const viewsByPeriod = {};
-    periods.forEach((p, i) => { viewsByPeriod[p] = viewsByPeriodResults[i]; });
+    periods.forEach(p => { viewsByPeriod[p] = getViewsDataForPeriod(p); });
 
     const viewsByArticle = {};
-    allViewRecords.forEach(v => {
+    uniqueViews.forEach(v => {
       viewsByArticle[v.article_id] = (viewsByArticle[v.article_id] || 0) + 1;
     });
 
