@@ -227,10 +227,11 @@ export default function MembershipTierManagement() {
   }, [systemSettings]);
 
   const { data: previewData, isLoading: loadingPreview, refetch: refetchPreview } = useQuery({
-    queryKey: ['membership-tier-preview', viewingHistorical],
+    queryKey: ['membership-tier-preview', viewingHistorical || selectedActiveConfigId],
     queryFn: async () => {
-      const url = viewingHistorical
-        ? `/api/membership/tiers?action=preview&configId=${viewingHistorical}`
+      const previewConfigId = viewingHistorical || selectedActiveConfigId;
+      const url = previewConfigId
+        ? `/api/membership/tiers?action=preview&configId=${previewConfigId}`
         : '/api/membership/tiers?action=preview';
       const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch preview');
