@@ -45,9 +45,11 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
+  const contentPanelRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const isClickScrolling = useRef(false);
   const prefersReducedMotion = useRef(false);
+  const [bgLeft, setBgLeft] = useState(0);
 
   const {
     title,
@@ -56,7 +58,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     active_color = '#2563eb',
     marker_size = 14,
     header_offset = 80,
-    anchor
+    anchor,
+    background_image,
+    background_opacity = 0.15
   } = content || {};
 
   useEffect(() => {
@@ -78,6 +82,23 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   useEffect(() => {
     prefersReducedMotion.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
+
+  useEffect(() => {
+    if (!background_image || !contentPanelRef.current) return;
+    const updateBgLeft = () => {
+      if (contentPanelRef.current) {
+        setBgLeft(contentPanelRef.current.getBoundingClientRect().left);
+      }
+    };
+    updateBgLeft();
+    window.addEventListener('resize', updateBgLeft);
+    const ro = new ResizeObserver(updateBgLeft);
+    ro.observe(contentPanelRef.current);
+    return () => {
+      window.removeEventListener('resize', updateBgLeft);
+      ro.disconnect();
+    };
+  }, [background_image, isExpanded]);
 
   useEffect(() => {
     if (!activeYear || !railRef.current) return;
@@ -393,6 +414,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 80 : (header_offset + 16);
     const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${stickyTop + 32}px)`;
+    const hasBg = !!background_image;
     return (
       <div className="flex gap-8 lg:gap-12">
         <div
@@ -418,8 +440,44 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {items.map((item, idx) => markerNav(idx, item))}
           </nav>
         </div>
-        <div className="flex-1 min-w-0">
-          {items.map((item, idx) => contentSection(item, idx))}
+        <div ref={contentPanelRef} className="flex-1 min-w-0 relative">
+          {hasBg && (
+            <>
+              <div
+                className="pointer-events-none"
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: `${bgLeft}px`,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 0,
+                  backgroundImage: `url(${background_image})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
+                }}
+                aria-hidden="true"
+                data-testid="timeline-background"
+              />
+              <div
+                className="pointer-events-none"
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: `${bgLeft}px`,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 1,
+                  backgroundColor: `rgba(255, 255, 255, ${background_opacity})`,
+                }}
+                aria-hidden="true"
+              />
+            </>
+          )}
+          <div style={{ position: 'relative', zIndex: 2 }}>
+            {items.map((item, idx) => contentSection(item, idx))}
+          </div>
         </div>
       </div>
     );
@@ -721,6 +779,52 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           className="mt-1"
         />
         <p className="text-xs text-slate-400 mt-1">Accounts for a fixed header when scrolling</p>
+      </div>
+
+      {/* Background Image */}
+      <div className="space-y-3 border border-slate-200 rounded-lg p-3">
+        <Label className="text-sm font-medium text-slate-700">Background Image (optional)</Label>
+        <p className="text-xs text-slate-400">Fixed background behind the content panel — stays still while content scrolls over it.</p>
+        <div className="flex gap-2">
+          <Input
+            value={content.background_image || ''}
+            onChange={(e) => updateContent('background_image', e.target.value)}
+            placeholder="Enter image URL..."
+            className="flex-1"
+            data-testid="input-timeline-bg-image"
+          />
+          {content.background_image && (
+            <button
+              onClick={() => { updateContent('background_image', ''); updateContent('background_opacity', 0.15); }}
+              className="p-2 rounded-md text-red-400 hover:text-red-600 border border-slate-200"
+              title="Remove background"
+              type="button"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {content.background_image && (
+          <>
+            <div className="rounded-lg overflow-hidden border border-slate-200 h-24">
+              <img src={content.background_image} alt="Background preview" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-600">Overlay Opacity ({Math.round((content.background_opacity ?? 0.15) * 100)}%)</Label>
+              <input
+                type="range"
+                min="0"
+                max="0.8"
+                step="0.05"
+                value={content.background_opacity ?? 0.15}
+                onChange={(e) => updateContent('background_opacity', parseFloat(e.target.value))}
+                className="w-full mt-1"
+                data-testid="input-timeline-bg-opacity"
+              />
+              <p className="text-xs text-slate-400 mt-1">Controls how much the white overlay covers the image (higher = more washed out, easier to read)</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Items */}
