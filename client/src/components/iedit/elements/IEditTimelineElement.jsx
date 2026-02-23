@@ -442,61 +442,66 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {items.map((item, idx) => markerNav(idx, item))}
           </nav>
         </div>
-        <div ref={contentPanelRef} className="flex-1 min-w-0 relative">
-          {hasBg && (
-            <>
-              <div
-                className="pointer-events-none"
-                style={{
-                  position: 'fixed',
-                  top: 0,
-                  left: `${bgLeft}px`,
-                  right: 0,
-                  bottom: 0,
-                  zIndex: 0,
-                  backgroundImage: `url(${background_image})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                  backgroundRepeat: 'no-repeat',
-                }}
-                aria-hidden="true"
-                data-testid="timeline-background"
-              />
-              <div
-                className="pointer-events-none"
-                style={{
-                  position: 'fixed',
-                  top: 0,
-                  left: `${bgLeft}px`,
-                  right: 0,
-                  bottom: 0,
-                  zIndex: 1,
-                  background: (() => {
-                    const stops = gradient_stops && gradient_stops.length >= 2
-                      ? gradient_stops
-                      : [
-                          { color: '#ffffff', opacity: background_opacity, position: 0 },
-                          { color: '#ffffff', opacity: background_opacity, position: 100 }
-                        ];
-                    const angle = gradient_stops && gradient_stops.length >= 2 ? gradient_angle : 180;
-                    return `linear-gradient(${angle}deg, ${
-                      [...stops]
-                        .sort((a, b) => a.position - b.position)
-                        .map(s => {
-                          const r = parseInt(s.color.slice(1, 3), 16);
-                          const g = parseInt(s.color.slice(3, 5), 16);
-                          const b = parseInt(s.color.slice(5, 7), 16);
-                          return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
-                        })
-                        .join(', ')
-                    })`;
-                  })(),
-                }}
-                aria-hidden="true"
-              />
-            </>
-          )}
-          <div style={{ position: 'relative', zIndex: 2 }}>
+        <div ref={contentPanelRef} className="flex-1 min-w-0 relative" style={inOverlay ? { overflow: 'hidden' } : undefined}>
+          {hasBg && (() => {
+            const pos = inOverlay ? 'absolute' : 'fixed';
+            const leftVal = inOverlay ? 0 : `${bgLeft}px`;
+            const gradientCss = (() => {
+              const stops = gradient_stops && gradient_stops.length >= 2
+                ? gradient_stops
+                : [
+                    { color: '#ffffff', opacity: background_opacity, position: 0 },
+                    { color: '#ffffff', opacity: background_opacity, position: 100 }
+                  ];
+              const angle = gradient_stops && gradient_stops.length >= 2 ? gradient_angle : 180;
+              return `linear-gradient(${angle}deg, ${
+                [...stops]
+                  .sort((a, b) => a.position - b.position)
+                  .map(s => {
+                    const r = parseInt(s.color.slice(1, 3), 16);
+                    const g = parseInt(s.color.slice(3, 5), 16);
+                    const b = parseInt(s.color.slice(5, 7), 16);
+                    return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
+                  })
+                  .join(', ')
+              })`;
+            })();
+            return (
+              <>
+                <div
+                  className="pointer-events-none"
+                  style={{
+                    position: pos,
+                    top: 0,
+                    left: leftVal,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 0,
+                    backgroundImage: `url(${background_image})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    backgroundRepeat: 'no-repeat',
+                  }}
+                  aria-hidden="true"
+                  data-testid="timeline-background"
+                />
+                <div
+                  className="pointer-events-none"
+                  style={{
+                    position: pos,
+                    top: 0,
+                    left: leftVal,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 1,
+                    background: gradientCss,
+                  }}
+                  aria-hidden="true"
+                />
+              </>
+            );
+          })()}
+          <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined }}>
             {items.map((item, idx) => contentSection(item, idx))}
           </div>
         </div>
