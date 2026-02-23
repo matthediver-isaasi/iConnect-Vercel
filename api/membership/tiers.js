@@ -220,7 +220,7 @@ async function getPreview(req, res, tenantId, configId) {
 
   const bands = await getBandsForConfig(config.id, tenantId);
 
-  const { data: orgs, error: orgError } = await supabase
+  const { data: allOrgs, error: orgError } = await supabase
     .from('organization')
     .select('id, name, status')
     .eq('tenant_id', tenantId)
@@ -228,6 +228,24 @@ async function getPreview(req, res, tenantId, configId) {
 
   if (orgError) {
     return res.status(500).json({ error: 'Failed to fetch organizations' });
+  }
+
+  let orgs = allOrgs || [];
+
+  if (config.structure_field_id && config.structure_match_value) {
+    const allOrgIds = orgs.map(o => o.id);
+    const { data: scopeValues } = await supabase
+      .from('organization_preference_value')
+      .select('organization_id, value')
+      .eq('field_id', config.structure_field_id)
+      .in('organization_id', allOrgIds.length > 0 ? allOrgIds : ['__none__']);
+
+    const matchingOrgIds = new Set(
+      (scopeValues || [])
+        .filter(pv => pv.value === config.structure_match_value)
+        .map(pv => pv.organization_id)
+    );
+    orgs = orgs.filter(o => matchingOrgIds.has(o.id));
   }
 
   let orgValues = {};
