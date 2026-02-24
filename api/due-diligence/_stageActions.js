@@ -1317,7 +1317,15 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     };
 
     for (const ma of memberActions) {
-      const formValues = formSubmission.submission_data || {};
+      const originalData = formSubmission.submission_data || {};
+      const reviewedData = ddSubmission.reviewed_form_values || {};
+      const formValues = { ...originalData };
+      for (const [key, val] of Object.entries(reviewedData)) {
+        if (val !== undefined && val !== null && val !== '') {
+          formValues[key] = val;
+        }
+      }
+      console.log('[DD Member Action] Using merged form values (reviewed preferred over original)');
       
       // Get mandatory fields
       let firstName = getFieldValue(formValues, ma.first_name_field);
