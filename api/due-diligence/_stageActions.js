@@ -2087,7 +2087,15 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
     }
     
     const formFields = form.fields || [];
-    const formValues = formSubmission.submission_data || {};
+    const originalData = formSubmission.submission_data || {};
+    const reviewedData = ddSubmission.reviewed_form_values || {};
+    const formValues = { ...originalData };
+    for (const [key, val] of Object.entries(reviewedData)) {
+      if (val !== undefined && val !== null && val !== '') {
+        formValues[key] = val;
+      }
+    }
+    console.log('[DD Zoho CRM] Using merged form values (reviewed preferred over original)');
     
     // Helper to find field by label (case-insensitive partial match)
     const findFieldByLabel = (fields, labelSearch) => {

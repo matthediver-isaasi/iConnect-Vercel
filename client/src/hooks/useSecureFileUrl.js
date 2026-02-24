@@ -18,7 +18,10 @@ async function fetchSecureUrl(url) {
     return url;
   }
 
-  const response = await fetch(url, {
+  const cleanUrl = new URL(url, window.location.origin);
+  cleanUrl.searchParams.delete('redirect');
+
+  const response = await fetch(cleanUrl.toString(), {
     credentials: 'include'
   });
 
