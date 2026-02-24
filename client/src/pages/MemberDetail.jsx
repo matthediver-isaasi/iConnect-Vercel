@@ -807,101 +807,6 @@ export default function MemberDetail() {
             )}
           </div>
         );
-      case 'organization_id': {
-        const org = getOrganization();
-        return (
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
-            {isEditing ? (
-              <Select value={formData.organization_id || '__none__'} onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}>
-                <SelectTrigger data-testid="select-member-org"><SelectValue placeholder="Select organisation" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No Organisation</SelectItem>
-                  {organizations.filter(o => o.id).map(o => (
-                    <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : org ? (
-              <div className="flex items-start gap-2">
-                <div className="w-6 h-6 rounded bg-blue-100 flex items-center justify-center flex-shrink-0">
-                  <Building2 className="w-3 h-3 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-sm">{org.name}</p>
-                  {org.website_url && (
-                    <a href={org.website_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                      <Globe className="w-3 h-3" />{org.website_url}
-                    </a>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">No organisation assigned</p>
-            )}
-          </div>
-        );
-      }
-      case 'role_id':
-        return (
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
-            {isEditing ? (
-              <Select value={selectedRoleId || '__none__'} onValueChange={(v) => setSelectedRoleId(v === '__none__' ? null : v)}>
-                <SelectTrigger data-testid="select-member-role"><SelectValue placeholder="Select role" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No Role</SelectItem>
-                  {roles.map(r => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex flex-wrap gap-1">
-                {member.role_id ? (
-                  <Badge variant="secondary" className="text-xs">{getRoleName(member.role_id)}</Badge>
-                ) : (
-                  <span className="text-sm text-slate-500">No role assigned</span>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      case 'login_enabled':
-        return (
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">
-                {isEditing ? (formData.login_enabled ? 'Yes' : 'No') : (member.login_enabled !== false ? 'Yes' : 'No')}
-              </p>
-              {isEditing && (
-                <Switch checked={formData.login_enabled} onCheckedChange={(checked) => setFormData(prev => ({ ...prev, login_enabled: checked }))} data-testid="switch-login-enabled" />
-              )}
-            </div>
-          </div>
-        );
-      case 'show_in_directory':
-        return (
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">
-                {isEditing ? (formData.show_in_directory ? 'Yes' : 'No') : (member.show_in_directory !== false ? 'Yes' : 'No')}
-              </p>
-              {isEditing && (
-                <Switch checked={formData.show_in_directory} onCheckedChange={(checked) => setFormData(prev => ({ ...prev, show_in_directory: checked }))} data-testid="switch-show-in-directory" />
-              )}
-            </div>
-          </div>
-        );
-      case 'created_on':
-        return (
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-500">{label}</Label>
-            <p className="text-sm font-medium">{member.created_on ? formatDate(member.created_on) : '-'}</p>
-          </div>
-        );
       default:
         return null;
     }
@@ -1074,67 +979,201 @@ export default function MemberDetail() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          {effectiveLayout.cards.map(card => renderLayoutCard(card))}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left column - customizable layout */}
+            <div className="space-y-6">
+              {effectiveLayout.cards.map(card => renderLayoutCard(card))}
 
-          {!isEditing && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Key className="w-4 h-4 text-blue-600" />
-                  Account Actions
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.password_reset') && (
-                  <div className="space-y-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleGenerateResetLink}
-                      disabled={isGeneratingResetLink}
-                      className="w-full"
-                      data-testid="button-generate-reset-link"
-                    >
-                      {isGeneratingResetLink ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Key className="w-4 h-4 mr-2" />
-                      )}
-                      Generate Reset Password Link
-                    </Button>
-                    {generatedResetLink && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-slate-500">Password Reset Link (valid for 24 hours)</p>
-                        <div className="flex items-center gap-2">
-                          <Input readOnly value={generatedResetLink} className="text-xs font-mono" data-testid="input-reset-link" />
-                          <Button variant="outline" size="icon" onClick={handleCopyResetLink} data-testid="button-copy-reset-link">
-                            {linkCopied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-                          </Button>
-                        </div>
+              {!isEditing && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Key className="w-4 h-4 text-blue-600" />
+                      Account Actions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.password_reset') && (
+                      <div className="space-y-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleGenerateResetLink}
+                          disabled={isGeneratingResetLink}
+                          className="w-full"
+                          data-testid="button-generate-reset-link"
+                        >
+                          {isGeneratingResetLink ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Key className="w-4 h-4 mr-2" />
+                          )}
+                          Generate Reset Password Link
+                        </Button>
+                        {generatedResetLink && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-slate-500">Password Reset Link (valid for 24 hours)</p>
+                            <div className="flex items-center gap-2">
+                              <Input readOnly value={generatedResetLink} className="text-xs font-mono" data-testid="input-reset-link" />
+                              <Button variant="outline" size="icon" onClick={handleCopyResetLink} data-testid="button-copy-reset-link">
+                                {linkCopied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
-                {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.masquerade') && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleMasquerade}
-                    disabled={isMasquerading}
-                    className="w-full"
-                    data-testid="button-masquerade"
-                  >
-                    {isMasquerading ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <UserCheck className="w-4 h-4 mr-2" />
+                    {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.masquerade') && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleMasquerade}
+                        disabled={isMasquerading}
+                        className="w-full"
+                        data-testid="button-masquerade"
+                      >
+                        {isMasquerading ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <UserCheck className="w-4 h-4 mr-2" />
+                        )}
+                        Masquerade as Member
+                      </Button>
                     )}
-                    Masquerade as Member
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Right column - Organisation & Membership */}
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-blue-600" />
+                    Organisation
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="py-3">
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <Label>Organisation</Label>
+                      <Select
+                        value={formData.organization_id || '__none__'}
+                        onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}
+                      >
+                        <SelectTrigger data-testid="select-member-org">
+                          <SelectValue placeholder="Select organisation" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No Organisation</SelectItem>
+                          {organizations.filter(o => o.id).map(o => (
+                            <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : org ? (
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                        <Building2 className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-900 text-sm">{org.name}</p>
+                        {org.website_url && (
+                          <a
+                            href={org.website_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            <Globe className="w-3 h-3" />
+                            {org.website_url}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No organisation assigned</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-purple-600" />
+                    Membership
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="py-3 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <CalendarDays className="w-4 h-4 text-slate-400" />
+                    <div>
+                      <p className="text-xs text-slate-500">Member Since</p>
+                      <p className="text-sm font-medium">
+                        {member.created_on ? formatDate(member.created_on) : '-'}
+                      </p>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center gap-3">
+                    <Shield className="w-4 h-4 text-slate-400" />
+                    <div>
+                      <p className="text-xs text-slate-500">Role</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {member.role_id ? (
+                          <Badge variant="secondary" className="text-xs">
+                            {getRoleName(member.role_id)}
+                          </Badge>
+                        ) : (
+                          <span className="text-sm text-slate-500">No role assigned</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <LogIn className="w-4 h-4 text-slate-400" />
+                      <div>
+                        <p className="text-xs text-slate-500">Login Enabled</p>
+                        <p className="text-sm font-medium">
+                          {isEditing ? (formData.login_enabled ? 'Yes' : 'No') : (member.login_enabled !== false ? 'Yes' : 'No')}
+                        </p>
+                      </div>
+                    </div>
+                    {isEditing && (
+                      <Switch
+                        checked={formData.login_enabled}
+                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, login_enabled: checked }))}
+                        data-testid="switch-login-enabled"
+                      />
+                    )}
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <Users className="w-4 h-4 text-slate-400" />
+                      <div>
+                        <p className="text-xs text-slate-500">Show in Directory</p>
+                        <p className="text-sm font-medium">
+                          {isEditing ? (formData.show_in_directory ? 'Yes' : 'No') : (member.show_in_directory !== false ? 'Yes' : 'No')}
+                        </p>
+                      </div>
+                    </div>
+                    {isEditing && (
+                      <Switch
+                        checked={formData.show_in_directory}
+                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, show_in_directory: checked }))}
+                        data-testid="switch-show-in-directory"
+                      />
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </TabsContent>
 
         {/* Roles Tab */}

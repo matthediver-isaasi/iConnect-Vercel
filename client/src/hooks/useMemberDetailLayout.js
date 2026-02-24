@@ -19,25 +19,6 @@ const DEFAULT_LAYOUT = {
       ]
     },
     {
-      id: 'card-organisation',
-      title: 'Organisation',
-      columns: 1,
-      fields: [
-        { id: 'core:organization_id', type: 'core', fieldKey: 'organization_id', columnIndex: 0 }
-      ]
-    },
-    {
-      id: 'card-membership',
-      title: 'Membership',
-      columns: 2,
-      fields: [
-        { id: 'core:created_on', type: 'core', fieldKey: 'created_on', columnIndex: 0 },
-        { id: 'core:role_id', type: 'core', fieldKey: 'role_id', columnIndex: 1 },
-        { id: 'core:login_enabled', type: 'core', fieldKey: 'login_enabled', columnIndex: 0 },
-        { id: 'core:show_in_directory', type: 'core', fieldKey: 'show_in_directory', columnIndex: 1 }
-      ]
-    },
-    {
       id: 'card-biography',
       title: 'Biography',
       columns: 1,
@@ -76,12 +57,7 @@ export const MEMBER_CORE_FIELDS = [
   { id: 'core:mobile', fieldKey: 'mobile', label: 'Mobile', type: 'text' },
   { id: 'core:landline', fieldKey: 'landline', label: 'Landline', type: 'text' },
   { id: 'core:job_title', fieldKey: 'job_title', label: 'Job Title', type: 'text' },
-  { id: 'core:biography', fieldKey: 'biography', label: 'Biography', type: 'textarea' },
-  { id: 'core:organization_id', fieldKey: 'organization_id', label: 'Organisation', type: 'select' },
-  { id: 'core:role_id', fieldKey: 'role_id', label: 'Role', type: 'select' },
-  { id: 'core:login_enabled', fieldKey: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
-  { id: 'core:show_in_directory', fieldKey: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
-  { id: 'core:created_on', fieldKey: 'created_on', label: 'Member Since', type: 'date' }
+  { id: 'core:biography', fieldKey: 'biography', label: 'Biography', type: 'textarea' }
 ];
 
 export function useMemberDetailLayout() {
@@ -140,11 +116,25 @@ export function useMemberDetailLayout() {
   };
 }
 
+const RIGHT_COLUMN_FIELD_KEYS = new Set([
+  'organization_id', 'role_id', 'login_enabled', 'show_in_directory', 'created_on'
+]);
+
 export function mergeLayoutWithCustomFields(layout, customFields) {
   if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+
+  const filteredLayout = {
+    ...layout,
+    cards: layout.cards
+      .map(card => ({
+        ...card,
+        fields: card.fields.filter(f => !(f.type === 'core' && RIGHT_COLUMN_FIELD_KEYS.has(f.fieldKey)))
+      }))
+      .filter(card => card.fields.length > 0 || card.id === 'card-custom')
+  };
   
   const existingCustomFieldIds = new Set();
-  layout.cards.forEach(card => {
+  filteredLayout.cards.forEach(card => {
     card.fields.forEach(f => {
       if (f.type === 'custom') {
         existingCustomFieldIds.add(f.fieldId);
@@ -154,9 +144,9 @@ export function mergeLayoutWithCustomFields(layout, customFields) {
 
   const unassignedCustomFields = customFields.filter(cf => !existingCustomFieldIds.has(cf.id));
   
-  if (unassignedCustomFields.length === 0) return layout;
+  if (unassignedCustomFields.length === 0) return filteredLayout;
 
-  const updatedCards = [...layout.cards];
+  const updatedCards = [...filteredLayout.cards];
   let customCard = updatedCards.find(c => c.id === 'card-custom');
   
   if (!customCard) {
@@ -184,5 +174,5 @@ export function mergeLayoutWithCustomFields(layout, customFields) {
     ]
   };
 
-  return { ...layout, cards: updatedCards };
+  return { ...filteredLayout, cards: updatedCards };
 }
