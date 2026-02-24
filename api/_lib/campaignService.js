@@ -804,9 +804,12 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
         let html = campaign.html_content || '';
         let subject = campaign.subject || '';
 
+        const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || '';
+        html = html.replace(/\{\{recipient_name\}\}/gi, recipientName);
         html = html.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
         html = html.replace(/\{\{last_name\}\}/gi, recipient.last_name || '');
         html = html.replace(/\{\{email\}\}/gi, recipient.email || '');
+        subject = subject.replace(/\{\{recipient_name\}\}/gi, recipientName);
         subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
 
         const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);

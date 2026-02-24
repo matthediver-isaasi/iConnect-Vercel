@@ -549,6 +549,10 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   const results = [];
   const tenantId = workflow.tenant_id;
   
+  if (entityData && (entityData.first_name || entityData.last_name)) {
+    entityData.recipient_name = `${entityData.first_name || ''} ${entityData.last_name || ''}`.trim();
+  }
+
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   for (const action of (workflow.actions || [])) {
@@ -2106,6 +2110,9 @@ export async function dryRunEmail(action, workflow, entityType, entityId, baseUr
     const { data } = await supabase.from('job_posting').select('*').eq('id', entityId).single();
     entityData = data;
   }
+  if (entityData && (entityData.first_name || entityData.last_name)) {
+    entityData.recipient_name = `${entityData.first_name || ''} ${entityData.last_name || ''}`.trim();
+  }
   
   if (!entityData) {
     return { success: false, error: `Could not find ${entityType} with id ${entityId}` };
@@ -2327,6 +2334,9 @@ export async function executeConfirmedWorkflow(workflowId, entityType, entityId,
       const table = entityType === 'job_posting' ? 'job_posting' : entityType;
       const { data } = await supabase.from(table).select('*').eq('id', entityId).single();
       entityData = data || {};
+    }
+    if (entityData && (entityData.first_name || entityData.last_name)) {
+      entityData.recipient_name = `${entityData.first_name || ''} ${entityData.last_name || ''}`.trim();
     }
     
     const results = await executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl);

@@ -53,7 +53,8 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Member not found' });
       }
 
-      entityData = { ...member, full_name: `${member.first_name || ''} ${member.last_name || ''}`.trim() };
+      const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+      entityData = { ...member, full_name: fullName, recipient_name: fullName };
 
       if (member.organization_id) {
         const { data: org } = await supabase
