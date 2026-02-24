@@ -3,10 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
+import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
+import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,6 +76,11 @@ export default function MemberDetail() {
   const [noteToDelete, setNoteToDelete] = useState(null);
   const notesPerPage = 10;
   
+  // Layout state
+  const [showLayoutEditor, setShowLayoutEditor] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState({});
+  const [customFieldValues, setCustomFieldValues] = useState({});
+
   // Communications state
   const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
   const [updatingOptOutAll, setUpdatingOptOutAll] = useState(false);
@@ -174,6 +181,56 @@ export default function MemberDetail() {
     enabled: isAccessReady,
     queryFn: () => base44.entities.Role.list()
   });
+
+  const { layoutConfig, isLoading: isLayoutLoading, saveLayout, isSaving: isLayoutSaving } = useMemberDetailLayout();
+
+  const { data: memberCustomFields = [] } = useQuery({
+    queryKey: ['member-custom-fields-for-detail'],
+    enabled: isAccessReady,
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'member' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'member');
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+        } catch {
+          return [];
+        }
+      }
+    }
+  });
+
+  const { data: memberPrefValues = [] } = useQuery({
+    queryKey: ['member-pref-values', id],
+    enabled: !!id && isAccessReady,
+    queryFn: async () => {
+      try {
+        const values = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: id }
+        });
+        return values || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const effectiveLayout = useMemo(() => 
+    mergeLayoutWithCustomFields(layoutConfig, memberCustomFields),
+    [layoutConfig, memberCustomFields]
+  );
+
+  const toggleSection = (cardId) => {
+    setCollapsedSections(prev => ({ ...prev, [cardId]: !prev[cardId] }));
+  };
 
   // Activity tab queries
   const { data: memberBookings = [], isLoading: bookingsLoading } = useQuery({
@@ -448,6 +505,23 @@ export default function MemberDetail() {
     }
   }, [member, isEditing]);
 
+  useEffect(() => {
+    if (memberCustomFields.length > 0 && memberPrefValues.length >= 0) {
+      const vals = {};
+      memberPrefValues.forEach(pv => {
+        const field = memberCustomFields.find(f => f.id === pv.field_id);
+        if (field) {
+          if ((field.field_type === 'picklist' || field.field_type === 'list') && typeof pv.value === 'string') {
+            try { vals[field.id] = JSON.parse(pv.value); } catch { vals[field.id] = pv.value; }
+          } else {
+            vals[field.id] = pv.value;
+          }
+        }
+      });
+      setCustomFieldValues(vals);
+    }
+  }, [memberPrefValues, memberCustomFields]);
+
   // Sync category selections when data loads
   useEffect(() => {
     if (memberCategorySelections.length > 0) {
@@ -475,7 +549,12 @@ export default function MemberDetail() {
   // Mutation
   const updateMutation = useMutation({
     mutationFn: (data) => base44.entities.Member.update(id, data),
-    onSuccess: () => {
+    onSuccess: async () => {
+      try {
+        await saveCustomFieldValues();
+      } catch (error) {
+        console.error('Failed to save custom fields:', error);
+      }
       toast.success("Member updated successfully");
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
@@ -553,6 +632,32 @@ export default function MemberDetail() {
     }
   };
 
+  const saveCustomFieldValues = async () => {
+    if (!member?.id || Object.keys(customFieldValues).length === 0) return;
+    const updates = Object.entries(customFieldValues).map(async ([fieldId, value]) => {
+      const existingValue = memberPrefValues.find(pv => pv.field_id === fieldId);
+      const field = memberCustomFields.find(f => f.id === fieldId);
+      let storedValue = value;
+      if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
+        storedValue = JSON.stringify(value);
+      }
+      if (existingValue) {
+        return await base44.entities.MemberPreferenceValue.update(existingValue.id, {
+          value: storedValue,
+          updated_at: new Date().toISOString()
+        });
+      } else if (storedValue !== undefined && storedValue !== '' && storedValue !== null) {
+        return await base44.entities.MemberPreferenceValue.create({
+          member_id: member.id,
+          field_id: fieldId,
+          value: storedValue
+        });
+      }
+    });
+    await Promise.all(updates);
+    queryClient.invalidateQueries({ queryKey: ['member-pref-values', id] });
+  };
+
   // Handlers
   const handleSave = () => {
     updateMutation.mutate({ ...formData, role_id: selectedRoleId });
@@ -573,6 +678,284 @@ export default function MemberDetail() {
     });
     setSelectedRoleId(member.role_id || null);
     setIsEditing(false);
+  };
+
+  const renderMemberCustomFieldEditor = (field) => {
+    const value = customFieldValues[field.id];
+    switch (field.field_type) {
+      case 'text':
+        return isEditing ? (
+          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
+        ) : (
+          <p className="text-sm">{value || '-'}</p>
+        );
+      case 'number':
+      case 'decimal':
+        return isEditing ? (
+          <Input type="number" step={field.field_type === 'decimal' ? '0.01' : '1'} value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
+        ) : (
+          <p className="text-sm">{value || '-'}</p>
+        );
+      case 'dropdown':
+        return isEditing ? (
+          <Select value={value || ''} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}>
+            <SelectTrigger data-testid={`select-member-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+            <SelectContent>
+              {(field.options || []).map((opt, idx) => (
+                <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-sm">{(field.options || []).find(o => o.value === value)?.label || value || '-'}</p>
+        );
+      case 'picklist': {
+        const selectedValues = Array.isArray(value) ? value : [];
+        return isEditing ? (
+          <div className="space-y-2">
+            {(field.options || []).map((opt, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Checkbox
+                  checked={selectedValues.includes(opt.value)}
+                  onCheckedChange={(checked) => {
+                    const newValues = checked ? [...selectedValues, opt.value] : selectedValues.filter(v => v !== opt.value);
+                    setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }));
+                  }}
+                  data-testid={`checkbox-member-custom-${field.id}-${opt.value}`}
+                />
+                <span className="text-sm">{opt.label || opt.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm">{selectedValues.length > 0 ? selectedValues.join(', ') : '-'}</p>
+        );
+      }
+      case 'date':
+        return isEditing ? (
+          <Input type="date" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-date-${field.id}`} />
+        ) : (
+          <p className="text-sm">{value ? formatDate(value) : '-'}</p>
+        );
+      case 'email':
+        return isEditing ? (
+          <Input type="email" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-email-${field.id}`} />
+        ) : (
+          <p className="text-sm">{value ? <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a> : '-'}</p>
+        );
+      case 'url':
+        return isEditing ? (
+          <Input type="url" value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} placeholder="https://" data-testid={`input-member-custom-url-${field.id}`} />
+        ) : (
+          <p className="text-sm">{value ? <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a> : '-'}</p>
+        );
+      case 'textarea':
+        return isEditing ? (
+          <Textarea value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} rows={3} data-testid={`textarea-member-custom-${field.id}`} />
+        ) : (
+          <p className="text-sm whitespace-pre-wrap">{value || '-'}</p>
+        );
+      default:
+        return isEditing ? (
+          <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
+        ) : (
+          <p className="text-sm">{value || '-'}</p>
+        );
+    }
+  };
+
+  const renderMemberCoreField = (fieldKey) => {
+    const coreFieldDef = MEMBER_CORE_FIELDS.find(f => f.fieldKey === fieldKey);
+    if (!coreFieldDef) return null;
+    const label = coreFieldDef.label;
+
+    switch (fieldKey) {
+      case 'first_name':
+      case 'last_name':
+      case 'mobile':
+      case 'landline':
+      case 'job_title':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            {isEditing ? (
+              <Input value={formData[fieldKey] || ''} onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))} data-testid={`input-member-${fieldKey}`} />
+            ) : (
+              <p className="text-sm font-medium">{member[fieldKey] || '-'}</p>
+            )}
+          </div>
+        );
+      case 'email':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            {isEditing ? (
+              <Input type="email" value={formData.email || ''} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} data-testid="input-member-email" />
+            ) : (
+              <p className="text-sm">{member.email ? <a href={`mailto:${member.email}`} className="text-blue-600 hover:underline">{member.email}</a> : '-'}</p>
+            )}
+          </div>
+        );
+      case 'biography':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            {isEditing ? (
+              <Textarea value={formData.biography || ''} onChange={(e) => setFormData(prev => ({ ...prev, biography: e.target.value }))} rows={4} data-testid="textarea-member-biography" />
+            ) : (
+              <p className="text-sm whitespace-pre-wrap">{member.biography || '-'}</p>
+            )}
+          </div>
+        );
+      case 'organization_id': {
+        const org = getOrganization();
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            {isEditing ? (
+              <Select value={formData.organization_id || '__none__'} onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}>
+                <SelectTrigger data-testid="select-member-org"><SelectValue placeholder="Select organisation" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No Organisation</SelectItem>
+                  {organizations.filter(o => o.id).map(o => (
+                    <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : org ? (
+              <div className="flex items-start gap-2">
+                <div className="w-6 h-6 rounded bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  <Building2 className="w-3 h-3 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-sm">{org.name}</p>
+                  {org.website_url && (
+                    <a href={org.website_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                      <Globe className="w-3 h-3" />{org.website_url}
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">No organisation assigned</p>
+            )}
+          </div>
+        );
+      }
+      case 'role_id':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            {isEditing ? (
+              <Select value={selectedRoleId || '__none__'} onValueChange={(v) => setSelectedRoleId(v === '__none__' ? null : v)}>
+                <SelectTrigger data-testid="select-member-role"><SelectValue placeholder="Select role" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No Role</SelectItem>
+                  {roles.map(r => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {member.role_id ? (
+                  <Badge variant="secondary" className="text-xs">{getRoleName(member.role_id)}</Badge>
+                ) : (
+                  <span className="text-sm text-slate-500">No role assigned</span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      case 'login_enabled':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">
+                {isEditing ? (formData.login_enabled ? 'Yes' : 'No') : (member.login_enabled !== false ? 'Yes' : 'No')}
+              </p>
+              {isEditing && (
+                <Switch checked={formData.login_enabled} onCheckedChange={(checked) => setFormData(prev => ({ ...prev, login_enabled: checked }))} data-testid="switch-login-enabled" />
+              )}
+            </div>
+          </div>
+        );
+      case 'show_in_directory':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">
+                {isEditing ? (formData.show_in_directory ? 'Yes' : 'No') : (member.show_in_directory !== false ? 'Yes' : 'No')}
+              </p>
+              {isEditing && (
+                <Switch checked={formData.show_in_directory} onCheckedChange={(checked) => setFormData(prev => ({ ...prev, show_in_directory: checked }))} data-testid="switch-show-in-directory" />
+              )}
+            </div>
+          </div>
+        );
+      case 'created_on':
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            <p className="text-sm font-medium">{member.created_on ? formatDate(member.created_on) : '-'}</p>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const renderLayoutCard = (card) => {
+    if (card.fields.length === 0) return null;
+    const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
+    const isCollapsed = collapsedSections[card.id];
+
+    const renderField = (field) => {
+      if (field.type === 'core') {
+        return <div key={field.id}>{renderMemberCoreField(field.fieldKey)}</div>;
+      } else {
+        const customField = memberCustomFields.find(cf => cf.id === field.fieldId);
+        if (!customField) return null;
+        return (
+          <div key={field.id} className="space-y-1">
+            <Label className="text-xs text-slate-500">{customField.label}</Label>
+            {renderMemberCustomFieldEditor(customField)}
+          </div>
+        );
+      }
+    };
+
+    return (
+      <Card key={card.id}>
+        <CardHeader className="cursor-pointer select-none" onClick={() => toggleSection(card.id)} data-testid={`member-card-header-${card.id}`}>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-blue-600" />
+            {card.title}
+            <span className="ml-auto">
+              {isCollapsed ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        {!isCollapsed && (
+          <CardContent>
+            <div className={`grid ${gridCols} gap-4`}>
+              {Array.from({ length: card.columns }).map((_, colIndex) => {
+                const colFields = card.fields.filter(f =>
+                  f.columnIndex !== undefined ? f.columnIndex === colIndex : (card.fields.indexOf(f) % card.columns === colIndex)
+                );
+                return (
+                  <div key={colIndex} className="space-y-4">
+                    {colFields.map(field => renderField(field))}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        )}
+      </Card>
+    );
   };
 
   if (memberLoading || !member) {
@@ -621,10 +1004,16 @@ export default function MemberDetail() {
             <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
           )}
           {isAdmin && !isEditing && (
-            <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
-              <Pencil className="w-4 h-4 mr-1" />
-              Edit
-            </Button>
+            <>
+              <Button variant="outline" size="sm" onClick={() => setShowLayoutEditor(true)} disabled={isLayoutLoading} data-testid="button-customize-member-layout">
+                <LayoutGrid className="w-4 h-4 mr-1" />
+                Customize Layout
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
+                <Pencil className="w-4 h-4 mr-1" />
+                Edit
+              </Button>
+            </>
           )}
           {isEditing && (
             <>
@@ -685,342 +1074,63 @@ export default function MemberDetail() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Contact Information Card */}
+          {effectiveLayout.cards.map(card => renderLayoutCard(card))}
+
+          {!isEditing && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <User className="w-5 h-5 text-blue-600" />
-                  Contact Information
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Key className="w-4 h-4 text-blue-600" />
+                  Account Actions
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {isEditing ? (
-                  <>
-                    <div className="space-y-2">
-                      <Label>First Name</Label>
-                      <Input
-                        value={formData.first_name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
-                        data-testid="input-member-first-name"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Last Name</Label>
-                      <Input
-                        value={formData.last_name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
-                        data-testid="input-member-last-name"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Email</Label>
-                      <Input
-                        type="email"
-                        value={formData.email}
-                        onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                        data-testid="input-member-email"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Mobile</Label>
-                      <Input
-                        value={formData.mobile}
-                        onChange={(e) => setFormData(prev => ({ ...prev, mobile: e.target.value }))}
-                        data-testid="input-member-mobile"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Landline</Label>
-                      <Input
-                        value={formData.landline}
-                        onChange={(e) => setFormData(prev => ({ ...prev, landline: e.target.value }))}
-                        data-testid="input-member-landline"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Job Title</Label>
-                      <Input
-                        value={formData.job_title}
-                        onChange={(e) => setFormData(prev => ({ ...prev, job_title: e.target.value }))}
-                        data-testid="input-member-job-title"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3 py-2">
-                      <User className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">First Name</p>
-                        <p className="text-sm font-medium">{member.first_name || '-'}</p>
-                      </div>
-                    </div>
-                    <Separator />
-                    <div className="flex items-center gap-3 py-2">
-                      <User className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Last Name</p>
-                        <p className="text-sm font-medium">{member.last_name || '-'}</p>
-                      </div>
-                    </div>
-                    <Separator />
-                    <div className="flex items-center gap-3 py-2">
-                      <Mail className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Email</p>
-                        <p className="text-sm">{member.email || '-'}</p>
-                      </div>
-                    </div>
-                    <Separator />
-                    <div className="flex items-center gap-3 py-2">
-                      <Smartphone className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Mobile</p>
-                        <p className="text-sm">{member.mobile || '-'}</p>
-                      </div>
-                    </div>
-                    <Separator />
-                    <div className="flex items-center gap-3 py-2">
-                      <PhoneCall className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Landline</p>
-                        <p className="text-sm">{member.landline || '-'}</p>
-                      </div>
-                    </div>
-                    <Separator />
-                    <div className="flex items-center gap-3 py-2">
-                      <Briefcase className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Job Title</p>
-                        <p className="text-sm">{member.job_title || '-'}</p>
-                      </div>
-                    </div>
-                    {/* Password Reset Section */}
-                    {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.password_reset') && (
-                      <>
-                        <Separator />
-                        <div className="pt-3 space-y-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleGenerateResetLink}
-                            disabled={isGeneratingResetLink}
-                            className="w-full"
-                            data-testid="button-generate-reset-link"
-                          >
-                            {isGeneratingResetLink ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                              <Key className="w-4 h-4 mr-2" />
-                            )}
-                            Generate Reset Password Link
-                          </Button>
-                          
-                          {generatedResetLink && (
-                            <div className="space-y-1">
-                              <p className="text-xs text-slate-500">Password Reset Link (valid for 24 hours)</p>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  readOnly
-                                  value={generatedResetLink}
-                                  className="text-xs font-mono"
-                                  data-testid="input-reset-link"
-                                />
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={handleCopyResetLink}
-                                  data-testid="button-copy-reset-link"
-                                >
-                                  {linkCopied ? (
-                                    <Check className="w-4 h-4 text-green-600" />
-                                  ) : (
-                                    <Copy className="w-4 h-4" />
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-                    {/* Masquerade Section */}
-                    {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.masquerade') && (
-                      <>
-                        <Separator />
-                        <div className="pt-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleMasquerade}
-                            disabled={isMasquerading}
-                            className="w-full"
-                            data-testid="button-masquerade"
-                          >
-                            {isMasquerading ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                              <UserCheck className="w-4 h-4 mr-2" />
-                            )}
-                            Masquerade as Member
+              <CardContent className="space-y-3">
+                {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.password_reset') && (
+                  <div className="space-y-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateResetLink}
+                      disabled={isGeneratingResetLink}
+                      className="w-full"
+                      data-testid="button-generate-reset-link"
+                    >
+                      {isGeneratingResetLink ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Key className="w-4 h-4 mr-2" />
+                      )}
+                      Generate Reset Password Link
+                    </Button>
+                    {generatedResetLink && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-slate-500">Password Reset Link (valid for 24 hours)</p>
+                        <div className="flex items-center gap-2">
+                          <Input readOnly value={generatedResetLink} className="text-xs font-mono" data-testid="input-reset-link" />
+                          <Button variant="outline" size="icon" onClick={handleCopyResetLink} data-testid="button-copy-reset-link">
+                            {linkCopied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
                           </Button>
                         </div>
-                      </>
+                      </div>
                     )}
-                  </>
+                  </div>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* Right column */}
-            <div className="space-y-6">
-              {/* Organisation Card */}
-              <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-blue-600" />
-                    Organisation
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="py-3">
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <Label>Organisation</Label>
-                      <Select 
-                        value={formData.organization_id || '__none__'} 
-                        onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}
-                      >
-                        <SelectTrigger data-testid="select-member-org">
-                          <SelectValue placeholder="Select organisation" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">No Organisation</SelectItem>
-                          {organizations.filter(o => o.id).map(o => (
-                            <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : org ? (
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <Building2 className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-900 text-sm">{org.name}</p>
-                        {org.website_url && (
-                          <a 
-                            href={org.website_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                          >
-                            <Globe className="w-3 h-3" />
-                            {org.website_url}
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">No organisation assigned</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Membership Card */}
-              <Card>
-                <CardHeader className="py-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-purple-600" />
-                    Membership
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="py-3 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <CalendarDays className="w-4 h-4 text-slate-400" />
-                    <div>
-                      <p className="text-xs text-slate-500">Member Since</p>
-                      <p className="text-sm font-medium">
-                        {member.created_on ? formatDate(member.created_on) : '-'}
-                      </p>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center gap-3">
-                    <Shield className="w-4 h-4 text-slate-400" />
-                    <div>
-                      <p className="text-xs text-slate-500">Role</p>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {member.role_id ? (
-                          <Badge variant="secondary" className="text-xs">
-                            {getRoleName(member.role_id)}
-                          </Badge>
-                        ) : (
-                          <span className="text-sm text-slate-500">No role assigned</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <LogIn className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Login Enabled</p>
-                        <p className="text-sm font-medium">
-                          {isEditing ? (formData.login_enabled ? 'Yes' : 'No') : (member.login_enabled !== false ? 'Yes' : 'No')}
-                        </p>
-                      </div>
-                    </div>
-                    {isEditing && (
-                      <Switch
-                        checked={formData.login_enabled}
-                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, login_enabled: checked }))}
-                        data-testid="switch-login-enabled"
-                      />
+                {isAccessReady && isFeatureExcluded && !isFeatureExcluded('crm.members.masquerade') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMasquerade}
+                    disabled={isMasquerading}
+                    className="w-full"
+                    data-testid="button-masquerade"
+                  >
+                    {isMasquerading ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <UserCheck className="w-4 h-4 mr-2" />
                     )}
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <Users className="w-4 h-4 text-slate-400" />
-                      <div>
-                        <p className="text-xs text-slate-500">Show in Directory</p>
-                        <p className="text-sm font-medium">
-                          {isEditing ? (formData.show_in_directory ? 'Yes' : 'No') : (member.show_in_directory !== false ? 'Yes' : 'No')}
-                        </p>
-                      </div>
-                    </div>
-                    {isEditing && (
-                      <Switch
-                        checked={formData.show_in_directory}
-                        onCheckedChange={(checked) => setFormData(prev => ({ ...prev, show_in_directory: checked }))}
-                        data-testid="switch-show-in-directory"
-                      />
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          {/* Biography Card */}
-          {(isEditing || member?.biography) && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Biography</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isEditing ? (
-                  <Textarea
-                    value={formData.biography}
-                    onChange={(e) => setFormData(prev => ({ ...prev, biography: e.target.value }))}
-                    rows={4}
-                    data-testid="textarea-member-biography"
-                  />
-                ) : (
-                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{member.biography}</p>
+                    Masquerade as Member
+                  </Button>
                 )}
               </CardContent>
             </Card>
@@ -1751,6 +1861,19 @@ export default function MemberDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {showLayoutEditor && (
+        <MemberDetailLayoutEditor
+          layout={effectiveLayout}
+          customFields={memberCustomFields}
+          onSave={async (newLayout) => {
+            await saveLayout(newLayout);
+            setShowLayoutEditor(false);
+          }}
+          onCancel={() => setShowLayoutEditor(false)}
+          isSaving={isLayoutSaving}
+        />
+      )}
     </div>
   );
 }

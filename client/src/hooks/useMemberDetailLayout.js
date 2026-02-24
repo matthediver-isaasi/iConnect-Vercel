@@ -1,0 +1,188 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
+
+const LAYOUT_SETTING_KEY = 'member_detail_layout_config';
+
+const DEFAULT_LAYOUT = {
+  cards: [
+    {
+      id: 'card-contact',
+      title: 'Contact Information',
+      columns: 2,
+      fields: [
+        { id: 'core:first_name', type: 'core', fieldKey: 'first_name', columnIndex: 0 },
+        { id: 'core:last_name', type: 'core', fieldKey: 'last_name', columnIndex: 1 },
+        { id: 'core:email', type: 'core', fieldKey: 'email', columnIndex: 0 },
+        { id: 'core:mobile', type: 'core', fieldKey: 'mobile', columnIndex: 1 },
+        { id: 'core:landline', type: 'core', fieldKey: 'landline', columnIndex: 0 },
+        { id: 'core:job_title', type: 'core', fieldKey: 'job_title', columnIndex: 1 }
+      ]
+    },
+    {
+      id: 'card-organisation',
+      title: 'Organisation',
+      columns: 1,
+      fields: [
+        { id: 'core:organization_id', type: 'core', fieldKey: 'organization_id', columnIndex: 0 }
+      ]
+    },
+    {
+      id: 'card-membership',
+      title: 'Membership',
+      columns: 2,
+      fields: [
+        { id: 'core:created_on', type: 'core', fieldKey: 'created_on', columnIndex: 0 },
+        { id: 'core:role_id', type: 'core', fieldKey: 'role_id', columnIndex: 1 },
+        { id: 'core:login_enabled', type: 'core', fieldKey: 'login_enabled', columnIndex: 0 },
+        { id: 'core:show_in_directory', type: 'core', fieldKey: 'show_in_directory', columnIndex: 1 }
+      ]
+    },
+    {
+      id: 'card-biography',
+      title: 'Biography',
+      columns: 1,
+      fields: [
+        { id: 'core:biography', type: 'core', fieldKey: 'biography', columnIndex: 0 }
+      ]
+    },
+    {
+      id: 'card-custom',
+      title: 'Custom Fields',
+      columns: 2,
+      fields: []
+    }
+  ]
+};
+
+function migrateLayoutWithColumnIndex(layout) {
+  if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+  
+  return {
+    ...layout,
+    cards: layout.cards.map(card => ({
+      ...card,
+      fields: card.fields.map((field, idx) => ({
+        ...field,
+        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns)
+      }))
+    }))
+  };
+}
+
+export const MEMBER_CORE_FIELDS = [
+  { id: 'core:first_name', fieldKey: 'first_name', label: 'First Name', type: 'text' },
+  { id: 'core:last_name', fieldKey: 'last_name', label: 'Last Name', type: 'text' },
+  { id: 'core:email', fieldKey: 'email', label: 'Email', type: 'email' },
+  { id: 'core:mobile', fieldKey: 'mobile', label: 'Mobile', type: 'text' },
+  { id: 'core:landline', fieldKey: 'landline', label: 'Landline', type: 'text' },
+  { id: 'core:job_title', fieldKey: 'job_title', label: 'Job Title', type: 'text' },
+  { id: 'core:biography', fieldKey: 'biography', label: 'Biography', type: 'textarea' },
+  { id: 'core:organization_id', fieldKey: 'organization_id', label: 'Organisation', type: 'select' },
+  { id: 'core:role_id', fieldKey: 'role_id', label: 'Role', type: 'select' },
+  { id: 'core:login_enabled', fieldKey: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
+  { id: 'core:show_in_directory', fieldKey: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
+  { id: 'core:created_on', fieldKey: 'created_on', label: 'Member Since', type: 'date' }
+];
+
+export function useMemberDetailLayout() {
+  const queryClient = useQueryClient();
+
+  const { data: layoutData, isLoading } = useQuery({
+    queryKey: ['member-detail-layout'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === LAYOUT_SETTING_KEY);
+      
+      let parsedConfig = DEFAULT_LAYOUT;
+      if (setting?.setting_value) {
+        try {
+          parsedConfig = migrateLayoutWithColumnIndex(JSON.parse(setting.setting_value));
+        } catch {
+          parsedConfig = DEFAULT_LAYOUT;
+        }
+      }
+      
+      return {
+        config: parsedConfig,
+        record: setting || null
+      };
+    }
+  });
+
+  const saveLayoutMutation = useMutation({
+    mutationFn: async (newLayout) => {
+      const layoutJson = JSON.stringify(newLayout);
+      const settingRecord = layoutData?.record;
+      
+      if (settingRecord?.id) {
+        return await base44.entities.SystemSettings.update(settingRecord.id, {
+          setting_value: layoutJson
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: LAYOUT_SETTING_KEY,
+          setting_value: layoutJson,
+          description: 'Member detail view layout configuration'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-detail-layout'] });
+    }
+  });
+
+  return {
+    layoutConfig: layoutData?.config || DEFAULT_LAYOUT,
+    isLoading,
+    saveLayout: saveLayoutMutation.mutateAsync,
+    isSaving: saveLayoutMutation.isPending,
+    DEFAULT_LAYOUT
+  };
+}
+
+export function mergeLayoutWithCustomFields(layout, customFields) {
+  if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+  
+  const existingCustomFieldIds = new Set();
+  layout.cards.forEach(card => {
+    card.fields.forEach(f => {
+      if (f.type === 'custom') {
+        existingCustomFieldIds.add(f.fieldId);
+      }
+    });
+  });
+
+  const unassignedCustomFields = customFields.filter(cf => !existingCustomFieldIds.has(cf.id));
+  
+  if (unassignedCustomFields.length === 0) return layout;
+
+  const updatedCards = [...layout.cards];
+  let customCard = updatedCards.find(c => c.id === 'card-custom');
+  
+  if (!customCard) {
+    customCard = {
+      id: 'card-custom',
+      title: 'Custom Fields',
+      columns: 2,
+      fields: []
+    };
+    updatedCards.push(customCard);
+  }
+
+  const cardIndex = updatedCards.findIndex(c => c.id === customCard.id);
+  const existingFieldCount = customCard.fields.length;
+  updatedCards[cardIndex] = {
+    ...customCard,
+    fields: [
+      ...customCard.fields,
+      ...unassignedCustomFields.map((cf, idx) => ({
+        id: `custom:${cf.id}`,
+        type: 'custom',
+        fieldId: cf.id,
+        columnIndex: (existingFieldCount + idx) % customCard.columns
+      }))
+    ]
+  };
+
+  return { ...layout, cards: updatedCards };
+}
