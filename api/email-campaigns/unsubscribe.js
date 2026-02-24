@@ -39,6 +39,20 @@ async function processUnsubscribe(campaignId, recipientId, recipient, campaign, 
       unsubscribed_count: supabase.raw ? supabase.raw('unsubscribed_count + 1') : 1
     })
     .eq('id', campaignId);
+
+  if (!recipient.member_id) {
+    await supabase
+      .from('email_subscriber')
+      .update({
+        opted_out: true,
+        opted_out_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('tenant_id', campaign.tenant_id)
+      .eq('email', recipient.email.toLowerCase());
+
+    console.log(`[Unsubscribe] Updated email_subscriber opted_out for external subscriber: ${recipient.email}`);
+  }
 }
 
 export default async function handler(req, res) {

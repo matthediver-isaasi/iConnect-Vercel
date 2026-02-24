@@ -745,7 +745,7 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
 
     const recipientRecords = recipients.map(r => ({
       campaign_id: campaignId,
-      member_id: r.id,
+      member_id: r.member_id !== undefined ? r.member_id : r.id,
       email: r.email,
       first_name: r.first_name,
       last_name: r.last_name,
