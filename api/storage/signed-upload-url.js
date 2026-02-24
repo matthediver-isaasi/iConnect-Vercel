@@ -149,7 +149,8 @@ export default async function handler(req, res) {
     }
 
     // Determine bucket based on upload type
-    const usePrivate = isPrivate || getBucketForType(uploadType || 'upload') === BUCKETS.PRIVATE;
+    // If isPrivate is explicitly false (public access enabled), honor it regardless of upload type
+    const usePrivate = isPrivate === false ? false : (isPrivate || getBucketForType(uploadType || 'upload') === BUCKETS.PRIVATE);
     const bucket = usePrivate ? BUCKETS.PRIVATE : BUCKETS.PUBLIC;
 
     // Check file size
