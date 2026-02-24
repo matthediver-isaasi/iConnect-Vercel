@@ -1472,7 +1472,7 @@ export default function OrganisationDetailView({
                                 <User className="w-4 h-4 text-blue-600" />
                               </div>
                               <a 
-                                href={`/members?id=${member.id}`}
+                                href={`/members/${member.id}`}
                                 className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
                                 data-testid={`link-member-${member.id}`}
                               >
