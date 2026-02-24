@@ -314,6 +314,46 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
           m.communications_opted_out_all !== true
         );
       }
+
+      // Also include external subscribers (non-members) for these categories
+      const allExtSubscribers = [];
+      let extOffset = 0;
+      const extBatchSize = 1000;
+      let hasMoreExt = true;
+
+      while (hasMoreExt) {
+        const { data: extBatch } = await supabase
+          .from('email_subscriber')
+          .select('id, email, first_name, last_name')
+          .eq('tenant_id', tenantId)
+          .in('communication_category_id', targetIds)
+          .eq('opted_out', false)
+          .range(extOffset, extOffset + extBatchSize - 1);
+
+        if (extBatch && extBatch.length > 0) {
+          allExtSubscribers.push(...extBatch);
+          extOffset += extBatch.length;
+          hasMoreExt = extBatch.length === extBatchSize;
+        } else {
+          hasMoreExt = false;
+        }
+      }
+
+      if (allExtSubscribers.length > 0) {
+        const memberEmails = new Set(recipients.map(r => r.email.toLowerCase()));
+        for (const sub of allExtSubscribers) {
+          if (sub.email && !memberEmails.has(sub.email.toLowerCase())) {
+            recipients.push({
+              id: sub.id,
+              member_id: null,
+              email: sub.email,
+              first_name: sub.first_name,
+              last_name: sub.last_name
+            });
+          }
+        }
+        console.log(`[CampaignService] Added ${allExtSubscribers.length} external subscribers for communication_category targeting`);
+      }
     } else if (targetType === 'member_group' && targetIds.length > 0) {
       // Fetch all member group assignments with pagination
       const allAssignments = [];
