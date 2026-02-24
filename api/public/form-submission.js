@@ -97,6 +97,103 @@ export default async function handler(req, res) {
 
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
 
+    // Handle newsletter/communication category subscription early (before slower pipeline/DD processing)
+    if (form.communication_category_id) {
+      const processSubscription = async (attempt = 1) => {
+        try {
+          console.log('[Public Form Submission] Processing newsletter subscription for category:', form.communication_category_id, '(attempt', attempt + ')');
+          
+          let submitterEmail = null;
+          let submitterFirstName = null;
+          let submitterLastName = null;
+          
+          const fields = form.fields || [];
+          for (const field of fields) {
+            const value = submission_data?.[field.id];
+            if (!value) continue;
+            
+            if (field.type === 'email' || field.id?.toLowerCase().includes('email')) {
+              submitterEmail = value;
+            }
+            if (field.type === 'text' && (field.id?.toLowerCase().includes('first_name') || field.label?.toLowerCase().includes('first name'))) {
+              submitterFirstName = value;
+            }
+            if (field.type === 'text' && (field.id?.toLowerCase().includes('last_name') || field.label?.toLowerCase().includes('last name'))) {
+              submitterLastName = value;
+            }
+          }
+          
+          if (submitterEmail) {
+            console.log('[Public Form Submission] Found submitter email:', submitterEmail);
+            
+            const { data: member } = await supabase
+              .from('member')
+              .select('id, communications_opted_out_all')
+              .eq('tenant_id', tenantData.id)
+              .eq('email', submitterEmail.toLowerCase())
+              .single();
+            
+            if (member) {
+              console.log('[Public Form Submission] Submitter is a member:', member.id);
+              
+              if (member.communications_opted_out_all) {
+                await supabase
+                  .from('member')
+                  .update({ communications_opted_out_all: false })
+                  .eq('id', member.id);
+                console.log('[Public Form Submission] Cleared member global opt-out');
+              }
+              
+              const { error: prefError } = await supabase
+                .from('member_communication_preference')
+                .upsert({
+                  member_id: member.id,
+                  category_id: form.communication_category_id,
+                  is_subscribed: true,
+                  tenant_id: tenantData.id
+                }, {
+                  onConflict: 'member_id,category_id'
+                });
+              if (prefError) throw prefError;
+              console.log('[Public Form Submission] Updated member communication preference');
+              
+            } else {
+              console.log('[Public Form Submission] Submitter is not a member, creating/updating subscriber');
+              
+              const { error: subError } = await supabase
+                .from('email_subscriber')
+                .upsert({
+                  tenant_id: tenantData.id,
+                  email: submitterEmail.toLowerCase(),
+                  first_name: submitterFirstName || null,
+                  last_name: submitterLastName || null,
+                  form_id: form.id,
+                  communication_category_id: form.communication_category_id,
+                  opted_out: false,
+                  subscribed_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                }, {
+                  onConflict: 'tenant_id,email,communication_category_id'
+                });
+              if (subError) throw subError;
+              console.log('[Public Form Submission] Created/updated email subscriber record');
+            }
+          } else {
+            console.log('[Public Form Submission] No email found in submission, skipping newsletter subscription');
+          }
+        } catch (subscriptionError) {
+          console.error('[Public Form Submission] Newsletter subscription error (attempt ' + attempt + '):', subscriptionError.message || subscriptionError);
+          if (attempt < 2) {
+            console.log('[Public Form Submission] Retrying newsletter subscription...');
+            await processSubscription(attempt + 1);
+          } else {
+            console.error('[Public Form Submission] Newsletter subscription FAILED after 2 attempts for submission:', submission.id, 'form:', form.id);
+          }
+        }
+      };
+      await processSubscription();
+    }
+
     const baseUrl = `${req.headers['x-forwarded-proto'] || 'https'}://${host}`;
 
     // Process entity pipelines if configured (members/organisations creation)
@@ -492,100 +589,6 @@ export default async function handler(req, res) {
       } catch (ddError) {
         console.error('[Public Form Submission] Error creating DD record:', ddError);
         // Don't fail the submission for DD errors
-      }
-    }
-
-    // Handle newsletter/communication category subscription
-    if (form.communication_category_id) {
-      try {
-        console.log('[Public Form Submission] Processing newsletter subscription for category:', form.communication_category_id);
-        
-        // Extract email from submission data - check common email field patterns
-        let submitterEmail = null;
-        let submitterFirstName = null;
-        let submitterLastName = null;
-        
-        // Look for email in submission_data by field type or common field names
-        const fields = form.fields || [];
-        for (const field of fields) {
-          const value = submission_data?.[field.id];
-          if (!value) continue;
-          
-          if (field.type === 'email' || field.id?.toLowerCase().includes('email')) {
-            submitterEmail = value;
-          }
-          if (field.type === 'text' && (field.id?.toLowerCase().includes('first_name') || field.label?.toLowerCase().includes('first name'))) {
-            submitterFirstName = value;
-          }
-          if (field.type === 'text' && (field.id?.toLowerCase().includes('last_name') || field.label?.toLowerCase().includes('last name'))) {
-            submitterLastName = value;
-          }
-        }
-        
-        if (submitterEmail) {
-          console.log('[Public Form Submission] Found submitter email:', submitterEmail);
-          
-          // Check if this email belongs to a member
-          const { data: member } = await supabase
-            .from('member')
-            .select('id, communications_opted_out_all')
-            .eq('tenant_id', tenantData.id)
-            .eq('email', submitterEmail.toLowerCase())
-            .single();
-          
-          if (member) {
-            console.log('[Public Form Submission] Submitter is a member:', member.id);
-            
-            // Member: Clear global opt-out if set, and set category preference
-            if (member.communications_opted_out_all) {
-              await supabase
-                .from('member')
-                .update({ communications_opted_out_all: false })
-                .eq('id', member.id);
-              console.log('[Public Form Submission] Cleared member global opt-out');
-            }
-            
-            // Upsert the member_communication_preference for this category
-            await supabase
-              .from('member_communication_preference')
-              .upsert({
-                member_id: member.id,
-                category_id: form.communication_category_id,
-                is_subscribed: true,
-                tenant_id: tenantData.id
-              }, {
-                onConflict: 'member_id,category_id'
-              });
-            console.log('[Public Form Submission] Updated member communication preference');
-            
-          } else {
-            console.log('[Public Form Submission] Submitter is not a member, creating/updating subscriber');
-            
-            // Non-member: Upsert into email_subscriber with opted_out=false
-            // This will re-enable subscription if they previously opted out
-            await supabase
-              .from('email_subscriber')
-              .upsert({
-                tenant_id: tenantData.id,
-                email: submitterEmail.toLowerCase(),
-                first_name: submitterFirstName || null,
-                last_name: submitterLastName || null,
-                form_id: form.id,
-                communication_category_id: form.communication_category_id,
-                opted_out: false,
-                subscribed_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              }, {
-                onConflict: 'tenant_id,email,communication_category_id'
-              });
-            console.log('[Public Form Submission] Created/updated email subscriber record');
-          }
-        } else {
-          console.log('[Public Form Submission] No email found in submission, skipping newsletter subscription');
-        }
-      } catch (subscriptionError) {
-        console.error('[Public Form Submission] Error processing newsletter subscription:', subscriptionError);
-        // Don't fail the submission for subscription errors
       }
     }
 
