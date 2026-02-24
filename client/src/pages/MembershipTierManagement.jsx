@@ -142,6 +142,7 @@ export default function MembershipTierManagement() {
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
   const [bands, setBands] = useState([]);
   const [discounts, setDiscounts] = useState([]);
+  const [vatOverrides, setVatOverrides] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewSearch, setPreviewSearch] = useState('');
@@ -277,13 +278,14 @@ export default function MembershipTierManagement() {
         ...d,
         discount_value: d.discount_value?.toString() || '0',
       })));
+      setVatOverrides(historicalData.vatOverrides || []);
       setHasChanges(false);
       setIsCreatingNew(false);
       setWizardStep(6);
     }
   }, [viewingHistorical, historicalData]);
 
-  const loadConfigIntoState = (c, configBands, configDiscounts) => {
+  const loadConfigIntoState = (c, configBands, configDiscounts, configVatOverrides) => {
     const inferredPricingModel = c.pricing_model || 'tiered';
     const inferredStartMode = c.start_mode || 'fixed_date';
     const inferredFlatCost = c.flat_cost ?? null;
@@ -325,18 +327,20 @@ export default function MembershipTierManagement() {
       ...d,
       discount_value: d.discount_value?.toString() || '0',
     })));
+    setVatOverrides(configVatOverrides || []);
     setHasChanges(false);
   };
 
   useEffect(() => {
     if (tierData && !viewingHistorical && !isCreatingNew) {
       if (tierData.config) {
-        loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts);
+        loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts, tierData.vatOverrides);
         setSelectedActiveConfigId(tierData.config.id);
         setWizardStep(6);
       } else {
         setBands([]);
         setDiscounts([]);
+        setVatOverrides([]);
         setHasChanges(false);
       }
     }
@@ -444,6 +448,28 @@ export default function MembershipTierManagement() {
     setHasChanges(true);
   };
 
+  const addVatOverride = () => {
+    setVatOverrides(prev => [...prev, {
+      id: `new-${Date.now()}`,
+      field_id: '',
+      field_label: '',
+      match_value: '',
+      vat_rate: null,
+      label: '',
+    }]);
+    setHasChanges(true);
+  };
+
+  const updateVatOverride = (index, key, value) => {
+    setVatOverrides(prev => prev.map((d, i) => i === index ? { ...d, [key]: value } : d));
+    setHasChanges(true);
+  };
+
+  const removeVatOverride = (index) => {
+    setVatOverrides(prev => prev.filter((_, i) => i !== index));
+    setHasChanges(true);
+  };
+
   const validateStep = (step) => {
     switch (step) {
       case 1:
@@ -539,6 +565,13 @@ export default function MembershipTierManagement() {
         discount_value: parseFloat(d.discount_value) || 0,
         label: d.label || null,
       })),
+      vatOverrides: vatOverrides.map(v => ({
+        field_id: v.field_id,
+        field_label: v.field_label || null,
+        match_value: v.match_value || '',
+        vat_rate: v.vat_rate || null,
+        label: v.label || null,
+      })),
     };
 
     saveMutation.mutate(payload);
@@ -591,6 +624,14 @@ export default function MembershipTierManagement() {
     } else {
       setDiscounts([]);
     }
+    if (tierData?.vatOverrides?.length > 0) {
+      setVatOverrides(tierData.vatOverrides.map(v => ({
+        ...v,
+        id: `new-${Date.now()}-${Math.random()}`,
+      })));
+    } else {
+      setVatOverrides([]);
+    }
     setHasChanges(true);
     setShowHistory(false);
     setWizardStep(1);
@@ -603,7 +644,7 @@ export default function MembershipTierManagement() {
       if (!response.ok) throw new Error('Failed to fetch config');
       const data = await response.json();
       if (data.config) {
-        loadConfigIntoState(data.config, data.bands, data.discounts);
+        loadConfigIntoState(data.config, data.bands, data.discounts, data.vatOverrides);
         setSelectedActiveConfigId(configId);
         setViewingHistorical(null);
         setIsCreatingNew(false);
@@ -1321,6 +1362,155 @@ export default function MembershipTierManagement() {
             </div>
           )}
         </div>
+
+        <div className="border-t pt-4 mt-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <div>
+              <h3 className="text-sm font-medium">VAT Override Rules</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">Override the default tier VAT rate based on organisation custom field values (e.g. country)</p>
+            </div>
+            {isEditable && (
+              <Button size="sm" onClick={addVatOverride} data-testid="button-add-vat-override">
+                <Plus className="w-4 h-4 mr-1" />
+                Add VAT Override
+              </Button>
+            )}
+          </div>
+
+          {vatOverrides.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground" data-testid="text-no-vat-overrides">
+              <Percent className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No VAT overrides defined yet</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="hidden md:grid md:grid-cols-[1fr_1fr_1fr_1fr_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+                <span>Label</span>
+                <span>Custom Field</span>
+                <span>Match Value</span>
+                <span>VAT Rate</span>
+                <span></span>
+              </div>
+              {vatOverrides.map((override, index) => {
+                const selectedField = discountFields.find(f => f.id === override.field_id);
+                const fieldOptions = selectedField?.options
+                  ? (Array.isArray(selectedField.options)
+                    ? selectedField.options
+                    : (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })())
+                  : [];
+                const isDropdown = ['select', 'dropdown', 'radio', 'checkbox', 'picklist', 'multiselect'].includes(selectedField?.field_type?.toLowerCase()) && fieldOptions.length > 0;
+                const parsedVat = override.vat_rate ? (() => { try { return JSON.parse(override.vat_rate); } catch { return null; } })() : null;
+                const vatSelectValue = parsedVat?.taxType || '';
+                return (
+                  <div
+                    key={override.id || index}
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_40px] gap-2 items-center p-2 rounded-md border"
+                    data-testid={`row-vat-override-${index}`}
+                  >
+                    <Input
+                      value={override.label || ''}
+                      onChange={(e) => updateVatOverride(index, 'label', e.target.value)}
+                      placeholder="e.g. Ireland VAT"
+                      disabled={!isEditable}
+                      data-testid={`input-vat-override-label-${index}`}
+                    />
+                    <Select
+                      value={override.field_id || ''}
+                      onValueChange={(value) => {
+                        const field = discountFields.find(f => f.id === value);
+                        updateVatOverride(index, 'field_id', value);
+                        updateVatOverride(index, 'field_label', field?.label || field?.name || '');
+                        updateVatOverride(index, 'match_value', '');
+                      }}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-vat-override-field-${index}`}>
+                        <SelectValue placeholder="Select field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {discountFields.map(f => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.label || f.name}
+                          </SelectItem>
+                        ))}
+                        {discountFields.length === 0 && (
+                          <SelectItem value="__none" disabled>No custom fields found</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {isDropdown ? (
+                      <Select
+                        value={override.match_value || ''}
+                        onValueChange={(value) => updateVatOverride(index, 'match_value', value)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid={`select-vat-override-match-${index}`}>
+                          <SelectValue placeholder="Select value" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fieldOptions.map((opt, oi) => {
+                            const optValue = typeof opt === 'string' ? opt : (opt.value || opt.label || '');
+                            const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || '');
+                            return (
+                              <SelectItem key={oi} value={optValue}>{optLabel}</SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={override.match_value || ''}
+                        onChange={(e) => updateVatOverride(index, 'match_value', e.target.value)}
+                        placeholder="Value to match"
+                        disabled={!isEditable}
+                        data-testid={`input-vat-override-match-${index}`}
+                      />
+                    )}
+                    <Select
+                      value={vatSelectValue}
+                      onValueChange={(value) => {
+                        if (value === '__none') {
+                          updateVatOverride(index, 'vat_rate', null);
+                        } else {
+                          const selectedRate = availableVatRates.find(r => r.taxType === value);
+                          if (selectedRate) {
+                            updateVatOverride(index, 'vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
+                          }
+                        }
+                      }}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-vat-override-rate-${index}`}>
+                        <SelectValue placeholder="Select VAT rate" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">No VAT</SelectItem>
+                        {availableVatRates.map(rate => (
+                          <SelectItem key={rate.taxType} value={rate.taxType}>
+                            {rate.name} ({rate.effectiveRate}%)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {isEditable ? (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeVatOverride(index)}
+                        className="text-destructive"
+                        data-testid={`button-remove-vat-override-${index}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    ) : (
+                      <div />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1638,6 +1828,10 @@ export default function MembershipTierManagement() {
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Discount Rules</span>
                 <span className="font-medium">{discounts.length} rule{discounts.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">VAT Override Rules</span>
+                <span className="font-medium">{vatOverrides.length} rule{vatOverrides.length !== 1 ? 's' : ''}</span>
               </div>
             </>
           ))}

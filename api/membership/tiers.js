@@ -70,9 +70,11 @@ async function handleGet(req, res, tenantId) {
 
   let bands = [];
   let discounts = [];
+  let vatOverrides = [];
   if (firstConfig) {
     bands = await getBandsForConfig(firstConfig.id, tenantId);
     discounts = await getDiscountsForConfig(firstConfig.id, tenantId);
+    vatOverrides = await getVatOverridesForConfig(firstConfig.id, tenantId);
   }
 
   const { data: allConfigs } = await supabase
@@ -85,6 +87,7 @@ async function handleGet(req, res, tenantId) {
     config: firstConfig,
     bands,
     discounts,
+    vatOverrides,
     activeConfigs: configs,
     history: allConfigs || []
   });
@@ -136,11 +139,13 @@ async function getConfigById(req, res, tenantId, configId) {
 
   const bands = await getBandsForConfig(config.id, tenantId);
   const discounts = await getDiscountsForConfig(config.id, tenantId);
+  const vatOverrides = await getVatOverridesForConfig(config.id, tenantId);
 
   return res.json({
     config,
     bands,
     discounts,
+    vatOverrides,
     isHistorical: config.effective_to !== null
   });
 }
@@ -161,10 +166,12 @@ async function getHistory(req, res, tenantId) {
   for (const config of (configs || [])) {
     const bands = await getBandsForConfig(config.id, tenantId);
     const discounts = await getDiscountsForConfig(config.id, tenantId);
+    const vatOverrides = await getVatOverridesForConfig(config.id, tenantId);
     results.push({
       config,
       bands,
       discounts,
+      vatOverrides,
       isHistorical: config.effective_to !== null
     });
   }
@@ -373,7 +380,7 @@ function validateBands(bands) {
 }
 
 async function handlePost(req, res, tenantId) {
-  let { config, bands, discounts } = req.body;
+  let { config, bands, discounts, vatOverrides } = req.body;
 
   if (!config) {
     return res.status(400).json({ error: 'Configuration is required' });
@@ -460,9 +467,14 @@ async function handlePost(req, res, tenantId) {
       await saveDiscountsForConfig(data.id, tenantId, discounts);
     }
 
+    if (vatOverrides && Array.isArray(vatOverrides)) {
+      await saveVatOverridesForConfig(data.id, tenantId, vatOverrides);
+    }
+
     const savedBands = await getBandsForConfig(data.id, tenantId);
     const savedDiscounts = await getDiscountsForConfig(data.id, tenantId);
-    return res.json({ config: data, bands: savedBands, discounts: savedDiscounts });
+    const savedVatOverrides = await getVatOverridesForConfig(data.id, tenantId);
+    return res.json({ config: data, bands: savedBands, discounts: savedDiscounts, vatOverrides: savedVatOverrides });
   }
 
   const structureFieldId = config.structure_field_id || null;
@@ -561,8 +573,13 @@ async function handlePost(req, res, tenantId) {
     await saveDiscountsForConfig(newConfig.id, tenantId, discounts);
   }
 
+  if (vatOverrides && Array.isArray(vatOverrides) && vatOverrides.length > 0) {
+    await saveVatOverridesForConfig(newConfig.id, tenantId, vatOverrides);
+  }
+
   const savedBands = await getBandsForConfig(newConfig.id, tenantId);
   const savedDiscounts = await getDiscountsForConfig(newConfig.id, tenantId);
+  const savedVatOverrides = await getVatOverridesForConfig(newConfig.id, tenantId);
 
   const { data: allConfigs } = await supabase
     .from('membership_tier_config')
@@ -574,6 +591,7 @@ async function handlePost(req, res, tenantId) {
     config: newConfig,
     bands: savedBands,
     discounts: savedDiscounts,
+    vatOverrides: savedVatOverrides,
     history: allConfigs || []
   });
 }
@@ -814,4 +832,63 @@ async function getDiscountFields(req, res, tenantId) {
   }
 
   return res.json(fields || []);
+}
+
+async function getVatOverridesForConfig(configId, tenantId) {
+  try {
+    const { data, error } = await supabase
+      .from('membership_tier_vat_override')
+      .select('*')
+      .eq('config_id', configId)
+      .eq('tenant_id', tenantId)
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      if (error.code === '42P01') return [];
+      console.error('[Membership Tiers] Error fetching VAT overrides:', error);
+      return [];
+    }
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveVatOverridesForConfig(configId, tenantId, vatOverrides) {
+  try {
+    await deleteVatOverridesForConfig(configId, tenantId);
+
+    if (!vatOverrides || vatOverrides.length === 0) return;
+
+    const rows = vatOverrides.map((d, index) => ({
+      config_id: configId,
+      tenant_id: tenantId,
+      field_id: d.field_id,
+      field_label: d.field_label || null,
+      match_value: d.match_value || '',
+      vat_rate: d.vat_rate || null,
+      label: d.label || null,
+      sort_order: index,
+    }));
+
+    const { error } = await supabase
+      .from('membership_tier_vat_override')
+      .insert(rows);
+
+    if (error) {
+      console.error('[Membership Tiers] Error saving VAT overrides:', error);
+    }
+  } catch (err) {
+    console.error('[Membership Tiers] Error saving VAT overrides:', err);
+  }
+}
+
+async function deleteVatOverridesForConfig(configId, tenantId) {
+  try {
+    await supabase
+      .from('membership_tier_vat_override')
+      .delete()
+      .eq('config_id', configId)
+      .eq('tenant_id', tenantId);
+  } catch {}
 }

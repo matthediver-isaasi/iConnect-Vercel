@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
+import { evaluateVatOverrideForOrg } from './vatOverrideHelper.js';
 import { getConfigForOrganisation, getAllActiveConfigs } from './membershipConfigResolver.js';
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
@@ -463,15 +464,27 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
 
   let taxType = null;
   let taxLabel = null;
-  const bandVatRate = matchedBand?.vat_rate || null;
-  if (bandVatRate) {
-    try {
-      const parsed = JSON.parse(bandVatRate);
-      taxType = parsed.taxType || null;
-      taxLabel = parsed.name || null;
-    } catch {
-      taxType = bandVatRate;
-      taxLabel = bandVatRate;
+  let vatOverrideApplied = false;
+  let vatOverrideDetail = null;
+
+  const vatOverride = await evaluateVatOverrideForOrg(config.id, tenantId, organizationId);
+  if (vatOverride && vatOverride.taxType) {
+    taxType = vatOverride.taxType;
+    taxLabel = vatOverride.taxLabel;
+    vatOverrideApplied = true;
+    vatOverrideDetail = vatOverride;
+    log('VAT Override', `Overriding band VAT with "${vatOverride.taxLabel}" (${vatOverride.taxType}) based on ${vatOverride.fieldLabel} = "${vatOverride.matchValue}"${vatOverride.ruleLabel ? ` [${vatOverride.ruleLabel}]` : ''}`);
+  } else {
+    const bandVatRate = matchedBand?.vat_rate || null;
+    if (bandVatRate) {
+      try {
+        const parsed = JSON.parse(bandVatRate);
+        taxType = parsed.taxType || null;
+        taxLabel = parsed.name || null;
+      } catch {
+        taxType = bandVatRate;
+        taxLabel = bandVatRate;
+      }
     }
   }
 
@@ -625,6 +638,8 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     totalWithVat,
     taxType,
     taxLabel,
+    vatOverrideApplied,
+    vatOverrideDetail,
     steps,
   };
 }
