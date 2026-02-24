@@ -3428,6 +3428,7 @@ export default function FormBuilderPage() {
     },
     // Contract signing mode
     is_contract: false,
+    blank_layout: false,
     contract_settings: {
       timeout_days: 30, // Days before contract expires
       organization_id: null, // Linked organisation
@@ -3881,6 +3882,7 @@ export default function FormBuilderPage() {
         })),
         entity_pipelines: entityPipelines,
         is_contract: existingForm.is_contract || false,
+        blank_layout: existingForm.blank_layout || false,
         contract_settings: existingForm.contract_settings || {
           timeout_days: 30,
           organization_id: null,
@@ -4435,6 +4437,16 @@ export default function FormBuilderPage() {
                   data-testid="switch-is-contract"
                 />
                 <Label htmlFor="is_contract" className="text-sm">Contract Mode</Label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="blank_layout"
+                  checked={formData.blank_layout}
+                  onCheckedChange={(checked) => setFormData({ ...formData, blank_layout: checked })}
+                  data-testid="switch-blank-layout"
+                />
+                <Label htmlFor="blank_layout" className="text-sm">Blank Layout</Label>
               </div>
 
               <div className="text-xs text-slate-500 ml-auto">

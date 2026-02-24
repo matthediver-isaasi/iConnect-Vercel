@@ -3,6 +3,8 @@ import { createContext, useContext, useState, useCallback } from 'react';
 const LayoutContext = createContext({
   forcePublicLayout: false,
   setForcePublicLayout: () => {},
+  forceBlankLayout: false,
+  setForceBlankLayout: () => {},
   hasBanner: false,
   setHasBanner: () => {},
   portalBanner: null,
@@ -32,6 +34,7 @@ const LayoutContext = createContext({
 
 export function LayoutProvider({ children }) {
   const [forcePublicLayout, setForcePublicLayout] = useState(false);
+  const [forceBlankLayout, setForceBlankLayoutState] = useState(false);
   const [hasBanner, setHasBannerState] = useState(false);
   const [portalBanner, setPortalBannerState] = useState(null);
   const [memberInfo, setMemberInfoState] = useState(null);
@@ -92,10 +95,16 @@ export function LayoutProvider({ children }) {
     setAuthResolvedState(value);
   }, []);
 
+  const setForceBlankLayout = useCallback((value) => {
+    setForceBlankLayoutState(value);
+  }, []);
+
   return (
     <LayoutContext.Provider value={{ 
       forcePublicLayout, 
       setForcePublicLayout: setLayout,
+      forceBlankLayout,
+      setForceBlankLayout,
       hasBanner,
       setHasBanner,
       portalBanner,

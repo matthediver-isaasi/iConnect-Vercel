@@ -1281,7 +1281,7 @@ useEffect(() => {
   }, [memberInfo, setContextRefreshOrganizationInfo]);
 
   // Get layout context for dynamic pages that need to force public layout
-  const { forcePublicLayout } = useLayoutContext();
+  const { forcePublicLayout, forceBlankLayout } = useLayoutContext();
 
   // Check if page is truly public (not hybrid with member logged in)
   const isPublicPage = () => {
@@ -1872,6 +1872,11 @@ useEffect(() => {
     
     return currentPageName;
   };
+
+  // Render blank layout when forced (e.g., form with blank_layout option)
+  if (forceBlankLayout) {
+    return <>{children}</>;
+  }
 
   // Render public layout for truly public pages
   if (isPublicPage()) {

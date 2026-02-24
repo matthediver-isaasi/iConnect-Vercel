@@ -7,7 +7,8 @@ const PUBLIC_FORM_FIELDS = [
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
   'send_email', 'email_templates', 'prefill_source',
   'visibility_rules', 'pages',  // Needed for conditional logic and multi-page forms
-  'entity_pipelines'  // Needed for role capacity checking
+  'entity_pipelines',  // Needed for role capacity checking
+  'blank_layout'
 ];
 
 export default async function handler(req, res) {

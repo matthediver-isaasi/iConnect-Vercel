@@ -8,6 +8,7 @@ import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, Al
 import FormRenderer from "../components/forms/FormRenderer";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 // Helper to check if a field value is considered "filled" for validation purposes
 const isFieldValueFilled = (field, value) => {
@@ -45,6 +46,7 @@ const isFieldValueFilled = (field, value) => {
 
 export default function FormViewPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
+  const { setForceBlankLayout } = useLayoutContext();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
@@ -103,6 +105,16 @@ export default function FormViewPage() {
     enabled: !!formSlug,
     retry: false
   });
+
+  useEffect(() => {
+    if (!isLoading && form) {
+      setForceBlankLayout(!!form.blank_layout);
+    }
+  }, [isLoading, form, setForceBlankLayout]);
+
+  useEffect(() => {
+    return () => setForceBlankLayout(false);
+  }, [setForceBlankLayout]);
 
   // Fetch default consent message from public endpoint (works without auth)
   const { data: defaultConsentMessage } = useQuery({
