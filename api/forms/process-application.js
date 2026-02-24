@@ -1700,11 +1700,17 @@ export default async function handler(req, res) {
         } : null;
         
         if (!existingMemberId) {
-          // Check if member exists in database
-          const { data: existingMember } = await supabase
+          // Check if member exists in database (scoped to tenant)
+          let existingMemberQuery = supabase
             .from('member')
             .select('id, role_id, organization_id')
-            .ilike('email', normalizedEmail)
+            .ilike('email', normalizedEmail);
+          
+          if (tenant_id) {
+            existingMemberQuery = existingMemberQuery.eq('tenant_id', tenant_id);
+          }
+          
+          const { data: existingMember } = await existingMemberQuery
             .limit(1)
             .single();
           
@@ -1747,15 +1753,11 @@ export default async function handler(req, res) {
             console.log('[AppProcessor] Additional member update capacity check:', JSON.stringify(capacityCheck));
             if (!capacityCheck.hasCapacity) {
               if (capacityCheck.missingOrgContext) {
-                return res.status(400).json({ 
-                  error: `Cannot assign this role without an organization.`,
-                  code: 'ROLE_CAPACITY_MISSING_ORG'
-                });
+                console.warn('[AppProcessor] Skipping additional member update - role requires org context:', memberConfig.label);
+              } else {
+                console.warn('[AppProcessor] Skipping additional member update - role at max capacity:', memberConfig.label, capacityCheck.maxMembers);
               }
-              return res.status(400).json({ 
-                error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
-                code: 'ROLE_CAPACITY_EXCEEDED'
-              });
+              continue;
             }
           }
           
@@ -1834,17 +1836,11 @@ export default async function handler(req, res) {
             console.log('[AppProcessor] Additional member role capacity check:', JSON.stringify(capacityCheck));
             if (!capacityCheck.hasCapacity) {
               if (capacityCheck.missingOrgContext) {
-                console.error('[AppProcessor] Additional member: cannot assign role without org');
-                return res.status(400).json({ 
-                  error: `Cannot assign this role without an organization.`,
-                  code: 'ROLE_CAPACITY_MISSING_ORG'
-                });
+                console.warn('[AppProcessor] Skipping additional member creation - role requires org context:', memberConfig.label);
+              } else {
+                console.warn('[AppProcessor] Skipping additional member creation - role at max capacity:', memberConfig.label, capacityCheck.maxMembers);
               }
-              console.error('[AppProcessor] Additional member: role at max capacity');
-              return res.status(400).json({ 
-                error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
-                code: 'ROLE_CAPACITY_EXCEEDED'
-              });
+              continue;
             }
           }
           
