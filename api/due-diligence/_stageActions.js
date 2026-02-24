@@ -1,5 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { generateMemberPreferencesToken } from '../email-preferences/index.js';
+import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { 
   isZohoCrmConnected,
   lookupCountryInZoho,
@@ -915,6 +917,16 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
 
     const formId = formSubmission.form_id;
 
+    const organizationName = await getOrganizationName(formSubmission.organization_id);
+
+    const { data: tenantInfo } = await supabase
+      .from('tenant')
+      .select('name, slug')
+      .eq('id', tenantId)
+      .single();
+    const tenantName = tenantInfo?.name || '';
+    const tenantSlug = tenantInfo?.slug || '';
+
     // Fetch DD config for default_owner_name fallback
     const { data: ddConfig } = await supabase
       .from('form_due_diligence_config')
@@ -1096,6 +1108,40 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
 
       subject = replacePlaceholders(subject);
       body = replacePlaceholders(body);
+
+      const doubleBracketPlaceholders = {
+        'organization.name': organizationName,
+        'tenant.name': tenantName,
+        'recipient.name': fullName,
+        'recipient.first_name': firstName,
+        'recipient.last_name': lastName,
+        'recipient.email': normalizedEmail,
+        'dd_owner': ownerName
+      };
+      subject = replaceDoubleBracketPlaceholders(subject, doubleBracketPlaceholders);
+      body = replaceDoubleBracketPlaceholders(body, doubleBracketPlaceholders);
+
+      let preferencesLink = '';
+      let preferencesUrl = '';
+      if (tenantSlug) {
+        const { data: recipientMember } = await supabase
+          .from('member')
+          .select('id')
+          .eq('email', normalizedEmail)
+          .eq('tenant_id', tenantId)
+          .single();
+
+        if (recipientMember) {
+          const tenantBaseUrl = getTenantBaseUrl(tenantSlug);
+          const prefToken = generateMemberPreferencesToken(tenantId, recipientMember.id);
+          preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${prefToken}`;
+          preferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
+        }
+      }
+      subject = subject.replace(/\{\{communication_preferences_link\}\}/gi, '');
+      subject = subject.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
+      body = body.replace(/\{\{communication_preferences_link\}\}/gi, preferencesLink);
+      body = body.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
 
       // Build email options
       const emailOptions = {
