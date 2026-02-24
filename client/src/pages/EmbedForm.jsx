@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -77,8 +77,15 @@ export default function EmbedFormPage() {
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
 
-  // Evaluate a single condition - matches FormView exactly
-  const evaluateCondition = (triggerValue, operator, value) => {
+  const originalValuesRef = useRef({});
+  const activeSetValueActionsRef = useRef(new Set());
+
+  useEffect(() => {
+    originalValuesRef.current = {};
+    activeSetValueActionsRef.current = new Set();
+  }, [form?.id]);
+
+  const evaluateSingleCondition = (triggerValue, operator, value) => {
     switch (operator) {
       case 'equals':
         if (Array.isArray(triggerValue)) {
@@ -108,6 +115,81 @@ export default function EmbedFormPage() {
     }
   };
 
+  const evaluateRuleConditions = (rule, currentFormValues) => {
+    if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
+      const triggerValue = currentFormValues[rule.trigger_field_id];
+      return evaluateSingleCondition(triggerValue, rule.operator, rule.value);
+    }
+
+    if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+      const logic = rule.logic || 'and';
+      const results = rule.conditions.map((condition) => {
+        if (!condition.field_id) return false;
+        const triggerValue = currentFormValues[condition.field_id];
+        return evaluateSingleCondition(triggerValue, condition.operator, condition.value);
+      });
+
+      if (logic === 'and') {
+        return results.every(r => r === true);
+      } else {
+        return results.some(r => r === true);
+      }
+    }
+
+    return false;
+  };
+
+  const computeSetValue = (action) => {
+    const sourceType = action.set_value_source || 'static';
+    if (sourceType === 'static') {
+      return action.set_value;
+    } else if (sourceType === 'field') {
+      return formValues[action.set_value_field_id];
+    } else if (sourceType === 'formula') {
+      const operandAMode = action.formula_operand_a_mode || 'field';
+      let operandAValue;
+      if (operandAMode === 'value') {
+        operandAValue = parseFloat(action.formula_operand_a_value || 0);
+      } else {
+        const fieldId = action.formula_operand_a_field_id || action.formula_field_a;
+        operandAValue = parseFloat(formValues[fieldId] || 0);
+      }
+      const operandBMode = action.formula_operand_b_mode || 'field';
+      let operandBValue;
+      if (operandBMode === 'value') {
+        operandBValue = parseFloat(action.formula_operand_b_value || 0);
+      } else {
+        const fieldId = action.formula_operand_b_field_id || action.formula_field_b;
+        operandBValue = parseFloat(formValues[fieldId] || 0);
+      }
+      const operator = action.formula_operator || 'add';
+      let result;
+      switch (operator) {
+        case 'add': result = operandAValue + operandBValue; break;
+        case 'subtract': result = operandAValue - operandBValue; break;
+        case 'multiply': result = operandAValue * operandBValue; break;
+        case 'divide':
+          if (operandBValue === 0) return null;
+          result = operandAValue / operandBValue;
+          break;
+        default: result = 0;
+      }
+      const rounded = Math.round(result * 1e10) / 1e10;
+      return rounded.toString();
+    }
+    return null;
+  };
+
+  const computeLegacySetValue = (rule) => {
+    const sourceType = rule.set_value_source || 'static';
+    if (sourceType === 'static') {
+      return rule.set_value;
+    } else if (sourceType === 'field') {
+      return formValues[rule.set_value_field_id];
+    }
+    return null;
+  };
+
   // Calculate initial hidden field IDs (fields with starts_hidden = true)
   const initialHiddenFieldIds = useMemo(() => {
     const hidden = new Set();
@@ -129,26 +211,20 @@ export default function EmbedFormPage() {
       return hidden;
     }
     
-    // Track which fields should be shown/hidden based on rule evaluation
     const fieldVisibility = {};
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      const conditionMet = evaluateRuleConditions(rule, formValues);
 
-      // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          // Handle consolidated visibility action format
           if (action.action_type === 'visibility' && action.field_states) {
             for (const [fieldId, state] of Object.entries(action.field_states)) {
               if (!fieldVisibility[fieldId]) {
                 fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
               }
-              // visible: true means "show when condition met" (starts hidden)
-              // visible: false means "hide when condition met" (starts visible)
               if (state.visible === true) {
                 fieldVisibility[fieldId].showRules.push(conditionMet);
               } else if (state.visible === false) {
@@ -156,7 +232,6 @@ export default function EmbedFormPage() {
               }
             }
           }
-          // Handle legacy show/hide action format
           else if (action.action_type === 'show' || action.action_type === 'hide') {
             const targetIds = action.target_field_ids || [];
             targetIds.forEach(fieldId => {
@@ -172,7 +247,6 @@ export default function EmbedFormPage() {
           }
         }
       }
-      // Handle legacy format
       else if (rule.target_field_ids?.length) {
         rule.target_field_ids.forEach(fieldId => {
           if (!fieldVisibility[fieldId]) {
@@ -187,15 +261,12 @@ export default function EmbedFormPage() {
       }
     }
     
-    // Update hidden set based on evaluated rules
     for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
-      // For show rules: if ANY show rule is satisfied, remove from hidden set
       const anyShowConditionMet = showRules.some(result => result === true);
       if (anyShowConditionMet) {
         hidden.delete(fieldId);
       }
       
-      // For hide rules: if ANY hide rule is satisfied, add to hidden set
       const anyHideConditionMet = hideRules.some(result => result === true);
       if (anyHideConditionMet) {
         hidden.add(fieldId);
@@ -210,6 +281,137 @@ export default function EmbedFormPage() {
     if (!fields) return [];
     return fields.filter(field => !hiddenFieldIds.has(field.id));
   };
+
+  // Process set_value rules - when conditions are met, update target field values
+  useEffect(() => {
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) return;
+    
+    const updates = {};
+    const nowActiveActions = new Set();
+    const activeFieldTargets = new Map();
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
+      
+      const conditionMet = evaluateRuleConditions(rule, formValues);
+      
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'set_value' && action.target_field_id) {
+            const actionKey = action.id;
+            
+            if (conditionMet) {
+              nowActiveActions.add(actionKey);
+              
+              if (!activeFieldTargets.has(action.target_field_id)) {
+                activeFieldTargets.set(action.target_field_id, new Set());
+              }
+              activeFieldTargets.get(action.target_field_id).add(actionKey);
+              
+              if (!activeSetValueActionsRef.current.has(actionKey)) {
+                if (!(action.target_field_id in originalValuesRef.current)) {
+                  originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
+                }
+                
+                const valueToSet = computeSetValue(action);
+                if (valueToSet !== null && valueToSet !== undefined) {
+                  updates[action.target_field_id] = valueToSet;
+                }
+              }
+              if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id && activeSetValueActionsRef.current.has(actionKey)) {
+                const sourceValue = formValues[action.set_value_field_id];
+                const currentTargetValue = formValues[action.target_field_id];
+                if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
+                  updates[action.target_field_id] = sourceValue;
+                }
+              }
+              else if ((action.set_value_source || 'static') === 'formula') {
+                const hasOperandA = (action.formula_operand_a_mode === 'value' && action.formula_operand_a_value !== '') ||
+                                    (action.formula_operand_a_mode !== 'value' && (action.formula_operand_a_field_id || action.formula_field_a));
+                const hasOperandB = (action.formula_operand_b_mode === 'value' && action.formula_operand_b_value !== '') ||
+                                    (action.formula_operand_b_mode !== 'value' && (action.formula_operand_b_field_id || action.formula_field_b));
+                
+                if (hasOperandA || hasOperandB) {
+                  const newValue = computeSetValue(action);
+                  const currentTargetValue = formValues[action.target_field_id];
+                  if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
+                    updates[action.target_field_id] = newValue;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      else if (rule.rule_type === 'set_value' && rule.target_field_id) {
+        const ruleKey = `legacy_${rule.id}`;
+        
+        if (conditionMet) {
+          nowActiveActions.add(ruleKey);
+          
+          if (!activeFieldTargets.has(rule.target_field_id)) {
+            activeFieldTargets.set(rule.target_field_id, new Set());
+          }
+          activeFieldTargets.get(rule.target_field_id).add(ruleKey);
+          
+          if (!activeSetValueActionsRef.current.has(ruleKey)) {
+            if (!(rule.target_field_id in originalValuesRef.current)) {
+              originalValuesRef.current[rule.target_field_id] = formValues[rule.target_field_id] ?? '';
+            }
+            
+            const valueToSet = computeLegacySetValue(rule);
+            if (valueToSet !== null && valueToSet !== undefined) {
+              updates[rule.target_field_id] = valueToSet;
+            }
+          }
+          else if ((rule.set_value_source || 'static') === 'field' && rule.set_value_field_id) {
+            const sourceValue = formValues[rule.set_value_field_id];
+            const currentTargetValue = formValues[rule.target_field_id];
+            if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
+              updates[rule.target_field_id] = sourceValue;
+            }
+          }
+        }
+      }
+    }
+    
+    for (const actionKey of activeSetValueActionsRef.current) {
+      if (!nowActiveActions.has(actionKey)) {
+        for (const rule of form.visibility_rules) {
+          if (rule.actions && Array.isArray(rule.actions)) {
+            for (const action of rule.actions) {
+              if (action.id === actionKey && action.target_field_id) {
+                const targetFieldId = action.target_field_id;
+                const activeActionsForField = activeFieldTargets.get(targetFieldId);
+                if (!activeActionsForField || activeActionsForField.size === 0) {
+                  if (targetFieldId in originalValuesRef.current) {
+                    updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+                    delete originalValuesRef.current[targetFieldId];
+                  }
+                }
+              }
+            }
+          }
+          else if (`legacy_${rule.id}` === actionKey && rule.target_field_id) {
+            const targetFieldId = rule.target_field_id;
+            const activeActionsForField = activeFieldTargets.get(targetFieldId);
+            if (!activeActionsForField || activeActionsForField.size === 0) {
+              if (targetFieldId in originalValuesRef.current) {
+                updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+                delete originalValuesRef.current[targetFieldId];
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    activeSetValueActionsRef.current = nowActiveActions;
+    
+    if (Object.keys(updates).length > 0) {
+      setFormValues(prev => ({ ...prev, ...updates }));
+    }
+  }, [form?.visibility_rules, formValues]);
 
   const submitFormMutation = useMutation({
     mutationFn: (submissionData) => publicClient.submitForm({
