@@ -267,6 +267,7 @@ export default function MembershipTierManagement() {
         pricing_model: c.pricing_model || 'tiered',
         start_mode: c.start_mode || 'fixed_date',
         flat_cost: c.flat_cost ?? null,
+        invoice_description: c.invoice_description || null,
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -312,6 +313,7 @@ export default function MembershipTierManagement() {
       pricing_model: inferredPricingModel,
       start_mode: inferredStartMode,
       flat_cost: inferredFlatCost,
+      invoice_description: c.invoice_description || null,
     });
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
@@ -603,6 +605,7 @@ export default function MembershipTierManagement() {
       pricing_model: currentConfig?.pricing_model || 'tiered',
       start_mode: currentConfig?.start_mode || 'fixed_date',
       flat_cost: currentConfig?.flat_cost ?? null,
+      invoice_description: currentConfig?.invoice_description || null,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -768,6 +771,20 @@ export default function MembershipTierManagement() {
               data-testid="input-effective-from"
             />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Description for invoice</Label>
+          <Input
+            value={config.invoice_description || ''}
+            onChange={(e) => handleConfigChange('invoice_description', e.target.value)}
+            placeholder='e.g. Annual membership fees for {year}'
+            disabled={!isEditable}
+            data-testid="input-invoice-description"
+          />
+          <p className="text-xs text-muted-foreground">
+            Replaces the default "Membership subscription for ..." line on Xero invoices. Use {'{year}'} to insert the membership year. Leave blank to use the default.
+          </p>
         </div>
 
         <div className="border-t pt-4 mt-2">
@@ -1765,6 +1782,12 @@ export default function MembershipTierManagement() {
                 <span className="text-muted-foreground">Applies to all organisations</span>
               </div>
             )}
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Invoice Description</span>
+              <span className={config.invoice_description ? 'font-medium' : 'text-muted-foreground'}>
+                {config.invoice_description || 'Default (Membership subscription for {year})'}
+              </span>
+            </div>
           </>
         ))}
 

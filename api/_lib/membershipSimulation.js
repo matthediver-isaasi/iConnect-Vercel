@@ -549,7 +549,10 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log(`Step 3 - Note (${nowFormatted} - when clicked)`, `Add organisation note documenting the manual renewal`);
   }
 
-  const invoiceDescription = `Membership subscription for ${membershipYear.label}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${computedFinalCost.toFixed(2)}`;
+  const customDesc = config.invoice_description
+    ? config.invoice_description.replace(/\{year\}/gi, membershipYear.label)
+    : `Membership subscription for ${membershipYear.label}`;
+  const invoiceDescription = `${customDesc}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${computedFinalCost.toFixed(2)}`;
   const invoiceReference = `Membership ${membershipYear.label}`;
   const invoiceDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 

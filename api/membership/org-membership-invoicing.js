@@ -320,6 +320,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       currency: currency,
       reference: xeroReference,
       vatRate: bandVatRate,
+      invoiceDescription: simResult.config?.invoice_description || null,
     });
 
     if (xeroInvoice) {

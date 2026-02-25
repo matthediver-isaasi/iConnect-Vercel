@@ -1,5 +1,5 @@
 # Overview
-This project is a multi-tenant SaaS membership management platform that unifies member, event, booking, resource, and blog post management for organizations. It features a unified identity system, dynamic page builder, custom forms, workflow automation, and a robust Due Diligence process, all built on a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) with strong access control and data isolation. The platform aims to streamline organizational operations and offers significant market potential.
+This project is a multi-tenant SaaS membership management platform designed to unify member, event, booking, resource, and blog post management for organizations. It features a unified identity system, dynamic page builder, custom forms, workflow automation, and a robust Due Diligence process. The platform is built on a three-tier hierarchy (TENANT, ORGANIZATION, MEMBER) with strong access control and data isolation, aiming to streamline organizational operations and offer significant market potential.
 
 # User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,80 +9,41 @@ Preferred communication style: Simple, everyday language.
 The frontend uses React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS. The backend uses Express.js, PostgreSQL, and Drizzle ORM, with API endpoints deployed as Vercel serverless functions.
 
 ## Multi-Tenant Architecture
-The platform is designed for multi-tenancy, ensuring data isolation across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels using `tenant_id` and `organization_id` for scoping.
+The platform enforces data isolation across GLOBAL, TENANT, ORGANIZATION, and MEMBER levels using `tenant_id` and `organization_id` for scoping.
 
 ## API Authentication Pattern
 Authentication supports both Member (portal) and Tenant user (admin dashboard) sessions, managed by `getTenantContext(req)`.
 
 ## Identity and Access Management
-A unified identity system manages user authentication, multiple tenant ownership, and organization memberships, including per-tenant password isolation and Google OAuth. A feature-based role management system provides granular control over UI visibility and backend access, including protected system roles and role-based field access control.
+A unified identity system handles user authentication, multiple tenant ownership, and organization memberships, including per-tenant password isolation and Google OAuth. A feature-based role management system provides granular control over UI visibility and backend access, including protected system roles and role-based field access control.
 
 ## Deployment & Domain Structure
-The application is deployed on Vercel, using `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals, supported by cross-subdomain session cookies. A tenant resolver (`api/_lib/tenantResolver.js`) handles domain-to-tenant mapping and URL building.
+The application is deployed on Vercel, using `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals. A tenant resolver (`api/_lib/tenantResolver.js`) handles domain-to-tenant mapping and URL building.
 
 ## Key Features and Modules
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
 -   **Content Management:** Event/booking management, general content management, dynamic page builder, custom forms with conditional logic, and blog posts.
--   **Communication:** Email template placeholder system, communication preferences, and multi-audience email campaign targeting. Campaigns support `target_audiences` JSONB column (array of `{type, ids}` segments) for mixing audience types (e.g., Roles + Categories + Groups). Backward-compatible with legacy `target_type`/`target_ids`. Recipients are deduplicated across segments by email. Preview endpoint supports `previewList: true` to return the full recipient list. Frontend has a multi-segment builder UI with paginated recipient list modal and CSV export.
--   **Workflow Automation:** Tenant-scoped workflows for automating actions like sending emails, updating fields, creating contracts, and creating memberships, including a Due Diligence process. The `create_membership` action uses the shared `simulateMembershipForOrg()` function from `membershipSimulation.js` for all cost calculations (both dry-run and live paths), eliminating duplicate logic. Before creating a record, the workflow action checks the org's invoicing mode for the target year (with legacy null `membership_year` fallback): if mode is 'manual' or 'scheduled', the action is skipped with a descriptive message; only 'automatic' mode (or no setting, which defaults to automatic) proceeds with record creation. The cron job (`process-membership-renewals.js`) also uses `simulateMembershipForOrg()` for all cost calculations, with safeguards: (1) orgs without a Go Live date are skipped, (2) duplicate records are prevented at both application level (existingRecord check) and DB constraint level (23505 handling), (3) year targeting respects the invoicing setting's `membership_year` with fallback to current year. Scheduled invoicing of existing records derives VAT from the stored record/band rather than current simulation. Manual renewal (`handleManualRenewal` in `org-membership-invoicing.js`) also uses `simulateMembershipForOrg()`, accepting `membershipYear` from the frontend (defaults to current year), with go-live date and duplicate guards. The "Renew & Invoice Now" button only appears on the current year section.
+-   **Communication:** Email template system, communication preferences, and multi-audience email campaign targeting.
+-   **Workflow Automation:** Tenant-scoped workflows for automating actions like sending emails, updating fields, creating contracts, memberships, and managing Due Diligence processes.
 -   **Branding & Customization:** Per-tenant branding for public-facing pages and embeddable forms.
 -   **Data Management:** Server-side pagination and a robust data migration system.
 -   **Email Domain Provisioning:** Automated Mailgun domain provisioning for each tenant.
 -   **Realtime Updates:** Supabase Realtime Subscriptions for frontend cache invalidation.
 -   **Booking System:** Agent booking system with tenant-scoped meeting templates.
--   **Resource View Tracking:** Tracks unique views per user per resource, displaying counts on resource cards and providing detailed reports.
--   **Organisation Membership Tab:** Displays a rolling two-year cost preview (current year + next year) with unified `YearCostSection` layout showing full breakdown (tier, discounts, pro-rata, rollover) for each year. The backend endpoint (`org-membership.js`) uses `simulateMembershipForOrg()` as the single source of truth for all cost calculations via `mapSimResultToYearData()` helper, eliminating duplicate inline calculation logic. When a history record exists for the current year, recorded values from the DB are displayed instead. Each year has independent Override, Simulate, and Invoicing controls. Invoicing mode (Automatic/Scheduled/Manual) is per-year, stored in `organisation_membership_invoicing` with `membership_year` column (also stores `purchase_order_number`). Legacy rows (null `membership_year`) are used as fallback for both UI and simulation. For Year 1 with Automatic mode, the go-live date (set via workflow) triggers renewal. Overrides are year-specific (keyed by `membership_year` in `organisation_membership_override` table) with legacy null `membership_year` fallback. Record Fee button is in the current year section. Supports renewal overrides with audit trails integrated with Xero for invoice generation. Automated renewal cron job handles scheduled renewals. Backend consumers (`membershipSimulation.js`, `process-membership-renewals.js`) query overrides and invoicing settings by year with null fallback. PO numbers flow through all renewal paths to Xero invoice references. "Email Fees" button generates secure tokens and sends branded emails with cost breakdown and payment link to org finance contacts. Public member-facing page (`/membership-fees/:token`) shows tenant-branded fee breakdown with PO submission and Stripe payment support; payment auto-creates membership history and Xero invoice. Token system (`membership_fee_token` table) tracks status (pending/po_submitted/paid/expired/cancelled) with 30-day expiry. After Xero invoice creation, a branded notification email is automatically sent to the org's invoicing email (or primary contact fallback) with invoice details and a link to the Xero online invoice (`membershipInvoiceEmail.js`). The online invoice URL is fetched from Xero's `/OnlineInvoice` endpoint (available for non-DRAFT invoices). This email is wired into all three invoice creation paths: manual renewal, Stripe payment confirmation, and cron-based renewal. **Pending:** DB migration to change unique constraint from `(tenant_id, organization_id)` to `(tenant_id, organization_id, membership_year)` to allow multiple overrides per org.
--   **Fundraising Module:** Supports tenant-scoped fundraising campaigns with team members, unique donation pages, Stripe payment processing, and UK Gift Aid capture. Multi-step campaign registration wizard with organization signup, dynamic steps, and per-step validation. Organization association is per-campaign-participant (stored on `fundraising_team_member.organization_id`), not permanent member linkage. Fundraiser login via email magic link (`fundraising_login_token` table, single-use, 1-hour expiry) provides dashboard access showing all campaigns, donation links, progress, and org associations. Magic link URLs always use tenant domain/slug for correct multi-tenant routing. After magic link verification, a 24-hour session token (type='session' in same table) is created and stored in tenant-scoped localStorage for persistent access. Cross-tenant fundraiser dashboard: after login, `fetchCrossTenantDashboardData()` queries all tenants where the email is an active fundraiser, enriches each campaign with `tenant_id`, `tenant_name`, `tenant_slug`, `tenant_base_url`, and returns merged campaigns. Frontend groups campaigns by tenant when multiple tenants are detected, with tenant section headers and correct tenant-specific donation/campaign URLs. Single-tenant fundraisers see no visual change. Fundraisers can post text updates with optional photo uploads (`fundraising_update` table) from their dashboard; updates display on the public donation page as a chronological feed with author info and images. Image uploads go to Supabase Storage `public-assets` bucket at tenant-scoped paths, authenticated via session token. Campaign edit includes AI Suggest buttons (using existing `/api/integrations/invoke-llm` endpoint) for public_description and registration_message fields. Public campaigns listing page (`/campaigns`) shows all active campaigns for a tenant with cover images, progress bars, fundraiser counts, and "Start Fundraising" CTA buttons linking to registration. Post-donation Thank You screen includes an inspiring CTA inviting donors to start their own fundraiser, linking to the campaigns page. Fundraiser profile customization: personal message, custom header image, and avatar upload from dashboard; displayed on public donation pages.
--   **Bookmarking System:** Allows members to bookmark various content types with drag-and-drop reordering for categories and items.
--   **Forum Module:** Provides tenant-scoped discussion forums with role-managed access, threaded discussions, reactions, content reporting, and a full moderation suite with audit logging. Soft deletion preserves reply tree structures.
+-   **Resource View Tracking:** Tracks unique views per user per resource.
+-   **Organisation Membership Tab:** Displays a rolling two-year cost preview with detailed breakdown, using `simulateMembershipForOrg()` for all cost calculations. Supports year-specific overrides and invoicing controls, including automatic, scheduled, and manual modes. Integrates with Xero for invoice generation.
+-   **Fundraising Module:** Supports tenant-scoped campaigns with team members, unique donation pages, Stripe payment processing, UK Gift Aid, and a multi-step registration wizard. Fundraisers access dashboards via magic links, which merge campaigns from multiple tenants if applicable. Includes fundraiser updates, profile customization, and AI-suggested content.
+-   **Bookmarking System:** Allows members to bookmark content with drag-and-drop reordering.
+-   **Forum Module:** Provides tenant-scoped discussion forums with role-managed access, threaded discussions, reactions, reporting, and moderation.
 
 ## Event Timezone Handling
 Event times are stored in UTC with a separate timezone field for display, prioritizing Zoom, then event-specific, then 'Europe/London'.
 
 ## Membership Tier System
-The system supports membership pricing based on organization attributes with historical versioning and multi-structure support, allowing multiple active tier configurations simultaneously, optionally scoped to specific organization field values. A custom discount system allows configurable discounts based on organization custom field values, stacking multiple rules, and applying before pro-rata, free period, and rollover calculations. Pro-rata pricing logic includes free periods and rollover discounts, with go-live date determining the application of discounts across membership years. The tier management UI (`MembershipTierManagement.jsx`) uses a 6-step wizard: (1) Structure Scope, (2) Tier Model (tiered vs flat cost), (3) Period (fixed year vs immediate start), (4) Discounts, (5) Pricing, (6) Summary. New fields: `pricing_model` ('tiered'|'flat'), `start_mode` ('fixed_date'|'immediate'), `flat_cost` (for non-tiered pricing). The incentive system supports two types: "Free Period" (months/weeks/days of free membership) and "Percentage Discount" (X% off annual cost). Both types use the same DB columns (`free_period_amount` stores the value, `free_period_unit` stores 'months'/'weeks'/'days' or 'percent'). Percentage discounts are pro-rated in Year 1 based on remaining days (remainingDays/totalDays × fullDiscount), with the unused portion rolling over to Year 2 as a fixed amount deduction. Year 2 rollover derives Year 1 boundaries from the go-live date (not the current year) to ensure accurate calculations regardless of when simulation runs.
+Supports membership pricing based on organization attributes with historical versioning, multi-structure support, and configurable discounts. Includes pro-rata pricing logic, free periods, and rollover discounts, with a go-live date determining discount application. The tier management UI uses a 6-step wizard for configuration.
 
 ## UI/UX
 The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent, responsive user experience with a collapsible sidebar.
-
-# Database Connection Instructions
-**WARNING: NEVER REMOVE THIS SECTION - These instructions are essential for database access**
-
-This project uses Supabase PostgreSQL databases. Direct psql commands and execute_sql_tool DO NOT WORK on Replit due to IPv6 connectivity issues.
-
-## Available Database Secrets
-| Secret | Database | Purpose |
-|--------|----------|---------|
-| SOURCE_DATABASE_URL | Legacy single-tenant Supabase | Original data source for migrations |
-| DEST_DATABASE_URL | New multi-tenant Supabase | Production destination database |
-| DEST_SUPABASE_KEY | New multi-tenant Supabase | Service role key for Supabase client |
-
-## How to Query the Database
-USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool
-
-```javascript
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
-const supabaseKey = process.env.DEST_SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-const { data, error } = await supabase
-  .from('member')
-  .select('*')
-  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
-  .limit(10);
-
-console.log(data);
-```
-
-Run with: `node scripts/debug-query.mjs` or inline with `node -e "..."`
-
-## Important Notes
-- Replit's built-in database tools won't work - execute_sql_tool and psql fail due to IPv6 routing issues
-- Always use Supabase client (`@supabase/supabase-js`) for all database operations
-- Tenant ID for migrations: `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
-- See `scripts/debug-tenant.mjs` for a working example of database queries
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.

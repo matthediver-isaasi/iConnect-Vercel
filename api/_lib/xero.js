@@ -195,7 +195,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -246,7 +246,10 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     }
   }
 
-  const description = `Membership subscription for ${membershipYear}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}`;
+  const firstLine = invoiceDescription
+    ? invoiceDescription.replace(/\{year\}/gi, membershipYear)
+    : `Membership subscription for ${membershipYear}`;
+  const description = `${firstLine}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}`;
 
   const lineItem = {
     Description: description,

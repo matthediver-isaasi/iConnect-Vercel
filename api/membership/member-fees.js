@@ -490,6 +490,7 @@ export default async function handler(req, res) {
               vatRate: simResult.matchedBand?.vat_rate || null,
               markAsPaid: true,
               stripePaymentIntentId: paymentIntentId,
+              invoiceDescription: simResult.config?.invoice_description || null,
             });
           } catch (xeroErr) {
             console.error('[Member Fees] Xero invoice failed (non-fatal):', xeroErr.message);

@@ -302,6 +302,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
       currency: record.currency || 'GBP',
       reference: xeroReference,
       vatRate: bandVatRate,
+      invoiceDescription: simResult.config?.invoice_description || null,
     });
 
     if (xeroInvoice) {
@@ -483,6 +484,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         currency: currency,
         reference: xeroReference,
         vatRate: bandVatRate,
+        invoiceDescription: simResult.config?.invoice_description || null,
       });
 
       if (xeroInvoice) {

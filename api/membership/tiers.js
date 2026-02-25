@@ -447,6 +447,7 @@ async function handlePost(req, res, tenantId) {
         structure_match_value: config.structure_match_value || null,
         pricing_model: config.pricing_model || 'tiered',
         flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
+        invoice_description: config.invoice_description || null,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -549,6 +550,7 @@ async function handlePost(req, res, tenantId) {
       structure_match_value: structureMatchValue,
       pricing_model: config.pricing_model || 'tiered',
       flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
+      invoice_description: config.invoice_description || null,
     })
     .select()
     .single();
