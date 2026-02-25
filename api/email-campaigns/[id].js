@@ -1,5 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, getCampaignStats, getClickHeatmapData } from '../_lib/campaignService.js';
+import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
@@ -27,6 +27,14 @@ export default async function handler(req, res) {
 
     if (heatmap === 'true') {
       const result = await getClickHeatmapData(id, tenantId);
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+      return res.json(result);
+    }
+
+    if (req.query.recipients === 'true') {
+      const result = await getCampaignRecipients(id, tenantId);
       if (!result.success) {
         return res.status(500).json({ error: result.error });
       }

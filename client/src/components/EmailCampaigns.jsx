@@ -39,6 +39,11 @@ export default function EmailCampaigns() {
   const [searchingMembers, setSearchingMembers] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [duplicating, setDuplicating] = useState(null);
+  const [statsDetailView, setStatsDetailView] = useState(false);
+  const [statsRecipients, setStatsRecipients] = useState([]);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [statsFilter, setStatsFilter] = useState(null);
+  const [statsCampaignId, setStatsCampaignId] = useState(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -327,6 +332,10 @@ export default function EmailCampaigns() {
         }
       }
 
+      setStatsCampaignId(campaign.id);
+      setStatsDetailView(false);
+      setStatsRecipients([]);
+      setStatsFilter(null);
       setStatsData({
         name: campaignData.name,
         sent: stats.sent || 0,
@@ -346,6 +355,51 @@ export default function EmailCampaigns() {
     } catch (error) {
       toast.error(error.message);
     }
+  };
+
+  const handleShowDetails = async () => {
+    if (!statsCampaignId) return;
+    setLoadingRecipients(true);
+    try {
+      const response = await fetch(`/api/email-campaigns/${statsCampaignId}?recipients=true`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch recipient details');
+      const result = await response.json();
+      setStatsRecipients(result.recipients || []);
+      setStatsDetailView(true);
+      setStatsFilter(null);
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setLoadingRecipients(false);
+    }
+  };
+
+  const getFilteredRecipients = () => {
+    if (!statsFilter || !statsRecipients.length) return statsRecipients;
+    return statsRecipients.filter(r => {
+      switch (statsFilter) {
+        case 'sent':
+          return r.status === 'sent' || r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
+        case 'delivered':
+          return r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
+        case 'opened':
+          return r.status === 'opened' || r.status === 'clicked' || r.open_count > 0;
+        case 'clicked':
+          return r.status === 'clicked' || r.click_count > 0;
+        case 'bounced':
+          return r.status === 'bounced';
+        case 'unsubscribed':
+          return r.status === 'unsubscribed';
+        case 'complained':
+          return r.status === 'complained';
+        case 'failed':
+          return r.status === 'failed';
+        default:
+          return true;
+      }
+    });
   };
 
   const getStatusBadge = (status) => {
@@ -815,70 +869,98 @@ export default function EmailCampaigns() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showStatsDialog} onOpenChange={setShowStatsDialog}>
-        <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Campaign Statistics</DialogTitle>
-            <DialogDescription>
-              Performance metrics for "{statsData?.name}"
-            </DialogDescription>
+      <Dialog open={showStatsDialog} onOpenChange={(open) => {
+        setShowStatsDialog(open);
+        if (!open) {
+          setStatsDetailView(false);
+          setStatsFilter(null);
+        }
+      }}>
+        <DialogContent className={`transition-all duration-300 ${statsDetailView ? 'w-[95vw] max-w-[95vw] h-[95vh] max-h-[95vh]' : 'max-w-3xl w-[95vw] max-h-[85vh]'} overflow-hidden flex flex-col`}>
+          <DialogHeader className="flex-shrink-0">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <DialogTitle>Campaign Statistics</DialogTitle>
+                <DialogDescription>
+                  Performance metrics for "{statsData?.name}"
+                </DialogDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {statsDetailView ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setStatsDetailView(false); setStatsFilter(null); }}
+                    data-testid="button-back-to-summary"
+                  >
+                    <BarChart3 className="w-4 h-4 mr-1" />
+                    Back to Summary
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleShowDetails}
+                    disabled={loadingRecipients || !statsData?.sent}
+                    data-testid="button-view-details"
+                  >
+                    {loadingRecipients ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <Users className="w-4 h-4 mr-1" />
+                    )}
+                    View Details
+                  </Button>
+                )}
+              </div>
+            </div>
           </DialogHeader>
           
           {statsData && (
-            <div className="space-y-6">
+            <div className="flex-1 overflow-y-auto space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                  <Send className="w-5 h-5 mx-auto mb-1 text-blue-600" />
-                  <div data-testid="text-stats-sent" className="text-2xl font-bold text-blue-700 dark:text-blue-300">
-                    {statsData.sent}
+                {[
+                  { key: 'sent', label: 'Sent', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
+                  { key: 'delivered', label: 'Delivered', icon: CheckCircle2, value: statsData.delivered, bg: 'bg-green-50 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', accent: 'text-green-600', ring: 'ring-green-400' },
+                  { key: 'opened', label: 'Opened', icon: Eye, value: statsData.opened, bg: 'bg-purple-50 dark:bg-purple-950', text: 'text-purple-700 dark:text-purple-300', accent: 'text-purple-600', ring: 'ring-purple-400' },
+                  { key: 'clicked', label: 'Clicked', icon: MousePointerClick, value: statsData.clicked, bg: 'bg-amber-50 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', accent: 'text-amber-600', ring: 'ring-amber-400' },
+                ].map(({ key, label, icon: Icon, value, bg, text, accent, ring }) => (
+                  <div
+                    key={key}
+                    className={`text-center p-4 ${bg} rounded-lg ${statsDetailView ? `cursor-pointer hover-elevate ${statsFilter === key ? `ring-2 ${ring}` : ''}` : ''}`}
+                    onClick={() => statsDetailView && setStatsFilter(statsFilter === key ? null : key)}
+                    data-testid={`stat-card-${key}`}
+                  >
+                    <Icon className={`w-5 h-5 mx-auto mb-1 ${accent}`} />
+                    <div data-testid={`text-stats-${key}`} className={`text-2xl font-bold ${text}`}>
+                      {value}
+                    </div>
+                    <div className={`text-xs ${accent}`}>{label}</div>
                   </div>
-                  <div className="text-xs text-blue-600">Sent</div>
-                </div>
-                <div className="text-center p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5 mx-auto mb-1 text-green-600" />
-                  <div data-testid="text-stats-delivered" className="text-2xl font-bold text-green-700 dark:text-green-300">
-                    {statsData.delivered}
-                  </div>
-                  <div className="text-xs text-green-600">Delivered</div>
-                </div>
-                <div className="text-center p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
-                  <Eye className="w-5 h-5 mx-auto mb-1 text-purple-600" />
-                  <div data-testid="text-stats-opened" className="text-2xl font-bold text-purple-700 dark:text-purple-300">
-                    {statsData.opened}
-                  </div>
-                  <div className="text-xs text-purple-600">Opened</div>
-                </div>
-                <div className="text-center p-4 bg-amber-50 dark:bg-amber-950 rounded-lg">
-                  <MousePointerClick className="w-5 h-5 mx-auto mb-1 text-amber-600" />
-                  <div data-testid="text-stats-clicked" className="text-2xl font-bold text-amber-700 dark:text-amber-300">
-                    {statsData.clicked}
-                  </div>
-                  <div className="text-xs text-amber-600">Clicked</div>
-                </div>
+                ))}
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-3 border rounded-lg">
-                  <div data-testid="text-stats-bounced" className="text-lg font-semibold text-red-600">
-                    {statsData.bounced}
+                {[
+                  { key: 'bounced', label: 'Bounced', value: statsData.bounced, color: 'text-red-600', ring: 'ring-red-400' },
+                  { key: 'unsubscribed', label: 'Unsubscribed', value: statsData.unsubscribed, color: 'text-orange-600', ring: 'ring-orange-400' },
+                  { key: 'complained', label: 'Complaints', value: statsData.complained, color: 'text-rose-600', ring: 'ring-rose-400' },
+                ].map(({ key, label, value, color, ring }) => (
+                  <div
+                    key={key}
+                    className={`text-center p-3 border rounded-lg ${statsDetailView ? `cursor-pointer hover-elevate ${statsFilter === key ? `ring-2 ${ring}` : ''}` : ''}`}
+                    onClick={() => statsDetailView && setStatsFilter(statsFilter === key ? null : key)}
+                    data-testid={`stat-card-${key}`}
+                  >
+                    <div data-testid={`text-stats-${key}`} className={`text-lg font-semibold ${color}`}>
+                      {value}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{label}</div>
                   </div>
-                  <div className="text-xs text-muted-foreground">Bounced</div>
-                </div>
-                <div className="text-center p-3 border rounded-lg">
-                  <div data-testid="text-stats-unsubscribed" className="text-lg font-semibold text-orange-600">
-                    {statsData.unsubscribed}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Unsubscribed</div>
-                </div>
-                <div className="text-center p-3 border rounded-lg">
-                  <div data-testid="text-stats-complained" className="text-lg font-semibold text-rose-600">
-                    {statsData.complained}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Complaints</div>
-                </div>
+                ))}
               </div>
 
-              {statsData.heatmapData && statsData.heatmapData.length > 0 && (
+              {!statsDetailView && statsData.heatmapData && statsData.heatmapData.length > 0 && (
                 <div>
                   <h4 className="font-semibold mb-3 flex items-center gap-2">
                     <TrendingUp className="w-4 h-4" />
@@ -916,6 +998,80 @@ export default function EmailCampaigns() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {statsDetailView && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      {statsFilter ? `${statsFilter.charAt(0).toUpperCase() + statsFilter.slice(1)} Recipients` : 'All Recipients'}
+                      <Badge variant="secondary" className="ml-1">{getFilteredRecipients().length}</Badge>
+                    </h4>
+                    {statsFilter && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setStatsFilter(null)}
+                        data-testid="button-clear-filter"
+                      >
+                        Clear filter
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {statsFilter ? `Click a stat card above to change filter, or clear to show all.` : `Click any stat card above to filter by that status.`}
+                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Opens</TableHead>
+                        <TableHead className="text-right">Clicks</TableHead>
+                        <TableHead>Sent At</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {getFilteredRecipients().length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            No recipients found{statsFilter ? ` for "${statsFilter}"` : ''}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        getFilteredRecipients().map((recipient) => (
+                          <TableRow key={recipient.id} data-testid={`row-recipient-${recipient.id}`}>
+                            <TableCell className="font-medium">{recipient.email}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  recipient.status === 'delivered' || recipient.status === 'opened' || recipient.status === 'clicked'
+                                    ? 'border-green-500 text-green-600'
+                                    : recipient.status === 'bounced' || recipient.status === 'failed'
+                                    ? 'border-red-500 text-red-600'
+                                    : recipient.status === 'complained'
+                                    ? 'border-rose-500 text-rose-600'
+                                    : recipient.status === 'unsubscribed'
+                                    ? 'border-orange-500 text-orange-600'
+                                    : ''
+                                }
+                              >
+                                {recipient.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">{recipient.open_count || 0}</TableCell>
+                            <TableCell className="text-right">{recipient.click_count || 0}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {recipient.sent_at ? new Date(recipient.sent_at).toLocaleString() : '-'}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </div>

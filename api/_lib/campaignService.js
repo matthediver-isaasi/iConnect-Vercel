@@ -1010,3 +1010,33 @@ export async function getClickHeatmapData(campaignId, tenantId) {
     return { success: false, error: err.message };
   }
 }
+
+export async function getCampaignRecipients(campaignId, tenantId) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { data: campaign, error: campaignError } = await supabase
+      .from('email_campaign')
+      .select('id, tenant_id')
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (campaignError) throw campaignError;
+
+    const { data: recipients, error: recipientsError } = await supabase
+      .from('email_campaign_recipient')
+      .select('id, email, status, open_count, click_count, error_message, sent_at')
+      .eq('campaign_id', campaignId)
+      .order('email', { ascending: true });
+
+    if (recipientsError) throw recipientsError;
+
+    return { success: true, recipients: recipients || [] };
+  } catch (err) {
+    console.error('[Campaign Service] Error getting campaign recipients:', err);
+    return { success: false, error: err.message };
+  }
+}
