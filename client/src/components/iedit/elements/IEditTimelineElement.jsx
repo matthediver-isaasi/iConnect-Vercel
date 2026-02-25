@@ -553,34 +553,60 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         data-testid={`timeline-marker-${item.year}`}
       >
         {(() => {
-          const shape = item.highlight?.enabled ? (item.highlight.marker_shape || 'circle') : 'circle';
+          const hl = item.highlight;
+          const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
           const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
+          const customColor = hl?.enabled && hl.marker_color ? hl.marker_color : null;
+          const markerBg = hl?.enabled && hl.marker_bg ? hl.marker_bg : null;
+          const markerBorderColor = hl?.enabled && hl.marker_border_color ? hl.marker_border_color : null;
+          const defaultColor = isActive ? active_color : line_color;
+          const fillColor = customColor || defaultColor;
+
+          const wrapperStyle = {};
+          if (markerBg || markerBorderColor) {
+            const pad = Math.max(4, Math.round(marker_size * 0.35));
+            wrapperStyle.padding = `${pad}px`;
+            wrapperStyle.borderRadius = '50%';
+            wrapperStyle.display = 'flex';
+            wrapperStyle.alignItems = 'center';
+            wrapperStyle.justifyContent = 'center';
+            if (markerBg) wrapperStyle.backgroundColor = markerBg;
+            if (markerBorderColor) {
+              wrapperStyle.border = `2px solid ${markerBorderColor}`;
+            }
+          }
+
+          const hasWrapper = markerBg || markerBorderColor;
+
           if (ShapeIcon) {
             const size = isActive ? marker_size + 4 : marker_size;
-            return (
+            const icon = (
               <ShapeIcon
                 className="transition-all duration-200"
                 style={{
                   width: `${size}px`,
                   height: `${size}px`,
-                  color: isActive ? active_color : line_color,
-                  fill: isActive ? active_color : line_color,
-                  filter: isActive ? `drop-shadow(0 0 3px ${active_color}33)` : 'none',
+                  color: fillColor,
+                  fill: fillColor,
+                  filter: isActive ? `drop-shadow(0 0 3px ${fillColor}33)` : 'none',
                 }}
               />
             );
+            return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{icon}</div> : icon;
           }
-          return (
+          const size = isActive ? marker_size + 4 : marker_size;
+          const dot = (
             <div
               className="rounded-full transition-all duration-200 ring-2 ring-white"
               style={{
-                width: `${isActive ? marker_size + 4 : marker_size}px`,
-                height: `${isActive ? marker_size + 4 : marker_size}px`,
-                backgroundColor: isActive ? active_color : line_color,
-                boxShadow: isActive ? `0 0 0 3px ${active_color}33` : 'none'
+                width: `${size}px`,
+                height: `${size}px`,
+                backgroundColor: fillColor,
+                boxShadow: isActive ? `0 0 0 3px ${fillColor}33` : 'none'
               }}
             />
           );
+          return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{dot}</div> : dot;
         })()}
         <span
           className="mt-1.5 text-sm transition-colors duration-200"
@@ -687,25 +713,43 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       <>
         <div className="flex items-center gap-3 mb-3">
           {(() => {
-            const shape = item.highlight?.enabled ? (item.highlight.marker_shape || 'circle') : 'circle';
+            const hl = item.highlight;
+            const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
             const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
+            const customColor = hl?.enabled && hl.marker_color ? hl.marker_color : null;
+            const markerBg = hl?.enabled && hl.marker_bg ? hl.marker_bg : null;
+            const markerBorderColor = hl?.enabled && hl.marker_border_color ? hl.marker_border_color : null;
+            const defaultColor = activeYear === item.year ? active_color : line_color;
+            const fillColor = customColor || defaultColor;
+            const hasWrapper = markerBg || markerBorderColor;
+
+            const wrapperStyle = {};
+            if (hasWrapper) {
+              wrapperStyle.padding = '3px';
+              wrapperStyle.borderRadius = '50%';
+              wrapperStyle.display = 'flex';
+              wrapperStyle.alignItems = 'center';
+              wrapperStyle.justifyContent = 'center';
+              if (markerBg) wrapperStyle.backgroundColor = markerBg;
+              if (markerBorderColor) wrapperStyle.border = `2px solid ${markerBorderColor}`;
+            }
+
             if (ShapeIcon) {
-              return (
+              const icon = (
                 <ShapeIcon
                   className="w-3.5 h-3.5 shrink-0 transition-colors"
-                  style={{
-                    color: activeYear === item.year ? active_color : line_color,
-                    fill: activeYear === item.year ? active_color : line_color,
-                  }}
+                  style={{ color: fillColor, fill: fillColor }}
                 />
               );
+              return hasWrapper ? <div style={wrapperStyle} className="shrink-0">{icon}</div> : icon;
             }
-            return (
+            const dot = (
               <div
                 className="w-3 h-3 rounded-full shrink-0"
-                style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
+                style={{ backgroundColor: fillColor }}
               />
             );
+            return hasWrapper ? <div style={wrapperStyle} className="shrink-0">{dot}</div> : dot;
           })()}
           <span
             className="text-lg font-bold"
@@ -1873,6 +1917,87 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                   </button>
                                 );
                               })}
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-2">
+                              <Label className="text-xs text-slate-500 shrink-0">Colour</Label>
+                              <input
+                                type="color"
+                                value={item.highlight.marker_color || ''}
+                                onChange={(e) => updateItemHighlight(index, 'marker_color', e.target.value)}
+                                className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                data-testid={`input-highlight-marker-color-${index}`}
+                              />
+                              <Input
+                                value={item.highlight.marker_color || ''}
+                                onChange={(e) => updateItemHighlight(index, 'marker_color', e.target.value)}
+                                placeholder="Default"
+                                className="w-20 text-xs"
+                              />
+                              {item.highlight.marker_color && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateItemHighlight(index, 'marker_color', '')}
+                                  className="p-0.5 text-slate-400 hover:text-slate-600"
+                                  title="Reset to default"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-2">
+                              <Label className="text-xs text-slate-500 shrink-0">Background</Label>
+                              <input
+                                type="color"
+                                value={item.highlight.marker_bg || '#ffffff'}
+                                onChange={(e) => updateItemHighlight(index, 'marker_bg', e.target.value)}
+                                className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                data-testid={`input-highlight-marker-bg-${index}`}
+                              />
+                              <Input
+                                value={item.highlight.marker_bg || ''}
+                                onChange={(e) => updateItemHighlight(index, 'marker_bg', e.target.value)}
+                                placeholder="None"
+                                className="w-20 text-xs"
+                              />
+                              {item.highlight.marker_bg && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateItemHighlight(index, 'marker_bg', '')}
+                                  className="p-0.5 text-slate-400 hover:text-slate-600"
+                                  title="Remove background"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 mt-2">
+                              <Label className="text-xs text-slate-500 shrink-0">Border</Label>
+                              <input
+                                type="color"
+                                value={item.highlight.marker_border_color || '#e2e8f0'}
+                                onChange={(e) => updateItemHighlight(index, 'marker_border_color', e.target.value)}
+                                className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                data-testid={`input-highlight-marker-border-color-${index}`}
+                              />
+                              <Input
+                                value={item.highlight.marker_border_color || ''}
+                                onChange={(e) => updateItemHighlight(index, 'marker_border_color', e.target.value)}
+                                placeholder="None"
+                                className="w-20 text-xs"
+                              />
+                              {item.highlight.marker_border_color && (
+                                <button
+                                  type="button"
+                                  onClick={() => updateItemHighlight(index, 'marker_border_color', '')}
+                                  className="p-0.5 text-slate-400 hover:text-slate-600"
+                                  title="Remove border"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
                             </div>
                           </div>
 
