@@ -13,12 +13,19 @@ import {
   GripVertical,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Upload,
   Image,
   X,
   Maximize2,
   Minimize2
 } from "lucide-react";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+} from "@/components/ui/carousel";
 
 const timelineQuillModules = {
   toolbar: {
@@ -36,6 +43,90 @@ const timelineQuillFormats = [
   'header', 'bold', 'italic', 'underline',
   'list', 'bullet', 'link'
 ];
+
+function getMediaItems(item) {
+  if (item.media_items && item.media_items.length > 0) {
+    return item.media_items.filter(m => m && m.src);
+  }
+  if (item.media && item.media.src) {
+    return [{ src: item.media.src, alt: item.media.alt || '' }];
+  }
+  return [];
+}
+
+function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-80', maxWidthClass = 'max-w-2xl' }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [api, setApi] = useState(null);
+
+  useEffect(() => {
+    if (!api) return;
+    const onSelect = () => setCurrentIndex(api.selectedScrollSnap());
+    api.on('select', onSelect);
+    onSelect();
+    return () => { api.off('select', onSelect); };
+  }, [api]);
+
+  if (images.length === 0) return null;
+
+  if (images.length === 1) {
+    return (
+      <img
+        src={images[0].src}
+        alt={images[0].alt || heading || year}
+        className={`w-full ${maxWidthClass} rounded-lg object-cover ${maxHeightClass}`}
+        loading="lazy"
+        data-testid={`timeline-image-${year}`}
+      />
+    );
+  }
+
+  return (
+    <div className={`relative ${maxWidthClass}`} data-testid={`timeline-carousel-${year}`}>
+      <Carousel setApi={setApi} opts={{ loop: true }} className="w-full">
+        <CarouselContent>
+          {images.map((img, idx) => (
+            <CarouselItem key={idx}>
+              <img
+                src={img.src}
+                alt={img.alt || heading || `${year} image ${idx + 1}`}
+                className={`w-full rounded-lg object-cover ${maxHeightClass}`}
+                loading="lazy"
+                data-testid={`timeline-image-${year}-${idx}`}
+              />
+            </CarouselItem>
+          ))}
+        </CarouselContent>
+        <button
+          onClick={() => api?.scrollPrev()}
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+          aria-label="Previous image"
+          data-testid={`button-carousel-prev-${year}`}
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => api?.scrollNext()}
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+          aria-label="Next image"
+          data-testid={`button-carousel-next-${year}`}
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </Carousel>
+      <div className="flex justify-center gap-1.5 mt-2">
+        {images.map((_, idx) => (
+          <button
+            key={idx}
+            onClick={() => api?.scrollTo(idx)}
+            className={`w-2 h-2 rounded-full transition-colors ${idx === currentIndex ? 'bg-slate-800' : 'bg-slate-300'}`}
+            aria-label={`Go to image ${idx + 1}`}
+            data-testid={`button-carousel-dot-${year}-${idx}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /* ────────────────────────── RENDERER ────────────────────────── */
 
@@ -414,26 +505,23 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           )}
         </div>
 
-        {item.media?.src && (
+        {item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
           <div className="mb-4 rounded-lg overflow-hidden">
-            {item.media.type === 'video' ? (
-              <video
-                src={item.media.src}
-                controls
-                className="w-full max-w-2xl rounded-lg"
-                data-testid={`timeline-video-${item.year}`}
-              />
-            ) : (
-              <img
-                src={item.media.src}
-                alt={item.media.alt || item.heading || item.year}
-                className="w-full max-w-2xl rounded-lg object-cover max-h-80"
-                loading="lazy"
-                data-testid={`timeline-image-${item.year}`}
-              />
-            )}
+            <video
+              src={item.media.src}
+              controls
+              className="w-full max-w-2xl rounded-lg"
+              data-testid={`timeline-video-${item.year}`}
+            />
           </div>
-        )}
+        ) : (() => {
+          const mediaImages = getMediaItems(item);
+          return mediaImages.length > 0 ? (
+            <div className="mb-4 rounded-lg overflow-visible">
+              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-80" maxWidthClass="max-w-2xl" />
+            </div>
+          ) : null;
+        })()}
 
         {item.body && (
           <div
@@ -468,15 +556,18 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       {item.heading && (
         <h3 className="text-xl font-semibold text-slate-800 mb-2">{item.heading}</h3>
       )}
-      {item.media?.src && (
+      {item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
         <div className="mb-3 rounded-lg overflow-hidden">
-          {item.media.type === 'video' ? (
-            <video src={item.media.src} controls className="w-full rounded-lg" data-testid={`timeline-video-${item.year}`} />
-          ) : (
-            <img src={item.media.src} alt={item.media.alt || item.heading || item.year} className="w-full rounded-lg object-cover max-h-64" loading="lazy" data-testid={`timeline-image-${item.year}`} />
-          )}
+          <video src={item.media.src} controls className="w-full rounded-lg" data-testid={`timeline-video-${item.year}`} />
         </div>
-      )}
+      ) : (() => {
+        const mediaImages = getMediaItems(item);
+        return mediaImages.length > 0 ? (
+          <div className="mb-3 rounded-lg overflow-visible">
+            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-64" maxWidthClass="w-full" />
+          </div>
+        ) : null;
+      })()}
       {item.body && (
         <div className="prose prose-sm prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />
       )}
@@ -781,6 +872,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     updateContent('items', newItems);
   };
 
+  const getItemMediaItems = (item) => {
+    if (item.media_items && item.media_items.length > 0) return item.media_items;
+    if (item.media && item.media.src) return [{ src: item.media.src, alt: item.media.alt || '' }];
+    return [];
+  };
+
+  const updateItemMediaItems = (index, newMediaItems) => {
+    const newItems = [...items];
+    newItems[index] = {
+      ...newItems[index],
+      media_items: newMediaItems,
+      media: newMediaItems.length > 0
+        ? { type: 'image', src: newMediaItems[0].src, alt: newMediaItems[0].alt || '' }
+        : { type: 'image', src: '', alt: '' }
+    };
+    updateContent('items', newItems);
+  };
+
+  const removeMediaItem = (itemIndex, mediaIndex) => {
+    const current = getItemMediaItems(items[itemIndex]);
+    const updated = current.filter((_, i) => i !== mediaIndex);
+    updateItemMediaItems(itemIndex, updated);
+  };
+
   const addItem = () => {
     const nextYear = items.length > 0
       ? String(Math.max(...items.map(i => parseInt(i.year) || 2000)) + 1)
@@ -789,7 +904,8 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       year: nextYear,
       heading: '',
       body: '',
-      media: { type: 'image', src: '', alt: '' }
+      media: { type: 'image', src: '', alt: '' },
+      media_items: []
     }];
     updateContent('items', newItems);
     setExpandedItem(newItems.length - 1);
@@ -869,6 +985,12 @@ export function IEditTimelineElementEditor({ element, onChange }) {
   const handleImageUpload = async (index, file) => {
     if (!file) return;
 
+    const currentMediaItems = getItemMediaItems(items[index]);
+    if (currentMediaItems.length >= 5) {
+      alert('Maximum 5 images per timeline item');
+      return;
+    }
+
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
       alert('Please upload a valid image file (JPEG, PNG, GIF, WebP)');
@@ -882,13 +1004,8 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     setIsUploading(prev => ({ ...prev, [index]: true }));
     try {
       const response = await base44.integrations.Core.UploadFile({ file });
-      const newItems = [...items];
-      const currentMedia = newItems[index].media || { type: 'image', src: '', alt: '' };
-      newItems[index] = {
-        ...newItems[index],
-        media: { ...currentMedia, src: response.file_url, type: 'image' }
-      };
-      updateContent('items', newItems);
+      const updated = [...currentMediaItems, { src: response.file_url, alt: '' }];
+      updateItemMediaItems(index, updated);
     } catch (error) {
       alert('Failed to upload image: ' + error.message);
     } finally {
@@ -1262,52 +1379,62 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                       </div>
                     </div>
 
-                    {/* Media */}
+                    {/* Media - Multiple Images */}
                     <div>
-                      <Label className="text-xs text-slate-600">Image (optional)</Label>
+                      <div className="flex items-center justify-between mb-1">
+                        <Label className="text-xs text-slate-600">Images ({getItemMediaItems(item).length}/5)</Label>
+                      </div>
                       <div className="mt-1 space-y-2">
-                        {item.media?.src ? (
-                          <div className="relative rounded-lg overflow-hidden border border-slate-200">
-                            <img
-                              src={item.media.src}
-                              alt={item.media.alt || ''}
-                              className="w-full h-32 object-cover"
-                              onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                            <button
-                              onClick={() => {
-                                const newItems = [...items];
-                                newItems[index] = {
-                                  ...newItems[index],
-                                  media: { type: 'image', src: '', alt: '' }
-                                };
-                                updateContent('items', newItems);
-                              }}
-                              className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
-                              title="Remove image"
-                              type="button"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                        {getItemMediaItems(item).length > 0 && (
+                          <div className="grid grid-cols-3 gap-2">
+                            {getItemMediaItems(item).map((mediaImg, mIdx) => (
+                              <div key={mIdx} className="relative rounded-lg overflow-hidden border border-slate-200 group">
+                                <img
+                                  src={mediaImg.src}
+                                  alt={mediaImg.alt || ''}
+                                  className="w-full h-20 object-cover"
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                                <button
+                                  onClick={() => removeMediaItem(index, mIdx)}
+                                  className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
+                                  title="Remove image"
+                                  type="button"
+                                  data-testid={`button-remove-media-${index}-${mIdx}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                                <input
+                                  value={mediaImg.alt || ''}
+                                  onChange={(e) => {
+                                    const current = getItemMediaItems(items[index]);
+                                    const updated = [...current];
+                                    updated[mIdx] = { ...updated[mIdx], alt: e.target.value };
+                                    updateItemMediaItems(index, updated);
+                                  }}
+                                  placeholder="Alt text"
+                                  className="w-full text-[10px] px-1.5 py-0.5 border-t border-slate-200 bg-white"
+                                  data-testid={`input-media-alt-${index}-${mIdx}`}
+                                />
+                              </div>
+                            ))}
                           </div>
-                        ) : (
+                        )}
+                        {getItemMediaItems(item).length < 5 && (
                           <div className="flex gap-2">
-                            <Input
-                              value={item.media?.src || ''}
-                              onChange={(e) => updateItemMedia(index, 'src', e.target.value)}
-                              placeholder="Enter image URL or upload..."
-                              className="flex-1"
-                            />
-                            <label className="cursor-pointer">
-                              <div className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                            <label className="cursor-pointer flex-1">
+                              <div className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border-2 border-dashed transition-colors ${
                                 isUploading[index]
-                                  ? 'bg-slate-300 cursor-not-allowed'
-                                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                  ? 'border-slate-200 bg-slate-100 cursor-not-allowed'
+                                  : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/50'
                               }`}>
                                 {isUploading[index] ? (
-                                  <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                                  <span className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
                                 ) : (
-                                  <Upload className="w-4 h-4" />
+                                  <>
+                                    <Upload className="w-4 h-4 text-slate-400" />
+                                    <span className="text-xs text-slate-500">Add Image</span>
+                                  </>
                                 )}
                               </div>
                               <input
@@ -1320,17 +1447,10 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 }}
                                 className="hidden"
                                 disabled={isUploading[index]}
+                                data-testid={`input-upload-media-${index}`}
                               />
                             </label>
                           </div>
-                        )}
-                        {item.media?.src && (
-                          <Input
-                            value={item.media?.alt || ''}
-                            onChange={(e) => updateItemMedia(index, 'alt', e.target.value)}
-                            placeholder="Alt text for accessibility"
-                            className="text-xs"
-                          />
                         )}
                       </div>
                     </div>
