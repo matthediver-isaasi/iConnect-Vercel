@@ -67,8 +67,33 @@ function getHighlightStyle(highlight) {
   }
   if (highlight.width && highlight.width < 100) {
     style.width = `${highlight.width}%`;
-    style.marginLeft = 'auto';
-    style.marginRight = 'auto';
+    const align = highlight.align || 'center';
+    if (align === 'center') {
+      style.marginLeft = 'auto';
+      style.marginRight = 'auto';
+    } else if (align === 'right') {
+      style.marginLeft = 'auto';
+      style.marginRight = '0';
+    } else {
+      style.marginLeft = '0';
+      style.marginRight = 'auto';
+    }
+  }
+  if (highlight.border_enabled) {
+    const bw = highlight.border_width ?? 1;
+    const bc = highlight.border_color || '#e2e8f0';
+    const bs = highlight.border_style || 'solid';
+    style.border = `${bw}px ${bs} ${bc}`;
+  }
+  if (highlight.shadow && highlight.shadow !== 'none') {
+    const shadows = {
+      sm: '0 1px 2px 0 rgba(0,0,0,0.05)',
+      md: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)',
+      lg: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)',
+      xl: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+      glow: `0 0 15px 2px ${(highlight.shadow_color || '#3b82f6')}40, 0 0 30px 4px ${(highlight.shadow_color || '#3b82f6')}20`,
+    };
+    style.boxShadow = shadows[highlight.shadow] || shadows.md;
   }
   return style;
 }
@@ -1625,9 +1650,16 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 bg_color: '#1e3a5f',
                                 text_color: '#ffffff',
                                 width: 100,
+                                align: 'center',
                                 bg_gradient_from: '#1e3a5f',
                                 bg_gradient_to: '#4a90d9',
                                 bg_gradient_angle: 135,
+                                border_enabled: false,
+                                border_width: 1,
+                                border_color: '#e2e8f0',
+                                border_style: 'solid',
+                                shadow: 'none',
+                                shadow_color: '#3b82f6',
                               });
                             } else {
                               updateItem(index, 'highlight', { enabled: false });
@@ -1800,6 +1832,142 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               data-testid={`input-highlight-width-${index}`}
                             />
                             <span className="text-xs text-slate-500 w-10 text-right">{item.highlight.width ?? 100}%</span>
+                          </div>
+
+                          {(item.highlight.width ?? 100) < 100 && (
+                            <div>
+                              <Label className="text-xs text-slate-500 mb-1 block">Alignment</Label>
+                              <div className="flex gap-1">
+                                {[
+                                  { value: 'left', label: 'Left' },
+                                  { value: 'center', label: 'Centre' },
+                                  { value: 'right', label: 'Right' },
+                                ].map(a => (
+                                  <button
+                                    key={a.value}
+                                    type="button"
+                                    onClick={() => updateItemHighlight(index, 'align', a.value)}
+                                    className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                                      (item.highlight.align || 'center') === a.value
+                                        ? 'bg-slate-800 text-white border-slate-800'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                                    }`}
+                                    data-testid={`button-highlight-align-${a.value}-${index}`}
+                                  >
+                                    {a.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="border-t border-slate-100 pt-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-xs text-slate-500 font-medium">Border</Label>
+                              <Switch
+                                checked={!!item.highlight.border_enabled}
+                                onCheckedChange={(v) => updateItemHighlight(index, 'border_enabled', v)}
+                                data-testid={`switch-highlight-border-${index}`}
+                              />
+                            </div>
+                            {item.highlight.border_enabled && (
+                              <div className="space-y-2 pl-1">
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-xs text-slate-500 shrink-0">Colour</Label>
+                                  <input
+                                    type="color"
+                                    value={item.highlight.border_color || '#e2e8f0'}
+                                    onChange={(e) => updateItemHighlight(index, 'border_color', e.target.value)}
+                                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                    data-testid={`input-highlight-border-color-${index}`}
+                                  />
+                                  <Input
+                                    value={item.highlight.border_color || '#e2e8f0'}
+                                    onChange={(e) => updateItemHighlight(index, 'border_color', e.target.value)}
+                                    className="w-20 text-xs"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Label className="text-xs text-slate-500 shrink-0 w-10">Width</Label>
+                                  <input
+                                    type="range"
+                                    min="1"
+                                    max="6"
+                                    step="1"
+                                    value={item.highlight.border_width ?? 1}
+                                    onChange={(e) => updateItemHighlight(index, 'border_width', parseInt(e.target.value))}
+                                    className="flex-1"
+                                    data-testid={`input-highlight-border-width-${index}`}
+                                  />
+                                  <span className="text-xs text-slate-500 w-8 text-right">{item.highlight.border_width ?? 1}px</span>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-slate-500 mb-1 block">Style</Label>
+                                  <div className="flex gap-1">
+                                    {['solid', 'dashed', 'dotted'].map(s => (
+                                      <button
+                                        key={s}
+                                        type="button"
+                                        onClick={() => updateItemHighlight(index, 'border_style', s)}
+                                        className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                                          (item.highlight.border_style || 'solid') === s
+                                            ? 'bg-slate-800 text-white border-slate-800'
+                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                                        }`}
+                                        data-testid={`button-highlight-border-style-${s}-${index}`}
+                                      >
+                                        {s.charAt(0).toUpperCase() + s.slice(1)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="border-t border-slate-100 pt-3">
+                            <Label className="text-xs text-slate-500 mb-1 block font-medium">Shadow</Label>
+                            <div className="flex flex-wrap gap-1">
+                              {[
+                                { value: 'none', label: 'None' },
+                                { value: 'sm', label: 'Small' },
+                                { value: 'md', label: 'Medium' },
+                                { value: 'lg', label: 'Large' },
+                                { value: 'xl', label: 'X-Large' },
+                                { value: 'glow', label: 'Glow' },
+                              ].map(s => (
+                                <button
+                                  key={s.value}
+                                  type="button"
+                                  onClick={() => updateItemHighlight(index, 'shadow', s.value)}
+                                  className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                                    (item.highlight.shadow || 'none') === s.value
+                                      ? 'bg-slate-800 text-white border-slate-800'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                                  }`}
+                                  data-testid={`button-highlight-shadow-${s.value}-${index}`}
+                                >
+                                  {s.label}
+                                </button>
+                              ))}
+                            </div>
+                            {item.highlight.shadow === 'glow' && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <Label className="text-xs text-slate-500 shrink-0">Glow Colour</Label>
+                                <input
+                                  type="color"
+                                  value={item.highlight.shadow_color || '#3b82f6'}
+                                  onChange={(e) => updateItemHighlight(index, 'shadow_color', e.target.value)}
+                                  className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                  data-testid={`input-highlight-shadow-color-${index}`}
+                                />
+                                <Input
+                                  value={item.highlight.shadow_color || '#3b82f6'}
+                                  onChange={(e) => updateItemHighlight(index, 'shadow_color', e.target.value)}
+                                  className="w-20 text-xs"
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
