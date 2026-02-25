@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
-  CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search
+  CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
+  ChevronDown, ChevronRight, ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -44,6 +45,8 @@ export default function EmailCampaigns() {
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [statsFilter, setStatsFilter] = useState(null);
   const [statsCampaignId, setStatsCampaignId] = useState(null);
+  const [expandedRecipients, setExpandedRecipients] = useState(new Set());
+  const [statsLinkFilter, setStatsLinkFilter] = useState(null);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -369,6 +372,8 @@ export default function EmailCampaigns() {
       setStatsRecipients(result.recipients || []);
       setStatsDetailView(true);
       setStatsFilter(null);
+      setStatsLinkFilter(null);
+      setExpandedRecipients(new Set());
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -377,28 +382,48 @@ export default function EmailCampaigns() {
   };
 
   const getFilteredRecipients = () => {
-    if (!statsFilter || !statsRecipients.length) return statsRecipients;
-    return statsRecipients.filter(r => {
-      switch (statsFilter) {
-        case 'sent':
-          return r.status === 'sent' || r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
-        case 'delivered':
-          return r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
-        case 'opened':
-          return r.status === 'opened' || r.status === 'clicked' || r.open_count > 0;
-        case 'clicked':
-          return r.status === 'clicked' || r.click_count > 0;
-        case 'bounced':
-          return r.status === 'bounced';
-        case 'unsubscribed':
-          return r.status === 'unsubscribed';
-        case 'complained':
-          return r.status === 'complained';
-        case 'failed':
-          return r.status === 'failed';
-        default:
-          return true;
+    let filtered = statsRecipients;
+    if (statsFilter) {
+      filtered = filtered.filter(r => {
+        switch (statsFilter) {
+          case 'sent':
+            return r.status === 'sent' || r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
+          case 'delivered':
+            return r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked';
+          case 'opened':
+            return r.status === 'opened' || r.status === 'clicked' || r.open_count > 0;
+          case 'clicked':
+            return r.status === 'clicked' || r.click_count > 0;
+          case 'bounced':
+            return r.status === 'bounced';
+          case 'unsubscribed':
+            return r.status === 'unsubscribed';
+          case 'complained':
+            return r.status === 'complained';
+          case 'failed':
+            return r.status === 'failed';
+          default:
+            return true;
+        }
+      });
+    }
+    if (statsLinkFilter) {
+      filtered = filtered.filter(r =>
+        r.link_clicks && r.link_clicks.some(c => c.url === statsLinkFilter)
+      );
+    }
+    return filtered;
+  };
+
+  const toggleRecipientExpand = (recipientId) => {
+    setExpandedRecipients(prev => {
+      const next = new Set(prev);
+      if (next.has(recipientId)) {
+        next.delete(recipientId);
+      } else {
+        next.add(recipientId);
       }
+      return next;
     });
   };
 
@@ -874,6 +899,8 @@ export default function EmailCampaigns() {
         if (!open) {
           setStatsDetailView(false);
           setStatsFilter(null);
+          setStatsLinkFilter(null);
+          setExpandedRecipients(new Set());
         }
       }}>
         <DialogContent className={`transition-all duration-300 ${statsDetailView ? 'w-[95vw] max-w-[95vw] h-[95vh] max-h-[95vh]' : 'max-w-3xl w-[95vw] max-h-[85vh]'} overflow-hidden flex flex-col`}>
@@ -890,7 +917,7 @@ export default function EmailCampaigns() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => { setStatsDetailView(false); setStatsFilter(null); }}
+                    onClick={() => { setStatsDetailView(false); setStatsFilter(null); setStatsLinkFilter(null); setExpandedRecipients(new Set()); }}
                     data-testid="button-back-to-summary"
                   >
                     <BarChart3 className="w-4 h-4 mr-1" />
@@ -1001,31 +1028,86 @@ export default function EmailCampaigns() {
                 </div>
               )}
 
+              {statsDetailView && statsData.heatmapData && statsData.heatmapData.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4" />
+                    Link Click Heatmap
+                    <span className="text-xs font-normal text-muted-foreground ml-1">Click a link to filter recipients</span>
+                  </h4>
+                  <div className="space-y-2">
+                    {statsData.heatmapData.map((link, i) => {
+                      const maxClicks = Math.max(...statsData.heatmapData.map(l => l.clicks));
+                      const intensity = maxClicks > 0 ? (link.clicks / maxClicks) * 100 : 0;
+                      const isActive = statsLinkFilter === link.url;
+                      
+                      return (
+                        <div
+                          key={i}
+                          className={`flex items-center gap-3 cursor-pointer rounded-lg p-1 ${isActive ? 'ring-2 ring-blue-400' : ''}`}
+                          onClick={() => setStatsLinkFilter(isActive ? null : link.url)}
+                          data-testid={`heatmap-link-${i}`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div 
+                              className="h-8 rounded flex items-center px-3 text-sm truncate"
+                              style={{
+                                background: `linear-gradient(90deg, rgba(59, 130, 246, ${0.1 + intensity * 0.005}) ${intensity}%, transparent ${intensity}%)`,
+                                border: '1px solid rgba(59, 130, 246, 0.2)'
+                              }}
+                            >
+                              <span className="truncate">{link.url}</span>
+                            </div>
+                          </div>
+                          <div className="text-sm font-medium w-16 text-right shrink-0">
+                            {link.clicks} clicks
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {statsDetailView && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold flex items-center gap-2">
                       <Users className="w-4 h-4" />
                       {statsFilter ? `${statsFilter.charAt(0).toUpperCase() + statsFilter.slice(1)} Recipients` : 'All Recipients'}
+                      {statsLinkFilter && <span className="text-xs font-normal text-muted-foreground truncate max-w-xs">filtered by link</span>}
                       <Badge variant="secondary" className="ml-1">{getFilteredRecipients().length}</Badge>
                     </h4>
-                    {statsFilter && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setStatsFilter(null)}
-                        data-testid="button-clear-filter"
-                      >
-                        Clear filter
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {statsLinkFilter && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setStatsLinkFilter(null)}
+                          data-testid="button-clear-link-filter"
+                        >
+                          Clear link filter
+                        </Button>
+                      )}
+                      {statsFilter && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setStatsFilter(null)}
+                          data-testid="button-clear-filter"
+                        >
+                          Clear status filter
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <p className="text-xs text-muted-foreground mb-3">
-                    {statsFilter ? `Click a stat card above to change filter, or clear to show all.` : `Click any stat card above to filter by that status.`}
+                    Click any stat card to filter by status, or a heatmap link to filter by link. Click a recipient row to see their specific link clicks.
                   </p>
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-8"></TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Opens</TableHead>
@@ -1036,39 +1118,82 @@ export default function EmailCampaigns() {
                     <TableBody>
                       {getFilteredRecipients().length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                            No recipients found{statsFilter ? ` for "${statsFilter}"` : ''}
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                            No recipients found{statsFilter ? ` for "${statsFilter}"` : ''}{statsLinkFilter ? ' with this link' : ''}
                           </TableCell>
                         </TableRow>
                       ) : (
-                        getFilteredRecipients().map((recipient) => (
-                          <TableRow key={recipient.id} data-testid={`row-recipient-${recipient.id}`}>
-                            <TableCell className="font-medium">{recipient.email}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  recipient.status === 'delivered' || recipient.status === 'opened' || recipient.status === 'clicked'
-                                    ? 'border-green-500 text-green-600'
-                                    : recipient.status === 'bounced' || recipient.status === 'failed'
-                                    ? 'border-red-500 text-red-600'
-                                    : recipient.status === 'complained'
-                                    ? 'border-rose-500 text-rose-600'
-                                    : recipient.status === 'unsubscribed'
-                                    ? 'border-orange-500 text-orange-600'
-                                    : ''
-                                }
+                        getFilteredRecipients().map((recipient) => {
+                          const isExpanded = expandedRecipients.has(recipient.id);
+                          const hasClicks = recipient.link_clicks && recipient.link_clicks.length > 0;
+                          return (
+                            <Fragment key={recipient.id}>
+                              <TableRow
+                                className={`${hasClicks ? 'cursor-pointer' : ''}`}
+                                onClick={() => hasClicks && toggleRecipientExpand(recipient.id)}
+                                data-testid={`row-recipient-${recipient.id}`}
                               >
-                                {recipient.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">{recipient.open_count || 0}</TableCell>
-                            <TableCell className="text-right">{recipient.click_count || 0}</TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                              {recipient.sent_at ? new Date(recipient.sent_at).toLocaleString() : '-'}
-                            </TableCell>
-                          </TableRow>
-                        ))
+                                <TableCell className="w-8 px-2">
+                                  {hasClicks && (
+                                    isExpanded
+                                      ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                      : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                                  )}
+                                </TableCell>
+                                <TableCell className="font-medium">{recipient.email}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      recipient.status === 'delivered' || recipient.status === 'opened' || recipient.status === 'clicked'
+                                        ? 'border-green-500 text-green-600'
+                                        : recipient.status === 'bounced' || recipient.status === 'failed'
+                                        ? 'border-red-500 text-red-600'
+                                        : recipient.status === 'complained'
+                                        ? 'border-rose-500 text-rose-600'
+                                        : recipient.status === 'unsubscribed'
+                                        ? 'border-orange-500 text-orange-600'
+                                        : ''
+                                    }
+                                  >
+                                    {recipient.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">{recipient.open_count || 0}</TableCell>
+                                <TableCell className="text-right">{recipient.click_count || 0}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {recipient.sent_at ? new Date(recipient.sent_at).toLocaleString() : '-'}
+                                </TableCell>
+                              </TableRow>
+                              {isExpanded && (
+                                <TableRow data-testid={`row-recipient-clicks-${recipient.id}`}>
+                                  <TableCell colSpan={6} className="bg-muted/30 px-8 py-3">
+                                    <div className="text-xs font-medium text-muted-foreground mb-2">Links clicked:</div>
+                                    <div className="space-y-1.5">
+                                      {recipient.link_clicks.map((click, ci) => (
+                                        <div key={ci} className="flex items-center gap-3 text-sm">
+                                          <ExternalLink className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                                          <a
+                                            href={click.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 hover:underline truncate max-w-md"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            {click.link_text || click.url}
+                                          </a>
+                                          <span className="text-muted-foreground shrink-0">
+                                            {click.clicked_at ? new Date(click.clicked_at).toLocaleString() : ''}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
+                          );
+                        })
                       )}
                     </TableBody>
                   </Table>

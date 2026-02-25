@@ -1034,7 +1034,35 @@ export async function getCampaignRecipients(campaignId, tenantId) {
 
     if (recipientsError) throw recipientsError;
 
-    return { success: true, recipients: recipients || [] };
+    const { data: linkClicks, error: clicksError } = await supabase
+      .from('email_link_click')
+      .select('recipient_id, original_url, link_text, link_index, created_at')
+      .eq('campaign_id', campaignId)
+      .order('created_at', { ascending: true });
+
+    if (clicksError) {
+      console.warn('[Campaign Service] Error fetching link clicks, continuing without:', clicksError.message);
+    }
+
+    const clicksByRecipient = {};
+    for (const click of linkClicks || []) {
+      if (!clicksByRecipient[click.recipient_id]) {
+        clicksByRecipient[click.recipient_id] = [];
+      }
+      clicksByRecipient[click.recipient_id].push({
+        url: click.original_url,
+        link_text: click.link_text,
+        link_index: click.link_index,
+        clicked_at: click.created_at
+      });
+    }
+
+    const enrichedRecipients = (recipients || []).map(r => ({
+      ...r,
+      link_clicks: clicksByRecipient[r.id] || []
+    }));
+
+    return { success: true, recipients: enrichedRecipients };
   } catch (err) {
     console.error('[Campaign Service] Error getting campaign recipients:', err);
     return { success: false, error: err.message };
