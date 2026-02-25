@@ -1725,6 +1725,19 @@ export default async function handler(req, res) {
         
         if (existingMemberId) {
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
+          
+          // Resolve organization_id: prefer the UUID from the org pipeline, fall back to prefill
+          // The raw form value in additionalMemberData.organization_id may be a name string, not a UUID
+          const resolvedAdditionalOrgId = createdOrganizationId || prefill_organization_id || null;
+          if (additionalMemberData.organization_id) {
+            if (resolvedAdditionalOrgId) {
+              additionalMemberData.organization_id = resolvedAdditionalOrgId;
+            } else {
+              // No resolved UUID available — remove the raw name to prevent DB errors
+              delete additionalMemberData.organization_id;
+            }
+          }
+          
           console.log('[AppProcessor] Updating existing member:', existingMemberId, 'with:', additionalMemberData);
           
           // Check role capacity when:
@@ -1734,7 +1747,7 @@ export default async function handler(req, res) {
           const effectiveRoleToCheck = additionalMemberData.role_id !== undefined 
             ? additionalMemberData.role_id 
             : existingMemberRecord?.role_id;
-          const targetOrgId = createdOrganizationId || additionalMemberData.organization_id || prefill_organization_id || existingMemberRecord?.organization_id;
+          const targetOrgId = additionalMemberData.organization_id || existingMemberRecord?.organization_id;
           
           const roleIsChanging = additionalMemberData.role_id && additionalMemberData.role_id !== null && 
             (!existingMemberRecord || additionalMemberData.role_id !== existingMemberRecord.role_id);
@@ -1816,13 +1829,15 @@ export default async function handler(req, res) {
         } else {
           // CREATE new member
           isNewMember = true;
-          const additionalOrgId = createdOrganizationId || additionalMemberData.organization_id || prefill_organization_id || null;
+          const additionalOrgId = createdOrganizationId || prefill_organization_id || null;
+          // Remove raw organization_id from additionalMemberData (may be a name string, not UUID)
+          delete additionalMemberData.organization_id;
           const newMemberData = {
             email: memberEmail,
             login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : true,
             show_in_directory: additionalMemberData.show_in_directory !== undefined ? additionalMemberData.show_in_directory : true,
+            ...additionalMemberData,
             organization_id: additionalOrgId,
-            ...additionalMemberData
           };
           
           // Add tenant_id if provided (from public form submission)
