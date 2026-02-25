@@ -917,7 +917,7 @@ export default function EmailCampaigns() {
           </DialogHeader>
           
           {statsData && (
-            <div className="flex-1 overflow-y-auto space-y-6">
+            <div className="flex-1 overflow-y-auto space-y-6 p-1">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                   { key: 'sent', label: 'Sent', icon: Send, value: statsData.sent, bg: 'bg-blue-50 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', accent: 'text-blue-600', ring: 'ring-blue-400' },
