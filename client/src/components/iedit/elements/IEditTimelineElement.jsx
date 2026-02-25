@@ -19,8 +19,10 @@ import {
   Image,
   X,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Star
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import {
   Carousel,
   CarouselContent,
@@ -43,6 +45,33 @@ const timelineQuillFormats = [
   'header', 'bold', 'italic', 'underline',
   'list', 'bullet', 'link'
 ];
+
+function getHighlightStyle(highlight) {
+  if (!highlight?.enabled) return null;
+  const style = {};
+  const bgType = highlight.bg_type || 'solid';
+  if (bgType === 'solid') {
+    style.backgroundColor = highlight.bg_color || '#1e3a5f';
+  } else if (bgType === 'gradient') {
+    const from = highlight.bg_gradient_from || '#1e3a5f';
+    const to = highlight.bg_gradient_to || '#4a90d9';
+    const angle = highlight.bg_gradient_angle ?? 135;
+    style.background = `linear-gradient(${angle}deg, ${from}, ${to})`;
+  } else if (bgType === 'image' && highlight.bg_image) {
+    style.backgroundImage = `url(${highlight.bg_image})`;
+    style.backgroundSize = 'cover';
+    style.backgroundPosition = 'center';
+  }
+  if (highlight.text_color) {
+    style.color = highlight.text_color;
+  }
+  if (highlight.width && highlight.width < 100) {
+    style.width = `${highlight.width}%`;
+    style.marginLeft = 'auto';
+    style.marginRight = 'auto';
+  }
+  return style;
+}
 
 function getMediaItems(item) {
   if (item.media_items && item.media_items.length > 0) {
@@ -482,26 +511,22 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const contentSection = (item, idx) => {
     const isActive = activeYear === item.year;
     const effectiveOffset = isExpanded ? 16 : header_offset;
-    return (
-      <div
-        key={item.year}
-        ref={(el) => setSectionRef(item.year, el)}
-        data-year={item.year}
-        style={{
-          scrollMarginTop: `${effectiveOffset + 8}px`,
-          marginBottom: idx < items.length - 1 ? '48px' : 0
-        }}
-        data-testid={`timeline-section-${item.year}`}
-      >
+    const hlStyle = getHighlightStyle(item.highlight);
+    const isHighlighted = !!hlStyle;
+    const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
+    const textColor = isHighlighted ? item.highlight.text_color : undefined;
+
+    const innerContent = (
+      <>
         <div className="flex items-baseline gap-3 mb-3">
           <span
             className="text-2xl font-bold transition-colors duration-200"
-            style={{ color: isActive ? active_color : '#9ca3af' }}
+            style={{ color: textColor || (isActive ? active_color : '#9ca3af') }}
           >
             {item.year}
           </span>
           {item.heading && (
-            <h3 className="text-xl font-semibold text-slate-800">{item.heading}</h3>
+            <h3 className="text-xl font-semibold" style={{ color: textColor || '#1e293b' }}>{item.heading}</h3>
           )}
         </div>
 
@@ -525,54 +550,113 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
         {item.body && (
           <div
-            className="prose prose-slate max-w-none"
+            className="prose max-w-none"
+            style={textColor ? { color: textColor } : undefined}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
           />
         )}
+      </>
+    );
+
+    return (
+      <div
+        key={item.year}
+        ref={(el) => setSectionRef(item.year, el)}
+        data-year={item.year}
+        style={{
+          scrollMarginTop: `${effectiveOffset + 8}px`,
+          marginBottom: idx < items.length - 1 ? '48px' : 0
+        }}
+        data-testid={`timeline-section-${item.year}`}
+      >
+        {isHighlighted ? (
+          <div
+            className="relative rounded-lg p-6 overflow-hidden"
+            style={hlStyle}
+            data-testid={`timeline-highlight-${item.year}`}
+          >
+            {isImageBg && (
+              <div className="absolute inset-0 bg-black/40 rounded-lg" aria-hidden="true" />
+            )}
+            <div className="relative z-10">
+              {innerContent}
+            </div>
+          </div>
+        ) : innerContent}
       </div>
     );
   };
 
-  const mobileContentSection = (item) => (
-    <div
-      key={item.year}
-      ref={(el) => setSectionRef(item.year, el)}
-      data-year={item.year}
-      className="scroll-mt-32"
-      data-testid={`timeline-section-${item.year}`}
-    >
-      <div className="flex items-center gap-3 mb-3">
-        <div
-          className="w-3 h-3 rounded-full shrink-0"
-          style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
-        />
-        <span
-          className="text-lg font-bold"
-          style={{ color: activeYear === item.year ? active_color : '#374151' }}
-        >
-          {item.year}
-        </span>
-      </div>
-      {item.heading && (
-        <h3 className="text-xl font-semibold text-slate-800 mb-2">{item.heading}</h3>
-      )}
-      {item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
-        <div className="mb-3 rounded-lg overflow-hidden">
-          <video src={item.media.src} controls className="w-full rounded-lg" data-testid={`timeline-video-${item.year}`} />
+  const mobileContentSection = (item) => {
+    const hlStyle = getHighlightStyle(item.highlight);
+    const isHighlighted = !!hlStyle;
+    const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
+    const textColor = isHighlighted ? item.highlight.text_color : undefined;
+
+    const innerContent = (
+      <>
+        <div className="flex items-center gap-3 mb-3">
+          <div
+            className="w-3 h-3 rounded-full shrink-0"
+            style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
+          />
+          <span
+            className="text-lg font-bold"
+            style={{ color: textColor || (activeYear === item.year ? active_color : '#374151') }}
+          >
+            {item.year}
+          </span>
         </div>
-      ) : (() => {
-        const mediaImages = getMediaItems(item);
-        return mediaImages.length > 0 ? (
-          <div className="mb-3 rounded-lg overflow-visible">
-            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-64" maxWidthClass="w-full" />
+        {item.heading && (
+          <h3 className="text-xl font-semibold mb-2" style={{ color: textColor || '#1e293b' }}>{item.heading}</h3>
+        )}
+        {item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
+          <div className="mb-3 rounded-lg overflow-hidden">
+            <video src={item.media.src} controls className="w-full rounded-lg" data-testid={`timeline-video-${item.year}`} />
           </div>
-        ) : null;
-      })()}
-      {item.body && (
-        <div className="prose prose-sm prose-slate max-w-none" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />
-      )}
-    </div>
-  );
+        ) : (() => {
+          const mediaImages = getMediaItems(item);
+          return mediaImages.length > 0 ? (
+            <div className="mb-3 rounded-lg overflow-visible">
+              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-64" maxWidthClass="w-full" />
+            </div>
+          ) : null;
+        })()}
+        {item.body && (
+          <div
+            className="prose prose-sm max-w-none"
+            style={textColor ? { color: textColor } : undefined}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
+          />
+        )}
+      </>
+    );
+
+    return (
+      <div
+        key={item.year}
+        ref={(el) => setSectionRef(item.year, el)}
+        data-year={item.year}
+        className="scroll-mt-32"
+        data-testid={`timeline-section-${item.year}`}
+      >
+        {isHighlighted ? (
+          <div
+            className="relative rounded-lg p-5 overflow-hidden"
+            style={hlStyle}
+            data-testid={`timeline-highlight-${item.year}`}
+          >
+            {isImageBg && (
+              <div className="absolute inset-0 bg-black/40 rounded-lg" aria-hidden="true" />
+            )}
+            <div className="relative z-10">
+              {innerContent}
+            </div>
+          </div>
+        ) : innerContent}
+      </div>
+    );
+  };
 
   const buildGradientCss = () => {
     const stops = gradient_stops && gradient_stops.length >= 2
@@ -902,6 +986,39 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     const [moved] = current.splice(fromIdx, 1);
     current.splice(toIdx, 0, moved);
     updateItemMediaItems(itemIndex, current);
+  };
+
+  const updateItemHighlight = (index, key, value) => {
+    const newItems = [...items];
+    const currentHighlight = newItems[index].highlight || {};
+    newItems[index] = {
+      ...newItems[index],
+      highlight: { ...currentHighlight, [key]: value }
+    };
+    updateContent('items', newItems);
+  };
+
+  const [isHighlightBgUploading, setIsHighlightBgUploading] = useState({});
+  const handleHighlightBgUpload = async (index, file) => {
+    if (!file) return;
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please upload a valid image file (JPEG, PNG, GIF, WebP)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be smaller than 10MB');
+      return;
+    }
+    setIsHighlightBgUploading(prev => ({ ...prev, [index]: true }));
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      updateItemHighlight(index, 'bg_image', response.file_url);
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsHighlightBgUploading(prev => ({ ...prev, [index]: false }));
+    }
   };
 
   const addItem = () => {
@@ -1313,6 +1430,9 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                   <span className="text-sm text-slate-500 truncate flex-1">
                     {item.heading || '(no heading)'}
                   </span>
+                  {item.highlight?.enabled && (
+                    <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="currentColor" />
+                  )}
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={(e) => { e.stopPropagation(); moveItem(index, index - 1); }}
@@ -1486,6 +1606,203 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           </div>
                         )}
                       </div>
+                    </div>
+
+                    {/* Highlight */}
+                    <div className="border-t border-slate-200 pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Star className="w-4 h-4 text-amber-500" />
+                          <Label className="text-xs text-slate-600 font-medium">Highlight</Label>
+                        </div>
+                        <Switch
+                          checked={!!item.highlight?.enabled}
+                          onCheckedChange={(v) => {
+                            if (v) {
+                              updateItem(index, 'highlight', {
+                                enabled: true,
+                                bg_type: 'solid',
+                                bg_color: '#1e3a5f',
+                                text_color: '#ffffff',
+                                width: 100,
+                                bg_gradient_from: '#1e3a5f',
+                                bg_gradient_to: '#4a90d9',
+                                bg_gradient_angle: 135,
+                              });
+                            } else {
+                              updateItem(index, 'highlight', { enabled: false });
+                            }
+                          }}
+                          data-testid={`switch-highlight-${index}`}
+                        />
+                      </div>
+                      {item.highlight?.enabled && (
+                        <div className="space-y-3 pl-1">
+                          <div>
+                            <Label className="text-xs text-slate-500 mb-1 block">Background Type</Label>
+                            <div className="flex gap-1">
+                              {['solid', 'gradient', 'image'].map(t => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  onClick={() => updateItemHighlight(index, 'bg_type', t)}
+                                  className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                                    item.highlight.bg_type === t
+                                      ? 'bg-slate-800 text-white border-slate-800'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                                  }`}
+                                  data-testid={`button-highlight-bg-${t}-${index}`}
+                                >
+                                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {item.highlight.bg_type === 'solid' && (
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-slate-500 shrink-0">Colour</Label>
+                              <input
+                                type="color"
+                                value={item.highlight.bg_color || '#1e3a5f'}
+                                onChange={(e) => updateItemHighlight(index, 'bg_color', e.target.value)}
+                                className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                                data-testid={`input-highlight-bg-color-${index}`}
+                              />
+                              <Input
+                                value={item.highlight.bg_color || '#1e3a5f'}
+                                onChange={(e) => updateItemHighlight(index, 'bg_color', e.target.value)}
+                                className="w-24 text-xs"
+                              />
+                            </div>
+                          )}
+
+                          {item.highlight.bg_type === 'gradient' && (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Label className="text-xs text-slate-500 shrink-0">From</Label>
+                                <input
+                                  type="color"
+                                  value={item.highlight.bg_gradient_from || '#1e3a5f'}
+                                  onChange={(e) => updateItemHighlight(index, 'bg_gradient_from', e.target.value)}
+                                  className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                  data-testid={`input-highlight-gradient-from-${index}`}
+                                />
+                                <Label className="text-xs text-slate-500 shrink-0">To</Label>
+                                <input
+                                  type="color"
+                                  value={item.highlight.bg_gradient_to || '#4a90d9'}
+                                  onChange={(e) => updateItemHighlight(index, 'bg_gradient_to', e.target.value)}
+                                  className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                                  data-testid={`input-highlight-gradient-to-${index}`}
+                                />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Label className="text-xs text-slate-500 shrink-0 w-10">Angle</Label>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="360"
+                                  step="1"
+                                  value={item.highlight.bg_gradient_angle ?? 135}
+                                  onChange={(e) => updateItemHighlight(index, 'bg_gradient_angle', parseInt(e.target.value))}
+                                  className="flex-1"
+                                  data-testid={`input-highlight-gradient-angle-${index}`}
+                                />
+                                <span className="text-xs text-slate-500 w-8 text-right">{item.highlight.bg_gradient_angle ?? 135}°</span>
+                              </div>
+                              <div
+                                className="h-6 rounded-md border border-slate-200"
+                                style={{
+                                  background: `linear-gradient(${item.highlight.bg_gradient_angle ?? 135}deg, ${item.highlight.bg_gradient_from || '#1e3a5f'}, ${item.highlight.bg_gradient_to || '#4a90d9'})`
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {item.highlight.bg_type === 'image' && (
+                            <div className="space-y-2">
+                              {item.highlight.bg_image ? (
+                                <div className="relative rounded-lg overflow-hidden border border-slate-200">
+                                  <img
+                                    src={item.highlight.bg_image}
+                                    alt="Highlight background"
+                                    className="w-full h-20 object-cover"
+                                  />
+                                  <button
+                                    onClick={() => updateItemHighlight(index, 'bg_image', '')}
+                                    className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
+                                    title="Remove background"
+                                    type="button"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <label className="cursor-pointer block">
+                                  <div className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm border-2 border-dashed transition-colors ${
+                                    isHighlightBgUploading[index]
+                                      ? 'border-slate-200 bg-slate-100 cursor-not-allowed'
+                                      : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/50'
+                                  }`}>
+                                    {isHighlightBgUploading[index] ? (
+                                      <span className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+                                    ) : (
+                                      <>
+                                        <Upload className="w-4 h-4 text-slate-400" />
+                                        <span className="text-xs text-slate-500">Upload background image</span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) handleHighlightBgUpload(index, file);
+                                      e.target.value = '';
+                                    }}
+                                    className="hidden"
+                                    disabled={isHighlightBgUploading[index]}
+                                    data-testid={`input-highlight-bg-upload-${index}`}
+                                  />
+                                </label>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-slate-500 shrink-0">Text Colour</Label>
+                            <input
+                              type="color"
+                              value={item.highlight.text_color || '#ffffff'}
+                              onChange={(e) => updateItemHighlight(index, 'text_color', e.target.value)}
+                              className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+                              data-testid={`input-highlight-text-color-${index}`}
+                            />
+                            <Input
+                              value={item.highlight.text_color || '#ffffff'}
+                              onChange={(e) => updateItemHighlight(index, 'text_color', e.target.value)}
+                              className="w-24 text-xs"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-slate-500 shrink-0 w-10">Width</Label>
+                            <input
+                              type="range"
+                              min="25"
+                              max="100"
+                              step="5"
+                              value={item.highlight.width ?? 100}
+                              onChange={(e) => updateItemHighlight(index, 'width', parseInt(e.target.value))}
+                              className="flex-1"
+                              data-testid={`input-highlight-width-${index}`}
+                            />
+                            <span className="text-xs text-slate-500 w-10 text-right">{item.highlight.width ?? 100}%</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
