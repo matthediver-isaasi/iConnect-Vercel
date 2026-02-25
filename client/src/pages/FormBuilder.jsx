@@ -122,6 +122,7 @@ const COMPARISON_MODES = [
   { value: 'starts_with', label: 'Starts with', forEmail: false, forText: true },
   { value: 'ends_with', label: 'Ends with', forEmail: false, forText: true },
   { value: 'domain_equals', label: 'Domain equals (email or URL)', forEmail: true, forText: true },
+  { value: 'url_equals', label: 'URL match (ignores http/www)', forEmail: false, forText: true },
 ];
 
 const UNIQUENESS_TARGET_FIELDS = {
@@ -2240,9 +2241,9 @@ function FieldCard({
         defaultTarget = applicationLevel === 'member' ? 'member.email' : 'organization.invoicing_email';
         defaultComparison = 'equals_lowercase';
       } else if (isUrlType) {
-        // URL fields default to domain comparison against email
-        defaultTarget = applicationLevel === 'member' ? 'member.email' : 'organization.invoicing_email';
-        defaultComparison = 'domain_equals';
+        // URL fields default to URL match against website_url
+        defaultTarget = applicationLevel === 'organization' ? 'organization.website_url' : 'member.email';
+        defaultComparison = applicationLevel === 'organization' ? 'url_equals' : 'domain_equals';
       } else {
         defaultTarget = applicationLevel === 'member' ? 'member.full_name' : 'organization.name';
         defaultComparison = 'equals_lowercase';

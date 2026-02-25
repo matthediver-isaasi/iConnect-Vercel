@@ -144,10 +144,11 @@ export default async function handler(req, res) {
         continue;
       }
       
-      // Validate domain_equals is only used with email columns
+      // Validate domain_equals is only used with email or URL columns
       const emailColumns = ['email', 'invoicing_email'];
-      if (comparison_mode === 'domain_equals' && !emailColumns.includes(targetColumn)) {
-        console.log(`[Form Uniqueness] Skipping domain_equals for non-email column ${targetColumn}`);
+      const urlColumns = ['website_url'];
+      if (comparison_mode === 'domain_equals' && !emailColumns.includes(targetColumn) && !urlColumns.includes(targetColumn)) {
+        console.log(`[Form Uniqueness] Skipping domain_equals for non-email/non-url column ${targetColumn}`);
         continue;
       }
       
@@ -206,16 +207,61 @@ export default async function handler(req, res) {
           // Extract domain from email or URL and match
           const extractedDomain = extractDomain(searchValue);
           if (extractedDomain) {
-            query = supabase
-              .from(tableName)
-              .select('id')
-              .ilike(targetColumn, `%@${extractedDomain}`)
-              .limit(1);
+            if (urlColumns.includes(targetColumn)) {
+              // For URL columns, match the domain anywhere in the stored URL
+              query = supabase
+                .from(tableName)
+                .select('id')
+                .ilike(targetColumn, `%${extractedDomain}%`)
+                .limit(1);
+            } else {
+              // For email columns, match @domain suffix
+              query = supabase
+                .from(tableName)
+                .select('id')
+                .ilike(targetColumn, `%@${extractedDomain}`)
+                .limit(1);
+            }
           } else {
             // If domain extraction fails, skip this check
             continue;
           }
           break;
+        
+        case 'url_equals': {
+          // Normalise the URL and check multiple format variations
+          const normalisedUrl = extractDomain(searchValue);
+          if (normalisedUrl) {
+            // Build OR filter covering common stored URL formats
+            const patterns = [
+              `${targetColumn}.ilike.${normalisedUrl}`,
+              `${targetColumn}.ilike.http://${normalisedUrl}`,
+              `${targetColumn}.ilike.https://${normalisedUrl}`,
+              `${targetColumn}.ilike.http://www.${normalisedUrl}`,
+              `${targetColumn}.ilike.https://www.${normalisedUrl}`,
+              `${targetColumn}.ilike.www.${normalisedUrl}`,
+              `${targetColumn}.ilike.${normalisedUrl}/`,
+              `${targetColumn}.ilike.http://${normalisedUrl}/`,
+              `${targetColumn}.ilike.https://${normalisedUrl}/`,
+              `${targetColumn}.ilike.http://www.${normalisedUrl}/`,
+              `${targetColumn}.ilike.https://www.${normalisedUrl}/`,
+              `${targetColumn}.ilike.www.${normalisedUrl}/`,
+            ];
+            query = supabase
+              .from(tableName)
+              .select('id')
+              .or(patterns.join(','))
+              .limit(1);
+          } else {
+            // Fallback to case-insensitive exact match
+            query = supabase
+              .from(tableName)
+              .select('id')
+              .ilike(targetColumn, searchValue)
+              .limit(1);
+          }
+          break;
+        }
           
         default:
           // Default to case insensitive
@@ -298,6 +344,11 @@ export default async function handler(req, res) {
                 const subDomain = extractDomain(subValueStr);
                 const compareDomain = extractDomain(compareValue);
                 matches = !!(subDomain && compareDomain && subDomain === compareDomain);
+                break;
+              case 'url_equals':
+                const subUrl = extractDomain(subValueStr);
+                const compareUrl = extractDomain(compareValue);
+                matches = !!(subUrl && compareUrl && subUrl === compareUrl);
                 break;
               default:
                 matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
