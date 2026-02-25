@@ -20,7 +20,21 @@ import {
   X,
   Maximize2,
   Minimize2,
-  Star
+  Star,
+  Circle,
+  Diamond,
+  Heart,
+  Hexagon,
+  Square,
+  Triangle,
+  Shield,
+  Crown,
+  Trophy,
+  Flag,
+  Zap,
+  Flame,
+  Award,
+  Bookmark
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -45,6 +59,29 @@ const timelineQuillFormats = [
   'header', 'bold', 'italic', 'underline',
   'list', 'bullet', 'link'
 ];
+
+const MARKER_SHAPES = [
+  { value: 'circle', label: 'Circle', Icon: Circle },
+  { value: 'star', label: 'Star', Icon: Star },
+  { value: 'diamond', label: 'Diamond', Icon: Diamond },
+  { value: 'heart', label: 'Heart', Icon: Heart },
+  { value: 'hexagon', label: 'Hexagon', Icon: Hexagon },
+  { value: 'square', label: 'Square', Icon: Square },
+  { value: 'triangle', label: 'Triangle', Icon: Triangle },
+  { value: 'shield', label: 'Shield', Icon: Shield },
+  { value: 'crown', label: 'Crown', Icon: Crown },
+  { value: 'trophy', label: 'Trophy', Icon: Trophy },
+  { value: 'flag', label: 'Flag', Icon: Flag },
+  { value: 'bolt', label: 'Bolt', Icon: Zap },
+  { value: 'flame', label: 'Flame', Icon: Flame },
+  { value: 'award', label: 'Award', Icon: Award },
+  { value: 'bookmark', label: 'Bookmark', Icon: Bookmark },
+];
+
+function getMarkerShapeIcon(shape) {
+  const found = MARKER_SHAPES.find(s => s.value === shape);
+  return found ? found.Icon : null;
+}
 
 function getHighlightStyle(highlight) {
   if (!highlight?.enabled) return null;
@@ -511,15 +548,36 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         }}
         data-testid={`timeline-marker-${item.year}`}
       >
-        <div
-          className="rounded-full transition-all duration-200 ring-2 ring-white"
-          style={{
-            width: `${isActive ? marker_size + 4 : marker_size}px`,
-            height: `${isActive ? marker_size + 4 : marker_size}px`,
-            backgroundColor: isActive ? active_color : line_color,
-            boxShadow: isActive ? `0 0 0 3px ${active_color}33` : 'none'
-          }}
-        />
+        {(() => {
+          const shape = item.highlight?.enabled ? (item.highlight.marker_shape || 'circle') : 'circle';
+          const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
+          if (ShapeIcon) {
+            const size = isActive ? marker_size + 4 : marker_size;
+            return (
+              <ShapeIcon
+                className="transition-all duration-200"
+                style={{
+                  width: `${size}px`,
+                  height: `${size}px`,
+                  color: isActive ? active_color : line_color,
+                  fill: isActive ? active_color : line_color,
+                  filter: isActive ? `drop-shadow(0 0 3px ${active_color}33)` : 'none',
+                }}
+              />
+            );
+          }
+          return (
+            <div
+              className="rounded-full transition-all duration-200 ring-2 ring-white"
+              style={{
+                width: `${isActive ? marker_size + 4 : marker_size}px`,
+                height: `${isActive ? marker_size + 4 : marker_size}px`,
+                backgroundColor: isActive ? active_color : line_color,
+                boxShadow: isActive ? `0 0 0 3px ${active_color}33` : 'none'
+              }}
+            />
+          );
+        })()}
         <span
           className="mt-1.5 text-sm transition-colors duration-200"
           style={{
@@ -621,10 +679,27 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const innerContent = (
       <>
         <div className="flex items-center gap-3 mb-3">
-          <div
-            className="w-3 h-3 rounded-full shrink-0"
-            style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
-          />
+          {(() => {
+            const shape = item.highlight?.enabled ? (item.highlight.marker_shape || 'circle') : 'circle';
+            const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
+            if (ShapeIcon) {
+              return (
+                <ShapeIcon
+                  className="w-3.5 h-3.5 shrink-0 transition-colors"
+                  style={{
+                    color: activeYear === item.year ? active_color : line_color,
+                    fill: activeYear === item.year ? active_color : line_color,
+                  }}
+                />
+              );
+            }
+            return (
+              <div
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{ backgroundColor: activeYear === item.year ? active_color : line_color }}
+              />
+            );
+          })()}
           <span
             className="text-lg font-bold"
             style={{ color: textColor || (activeYear === item.year ? active_color : '#374151') }}
@@ -1651,6 +1726,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 text_color: '#ffffff',
                                 width: 100,
                                 align: 'center',
+                                marker_shape: 'circle',
                                 bg_gradient_from: '#1e3a5f',
                                 bg_gradient_to: '#4a90d9',
                                 bg_gradient_angle: 135,
@@ -1670,6 +1746,32 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                       </div>
                       {item.highlight?.enabled && (
                         <div className="space-y-3 pl-1">
+                          <div>
+                            <Label className="text-xs text-slate-500 mb-1 block">Marker Shape</Label>
+                            <div className="grid grid-cols-5 gap-1">
+                              {MARKER_SHAPES.map(s => {
+                                const isSelected = (item.highlight.marker_shape || 'circle') === s.value;
+                                return (
+                                  <button
+                                    key={s.value}
+                                    type="button"
+                                    onClick={() => updateItemHighlight(index, 'marker_shape', s.value)}
+                                    className={`flex flex-col items-center gap-0.5 p-1.5 rounded-md border transition-colors ${
+                                      isSelected
+                                        ? 'bg-slate-800 text-white border-slate-800'
+                                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                                    }`}
+                                    title={s.label}
+                                    data-testid={`button-highlight-marker-${s.value}-${index}`}
+                                  >
+                                    <s.Icon className="w-4 h-4" />
+                                    <span className="text-[9px] leading-none">{s.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
                           <div>
                             <Label className="text-xs text-slate-500 mb-1 block">Background Type</Label>
                             <div className="flex gap-1">
