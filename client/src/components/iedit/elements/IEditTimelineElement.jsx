@@ -83,7 +83,25 @@ function getMarkerShapeIcon(shape) {
   return found ? found.Icon : null;
 }
 
-function getHighlightStyle(highlight, inModal = false) {
+function getContentWidthStyle(content, inModal = false) {
+  const w = inModal ? (content.content_width_modal ?? content.content_width ?? 100) : (content.content_width ?? 100);
+  if (w >= 100) return null;
+  const style = { width: `${w}%` };
+  const align = content.content_align || 'center';
+  if (align === 'center') {
+    style.marginLeft = 'auto';
+    style.marginRight = 'auto';
+  } else if (align === 'right') {
+    style.marginLeft = 'auto';
+    style.marginRight = '0';
+  } else {
+    style.marginLeft = '0';
+    style.marginRight = 'auto';
+  }
+  return style;
+}
+
+function getHighlightStyle(highlight) {
   if (!highlight?.enabled) return null;
   const style = {};
   const bgType = highlight.bg_type || 'solid';
@@ -101,21 +119,6 @@ function getHighlightStyle(highlight, inModal = false) {
   }
   if (highlight.text_color) {
     style.color = highlight.text_color;
-  }
-  const w = inModal ? (highlight.width_modal ?? highlight.width ?? 100) : (highlight.width ?? 100);
-  if (w < 100) {
-    style.width = `${w}%`;
-    const align = highlight.align || 'center';
-    if (align === 'center') {
-      style.marginLeft = 'auto';
-      style.marginRight = 'auto';
-    } else if (align === 'right') {
-      style.marginLeft = 'auto';
-      style.marginRight = '0';
-    } else {
-      style.marginLeft = '0';
-      style.marginRight = 'auto';
-    }
   }
   if (highlight.border_enabled) {
     const bw = highlight.border_width ?? 1;
@@ -595,7 +598,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const contentSection = (item, idx, inOverlay = false) => {
     const isActive = activeYear === item.year;
     const effectiveOffset = isExpanded ? 16 : header_offset;
-    const hlStyle = getHighlightStyle(item.highlight, inOverlay);
+    const widthStyle = getContentWidthStyle(content, inOverlay);
+    const hlStyle = getHighlightStyle(item.highlight);
     const isHighlighted = !!hlStyle;
     const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
     const textColor = isHighlighted ? item.highlight.text_color : undefined;
@@ -649,7 +653,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         data-year={item.year}
         style={{
           scrollMarginTop: `${effectiveOffset + 8}px`,
-          marginBottom: idx < items.length - 1 ? '48px' : 0
+          marginBottom: idx < items.length - 1 ? '48px' : 0,
+          ...widthStyle,
         }}
         data-testid={`timeline-section-${item.year}`}
       >
@@ -672,7 +677,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   };
 
   const mobileContentSection = (item, inOverlay = false) => {
-    const hlStyle = getHighlightStyle(item.highlight, inOverlay);
+    const widthStyle = getContentWidthStyle(content, inOverlay);
+    const hlStyle = getHighlightStyle(item.highlight);
     const isHighlighted = !!hlStyle;
     const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
     const textColor = isHighlighted ? item.highlight.text_color : undefined;
@@ -739,6 +745,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         ref={(el) => setSectionRef(item.year, el)}
         data-year={item.year}
         className="scroll-mt-32"
+        style={widthStyle || undefined}
         data-testid={`timeline-section-${item.year}`}
       >
         {isHighlighted ? (
@@ -1330,6 +1337,69 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         />
       </div>
 
+      {/* Content Width */}
+      <div className="space-y-3 border border-slate-200 rounded-lg p-3">
+        <Label className="text-sm font-medium text-slate-700">Content Width</Label>
+        <p className="text-xs text-slate-400">Controls the width of each year's content area as a percentage of the available space.</p>
+
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-slate-500 shrink-0">Inline</Label>
+          <input
+            type="range"
+            min="25"
+            max="100"
+            step="1"
+            value={content.content_width ?? 100}
+            onChange={(e) => updateContent('content_width', parseInt(e.target.value))}
+            className="flex-1"
+            data-testid="input-content-width"
+          />
+          <span className="text-xs text-slate-500 w-10 text-right">{content.content_width ?? 100}%</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-slate-500 shrink-0">Modal</Label>
+          <input
+            type="range"
+            min="25"
+            max="100"
+            step="1"
+            value={content.content_width_modal ?? content.content_width ?? 100}
+            onChange={(e) => updateContent('content_width_modal', parseInt(e.target.value))}
+            className="flex-1"
+            data-testid="input-content-width-modal"
+          />
+          <span className="text-xs text-slate-500 w-10 text-right">{content.content_width_modal ?? content.content_width ?? 100}%</span>
+        </div>
+
+        {((content.content_width ?? 100) < 100 || (content.content_width_modal ?? content.content_width ?? 100) < 100) && (
+          <div>
+            <Label className="text-xs text-slate-500 mb-1 block">Alignment</Label>
+            <div className="flex gap-1">
+              {[
+                { value: 'left', label: 'Left' },
+                { value: 'center', label: 'Centre' },
+                { value: 'right', label: 'Right' },
+              ].map(a => (
+                <button
+                  key={a.value}
+                  type="button"
+                  onClick={() => updateContent('content_align', a.value)}
+                  className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                    (content.content_align || 'center') === a.value
+                      ? 'bg-slate-800 text-white border-slate-800'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                  }`}
+                  data-testid={`button-content-align-${a.value}`}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Background Image */}
       <div className="space-y-3 border border-slate-200 rounded-lg p-3">
         <Label className="text-sm font-medium text-slate-700">Background Image (optional)</Label>
@@ -1760,9 +1830,6 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 bg_type: 'solid',
                                 bg_color: '#1e3a5f',
                                 text_color: '#ffffff',
-                                width: 100,
-                                width_modal: 100,
-                                align: 'center',
                                 marker_shape: 'circle',
                                 bg_gradient_from: '#1e3a5f',
                                 bg_gradient_to: '#4a90d9',
@@ -1957,63 +2024,6 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               className="w-24 text-xs"
                             />
                           </div>
-
-                          <div className="flex items-center gap-2">
-                            <Label className="text-xs text-slate-500 shrink-0">Inline Width</Label>
-                            <input
-                              type="range"
-                              min="25"
-                              max="100"
-                              step="1"
-                              value={item.highlight.width ?? 100}
-                              onChange={(e) => updateItemHighlight(index, 'width', parseInt(e.target.value))}
-                              className="flex-1"
-                              data-testid={`input-highlight-width-${index}`}
-                            />
-                            <span className="text-xs text-slate-500 w-10 text-right">{item.highlight.width ?? 100}%</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <Label className="text-xs text-slate-500 shrink-0">Modal Width</Label>
-                            <input
-                              type="range"
-                              min="25"
-                              max="100"
-                              step="1"
-                              value={item.highlight.width_modal ?? item.highlight.width ?? 100}
-                              onChange={(e) => updateItemHighlight(index, 'width_modal', parseInt(e.target.value))}
-                              className="flex-1"
-                              data-testid={`input-highlight-width-modal-${index}`}
-                            />
-                            <span className="text-xs text-slate-500 w-10 text-right">{item.highlight.width_modal ?? item.highlight.width ?? 100}%</span>
-                          </div>
-
-                          {((item.highlight.width ?? 100) < 100 || (item.highlight.width_modal ?? item.highlight.width ?? 100) < 100) && (
-                            <div>
-                              <Label className="text-xs text-slate-500 mb-1 block">Alignment</Label>
-                              <div className="flex gap-1">
-                                {[
-                                  { value: 'left', label: 'Left' },
-                                  { value: 'center', label: 'Centre' },
-                                  { value: 'right', label: 'Right' },
-                                ].map(a => (
-                                  <button
-                                    key={a.value}
-                                    type="button"
-                                    onClick={() => updateItemHighlight(index, 'align', a.value)}
-                                    className={`px-3 py-1 text-xs rounded-md border transition-colors ${
-                                      (item.highlight.align || 'center') === a.value
-                                        ? 'bg-slate-800 text-white border-slate-800'
-                                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                                    }`}
-                                    data-testid={`button-highlight-align-${a.value}-${index}`}
-                                  >
-                                    {a.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
 
                           <div className="border-t border-slate-100 pt-3">
                             <div className="flex items-center justify-between mb-2">
