@@ -83,7 +83,7 @@ function getMarkerShapeIcon(shape) {
   return found ? found.Icon : null;
 }
 
-function getHighlightStyle(highlight) {
+function getHighlightStyle(highlight, inModal = false) {
   if (!highlight?.enabled) return null;
   const style = {};
   const bgType = highlight.bg_type || 'solid';
@@ -102,8 +102,9 @@ function getHighlightStyle(highlight) {
   if (highlight.text_color) {
     style.color = highlight.text_color;
   }
-  if (highlight.width && highlight.width < 100) {
-    style.width = `${highlight.width}%`;
+  const w = inModal ? (highlight.width_modal ?? highlight.width ?? 100) : (highlight.width ?? 100);
+  if (w < 100) {
+    style.width = `${w}%`;
     const align = highlight.align || 'center';
     if (align === 'center') {
       style.marginLeft = 'auto';
@@ -591,10 +592,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
-  const contentSection = (item, idx) => {
+  const contentSection = (item, idx, inOverlay = false) => {
     const isActive = activeYear === item.year;
     const effectiveOffset = isExpanded ? 16 : header_offset;
-    const hlStyle = getHighlightStyle(item.highlight);
+    const hlStyle = getHighlightStyle(item.highlight, inOverlay);
     const isHighlighted = !!hlStyle;
     const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
     const textColor = isHighlighted ? item.highlight.text_color : undefined;
@@ -670,8 +671,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
-  const mobileContentSection = (item) => {
-    const hlStyle = getHighlightStyle(item.highlight);
+  const mobileContentSection = (item, inOverlay = false) => {
+    const hlStyle = getHighlightStyle(item.highlight, inOverlay);
     const isHighlighted = !!hlStyle;
     const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
     const textColor = isHighlighted ? item.highlight.text_color : undefined;
@@ -847,7 +848,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             );
           })()}
           <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined, width: '100%' }}>
-            {items.map((item, idx) => contentSection(item, idx))}
+            {items.map((item, idx) => contentSection(item, idx, inOverlay))}
           </div>
         </div>
       </div>
@@ -952,7 +953,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                       ))}
                     </div>
                     <div className="space-y-8">
-                      {items.map((item) => mobileContentSection(item))}
+                      {items.map((item) => mobileContentSection(item, true))}
                     </div>
                   </>
                 ) : (
@@ -1725,6 +1726,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 bg_color: '#1e3a5f',
                                 text_color: '#ffffff',
                                 width: 100,
+                                width_modal: 100,
                                 align: 'center',
                                 marker_shape: 'circle',
                                 bg_gradient_from: '#1e3a5f',
@@ -1922,7 +1924,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <Label className="text-xs text-slate-500 shrink-0 w-10">Width</Label>
+                            <Label className="text-xs text-slate-500 shrink-0">Inline Width</Label>
                             <input
                               type="range"
                               min="25"
@@ -1936,7 +1938,22 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                             <span className="text-xs text-slate-500 w-10 text-right">{item.highlight.width ?? 100}%</span>
                           </div>
 
-                          {(item.highlight.width ?? 100) < 100 && (
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-slate-500 shrink-0">Modal Width</Label>
+                            <input
+                              type="range"
+                              min="25"
+                              max="100"
+                              step="1"
+                              value={item.highlight.width_modal ?? item.highlight.width ?? 100}
+                              onChange={(e) => updateItemHighlight(index, 'width_modal', parseInt(e.target.value))}
+                              className="flex-1"
+                              data-testid={`input-highlight-width-modal-${index}`}
+                            />
+                            <span className="text-xs text-slate-500 w-10 text-right">{item.highlight.width_modal ?? item.highlight.width ?? 100}%</span>
+                          </div>
+
+                          {((item.highlight.width ?? 100) < 100 || (item.highlight.width_modal ?? item.highlight.width ?? 100) < 100) && (
                             <div>
                               <Label className="text-xs text-slate-500 mb-1 block">Alignment</Label>
                               <div className="flex gap-1">
