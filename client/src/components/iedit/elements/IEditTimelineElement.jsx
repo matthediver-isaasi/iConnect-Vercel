@@ -1027,6 +1027,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState({});
   const [isBgUploading, setIsBgUploading] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
 
   const content = element.content || {};
   const items = content.items || [];
@@ -1517,14 +1518,48 @@ export function IEditTimelineElementEditor({ element, onChange }) {
             return (
               <div
                 key={index}
-                className="border border-slate-200 rounded-lg overflow-hidden bg-white"
+                draggable
+                onDragStart={(e) => {
+                  setDragIndex(index);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', String(index));
+                  e.currentTarget.style.opacity = '0.5';
+                }}
+                onDragEnd={(e) => {
+                  e.currentTarget.style.opacity = '1';
+                  setDragIndex(null);
+                  setDragOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragIndex !== null && dragIndex !== index) {
+                    setDragOverIndex(index);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragOverIndex === index) setDragOverIndex(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIndex !== null && dragIndex !== index) {
+                    moveItem(dragIndex, index);
+                  }
+                  setDragIndex(null);
+                  setDragOverIndex(null);
+                }}
+                className={`border rounded-lg overflow-hidden bg-white transition-all ${
+                  dragOverIndex === index && dragIndex !== index
+                    ? 'border-blue-400 ring-2 ring-blue-200'
+                    : 'border-slate-200'
+                }`}
               >
                 {/* Item header */}
                 <div
                   className="flex items-center gap-2 px-3 py-2 bg-slate-50 cursor-pointer select-none"
                   onClick={() => setExpandedItem(isExpanded ? null : index)}
                 >
-                  <GripVertical className="w-4 h-4 text-slate-400 shrink-0" />
+                  <GripVertical className="w-4 h-4 text-slate-400 shrink-0 cursor-grab active:cursor-grabbing" />
                   <span className="font-mono font-semibold text-sm text-slate-700 shrink-0">
                     {item.year || '????'}
                   </span>
