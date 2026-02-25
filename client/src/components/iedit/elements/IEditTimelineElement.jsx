@@ -1825,7 +1825,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               type="range"
                               min="25"
                               max="100"
-                              step="5"
+                              step="1"
                               value={item.highlight.width ?? 100}
                               onChange={(e) => updateItemHighlight(index, 'width', parseInt(e.target.value))}
                               className="flex-1"
