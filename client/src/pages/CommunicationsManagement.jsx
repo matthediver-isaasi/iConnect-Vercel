@@ -1301,7 +1301,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                     className="cursor-pointer hover:bg-blue-50 transition-colors"
                                     onClick={() => {
                                       setShowSubscribersDialog(false);
-                                      navigate(`/AdminMemberEdit?id=${member.id}`);
+                                      navigate(`/members/${member.id}`);
                                     }}
                                   >
                                     <TableCell className="font-medium text-blue-600 hover:text-blue-700">
