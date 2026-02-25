@@ -430,7 +430,12 @@ export default function EmbedFormPage() {
       }
     },
     onError: (error) => {
-      setSubmissionError(error.message || 'Failed to submit form');
+      let message = error?.message || 'Failed to submit form';
+      const apiPrefix = message.match(/^Public API Error \(\d+\):\s*/);
+      if (apiPrefix) {
+        message = message.slice(apiPrefix[0].length);
+      }
+      setSubmissionError(message);
     }
   });
 

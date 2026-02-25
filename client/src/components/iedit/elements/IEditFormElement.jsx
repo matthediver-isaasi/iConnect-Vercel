@@ -1167,12 +1167,22 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           if (response.ok) {
             const result = await response.json();
             console.log('[IEditFormElement] Application processed:', result);
-            // Capture created member/org IDs for email placeholders
             createdMemberId = result.created_member_id || null;
             createdOrganizationId = result.created_organization_id || null;
           } else {
-            const error = await response.json();
-            console.error('[IEditFormElement] Application processing failed:', error);
+            const errorData = await response.json();
+            console.error('[IEditFormElement] Application processing failed:', errorData);
+            if (response.status === 409 && (errorData.code === 'UNIQUENESS_CONFLICT' || errorData.conflicts)) {
+              const conflictMessages = (errorData.conflicts || []).map(c => c.message || `${c.field_label}: Duplicate value`);
+              const errorMsg = conflictMessages.length > 0 ? conflictMessages : [errorData.error || 'A record with this information already exists'];
+              setValidationErrors(errorMsg);
+              toast.error(errorMsg.join('. '));
+              return;
+            }
+            if (errorData.code === 'ROLE_CAPACITY_EXCEEDED' || errorData.code === 'ROLE_CAPACITY_MISSING_ORG') {
+              toast.error(errorData.error || 'This role has reached its maximum capacity.');
+              return;
+            }
           }
         } catch (error) {
           console.error('[IEditFormElement] Error processing application:', error);
@@ -1247,8 +1257,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       }
     },
     onError: (error) => {
-      toast.error("Failed to submit form. Please try again.");
       console.error("Form submission error:", error);
+      let message = error?.message || 'Failed to submit form. Please try again.';
+      const apiPrefix = message.match(/^Public API Error \(\d+\):\s*/);
+      if (apiPrefix) {
+        message = message.slice(apiPrefix[0].length);
+      }
+      setValidationErrors([message]);
+      toast.error(message);
     }
   });
 

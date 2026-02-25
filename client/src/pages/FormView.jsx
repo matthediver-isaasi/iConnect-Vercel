@@ -773,16 +773,21 @@ export default function FormViewPage() {
             if (response.ok) {
               const result = await response.json();
               console.log('[FormView] Application processed:', result);
-              // Capture created member/org IDs for email placeholders
               createdMemberId = result.created_member_id || null;
               createdOrganizationId = result.created_organization_id || null;
             } else {
-              const error = await response.json();
-              console.error('[FormView] Application processing failed:', error);
-              // Show user-friendly error for capacity-related errors
-              if (error.code === 'ROLE_CAPACITY_EXCEEDED' || error.code === 'ROLE_CAPACITY_MISSING_ORG') {
-                toast.error(error.error || 'This role has reached its maximum capacity.');
-                return; // Don't continue with form success flow
+              const errorData = await response.json();
+              console.error('[FormView] Application processing failed:', errorData);
+              if (response.status === 409 && (errorData.code === 'UNIQUENESS_CONFLICT' || errorData.conflicts)) {
+                const conflictMessages = (errorData.conflicts || []).map(c => c.message || `${c.field_label}: Duplicate value`);
+                const errorMsg = conflictMessages.length > 0 ? conflictMessages.join('. ') : (errorData.error || 'A record with this information already exists');
+                setSubmissionError(errorMsg);
+                toast.error(errorMsg);
+                return;
+              }
+              if (errorData.code === 'ROLE_CAPACITY_EXCEEDED' || errorData.code === 'ROLE_CAPACITY_MISSING_ORG') {
+                toast.error(errorData.error || 'This role has reached its maximum capacity.');
+                return;
               }
             }
           } catch (error) {
