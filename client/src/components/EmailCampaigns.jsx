@@ -441,29 +441,35 @@ export default function EmailCampaigns() {
     return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
   };
 
+  const getSegmentLabel = (type, ids) => {
+    const typeLabels = {
+      communication_category: 'Categories',
+      member_group: 'Groups',
+      role: 'Roles',
+      form: 'Forms',
+      fundraisers: 'Fundraisers',
+      donors: 'Donors',
+      all_members: 'All Members'
+    };
+    if (type === 'all_members') return 'All Members';
+    let names = [];
+    if (type === 'communication_category') {
+      names = (ids || []).map(id => categories.find(c => c.id === id)?.name).filter(Boolean);
+    } else if (type === 'member_group') {
+      names = (ids || []).map(id => memberGroups.find(g => g.id === id)?.name).filter(Boolean);
+    } else if (type === 'role') {
+      names = (ids || []).map(id => roles.find(r => r.id === id)?.name).filter(Boolean);
+    }
+    if (names.length > 0) return `${typeLabels[type] || type}: ${names.join(', ')}`;
+    return typeLabels[type] || type;
+  };
+
   const getTargetLabel = (campaign) => {
-    if (campaign.target_type === 'communication_category') {
-      const names = (campaign.target_ids || [])
-        .map(id => categories.find(c => c.id === id)?.name)
-        .filter(Boolean);
-      return names.length > 0 ? names.join(', ') : 'Categories';
+    const audiences = campaign.target_audiences;
+    if (Array.isArray(audiences) && audiences.length > 0) {
+      return audiences.map(a => getSegmentLabel(a.type, a.ids)).join(' + ');
     }
-    if (campaign.target_type === 'member_group') {
-      const names = (campaign.target_ids || [])
-        .map(id => memberGroups.find(g => g.id === id)?.name)
-        .filter(Boolean);
-      return names.length > 0 ? names.join(', ') : 'Groups';
-    }
-    if (campaign.target_type === 'role') {
-      const names = (campaign.target_ids || [])
-        .map(id => roles.find(r => r.id === id)?.name)
-        .filter(Boolean);
-      return names.length > 0 ? names.join(', ') : 'Roles';
-    }
-    if (campaign.target_type === 'all_members') {
-      return 'All Members';
-    }
-    return 'Unknown';
+    return getSegmentLabel(campaign.target_type, campaign.target_ids);
   };
 
   const formatDate = (dateStr) => {

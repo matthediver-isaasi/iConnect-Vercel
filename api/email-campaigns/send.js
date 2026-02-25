@@ -13,25 +13,37 @@ export default async function handler(req, res) {
   }
 
   const { tenantId } = tenantContext;
-  const { campaignId, preview, scheduledAt, targetType, targetIds } = req.body;
+  const { campaignId, preview, scheduledAt, targetType, targetIds, targetAudiences, previewList } = req.body;
 
-  // Handle preview for targeting selection (no campaign needed)
   if (preview === true && campaignId === 'preview') {
-    const fakeCampaign = {
-      target_type: targetType || 'all_members',
-      target_ids: targetIds || []
-    };
+    const fakeCampaign = {};
+    if (Array.isArray(targetAudiences) && targetAudiences.length > 0) {
+      fakeCampaign.target_audiences = targetAudiences;
+    } else {
+      fakeCampaign.target_type = targetType || 'all_members';
+      fakeCampaign.target_ids = targetIds || [];
+    }
     
     const recipientsResult = await getTargetRecipients(fakeCampaign, tenantId);
     if (!recipientsResult.success) {
       return res.status(500).json({ error: recipientsResult.error });
     }
 
-    return res.json({
+    const response = {
       success: true,
       preview: true,
       recipientCount: recipientsResult.recipients.length
-    });
+    };
+
+    if (previewList === true) {
+      response.recipients = recipientsResult.recipients.map(r => ({
+        email: r.email,
+        firstName: r.first_name,
+        lastName: r.last_name
+      }));
+    }
+
+    return res.json(response);
   }
 
   if (!campaignId) {

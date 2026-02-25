@@ -9,10 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { 
   Mail, ArrowLeft, Save, Send, Eye, Pencil, Users, Code, 
   Loader2, TestTube2, Clock, Calendar, Search, AlertTriangle, Wand2, X, Check,
-  Monitor, Smartphone, Reply, Forward, Trash2, Archive, MoreHorizontal, Star, Paperclip
+  Monitor, Smartphone, Reply, Forward, Trash2, Archive, MoreHorizontal, Star, Paperclip,
+  Plus, Download, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -47,6 +49,15 @@ export default function EmailCampaignEdit() {
   const [searchingMembers, setSearchingMembers] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
 
+  const [showAddAudience, setShowAddAudience] = useState(false);
+  const [addAudienceType, setAddAudienceType] = useState('');
+  const [addAudienceIds, setAddAudienceIds] = useState([]);
+  const [showRecipientListDialog, setShowRecipientListDialog] = useState(false);
+  const [recipientList, setRecipientList] = useState([]);
+  const [loadingRecipientList, setLoadingRecipientList] = useState(false);
+  const [recipientPage, setRecipientPage] = useState(1);
+  const RECIPIENTS_PER_PAGE = 50;
+
   const [formData, setFormData] = useState({
     name: '',
     subject: '',
@@ -56,8 +67,7 @@ export default function EmailCampaignEdit() {
     email_template_id: '',
     html_content: '',
     design_json: null,
-    target_type: 'communication_category',
-    target_ids: [],
+    target_audiences: [],
     scheduled_at: ''
   });
   const [editorMode, setEditorMode] = useState('visual');
@@ -96,6 +106,14 @@ export default function EmailCampaignEdit() {
         };
       }
       setEditorMode(hasDesign ? 'visual' : (campaign.html_content ? 'html' : 'visual'));
+      let audiences = campaign.target_audiences;
+      if (!Array.isArray(audiences) || audiences.length === 0) {
+        if (campaign.target_type) {
+          audiences = [{ type: campaign.target_type, ids: campaign.target_ids || [] }];
+        } else {
+          audiences = [];
+        }
+      }
       setFormData({
         name: campaign.name || '',
         subject: campaign.subject || '',
@@ -105,8 +123,7 @@ export default function EmailCampaignEdit() {
         email_template_id: campaign.email_template_id || '',
         html_content: campaign.html_content || '',
         design_json: parsedDesign || null,
-        target_type: campaign.target_type || 'communication_category',
-        target_ids: campaign.target_ids || [],
+        target_audiences: audiences,
         scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
       });
       setScheduleMode(campaign.scheduled_at ? 'scheduled' : 'immediate');
@@ -188,39 +205,20 @@ export default function EmailCampaignEdit() {
         return [];
       }
     },
-    enabled: formData.target_type === 'fundraisers' || formData.target_type === 'donors',
+    enabled: formData.target_audiences.some(a => a.type === 'fundraisers' || a.type === 'donors') || addAudienceType === 'fundraisers' || addAudienceType === 'donors',
     staleTime: 60000
   });
 
   useEffect(() => {
     const fetchRecipientCount = async () => {
-      if (formData.target_type === 'all_members') {
-        setLoadingRecipientCount(true);
-        try {
-          const response = await fetch('/api/email-campaigns/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ 
-              campaignId: 'preview',
-              preview: true,
-              targetType: formData.target_type,
-              targetIds: []
-            })
-          });
-          if (response.ok) {
-            const data = await response.json();
-            setRecipientPreviewCount(data.recipientCount);
-          }
-        } catch (e) {
-          console.error('Failed to fetch recipient count:', e);
-        } finally {
-          setLoadingRecipientCount(false);
-        }
+      const audiences = formData.target_audiences;
+      if (!audiences || audiences.length === 0) {
+        setRecipientPreviewCount(null);
         return;
       }
 
-      if (formData.target_ids.length === 0) {
+      const hasContent = audiences.some(a => a.type === 'all_members' || (a.ids && a.ids.length > 0));
+      if (!hasContent) {
         setRecipientPreviewCount(null);
         return;
       }
@@ -234,8 +232,7 @@ export default function EmailCampaignEdit() {
           body: JSON.stringify({ 
             campaignId: 'preview',
             preview: true,
-            targetType: formData.target_type,
-            targetIds: formData.target_ids
+            targetAudiences: audiences
           })
         });
         if (response.ok) {
@@ -251,7 +248,7 @@ export default function EmailCampaignEdit() {
 
     const debounceTimer = setTimeout(fetchRecipientCount, 300);
     return () => clearTimeout(debounceTimer);
-  }, [formData.target_type, formData.target_ids]);
+  }, [formData.target_audiences]);
 
   // Member search for test emails with debouncing
   useEffect(() => {
@@ -339,6 +336,15 @@ export default function EmailCampaignEdit() {
     setSaving(true);
     try {
       let saveData = { ...formData };
+      if (saveData.target_audiences && saveData.target_audiences.length > 0) {
+        saveData.target_audiences = saveData.target_audiences;
+        saveData.target_type = saveData.target_audiences[0].type;
+        saveData.target_ids = saveData.target_audiences[0].ids || [];
+      } else {
+        saveData.target_type = 'all_members';
+        saveData.target_ids = [];
+        saveData.target_audiences = [];
+      }
       if (saveData.design_json && typeof saveData.design_json === 'object' && saveData.design_json.blocks) {
         try {
           const fHtml = footerData?.hasFooter ? footerData.footer : null;
@@ -462,10 +468,12 @@ export default function EmailCampaignEdit() {
     }
   };
 
+  const hasAudienceSelected = formData.target_audiences.length > 0 && 
+    formData.target_audiences.some(a => a.type === 'all_members' || (a.ids && a.ids.length > 0));
   const canSendCampaign = isEditing && 
     formData.subject && 
     formData.html_content && 
-    (formData.target_type === 'all_members' || formData.target_ids.length > 0) &&
+    hasAudienceSelected &&
     (scheduleMode === 'immediate' || formData.scheduled_at);
 
   if (isEditing && campaignLoading) {
@@ -651,202 +659,317 @@ export default function EmailCampaignEdit() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            {formData.target_audiences.length > 0 && (
               <div className="space-y-2">
-                <Label>Audience Type</Label>
-                <Select
-                  value={formData.target_type}
-                  onValueChange={(value) => setFormData(prev => ({ 
-                    ...prev, 
-                    target_type: value,
-                    target_ids: []
-                  }))}
-                >
-                  <SelectTrigger data-testid="select-target-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="communication_category">Communication Categories</SelectItem>
-                    <SelectItem value="member_group">Member Groups</SelectItem>
-                    <SelectItem value="role">Roles</SelectItem>
-                    <SelectItem value="form">Form Subscribers</SelectItem>
-                    <SelectItem value="fundraisers">Fundraisers</SelectItem>
-                    <SelectItem value="donors">Donors</SelectItem>
-                    <SelectItem value="all_members">All Members</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                {formData.target_audiences.map((segment, idx) => {
+                  const typeLabels = {
+                    communication_category: 'Categories',
+                    member_group: 'Groups',
+                    role: 'Roles',
+                    form: 'Forms',
+                    fundraisers: 'Fundraisers',
+                    donors: 'Donors',
+                    all_members: 'All Members'
+                  };
+                  const typeLabel = typeLabels[segment.type] || segment.type;
+                  let itemNames = [];
+                  if (segment.type === 'communication_category') {
+                    itemNames = (segment.ids || []).map(sid => categories.find(c => c.id === sid)?.name).filter(Boolean);
+                  } else if (segment.type === 'member_group') {
+                    itemNames = (segment.ids || []).map(sid => memberGroups.find(g => g.id === sid)?.name).filter(Boolean);
+                  } else if (segment.type === 'role') {
+                    itemNames = (segment.ids || []).map(sid => roles.find(r => r.id === sid)?.name).filter(Boolean);
+                  } else if (segment.type === 'form') {
+                    itemNames = (segment.ids || []).map(sid => formsWithCategory.find(f => f.id === sid)?.name).filter(Boolean);
+                  } else if (segment.type === 'fundraisers' || segment.type === 'donors') {
+                    if (segment.ids?.includes('all')) {
+                      itemNames = [segment.type === 'fundraisers' ? 'All fundraisers' : 'All donors'];
+                    } else {
+                      itemNames = (segment.ids || []).map(sid => fundraisingCampaigns.find(c => c.id === sid)?.name).filter(Boolean);
+                    }
+                  }
 
-              {formData.target_type !== 'all_members' && (
+                  return (
+                    <div key={idx} className="flex items-center gap-2 border rounded-md p-3" data-testid={`audience-segment-${idx}`}>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium">{typeLabel}</span>
+                        {segment.type !== 'all_members' && itemNames.length > 0 && (
+                          <span className="text-sm text-muted-foreground ml-1">
+                            — {itemNames.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            target_audiences: prev.target_audiences.filter((_, i) => i !== idx)
+                          }));
+                        }}
+                        data-testid={`button-remove-segment-${idx}`}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!showAddAudience ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAddAudienceType('');
+                  setAddAudienceIds([]);
+                  setShowAddAudience(true);
+                }}
+                className="w-full"
+                data-testid="button-add-audience"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Audience Segment
+              </Button>
+            ) : (
+              <div className="border rounded-md p-4 space-y-4 bg-muted/20">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="font-medium">Add Audience Segment</Label>
+                  <Button variant="ghost" size="icon" onClick={() => setShowAddAudience(false)} data-testid="button-cancel-add-audience">
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
                 <div className="space-y-2">
-                  <Label>
-                    Select {formData.target_type === 'communication_category' ? 'Categories' : 
-                            formData.target_type === 'member_group' ? 'Groups' : 
-                            formData.target_type === 'form' ? 'Forms' : 
-                            formData.target_type === 'fundraisers' ? 'Campaigns' :
-                            formData.target_type === 'donors' ? 'Campaigns' : 'Roles'}
-                  </Label>
-                  <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
-                    {formData.target_type === 'form' && (
-                      formsWithCategory.length === 0 ? (
-                        <div className="text-sm text-muted-foreground py-2">
-                          No forms with communication categories configured. 
-                          <br />
-                          <span className="text-xs">Link a form to a communication category in the Form Builder's Submission tab.</span>
-                        </div>
-                      ) : formsWithCategory.map(form => {
-                        const linkedCategory = categories.find(c => c.id === form.communication_category_id);
-                        return (
-                          <label key={form.id} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.target_ids.includes(form.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, form.id] }));
-                                } else {
-                                  setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== form.id) }));
-                                }
-                              }}
-                              className="rounded"
-                            />
-                            <span className="text-sm">{form.name}</span>
-                            {linkedCategory && (
-                              <span className="text-xs text-muted-foreground ml-1">({linkedCategory.name})</span>
-                            )}
-                          </label>
-                        );
-                      })
-                    )}
-                    {formData.target_type === 'communication_category' && categories.map(cat => (
-                      <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.target_ids.includes(cat.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, cat.id] }));
-                            } else {
-                              setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== cat.id) }));
-                            }
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm">{cat.name}</span>
-                      </label>
-                    ))}
-                    {formData.target_type === 'member_group' && memberGroups.map(group => (
-                      <label key={group.id} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.target_ids.includes(group.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, group.id] }));
-                            } else {
-                              setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== group.id) }));
-                            }
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm">{group.name}</span>
-                      </label>
-                    ))}
-                    {formData.target_type === 'role' && roles.map(role => (
-                      <label key={role.id} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.target_ids.includes(role.id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData(prev => ({ ...prev, target_ids: [...prev.target_ids, role.id] }));
-                            } else {
-                              setFormData(prev => ({ ...prev, target_ids: prev.target_ids.filter(id => id !== role.id) }));
-                            }
-                          }}
-                          className="rounded"
-                        />
-                        <span className="text-sm">{role.name}</span>
-                      </label>
-                    ))}
-                    {(formData.target_type === 'fundraisers' || formData.target_type === 'donors') && (
-                      fundraisingCampaigns.length === 0 ? (
-                        <div className="text-sm text-muted-foreground py-2">
-                          No fundraising campaigns found.
-                        </div>
-                      ) : (
-                        <>
-                          <label className="flex items-center gap-2 cursor-pointer font-medium border-b pb-2 mb-1">
-                            <input
-                              type="checkbox"
-                              checked={formData.target_ids.includes('all') || (fundraisingCampaigns.length > 0 && fundraisingCampaigns.every(c => formData.target_ids.includes(c.id)))}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFormData(prev => ({ ...prev, target_ids: ['all'] }));
-                                } else {
-                                  setFormData(prev => ({ ...prev, target_ids: [] }));
-                                }
-                              }}
-                              className="rounded"
-                            />
-                            <span className="text-sm">{formData.target_type === 'fundraisers' ? 'All fundraisers' : 'All donors'}</span>
-                          </label>
-                          {fundraisingCampaigns.map(campaign => (
-                            <label key={campaign.id} className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={formData.target_ids.includes('all') || formData.target_ids.includes(campaign.id)}
+                  <Label>Audience Type</Label>
+                  <Select
+                    value={addAudienceType}
+                    onValueChange={(value) => {
+                      setAddAudienceType(value);
+                      setAddAudienceIds([]);
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-add-audience-type">
+                      <SelectValue placeholder="Select audience type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!formData.target_audiences.some(a => a.type === 'all_members') && (
+                        <SelectItem value="all_members">All Members</SelectItem>
+                      )}
+                      <SelectItem value="communication_category">Communication Categories</SelectItem>
+                      <SelectItem value="member_group">Member Groups</SelectItem>
+                      <SelectItem value="role">Roles</SelectItem>
+                      <SelectItem value="form">Form Subscribers</SelectItem>
+                      {!formData.target_audiences.some(a => a.type === 'fundraisers') && (
+                        <SelectItem value="fundraisers">Fundraisers</SelectItem>
+                      )}
+                      {!formData.target_audiences.some(a => a.type === 'donors') && (
+                        <SelectItem value="donors">Donors</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {addAudienceType && addAudienceType !== 'all_members' && (
+                  <div className="space-y-2">
+                    <Label>
+                      Select {addAudienceType === 'communication_category' ? 'Categories' : 
+                              addAudienceType === 'member_group' ? 'Groups' :
+                              addAudienceType === 'form' ? 'Forms' :
+                              addAudienceType === 'fundraisers' ? 'Campaigns' :
+                              addAudienceType === 'donors' ? 'Campaigns' : 'Roles'}
+                    </Label>
+                    <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2 bg-background">
+                      {addAudienceType === 'form' && (
+                        formsWithCategory.length === 0 ? (
+                          <div className="text-sm text-muted-foreground py-2">
+                            No forms with communication categories configured.
+                          </div>
+                        ) : formsWithCategory.map(form => {
+                          const linkedCategory = categories.find(c => c.id === form.communication_category_id);
+                          return (
+                            <label key={form.id} className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={addAudienceIds.includes(form.id)}
                                 onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setFormData(prev => {
-                                      const newIds = prev.target_ids.filter(id => id !== 'all');
-                                      newIds.push(campaign.id);
-                                      if (newIds.length === fundraisingCampaigns.length) {
-                                        return { ...prev, target_ids: ['all'] };
-                                      }
-                                      return { ...prev, target_ids: newIds };
-                                    });
-                                  } else {
-                                    setFormData(prev => {
-                                      let currentIds = prev.target_ids;
-                                      if (currentIds.includes('all')) {
-                                        currentIds = fundraisingCampaigns.map(c => c.id);
-                                      }
-                                      return { ...prev, target_ids: currentIds.filter(id => id !== campaign.id) };
-                                    });
-                                  }
-                                }}
-                                className="rounded"
-                              />
-                              <span className="text-sm">{campaign.name}</span>
-                              {campaign.status && (
-                                <span className="text-xs text-muted-foreground ml-1">({campaign.status})</span>
-                              )}
+                                  if (e.target.checked) setAddAudienceIds(prev => [...prev, form.id]);
+                                  else setAddAudienceIds(prev => prev.filter(i => i !== form.id));
+                                }} className="rounded" />
+                              <span className="text-sm">{form.name}</span>
+                              {linkedCategory && <span className="text-xs text-muted-foreground ml-1">({linkedCategory.name})</span>}
                             </label>
-                          ))}
-                        </>
-                      )
+                          );
+                        })
+                      )}
+                      {addAudienceType === 'communication_category' && categories.map(cat => (
+                        <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={addAudienceIds.includes(cat.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAddAudienceIds(prev => [...prev, cat.id]);
+                              else setAddAudienceIds(prev => prev.filter(i => i !== cat.id));
+                            }} className="rounded" />
+                          <span className="text-sm">{cat.name}</span>
+                        </label>
+                      ))}
+                      {addAudienceType === 'member_group' && memberGroups.map(group => (
+                        <label key={group.id} className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={addAudienceIds.includes(group.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAddAudienceIds(prev => [...prev, group.id]);
+                              else setAddAudienceIds(prev => prev.filter(i => i !== group.id));
+                            }} className="rounded" />
+                          <span className="text-sm">{group.name}</span>
+                        </label>
+                      ))}
+                      {addAudienceType === 'role' && roles.map(role => (
+                        <label key={role.id} className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={addAudienceIds.includes(role.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAddAudienceIds(prev => [...prev, role.id]);
+                              else setAddAudienceIds(prev => prev.filter(i => i !== role.id));
+                            }} className="rounded" />
+                          <span className="text-sm">{role.name}</span>
+                        </label>
+                      ))}
+                      {(addAudienceType === 'fundraisers' || addAudienceType === 'donors') && (
+                        fundraisingCampaigns.length === 0 ? (
+                          <div className="text-sm text-muted-foreground py-2">No fundraising campaigns found.</div>
+                        ) : (
+                          <>
+                            <label className="flex items-center gap-2 cursor-pointer font-medium border-b pb-2 mb-1">
+                              <input type="checkbox"
+                                checked={addAudienceIds.includes('all') || (fundraisingCampaigns.length > 0 && fundraisingCampaigns.every(c => addAudienceIds.includes(c.id)))}
+                                onChange={(e) => {
+                                  if (e.target.checked) setAddAudienceIds(['all']);
+                                  else setAddAudienceIds([]);
+                                }} className="rounded" />
+                              <span className="text-sm">{addAudienceType === 'fundraisers' ? 'All fundraisers' : 'All donors'}</span>
+                            </label>
+                            {fundraisingCampaigns.map(fc => (
+                              <label key={fc.id} className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox"
+                                  checked={addAudienceIds.includes('all') || addAudienceIds.includes(fc.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setAddAudienceIds(prev => {
+                                        const newIds = prev.filter(i => i !== 'all');
+                                        newIds.push(fc.id);
+                                        if (newIds.length === fundraisingCampaigns.length) return ['all'];
+                                        return newIds;
+                                      });
+                                    } else {
+                                      setAddAudienceIds(prev => {
+                                        let curr = prev.includes('all') ? fundraisingCampaigns.map(c => c.id) : [...prev];
+                                        return curr.filter(i => i !== fc.id);
+                                      });
+                                    }
+                                  }} className="rounded" />
+                                <span className="text-sm">{fc.name}</span>
+                                {fc.status && <span className="text-xs text-muted-foreground ml-1">({fc.status})</span>}
+                              </label>
+                            ))}
+                          </>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {addAudienceType && (
+                  <Button
+                    onClick={() => {
+                      if (addAudienceType === 'all_members') {
+                        setFormData(prev => ({
+                          ...prev,
+                          target_audiences: [...prev.target_audiences, { type: 'all_members', ids: [] }]
+                        }));
+                      } else if (addAudienceIds.length > 0) {
+                        const existingIdx = formData.target_audiences.findIndex(a => a.type === addAudienceType);
+                        if (existingIdx >= 0) {
+                          setFormData(prev => {
+                            const updated = [...prev.target_audiences];
+                            const existing = new Set(updated[existingIdx].ids || []);
+                            addAudienceIds.forEach(id => existing.add(id));
+                            updated[existingIdx] = { ...updated[existingIdx], ids: [...existing] };
+                            return { ...prev, target_audiences: updated };
+                          });
+                        } else {
+                          setFormData(prev => ({
+                            ...prev,
+                            target_audiences: [...prev.target_audiences, { type: addAudienceType, ids: addAudienceIds }]
+                          }));
+                        }
+                      } else {
+                        toast.error('Please select at least one item');
+                        return;
+                      }
+                      setShowAddAudience(false);
+                      setAddAudienceType('');
+                      setAddAudienceIds([]);
+                    }}
+                    disabled={addAudienceType !== 'all_members' && addAudienceIds.length === 0}
+                    data-testid="button-confirm-add-audience"
+                  >
+                    <Check className="w-4 h-4 mr-2" />
+                    Add Segment
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {hasAudienceSelected && (
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                    <Mail className="w-4 h-4" />
+                    {loadingRecipientCount ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Calculating recipients...
+                      </span>
+                    ) : recipientPreviewCount !== null ? (
+                      <span className="font-medium">
+                        {recipientPreviewCount} {recipientPreviewCount === 1 ? 'recipient' : 'recipients'} will receive this email
+                      </span>
+                    ) : (
+                      <span>Calculating...</span>
                     )}
                   </div>
-                </div>
-              )}
-            </div>
-
-            {(formData.target_type === 'all_members' || formData.target_ids.length > 0) && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-blue-700">
-                  <Mail className="w-4 h-4" />
-                  {loadingRecipientCount ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Calculating recipients...
-                    </span>
-                  ) : recipientPreviewCount !== null ? (
-                    <span className="font-medium">
-                      {recipientPreviewCount} {recipientPreviewCount === 1 ? 'recipient' : 'recipients'} will receive this email
-                    </span>
-                  ) : (
-                    <span>Calculating...</span>
+                  {recipientPreviewCount !== null && recipientPreviewCount > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        setLoadingRecipientList(true);
+                        setShowRecipientListDialog(true);
+                        setRecipientPage(1);
+                        try {
+                          const response = await fetch('/api/email-campaigns/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                              campaignId: 'preview',
+                              preview: true,
+                              previewList: true,
+                              targetAudiences: formData.target_audiences
+                            })
+                          });
+                          if (response.ok) {
+                            const data = await response.json();
+                            setRecipientList(data.recipients || []);
+                          }
+                        } catch (e) {
+                          console.error('Failed to fetch recipient list:', e);
+                          toast.error('Failed to load recipient list');
+                        } finally {
+                          setLoadingRecipientList(false);
+                        }
+                      }}
+                      data-testid="button-view-recipients"
+                    >
+                      <Users className="w-4 h-4 mr-1" />
+                      View Recipients
+                    </Button>
                   )}
                 </div>
               </div>
@@ -1206,6 +1329,96 @@ export default function EmailCampaignEdit() {
                   {scheduleMode === 'scheduled' ? 'Schedule Campaign' : 'Send Now'}
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRecipientListDialog} onOpenChange={setShowRecipientListDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Recipient List ({recipientList.length})
+            </DialogTitle>
+            <DialogDescription>
+              Combined, deduplicated list of all recipients across audience segments
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-auto">
+            {loadingRecipientList ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : recipientList.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">No recipients found</div>
+            ) : (
+              <>
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background border-b">
+                    <tr>
+                      <th className="text-left py-2 px-3 font-medium">#</th>
+                      <th className="text-left py-2 px-3 font-medium">Email</th>
+                      <th className="text-left py-2 px-3 font-medium">Name</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recipientList
+                      .slice((recipientPage - 1) * RECIPIENTS_PER_PAGE, recipientPage * RECIPIENTS_PER_PAGE)
+                      .map((r, i) => (
+                        <tr key={i} className="border-b last:border-b-0" data-testid={`recipient-row-${i}`}>
+                          <td className="py-2 px-3 text-muted-foreground">{(recipientPage - 1) * RECIPIENTS_PER_PAGE + i + 1}</td>
+                          <td className="py-2 px-3">{r.email}</td>
+                          <td className="py-2 px-3">{[r.firstName, r.lastName].filter(Boolean).join(' ') || '—'}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+                {recipientList.length > RECIPIENTS_PER_PAGE && (
+                  <div className="flex items-center justify-between gap-2 pt-3 px-3 border-t">
+                    <span className="text-sm text-muted-foreground">
+                      Page {recipientPage} of {Math.ceil(recipientList.length / RECIPIENTS_PER_PAGE)}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="sm" disabled={recipientPage <= 1}
+                        onClick={() => setRecipientPage(p => p - 1)} data-testid="button-recipients-prev">
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={recipientPage >= Math.ceil(recipientList.length / RECIPIENTS_PER_PAGE)}
+                        onClick={() => setRecipientPage(p => p + 1)} data-testid="button-recipients-next">
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter className="gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (recipientList.length === 0) return;
+                const csv = ['Email,First Name,Last Name', ...recipientList.map(r =>
+                  `"${(r.email || '').replace(/"/g, '""')}","${(r.firstName || '').replace(/"/g, '""')}","${(r.lastName || '').replace(/"/g, '""')}"`
+                )].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'recipients.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              disabled={recipientList.length === 0}
+              data-testid="button-export-csv"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              Export CSV
+            </Button>
+            <Button variant="outline" onClick={() => setShowRecipientListDialog(false)} data-testid="button-close-recipients">
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
