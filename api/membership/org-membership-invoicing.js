@@ -255,7 +255,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   const annualCost = simResult.annualCost;
   const tierLabel = simResult.tierLabel;
   const currency = simResult.currency;
-  const bandVatRate = simResult.matchedBand?.vat_rate || null;
+  const bandVatRate = simResult.taxType || simResult.matchedBand?.vat_rate || null;
 
   let poNumber = null;
   try {

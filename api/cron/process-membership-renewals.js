@@ -261,7 +261,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
 
   if (!record) return;
 
-  let bandVatRate = record.vat_rate || null;
+  let bandVatRate = simResult.taxType || record.vat_rate || null;
   if (!bandVatRate && record.band_id) {
     try {
       const { data: band } = await supabase
@@ -470,7 +470,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   let xeroInvoice = null;
   if (createInvoice) {
     try {
-      const bandVatRate = simResult.matchedBand?.vat_rate || null;
+      const bandVatRate = simResult.taxType || simResult.matchedBand?.vat_rate || null;
       const xeroReference = poNumber
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
