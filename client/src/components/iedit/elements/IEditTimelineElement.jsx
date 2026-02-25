@@ -784,7 +784,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${header_offset + 48}px)`;
     const hasBg = !!background_image;
     return (
-      <div className="flex gap-8 lg:gap-12">
+      <div className="flex gap-8 lg:gap-12 w-full">
         <div
           ref={railRef}
           data-timeline-rail
@@ -846,7 +846,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               </>
             );
           })()}
-          <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined }}>
+          <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined, width: '100%' }}>
             {items.map((item, idx) => contentSection(item, idx))}
           </div>
         </div>
@@ -924,7 +924,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   />
                 </>
               )}
-              <div style={{ position: 'relative', zIndex: 2 }}>
+              <div style={{ position: 'relative', zIndex: 2, width: '100%' }}>
                 {isMobile ? (
                   <>
                     <div
