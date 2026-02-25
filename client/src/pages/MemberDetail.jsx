@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -19,6 +19,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import { toast } from "sonner";
@@ -80,6 +88,10 @@ export default function MemberDetail() {
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState({});
   const [customFieldValues, setCustomFieldValues] = useState({});
+
+  // Delete member state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Communications state
   const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
@@ -359,6 +371,22 @@ export default function MemberDetail() {
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to delete note');
+    }
+  });
+
+  const deleteMemberMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.Member.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+      setShowDeleteDialog(false);
+      setDeleteConfirmText('');
+      toast.success('Member deleted successfully');
+      window.location.href = '/members';
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Could not delete member. Please try again.');
     }
   });
 
@@ -917,6 +945,15 @@ export default function MemberDetail() {
               <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
                 <Pencil className="w-4 h-4 mr-1" />
                 Edit
+              </Button>
+              <Button 
+                variant="outline" 
+                size="icon" 
+                onClick={() => setShowDeleteDialog(true)}
+                className="text-destructive hover:text-destructive"
+                data-testid="button-delete-member-detail"
+              >
+                <Trash2 className="w-4 h-4" />
               </Button>
             </>
           )}
@@ -1900,6 +1937,64 @@ export default function MemberDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Delete Member Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => { if (!open) { setShowDeleteDialog(false); setDeleteConfirmText(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Member
+            </DialogTitle>
+            <DialogDescription className="text-left space-y-3 pt-2">
+              <p>
+                You are about to permanently delete <strong>{member?.first_name} {member?.last_name}</strong>.
+              </p>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-destructive text-sm">
+                <strong>Warning:</strong> This action cannot be undone.
+              </div>
+              <p className="text-sm">
+                To confirm, please type <strong>DELETE</strong> below:
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input 
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Type DELETE to confirm"
+              data-testid="input-delete-member-confirm"
+            />
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => { setShowDeleteDialog(false); setDeleteConfirmText(''); }}
+              data-testid="button-cancel-member-delete"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => deleteMemberMutation.mutate()}
+              disabled={deleteConfirmText !== 'DELETE' || deleteMemberMutation.isPending}
+              data-testid="button-confirm-member-delete"
+            >
+              {deleteMemberMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Member
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {showLayoutEditor && (
         <MemberDetailLayoutEditor

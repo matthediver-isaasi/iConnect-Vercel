@@ -84,7 +84,8 @@ export default function MemberDetailView({
   roles = [],
   isNew = false,
   onCreated,
-  defaultOrganizationId = ''
+  defaultOrganizationId = '',
+  onDelete
 }) {
   const { isAdmin, memberInfo, isFeatureExcluded } = useMemberAccess();
   const { formatDate } = useDateFormat();
@@ -906,10 +907,23 @@ export default function MemberDetailView({
               <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
             ))}
             {isAdmin && !isEditing && !isNew && (
-              <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
-                <Pencil className="w-4 h-4 mr-1" />
-                Edit
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
+                  <Pencil className="w-4 h-4 mr-1" />
+                  Edit
+                </Button>
+                {onDelete && (
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={(e) => onDelete(member, e)}
+                    className="text-destructive hover:text-destructive"
+                    data-testid="button-delete-member-detail"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </>
             )}
             {(isEditing || isNew) && (
               <>
