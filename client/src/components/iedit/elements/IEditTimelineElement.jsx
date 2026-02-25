@@ -896,6 +896,14 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     updateItemMediaItems(itemIndex, updated);
   };
 
+  const moveMediaItem = (itemIndex, fromIdx, toIdx) => {
+    const current = [...getItemMediaItems(items[itemIndex])];
+    if (toIdx < 0 || toIdx >= current.length) return;
+    const [moved] = current.splice(fromIdx, 1);
+    current.splice(toIdx, 0, moved);
+    updateItemMediaItems(itemIndex, current);
+  };
+
   const addItem = () => {
     const nextYear = items.length > 0
       ? String(Math.max(...items.map(i => parseInt(i.year) || 2000)) + 1)
@@ -1387,7 +1395,9 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                       <div className="mt-1 space-y-2">
                         {getItemMediaItems(item).length > 0 && (
                           <div className="grid grid-cols-3 gap-2">
-                            {getItemMediaItems(item).map((mediaImg, mIdx) => (
+                            {getItemMediaItems(item).map((mediaImg, mIdx) => {
+                              const totalImages = getItemMediaItems(item).length;
+                              return (
                               <div key={mIdx} className="relative rounded-lg overflow-hidden border border-slate-200 group">
                                 <img
                                   src={mediaImg.src}
@@ -1395,6 +1405,28 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                   className="w-full h-20 object-cover"
                                   onError={(e) => { e.target.style.display = 'none'; }}
                                 />
+                                <div className="absolute top-1 left-1 flex gap-0.5" style={{ visibility: totalImages > 1 ? 'visible' : 'hidden' }}>
+                                  <button
+                                    onClick={() => moveMediaItem(index, mIdx, mIdx - 1)}
+                                    disabled={mIdx === 0}
+                                    className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30"
+                                    title="Move left"
+                                    type="button"
+                                    data-testid={`button-move-media-left-${index}-${mIdx}`}
+                                  >
+                                    <ChevronLeft className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => moveMediaItem(index, mIdx, mIdx + 1)}
+                                    disabled={mIdx === totalImages - 1}
+                                    className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30"
+                                    title="Move right"
+                                    type="button"
+                                    data-testid={`button-move-media-right-${index}-${mIdx}`}
+                                  >
+                                    <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                </div>
                                 <button
                                   onClick={() => removeMediaItem(index, mIdx)}
                                   className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
@@ -1417,7 +1449,8 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                   data-testid={`input-media-alt-${index}-${mIdx}`}
                                 />
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                         {getItemMediaItems(item).length < 5 && (
