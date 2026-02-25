@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -102,6 +102,24 @@ export default function CommunicationsManagementPage() {
     queryKey: ['roles'],
     queryFn: () => base44.entities.Role.list(),
   });
+
+  const { data: allOrganizations = [] } = useQuery({
+    queryKey: ['all-organizations-for-lookup'],
+    queryFn: () => base44.entities.Organization.listAll(),
+    staleTime: 60000,
+  });
+
+  const orgLookup = useMemo(() => {
+    const map = {};
+    allOrganizations.forEach(org => { map[org.id] = org.name; });
+    return map;
+  }, [allOrganizations]);
+
+  const roleLookup = useMemo(() => {
+    const map = {};
+    roles.forEach(role => { map[role.id] = role.name; });
+    return map;
+  }, [roles]);
 
   const { data: categoryRoles = [] } = useQuery({
     queryKey: ['communication-category-roles'],
@@ -422,15 +440,15 @@ export default function CommunicationsManagementPage() {
         return;
       }
 
-      const headers = ['Name', 'Organisation', 'Job Title', 'Email', 'Type'];
+      const headers = ['Name', 'Organisation', 'Role', 'Email', 'Type'];
       
       const memberRows = memberSubscribers.map(member => {
         const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A';
-        const org = member.organization_name || 'N/A';
-        const jobTitle = member.job_title || 'N/A';
+        const org = (member.organization_id && orgLookup[member.organization_id]) || 'N/A';
+        const role = (member.role_id && roleLookup[member.role_id]) || 'N/A';
         const email = member.email || 'N/A';
         
-        return [name, org, jobTitle, email, 'Member'].map(val => {
+        return [name, org, role, email, 'Member'].map(val => {
           const escaped = String(val).replace(/"/g, '""');
           return `"${escaped}"`;
         }).join(',');
@@ -1271,7 +1289,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 <TableRow>
                                   <TableHead>Name</TableHead>
                                   <TableHead>Organisation</TableHead>
-                                  <TableHead>Job Title</TableHead>
+                                  <TableHead>Role</TableHead>
                                   <TableHead>Email</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -1289,8 +1307,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                     <TableCell className="font-medium text-blue-600 hover:text-blue-700">
                                       {[member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A'}
                                     </TableCell>
-                                    <TableCell>{member.organization_name || 'N/A'}</TableCell>
-                                    <TableCell>{member.job_title || 'N/A'}</TableCell>
+                                    <TableCell>{(member.organization_id && orgLookup[member.organization_id]) || 'N/A'}</TableCell>
+                                    <TableCell>{(member.role_id && roleLookup[member.role_id]) || 'N/A'}</TableCell>
                                     <TableCell className="text-slate-600">{member.email || 'N/A'}</TableCell>
                                   </TableRow>
                                 ))}
