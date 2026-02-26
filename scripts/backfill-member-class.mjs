@@ -17,10 +17,14 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const isExecute = process.argv.includes('--execute');
 const mode = isExecute ? 'EXECUTE' : 'DRY RUN';
 
+const orgArgIndex = process.argv.indexOf('--org');
+const targetOrgId = orgArgIndex !== -1 ? process.argv[orgArgIndex + 1] : null;
+
 async function run() {
   console.log(`\n=== Backfill member_class = "${TARGET_VALUE}" ===`);
   console.log(`Mode: ${mode}`);
-  console.log(`Tenant: ${TENANT_ID}\n`);
+  console.log(`Tenant: ${TENANT_ID}`);
+  console.log(`Organisation: ${targetOrgId || 'All organisations'}\n`);
 
   const { data: field, error: fieldError } = await supabase
     .from('preference_field')
@@ -46,12 +50,15 @@ async function run() {
   const PAGE_SIZE = 1000;
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('member')
       .select('id, first_name, last_name, email, organization_id')
       .eq('tenant_id', TENANT_ID)
-      .not('organization_id', 'is', null)
-      .range(from, from + PAGE_SIZE - 1);
+      .not('organization_id', 'is', null);
+    if (targetOrgId) {
+      query = query.eq('organization_id', targetOrgId);
+    }
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
 
     if (error) {
       console.error('Failed to fetch members:', error.message);
