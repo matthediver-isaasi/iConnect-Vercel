@@ -40,6 +40,7 @@ export default function DynamicDirectoryView() {
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const [showDisabled, setShowDisabled] = useState(false);
   const [selectedOrganization, setSelectedOrganization] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const { data: directory, isLoading: isLoadingDirectory } = useQuery({
     queryKey: ['dynamic-directory', slug],
@@ -69,14 +70,43 @@ export default function DynamicDirectoryView() {
     refetchOnMount: true
   });
 
-  const { data: members = [], isLoading: isLoadingMembers } = useQuery({
-    queryKey: ['members-dynamic-directory', slug],
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const activeCustomFilters = useMemo(() => {
+    const active = {};
+    for (const [key, val] of Object.entries(customFieldFilters)) {
+      if (val && val !== 'all') active[key] = val;
+    }
+    return Object.keys(active).length > 0 ? active : null;
+  }, [customFieldFilters]);
+
+  const { data: memberResponse, isLoading: isLoadingMembers } = useQuery({
+    queryKey: ['directory-members', slug, currentPage, itemsPerPage, sortBy, debouncedSearch, showDisabled, activeCustomFilters],
     queryFn: async () => {
-      return await base44.entities.Member.listAll();
+      const params = new URLSearchParams({
+        slug,
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+        sort: sortBy,
+        show_disabled: showDisabled.toString(),
+      });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (activeCustomFilters) params.set('filters', JSON.stringify(activeCustomFilters));
+      const res = await fetch(`/api/dynamic-directory/members?${params}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch directory members');
+      return res.json();
     },
     enabled: !!directory && directory.entity_type === 'member',
-    refetchOnMount: true
+    keepPreviousData: true,
   });
+
+  const members = memberResponse?.members || [];
+  const memberServerTotal = memberResponse?.total || 0;
 
   const { data: roles = [] } = useQuery({
     queryKey: ['roles'],
@@ -311,13 +341,17 @@ export default function DynamicDirectoryView() {
     staleTime: 60 * 1000,
   });
 
+  const memberIdsForPrefs = useMemo(() => members.map(m => m.id).join(','), [members]);
+
   const { data: allMemberPreferenceValues = [] } = useQuery({
-    queryKey: ['all-member-preference-values', directory?.filter_field_id],
-    enabled: !!directory && directory.entity_type === 'member',
+    queryKey: ['directory-member-preferences', memberIdsForPrefs],
+    enabled: !!directory && directory.entity_type === 'member' && members.length > 0,
     queryFn: async () => {
+      if (!memberIdsForPrefs) return [];
       try {
-        const values = await base44.entities.MemberPreferenceValue.list();
-        return values || [];
+        const res = await fetch(`/api/dynamic-directory/member-preferences?member_ids=${memberIdsForPrefs}`, { credentials: 'include' });
+        if (!res.ok) return [];
+        return await res.json();
       } catch {
         return [];
       }
@@ -465,100 +499,25 @@ export default function DynamicDirectoryView() {
 
   const filteredMembers = useMemo(() => {
     if (!directory || directory.entity_type !== 'member') return [];
+    return members;
+  }, [directory, members]);
 
-    let filtered = members.filter(member => member.show_in_directory !== false);
-    if (!showDisabled) {
-      filtered = filtered.filter(member => member.login_enabled !== false);
-    }
-
-    if (directory.filter_field_id && directory.filter_value) {
-      filtered = filtered.filter(member => {
-        const memberValues = memberPreferenceMap[member.id] || {};
-        const memberValue = memberValues[directory.filter_field_id];
-        if (!memberValue) return false;
-        if (Array.isArray(memberValue)) return memberValue.includes(directory.filter_value);
-        return memberValue === directory.filter_value;
-      });
-    }
-
-    if (selectedOrganization) {
-      filtered = filtered.filter(member => {
-        const org = allOrganizations.find(o => o.id === member.organization_id);
-        return org?.id === selectedOrganization;
-      });
-    }
-
-    if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter(member => {
-        const organization = allOrganizations.find(o => o.id === member.organization_id);
-        return (
-          member.first_name?.toLowerCase().includes(searchLower) ||
-          member.last_name?.toLowerCase().includes(searchLower) ||
-          member.email?.toLowerCase().includes(searchLower) ||
-          (memberDisplaySettings?.show_job_title && member.job_title?.toLowerCase().includes(searchLower)) ||
-          (memberDisplaySettings?.show_organization && organization?.name?.toLowerCase().includes(searchLower))
-        );
-      });
-    }
-
-    const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => value && value !== 'all');
-    if (activeFilters.length > 0) {
-      filtered = filtered.filter(member => {
-        const memberValues = memberPreferenceMap[member.id] || {};
-        return activeFilters.every(([fieldId, filterValue]) => {
-          const memberValue = memberValues[fieldId];
-          if (!memberValue) return false;
-          if (Array.isArray(memberValue)) return memberValue.includes(filterValue);
-          return memberValue === filterValue;
-        });
-      });
-    }
-
-    const sorted = [...filtered].sort((a, b) => {
-      switch (sortBy) {
-        case "name-asc":
-          return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
-        case "name-desc":
-          return `${b.first_name} ${b.last_name}`.localeCompare(`${a.first_name} ${a.last_name}`);
-        case "org-asc": {
-          const orgA = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === a.organization_id)?.name || "") : "";
-          const orgB = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === b.organization_id)?.name || "") : "";
-          return orgA.localeCompare(orgB);
-        }
-        case "org-desc": {
-          const orgA = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === a.organization_id)?.name || "") : "";
-          const orgB = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === b.organization_id)?.name || "") : "";
-          return orgB.localeCompare(orgA);
-        }
-        case "events-desc": {
-          const statsA = memberDisplaySettings?.show_events ? (memberStats[a.id]?.eventsAttended || 0) : 0;
-          const statsB = memberDisplaySettings?.show_events ? (memberStats[b.id]?.eventsAttended || 0) : 0;
-          return statsB - statsA;
-        }
-        case "articles-desc": {
-          const statsA = memberDisplaySettings?.show_articles ? (memberStats[a.id]?.publishedArticles || 0) : 0;
-          const statsB = memberDisplaySettings?.show_articles ? (memberStats[b.id]?.publishedArticles || 0) : 0;
-          return statsB - statsA;
-        }
-        default:
-          return 0;
-      }
-    });
-
-    return sorted;
-  }, [members, searchQuery, sortBy, directory, memberPreferenceMap, customFieldFilters, showDisabled, selectedOrganization, allOrganizations, memberDisplaySettings, memberStats]);
-
-  const items = directory?.entity_type === 'organization' ? filteredOrganizations : filteredMembers;
-  const totalPages = Math.ceil(items.length / itemsPerPage);
+  const isMemberDirectory = directory?.entity_type === 'member';
+  const items = isMemberDirectory ? filteredMembers : filteredOrganizations;
+  const totalPages = isMemberDirectory
+    ? Math.ceil(memberServerTotal / itemsPerPage)
+    : Math.ceil(items.length / itemsPerPage);
   const paginatedItems = useMemo(() => {
+    if (isMemberDirectory) {
+      return items;
+    }
     const startIndex = (currentPage - 1) * itemsPerPage;
     return items.slice(startIndex, startIndex + itemsPerPage);
-  }, [items, currentPage, itemsPerPage]);
+  }, [items, currentPage, itemsPerPage, isMemberDirectory]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, showDisabled, sortBy, sortOrder, customFieldFilters, selectedOrganization]);
+  }, [debouncedSearch, showDisabled, sortBy, sortOrder, customFieldFilters, selectedOrganization, itemsPerPage]);
 
   const updateLogoMutation = useMutation({
     mutationFn: async ({ orgId, logoUrl }) => {
@@ -1105,10 +1064,6 @@ export default function DynamicDirectoryView() {
                       <SelectContent>
                         <SelectItem value="name-asc">Name (A-Z)</SelectItem>
                         <SelectItem value="name-desc">Name (Z-A)</SelectItem>
-                        {memberDisplaySettings?.show_organization && <SelectItem value="org-asc">Organisation (A-Z)</SelectItem>}
-                        {memberDisplaySettings?.show_organization && <SelectItem value="org-desc">Organisation (Z-A)</SelectItem>}
-                        {memberDisplaySettings?.show_events && <SelectItem value="events-desc">Most Events</SelectItem>}
-                        {memberDisplaySettings?.show_articles && <SelectItem value="articles-desc">Most Articles</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
