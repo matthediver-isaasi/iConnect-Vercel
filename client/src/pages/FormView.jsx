@@ -2203,7 +2203,10 @@ export default function FormViewPage() {
   
   const scrollToForm = () => {
     if (formContainerRef.current) {
-      window.scrollTo({ top: formContainerRef.current.offsetTop, behavior: 'smooth' });
+      const header = document.querySelector('header');
+      const headerHeight = header ? header.getBoundingClientRect().height : 0;
+      const targetTop = formContainerRef.current.getBoundingClientRect().top + window.scrollY - headerHeight;
+      window.scrollTo({ top: targetTop, behavior: 'smooth' });
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
