@@ -2203,7 +2203,7 @@ export default function FormViewPage() {
   
   const scrollToForm = () => {
     if (formContainerRef.current) {
-      formContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.scrollTo({ top: formContainerRef.current.offsetTop, behavior: 'smooth' });
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
