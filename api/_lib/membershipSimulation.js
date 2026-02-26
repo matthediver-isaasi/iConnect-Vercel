@@ -1084,6 +1084,83 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     usedBandId = matchedBand.id;
   }
 
+  let overrideApplied = false;
+  let override = null;
+  let overrideConfigName = null;
+  let customDiscountTotal = 0;
+  let customDiscountDetails = [];
+  try {
+    const yearLabel = membershipYear?.label || null;
+    let overrideQuery = supabase
+      .from('member_membership_override')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('member_id', memberId);
+    if (yearLabel) {
+      overrideQuery = overrideQuery.or(`membership_year.eq.${yearLabel},membership_year.is.null`);
+    }
+    const { data: overrideRows } = await overrideQuery;
+    if (overrideRows && overrideRows.length > 0) {
+      override = overrideRows.find(o => o.membership_year === yearLabel) || overrideRows.find(o => !o.membership_year) || overrideRows[0];
+    }
+  } catch {}
+
+  if (override) {
+    overrideApplied = true;
+    if (override.override_type === 'price' && override.manual_price !== null) {
+      annualCost = parseFloat(override.manual_price);
+      customDiscountTotal = 0;
+      customDiscountDetails = [];
+      log('Apply Override', `Price override: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
+    } else if (override.override_type === 'discount' && override.discount_type && override.discount_value !== null) {
+      const grossCost = annualCost;
+      const val = parseFloat(override.discount_value);
+      let overrideDiscountAmt = 0;
+      if (override.discount_type === 'percentage') {
+        overrideDiscountAmt = parseFloat((grossCost * val / 100).toFixed(2));
+      } else {
+        overrideDiscountAmt = Math.min(val, grossCost);
+      }
+      annualCost = Math.max(0, grossCost - overrideDiscountAmt);
+      customDiscountTotal = overrideDiscountAmt;
+      customDiscountDetails = [{
+        label: 'Manual Discount Override',
+        discount_type: override.discount_type,
+        discount_value: val,
+        applied_amount: overrideDiscountAmt,
+      }];
+      log('Apply Override', `Discount override: ${override.discount_type === 'percentage' ? val + '%' : val.toFixed(2)} off, discount amount: ${overrideDiscountAmt.toFixed(2)}, net cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
+    } else if (override.override_type === 'structure' && override.config_id) {
+      const overrideConfig = await getConfigById(override.config_id, tenantId);
+      if (overrideConfig) {
+        const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
+        const overrideBand = override.band_id
+          ? overrideBands.find(b => b.id === override.band_id)
+          : matchBand(fieldValue, overrideBands);
+
+        if (overrideBand) {
+          annualCostRaw = parseFloat(overrideBand.annual_cost);
+          annualCost = annualCostRaw;
+          tierLabel = overrideBand.label;
+          matchedBand = overrideBand;
+          usedConfigId = overrideConfig.id;
+          usedBandId = overrideBand.id;
+          overrideConfigName = overrideConfig.name || null;
+          customDiscountTotal = 0;
+          customDiscountDetails = [];
+          log('Apply Override', `Structure override: config "${overrideConfig.name || overrideConfig.id}", band "${overrideBand.label}", cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
+        } else {
+          log('Apply Override', 'Structure override set but no matching band found', 'warning');
+          overrideApplied = false;
+        }
+      }
+    }
+  } else {
+    log('Check Override', 'No override configured for this member');
+  }
+
+  const isPriceOverride = override?.override_type === 'price';
+
   const { data: historyRecords } = await supabase
     .from('member_membership_history')
     .select('id, membership_year')
@@ -1108,7 +1185,10 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   let finalCost = annualCost;
   let proRataEnabled = false;
 
-  if (yearNumber === 1) {
+  if (isPriceOverride) {
+    finalCost = annualCost;
+    log('Price Override', `Final cost set to manual price: ${finalCost.toFixed(2)}, all calculation lines suppressed`);
+  } else if (yearNumber === 1) {
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     const isPercentIncentive = config.free_period_unit === 'percent';
 
@@ -1412,9 +1492,15 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     freePeriodAmount: config.free_period_amount,
     freePeriodUnit: config.free_period_unit,
     billableDays: proRataEnabled ? billableDays : null,
-    customDiscountTotal: 0,
-    customDiscountDetails: [],
-    overrideApplied: false,
+    customDiscountTotal,
+    customDiscountDetails,
+    overrideApplied,
+    overrideType: override?.override_type || null,
+    overrideNote: override?.note || null,
+    overrideDiscountType: override?.discount_type || null,
+    overrideDiscountValue: override?.discount_value != null ? parseFloat(override.discount_value) : null,
+    overrideConfigId: override?.config_id || null,
+    overrideConfigName,
     existingRecord,
     invoicePreview: !existingRecord ? invoicePreview : null,
     invoicingSettings,

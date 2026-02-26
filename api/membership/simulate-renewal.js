@@ -1,5 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
+import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -30,21 +30,29 @@ export default async function handler(req, res) {
     }
 
     const { tenantId } = tenantContext;
-    const { organizationId, mode, targetYear } = req.body;
+    const { organizationId, memberId, mode, targetYear } = req.body;
 
-    if (!organizationId) {
-      return res.status(400).json({ error: 'organizationId is required' });
+    if (!organizationId && !memberId) {
+      return res.status(400).json({ error: 'organizationId or memberId is required' });
     }
 
     if (!mode || !['automatic', 'scheduled', 'manual'].includes(mode)) {
       return res.status(400).json({ error: 'mode must be "automatic", "scheduled", or "manual"' });
     }
 
-    const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
-      source: 'simulate',
-      mode,
-      targetYear: targetYear || null,
-    });
+    const isMemberSimulation = !!memberId && !organizationId;
+
+    const simResult = isMemberSimulation
+      ? await simulateMembershipForMember(tenantId, memberId, {
+          source: 'simulate',
+          mode,
+          targetYear: targetYear || null,
+        })
+      : await simulateMembershipForOrg(tenantId, organizationId, {
+          source: 'simulate',
+          mode,
+          targetYear: targetYear || null,
+        });
 
     if (!simResult.success) {
       return res.json({ success: false, steps: simResult.steps });
@@ -68,10 +76,16 @@ export default async function handler(req, res) {
       ...simResult.steps.slice(1),
     ];
 
+    const entityName = isMemberSimulation
+      ? simResult.member?.name || 'Unknown Member'
+      : simResult.org?.name || 'Unknown Organisation';
+
     return res.json({
       success: true,
       mode,
-      organization: simResult.org.name,
+      ...(isMemberSimulation
+        ? { member: entityName }
+        : { organization: entityName }),
       membershipYear: simResult.membershipYear.label,
       tierLabel: simResult.tierLabel,
       finalCost: simResult.finalCost,

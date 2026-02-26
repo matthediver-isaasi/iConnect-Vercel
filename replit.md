@@ -47,9 +47,10 @@ Supports membership pricing based on organization OR member attributes with hist
 -   **Member Config Resolution:** `getConfigForMember()` in `api/_lib/membershipConfigResolver.js` matches configs with `structure_scope_type='member'` against member core fields (via `core:field_name` IDs) or custom fields.
 -   **Member Invoicing:** `api/membership/member-membership-invoicing.js` handles GET/PUT/POST/PATCH for member invoicing settings, manual renewals, and fee approval.
 -   **Member Fees Portal:** `api/membership/member-fees.js` routes members without orgs to member-scoped simulation and payment flows.
--   **Member Membership API:** `api/membership/member-membership.js` provides combined membership data (config, year costs, history) for the admin member detail view.
+-   **Member Membership API:** `api/membership/member-membership.js` provides combined membership data (config, year costs, history, override metadata) for the admin member detail view.
+-   **Member Membership Override:** `api/membership/member-membership-override.js` handles GET/POST/DELETE for member cost overrides (structure, price, discount) stored in `member_membership_override` table, with audit trail via `member_note`. GET falls back to general (null-year) overrides when year-specific not found.
 -   **Cron Renewals:** `api/cron/process-membership-renewals.js` processes both org-based and member-based automatic/scheduled renewals.
--   **Admin UI:** `MemberMembershipTab.jsx` displays membership info, invoicing controls, and history in the member detail view for members without organisations.
+-   **Admin UI:** `MemberMembershipTab.jsx` displays membership info, invoicing controls, simulate/override buttons, and history in the member detail view for members without organisations.
 -   **Tables:** `member_membership_history` and `member_membership_invoicing` (parallel to org equivalents), entity-mapped as `MemberMembershipHistory` and `MemberMembershipInvoicing`.
 
 ## UI/UX

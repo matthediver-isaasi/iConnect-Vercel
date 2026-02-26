@@ -53,6 +53,14 @@ function mapSimResultToYearData(sim, startDate) {
     isNewMember: sim.isNewMember,
     currency: sim.currency || 'GBP',
     billingPeriod: sim.billingPeriod || 'annual',
+    overrideApplied: sim.overrideApplied || false,
+    overrideType: sim.overrideType || null,
+    overrideNote: sim.overrideNote || null,
+    overrideDiscountType: sim.overrideDiscountType || null,
+    overrideDiscountValue: sim.overrideDiscountValue,
+    overrideConfigId: sim.overrideConfigId || null,
+    overrideConfigName: sim.overrideConfigName || null,
+    originalAnnualCost: sim.overrideApplied ? sim.annualCostBeforeDiscounts : undefined,
   };
 }
 
