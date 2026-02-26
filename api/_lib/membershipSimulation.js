@@ -485,6 +485,16 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
         taxType = bandVatRate;
         taxLabel = bandVatRate;
       }
+    } else if (isFlat && config.flat_vat_rate) {
+      try {
+        const parsed = JSON.parse(config.flat_vat_rate);
+        taxType = parsed.taxType || null;
+        taxLabel = parsed.name || null;
+      } catch {
+        taxType = config.flat_vat_rate;
+        taxLabel = config.flat_vat_rate;
+      }
+      log('Flat Rate VAT', `Using flat rate VAT: "${taxLabel}" (${taxType})`);
     }
   }
 
@@ -520,7 +530,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   const vatAmount = vatRatePercent ? parseFloat((computedFinalCost * vatRatePercent / 100).toFixed(2)) : 0;
   const totalWithVat = parseFloat((computedFinalCost + vatAmount).toFixed(2));
 
-  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set on tier band (no VAT applied)'}${vatRatePercent ? `, Rate: ${vatRatePercent}%, VAT Amount: ${vatAmount.toFixed(2)}, Total incl VAT: ${totalWithVat.toFixed(2)}` : ''}`);
+  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set (no VAT applied)'}${vatRatePercent ? `, Rate: ${vatRatePercent}%, VAT Amount: ${vatAmount.toFixed(2)}, Total incl VAT: ${totalWithVat.toFixed(2)}` : ''}`);
 
   const scheduleStartDate = formatDate(membershipYear.start) + ' at 00:00';
   const scheduledInvoiceDate = invoicingSettings?.invoice_date ? formatDate(new Date(invoicingSettings.invoice_date)) + ' at 00:00' : null;
@@ -1364,6 +1374,16 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
       taxType = bandVatRate;
       taxLabel = bandVatRate;
     }
+  } else if (isFlat && config.flat_vat_rate) {
+    try {
+      const parsed = JSON.parse(config.flat_vat_rate);
+      taxType = parsed.taxType || null;
+      taxLabel = parsed.name || null;
+    } catch {
+      taxType = config.flat_vat_rate;
+      taxLabel = config.flat_vat_rate;
+    }
+    log('Flat Rate VAT', `Using flat rate VAT: "${taxLabel}" (${taxType})`);
   }
 
   let vatRatePercent = null;
@@ -1398,7 +1418,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   const vatAmount = vatRatePercent ? parseFloat((computedFinalCost * vatRatePercent / 100).toFixed(2)) : 0;
   const totalWithVat = parseFloat((computedFinalCost + vatAmount).toFixed(2));
 
-  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set on tier band (no VAT applied)'}${vatRatePercent ? `, Rate: ${vatRatePercent}%, VAT Amount: ${vatAmount.toFixed(2)}, Total incl VAT: ${totalWithVat.toFixed(2)}` : ''}`);
+  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set (no VAT applied)'}${vatRatePercent ? `, Rate: ${vatRatePercent}%, VAT Amount: ${vatAmount.toFixed(2)}, Total incl VAT: ${totalWithVat.toFixed(2)}` : ''}`);
 
   const scheduleStartDate = formatDate(membershipYear.start) + ' at 00:00';
   const scheduledInvoiceDate = invoicingSettings?.invoice_date ? formatDate(new Date(invoicingSettings.invoice_date)) + ' at 00:00' : null;

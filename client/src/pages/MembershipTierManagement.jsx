@@ -138,6 +138,7 @@ export default function MembershipTierManagement() {
     pricing_model: 'tiered',
     start_mode: 'fixed_date',
     flat_cost: null,
+    flat_vat_rate: null,
     auto_approve_fees: false,
     online_card_payment: false,
   });
@@ -272,6 +273,7 @@ export default function MembershipTierManagement() {
         pricing_model: c.pricing_model || 'tiered',
         start_mode: c.start_mode || 'fixed_date',
         flat_cost: c.flat_cost ?? null,
+        flat_vat_rate: c.flat_vat_rate || null,
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
@@ -321,6 +323,7 @@ export default function MembershipTierManagement() {
       pricing_model: inferredPricingModel,
       start_mode: inferredStartMode,
       flat_cost: inferredFlatCost,
+      flat_vat_rate: c.flat_vat_rate || null,
       invoice_description: c.invoice_description || null,
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
@@ -561,6 +564,7 @@ export default function MembershipTierManagement() {
         pricing_model: config.pricing_model,
         start_mode: config.start_mode,
         flat_cost: isFlat ? parseFloat(config.flat_cost) || 0 : undefined,
+        flat_vat_rate: isFlat ? (config.flat_vat_rate || null) : null,
       },
       bands: isFlat ? [] : bands.map(b => ({
         label: b.label,
@@ -1672,6 +1676,48 @@ export default function MembershipTierManagement() {
               />
             </div>
             <p className="text-sm text-muted-foreground">The {periodLabel.toLowerCase()} fee charged to all {isMemberScoped ? 'members' : 'organisations'}</p>
+            {availableVatRates.length > 0 && (
+              <div className="space-y-1 mt-3">
+                <Label>VAT Rate</Label>
+                <div className="max-w-xs">
+                  <Select
+                    value={(() => {
+                      if (!config.flat_vat_rate) return '__none';
+                      try {
+                        const parsed = JSON.parse(config.flat_vat_rate);
+                        return parsed.taxType || '__none';
+                      } catch {
+                        return config.flat_vat_rate || '__none';
+                      }
+                    })()}
+                    onValueChange={(value) => {
+                      if (value === '__none') {
+                        handleConfigChange('flat_vat_rate', null);
+                      } else {
+                        const selectedRate = availableVatRates.find(r => r.taxType === value);
+                        if (selectedRate) {
+                          handleConfigChange('flat_vat_rate', JSON.stringify({ taxType: selectedRate.taxType, name: selectedRate.name }));
+                        }
+                      }
+                    }}
+                    disabled={!isEditable}
+                  >
+                    <SelectTrigger data-testid="select-flat-vat-rate">
+                      <SelectValue placeholder="No VAT" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">No VAT</SelectItem>
+                      {availableVatRates.map(rate => (
+                        <SelectItem key={rate.taxType} value={rate.taxType}>
+                          {rate.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-sm text-muted-foreground">Select the VAT rate to apply to the flat membership cost</p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-4">
@@ -1970,10 +2016,25 @@ export default function MembershipTierManagement() {
                   <span className="font-medium">{bands.length} band{bands.length !== 1 ? 's' : ''}</span>
                 </div>
               ) : (
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Flat Cost</span>
-                  <span className="font-medium">{currencySymbol}{parseFloat(config.flat_cost || 0).toFixed(2)}</span>
-                </div>
+                <>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Flat Cost</span>
+                    <span className="font-medium">{currencySymbol}{parseFloat(config.flat_cost || 0).toFixed(2)}</span>
+                  </div>
+                  {config.flat_vat_rate && (() => {
+                    try {
+                      const parsed = JSON.parse(config.flat_vat_rate);
+                      return (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-muted-foreground">VAT Rate</span>
+                          <span className="font-medium">{parsed.name || parsed.taxType}</span>
+                        </div>
+                      );
+                    } catch {
+                      return null;
+                    }
+                  })()}
+                </>
               )}
             </>
           ))}
