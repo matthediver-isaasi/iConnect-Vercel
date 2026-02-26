@@ -2965,9 +2965,9 @@ export default function PreferencesPage() {
       </div>
 
       <WorkflowConfirmationModal
-        isOpen={showConfirmationModal}
-        onClose={() => setShowConfirmationModal(false)}
-        workflows={pendingWorkflows}
+        open={showConfirmationModal}
+        onOpenChange={setShowConfirmationModal}
+        pendingWorkflows={pendingWorkflows}
         onConfirm={handleConfirmWorkflow}
         onSkip={handleSkipWorkflow}
         onSkipAll={handleSkipAllWorkflows}
