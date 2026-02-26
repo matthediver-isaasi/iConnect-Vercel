@@ -1,6 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
-import { sendEmail } from '../_lib/emailService.js';
 import { triggerWorkflows } from '../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -1561,20 +1559,6 @@ export default async function handler(req, res) {
     if (memberCreationConfigs.length > 0) {
       console.log('[AppProcessor] Processing member creations:', memberCreationConfigs.length);
       
-      // Pre-fetch system settings for welcome emails (only once)
-      const { data: allSettings } = await supabase
-        .from('system_settings')
-        .select('setting_key, setting_value')
-        .in('setting_key', ['app_name', 'welcome_email_from_address', 'welcome_email_from_name']);
-      
-      const settingsMap = {};
-      (allSettings || []).forEach(s => { settingsMap[s.setting_key] = s.setting_value; });
-      
-      const appName = settingsMap['app_name'] || 'ICONN';
-      const loginUrl = process.env.APP_URL || 'https://iconn.app';
-      const fromAddress = settingsMap['welcome_email_from_address'] || process.env.MAILGUN_FROM_EMAIL || 'noreply@mail.iconn.app';
-      const fromName = settingsMap['welcome_email_from_name'] || appName;
-      
       for (let configIndex = 0; configIndex < memberCreationConfigs.length; configIndex++) {
         const memberConfig = memberCreationConfigs[configIndex];
         console.log(`[AppProcessor] ======= Processing member config ${configIndex + 1}/${memberCreationConfigs.length}: "${memberConfig.label}" =======`);
@@ -1746,7 +1730,6 @@ export default async function handler(req, res) {
         // processedEmails stores {id, role_id, organization_id} for in-memory context
         const processedEntry = processedEmails.get(normalizedEmail);
         let existingMemberId = processedEntry?.id || null;
-        let isNewMember = false;
         
         // Use in-memory context if available, otherwise fetch from DB
         let existingMemberRecord = processedEntry ? { 
@@ -1884,7 +1867,6 @@ export default async function handler(req, res) {
           additionalMemberIds.push({ id: existingMemberId, label: memberConfig.label, created: false, updated: true });
         } else {
           // CREATE new member
-          isNewMember = true;
           const additionalOrgId = createdOrganizationId || prefill_organization_id || null;
           // Remove raw organization_id from additionalMemberData (may be a name string, not UUID)
           delete additionalMemberData.organization_id;
@@ -2034,69 +2016,6 @@ export default async function handler(req, res) {
                 }
               }
             }
-          }
-        }
-        
-        // Generate temporary password and send welcome email only for NEW members
-        if (isNewMember) {
-          try {
-            // Check if credentials already exist
-            const { data: existingCreds } = await supabase
-              .from('member_credentials')
-              .select('id')
-              .eq('member_id', existingMemberId)
-              .single();
-            
-            if (!existingCreds) {
-              const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-              let tempPassword = '';
-              for (let i = 0; i < 12; i++) {
-                tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-              }
-              
-              const passwordHash = await bcrypt.hash(tempPassword, 12);
-              
-              const { error: credError } = await supabase
-                .from('member_credentials')
-                .insert({
-                  member_id: existingMemberId,
-                  email: normalizedEmail,
-                  password_hash: passwordHash,
-                  is_temp_password: true,
-                  password_set_at: new Date().toISOString()
-                });
-              
-              if (!credError) {
-                const emailHtml = `
-                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2>Welcome to ${appName}!</h2>
-                    <p>Your account has been created. Here are your login details:</p>
-                    <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                      <p><strong>Email:</strong> ${memberEmail}</p>
-                      <p><strong>Temporary Password:</strong> <code style="background-color: #e0e0e0; padding: 4px 8px; border-radius: 4px;">${tempPassword}</code></p>
-                    </div>
-                    <p>Please log in and change your password as soon as possible.</p>
-                    <p style="margin-top: 20px;">
-                      <a href="${loginUrl}/login" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                        Log In Now
-                      </a>
-                    </p>
-                  </div>
-                `;
-                
-                await sendEmail({
-                  to: memberEmail,
-                  subject: `Welcome to ${appName} - Your Login Details`,
-                  html: emailHtml,
-                  from: `${fromName} <${fromAddress}>`,
-                  tenantId: tenant_id
-                });
-                
-                console.log('[AppProcessor] Welcome email sent to additional member:', memberEmail);
-              }
-            }
-          } catch (credEmailError) {
-            console.error('[AppProcessor] Error creating credentials for additional member:', credEmailError);
           }
         }
       }
