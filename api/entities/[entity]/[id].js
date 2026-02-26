@@ -120,6 +120,8 @@ export default async function handler(req, res) {
   // Determine if tenant filtering should be applied
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
   
+  let allowsTenantWideAccess = false;
+  
   // For non-global entities, require authentication and valid tenant context
   if (shouldApplyTenantFilter) {
     if (!tenantCtx.isAuthenticated) {
@@ -134,7 +136,9 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, check role-based cross-member access
-    let allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    if (entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId) {
+      allowsTenantWideAccess = true;
+    }
     if (entity === 'MemberPreferenceValue' && tenantCtx.tenantId && tenantCtx.roleId) {
       const { hasCrossMemberAccess } = await checkCrossMemberPermissions(tenantCtx.roleId);
       if (hasCrossMemberAccess) {
