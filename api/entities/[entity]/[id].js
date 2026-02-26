@@ -131,8 +131,9 @@ export default async function handler(req, res) {
     if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !tenantCtx.tenantId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
-    // For member-scoped entities, require a valid member_id
-    if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId) {
+    // For member-scoped entities, require a valid member_id unless allowsTenantWideAccess
+    const allowsTenantWideAccess = (entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue') && tenantCtx.tenantId;
+    if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Invalid member context' });
     }
   }
@@ -148,7 +149,11 @@ export default async function handler(req, res) {
       // Apply tenant isolation filter for single-entity GET (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          query = query.eq('member_id', tenantCtx.memberId);
+          if (allowsTenantWideAccess) {
+            // Access controlled by RBAC - no member_id filter needed for by-ID access
+          } else {
+            query = query.eq('member_id', tenantCtx.memberId);
+          }
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Tenant admins can access any org in their tenant via inner join filter
           // Regular members can only access their own organization
@@ -230,7 +235,9 @@ export default async function handler(req, res) {
           // Apply tenant filter to beforeData fetch (always applied for non-global entities)
           if (shouldApplyTenantFilter) {
             if (tenantScope === TENANT_SCOPE.MEMBER) {
-              beforeQuery = beforeQuery.eq('member_id', tenantCtx.memberId);
+              if (!allowsTenantWideAccess) {
+                beforeQuery = beforeQuery.eq('member_id', tenantCtx.memberId);
+              }
             } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
               beforeQuery = beforeQuery.eq('organization_id', tenantCtx.organizationId);
             } else if (entity === 'Organization') {
@@ -323,7 +330,9 @@ export default async function handler(req, res) {
       // Apply tenant filter to ensure user can only update records in their tenant (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
+          if (!allowsTenantWideAccess) {
+            patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
+          }
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // For organization-scoped entities:
           // - Members with organization management permissions (admin.organizations) can access any org in their tenant
@@ -489,7 +498,9 @@ export default async function handler(req, res) {
         let verifyQuery = supabase.from(tableName).select('id').eq('id', id);
         
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          verifyQuery = verifyQuery.eq('member_id', tenantCtx.memberId);
+          if (!allowsTenantWideAccess) {
+            verifyQuery = verifyQuery.eq('member_id', tenantCtx.memberId);
+          }
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           verifyQuery = verifyQuery.eq('organization_id', tenantCtx.organizationId);
         } else if (entity === 'Organization') {

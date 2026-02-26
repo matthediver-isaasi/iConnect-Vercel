@@ -232,7 +232,7 @@ export default async function handler(req, res) {
     // Exceptions that allow tenant-wide access:
     // - OrganizationPreferenceValue: for viewing org details on the /organisations page
     // - Booking with event_id filter: for viewing all event attendees (access controlled by RBAC button visibility)
-    let allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    let allowsTenantWideAccess = (entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue') && tenantCtx.tenantId;
     
     // Resolve tenantId from organization if not present (for migration period)
     // Do this once, outside of entity-specific logic
@@ -286,8 +286,9 @@ export default async function handler(req, res) {
     if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.effectiveTenantId) && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
-    // For member-scoped entities, require a valid member_id (tenant admins can't bypass this)
-    if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId) {
+    // For member-scoped entities, require a valid member_id unless allowsTenantWideAccess
+    // (e.g. MemberPreferenceValue - access controlled by RBAC page visibility)
+    if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Invalid member context' });
     }
   }
@@ -302,7 +303,21 @@ export default async function handler(req, res) {
       if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           // Member-scoped entities filter by member_id
-          query = query.eq('member_id', tenantCtx.memberId);
+          // When allowsTenantWideAccess, use member_id from request filter (access controlled by RBAC)
+          if (tenantCtx.allowsTenantWideAccess) {
+            const filterMemberId = tenantCtx.parsedFilter?.member_id;
+            const resolvedMemberId = typeof filterMemberId === 'string' ? filterMemberId 
+              : filterMemberId?.eq ? filterMemberId.eq 
+              : null;
+            if (resolvedMemberId) {
+              query = query.eq('member_id', resolvedMemberId);
+            } else if (tenantCtx.memberId) {
+              query = query.eq('member_id', tenantCtx.memberId);
+            }
+            console.log(`[Entity GET] ${entity} - allowing cross-member access via allowsTenantWideAccess, member_id:`, resolvedMemberId || tenantCtx.memberId);
+          } else {
+            query = query.eq('member_id', tenantCtx.memberId);
+          }
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities filter by organization_id
           // OrganizationPreferenceValue needs tenant-wide access for all users (to view org details)
@@ -749,8 +764,13 @@ export default async function handler(req, res) {
       // SECURITY: Force-set tenant_id/organization_id/member_id from session to prevent tenant injection
       if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          // Member-scoped entities: always force member_id to current member
-          sanitizedBody.member_id = tenantCtx.memberId;
+          // Member-scoped entities: force member_id to current member
+          // When allowsTenantWideAccess, allow the request-specified member_id (access controlled by RBAC)
+          if (tenantCtx.allowsTenantWideAccess && sanitizedBody.member_id) {
+            // Keep the member_id from the request body
+          } else {
+            sanitizedBody.member_id = tenantCtx.memberId;
+          }
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities: check role-based cross-org permissions
           // Only members with appropriate role permissions can specify a different organization_id
