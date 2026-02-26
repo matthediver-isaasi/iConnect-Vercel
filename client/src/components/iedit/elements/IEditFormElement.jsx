@@ -1170,8 +1170,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       let createdOrganizationId = null;
       
       // Process entity pipelines if configured (create/update member/org entities)
+      // Only for authenticated users - unauthenticated submissions are processed server-side by form-submission.js
       const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
-      if (hasEntityPipelines) {
+      if (memberInfo && hasEntityPipelines) {
         try {
           const response = await fetch('/api/forms/process-application', {
             method: 'POST',
