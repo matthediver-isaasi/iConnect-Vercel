@@ -639,31 +639,24 @@ export default function MemberDetailView({
     }
   });
 
-  const updateCustomFieldMutation = useMutation({
-    mutationFn: async ({ fieldId, value }) => {
-      const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
-      const res = await fetch('/api/entities/member-preference-value/upsert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          member_id: member.id,
-          field_id: fieldId,
-          value: storedValue
-        })
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to save custom field');
-      }
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
-      queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
-      checkForPendingWorkflows(data);
+  const saveCustomField = async (fieldId, value) => {
+    const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
+    const res = await fetch('/api/entities/member-preference-value/upsert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        member_id: member.id,
+        field_id: fieldId,
+        value: storedValue
+      })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || 'Failed to save custom field');
     }
-  });
+    return res.json();
+  };
 
   // Member Notes query
   const { data: memberNotes = [], isLoading: notesLoading } = useQuery({
@@ -795,18 +788,37 @@ export default function MemberDetailView({
       const currentCustomFieldValues = { ...customFieldValues };
       const currentMemberValues = [...memberValues];
 
-      Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
+      const changedFields = Object.entries(currentCustomFieldValues).filter(([fieldId, value]) => {
         const existingVal = currentMemberValues.find(v => v.field_id === fieldId);
         const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
         const existingStored = existingVal?.value || '';
-
-        if (storedValue !== existingStored) {
-          updateCustomFieldMutation.mutate({
-            fieldId,
-            value
-          });
-        }
+        return storedValue !== existingStored;
       });
+
+      if (changedFields.length > 0) {
+        (async () => {
+          try {
+            const results = [];
+            for (const [fieldId, value] of changedFields) {
+              const result = await saveCustomField(fieldId, value);
+              results.push(result);
+            }
+            queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
+            queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
+            const allPending = results.flatMap(r => r?._pendingWorkflowConfirmations || []);
+            const allReverts = results.flatMap(r => r?._workflowReverts || []);
+            if (allPending.length > 0 || allReverts.length > 0) {
+              checkForPendingWorkflows({
+                _pendingWorkflowConfirmations: allPending,
+                _workflowReverts: allReverts
+              });
+            }
+          } catch (err) {
+            console.error('Failed to save custom fields:', err);
+            toast.error('Failed to save one or more custom fields');
+          }
+        })();
+      }
     }
   };
 
