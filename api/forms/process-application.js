@@ -1194,38 +1194,6 @@ export default async function handler(req, res) {
           }
           console.log('[AppProcessor] Triggered workflows for new member:', createdMemberId);
 
-          try {
-            const { getConfigForMember } = await import('../_lib/membershipConfigResolver.js');
-            const matchedConfig = await getConfigForMember(tenantId, createdMemberId);
-            if (matchedConfig && matchedConfig.structure_scope_type === 'member' && matchedConfig.auto_approve_fees) {
-              const startMonth = matchedConfig.membership_start_month || 1;
-              const startDay = matchedConfig.membership_start_day || 1;
-              const now = new Date();
-              const currentYear = now.getFullYear();
-              const yearStart = new Date(currentYear, startMonth - 1, startDay);
-              const membershipYearLabel = now < yearStart
-                ? `${currentYear - 1}/${currentYear}`
-                : `${currentYear}/${currentYear + 1}`;
-
-              const { error: invoicingErr } = await supabase
-                .from('member_membership_invoicing')
-                .upsert({
-                  tenant_id: tenantId,
-                  member_id: createdMemberId,
-                  membership_year: membershipYearLabel,
-                  fees_approved: true,
-                  invoicing_mode: 'manual',
-                }, { onConflict: 'tenant_id,member_id,membership_year' });
-
-              if (invoicingErr) {
-                console.error('[AppProcessor] Failed to auto-approve fees:', invoicingErr);
-              } else {
-                console.log('[AppProcessor] Auto-approved membership fees for member:', createdMemberId, 'year:', membershipYearLabel);
-              }
-            }
-          } catch (autoApproveErr) {
-            console.error('[AppProcessor] Auto-approve fees error (non-blocking):', autoApproveErr);
-          }
         }
       }
 
@@ -1368,6 +1336,43 @@ export default async function handler(req, res) {
       }
     }
     
+    // Auto-approve membership fees for member-scoped tier configs
+    // Runs AFTER custom fields and category selections are saved so getConfigForMember() can match correctly
+    if (createdMemberId) {
+      try {
+        const { getConfigForMember } = await import('../_lib/membershipConfigResolver.js');
+        const matchedConfig = await getConfigForMember(tenantId, createdMemberId);
+        if (matchedConfig && matchedConfig.structure_scope_type === 'member' && matchedConfig.auto_approve_fees) {
+          const startMonth = matchedConfig.membership_start_month || 1;
+          const startDay = matchedConfig.membership_start_day || 1;
+          const now = new Date();
+          const currentYear = now.getFullYear();
+          const yearStart = new Date(currentYear, startMonth - 1, startDay);
+          const membershipYearLabel = now < yearStart
+            ? `${currentYear - 1}/${currentYear}`
+            : `${currentYear}/${currentYear + 1}`;
+
+          const { error: invoicingErr } = await supabase
+            .from('member_membership_invoicing')
+            .upsert({
+              tenant_id: tenantId,
+              member_id: createdMemberId,
+              membership_year: membershipYearLabel,
+              fees_approved: true,
+              invoicing_mode: 'manual',
+            }, { onConflict: 'tenant_id,member_id,membership_year' });
+
+          if (invoicingErr) {
+            console.error('[AppProcessor] Failed to auto-approve fees:', invoicingErr);
+          } else {
+            console.log('[AppProcessor] Auto-approved membership fees for member:', createdMemberId, 'year:', membershipYearLabel);
+          }
+        }
+      } catch (autoApproveErr) {
+        console.error('[AppProcessor] Auto-approve fees error (non-blocking):', autoApproveErr);
+      }
+    }
+
     // Handle communication_preferences field values - save to member_communication_preference table
     // Only update categories that are explicitly included in the form submission
     // Do NOT auto-subscribe missing categories - this preserves existing opt-outs
