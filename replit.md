@@ -43,7 +43,7 @@ Event times are stored in UTC with a separate timezone field for display, priori
 
 ## Membership Tier System
 Supports membership pricing based on organization OR member attributes with historical versioning, multi-structure support, and configurable discounts. Includes pro-rata pricing logic, free periods, and rollover discounts, with a go-live date determining discount application. The tier management UI uses a 6-step wizard for configuration.
--   **Scope Types:** Each tier config has `structure_scope_type` (`'organization'` or `'member'`). Member-scoped tiers are for members not linked to an organisation.
+-   **Scope Types:** Each tier config has `structure_scope_type` (`'organization'` or `'member'`). Member-scoped tiers are for members not linked to an organisation. Member-scoped configs support two additional flags: `auto_approve_fees` (auto-creates an approved `member_membership_invoicing` record when a matching member is created via form) and `online_card_payment` (hides renewal/PO invoicing controls in admin, showing a card payment message instead).
 -   **Member Simulation:** `simulateMembershipForMember()` in `api/_lib/membershipSimulation.js` mirrors org simulation but uses member fields, `member_membership_history`, and `member_membership_invoicing` tables.
 -   **Member Config Resolution:** `getConfigForMember()` in `api/_lib/membershipConfigResolver.js` matches configs with `structure_scope_type='member'` against member core fields (via `core:field_name` IDs) or custom fields.
 -   **Member Invoicing:** `api/membership/member-membership-invoicing.js` handles GET/PUT/POST/PATCH for member invoicing settings, manual renewals, and fee approval.

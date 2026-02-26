@@ -74,6 +74,7 @@ function MemberYearCostSection({
   hasOverride,
   onRemoveOverride,
   removeOverridePending,
+  onlineCardPayment,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const isPoLocked = poSuppliedByMember && !poUnlocked;
@@ -225,6 +226,43 @@ function MemberYearCostSection({
           <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-member-invoicing-pending-${testIdPrefix}`}>
             <FileText className="w-3 h-3" />
             <span>Invoicing controls will be available once the current year has been processed</span>
+          </div>
+        </>
+      ) : onlineCardPayment ? (
+        <>
+          <Separator className="my-3" />
+          {approvalRequired && (
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              {feesApproved ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onUnapprove}
+                  disabled={approvePending}
+                  data-testid={`button-member-unapprove-${testIdPrefix}`}
+                >
+                  {approvePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <XCircle className="w-3 h-3 mr-1" />}
+                  Unapprove
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={onApprove}
+                  disabled={approvePending}
+                  data-testid={`button-member-approve-${testIdPrefix}`}
+                >
+                  {approvePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1" />}
+                  Approve Fees
+                </Button>
+              )}
+            </div>
+          )}
+          <div className="flex items-start gap-2 p-3 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800" data-testid={`text-member-online-card-payment-${testIdPrefix}`}>
+            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+            <p className="text-sm text-muted-foreground">
+              This member pays by online card payment. Payment and invoicing are processed immediately when the member pays online.
+            </p>
           </div>
         </>
       ) : (
@@ -834,6 +872,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 hasOverride={hasOverrideForYear(currentYearData?.membershipYear)}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
+                onlineCardPayment={!!config?.online_card_payment}
                 {...makeInvoicingHandlers(currentYearData, 'current-year')}
               />
             ) : (
@@ -870,6 +909,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 hasOverride={hasOverrideForYear(nextYearData?.membershipYear)}
                 onRemoveOverride={(year) => removeOverrideMutation.mutate(year)}
                 removeOverridePending={removeOverrideMutation.isPending}
+                onlineCardPayment={!!config?.online_card_payment}
                 {...makeInvoicingHandlers(nextYearData, 'next-year')}
               />
             ) : (

@@ -8,11 +8,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const tenantData = await resolveTenantFromRequest(req);
-    if (!tenantData?.id) {
-      return res.status(400).json({ error: 'Could not resolve tenant' });
+    let resolvedTenantId = null;
+    try {
+      const tenantData = await resolveTenantFromRequest(req);
+      resolvedTenantId = tenantData?.id || null;
+    } catch (e) {
+      console.log('[FormMembershipPayment] Tenant resolution failed (will use member tenant_id):', e.message);
     }
-    const resolvedTenantId = tenantData.id;
 
     if (req.method === 'GET') {
       return handleGet(req, res, resolvedTenantId);
@@ -54,7 +56,9 @@ async function getStripePublishableKey(tenantId) {
         return creds.publishable_key;
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error('[FormMembershipPayment] Error fetching Stripe publishable key:', err.message);
+  }
   return null;
 }
 
@@ -172,7 +176,7 @@ async function handleGet(req, res, resolvedTenantId) {
     return res.status(404).json({ error: 'Member not found' });
   }
 
-  if (member.tenant_id !== resolvedTenantId) {
+  if (resolvedTenantId && member.tenant_id !== resolvedTenantId) {
     return res.status(403).json({ error: 'Member does not belong to this tenant' });
   }
 
@@ -253,7 +257,7 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(404).json({ error: 'Member not found' });
   }
 
-  if (member.tenant_id !== resolvedTenantId) {
+  if (resolvedTenantId && member.tenant_id !== resolvedTenantId) {
     return res.status(403).json({ error: 'Member does not belong to this tenant' });
   }
 

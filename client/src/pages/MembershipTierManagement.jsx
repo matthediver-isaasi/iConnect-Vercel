@@ -138,6 +138,8 @@ export default function MembershipTierManagement() {
     pricing_model: 'tiered',
     start_mode: 'fixed_date',
     flat_cost: null,
+    auto_approve_fees: false,
+    online_card_payment: false,
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
@@ -271,6 +273,8 @@ export default function MembershipTierManagement() {
         start_mode: c.start_mode || 'fixed_date',
         flat_cost: c.flat_cost ?? null,
         invoice_description: c.invoice_description || null,
+        auto_approve_fees: c.auto_approve_fees ?? false,
+        online_card_payment: c.online_card_payment ?? false,
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -318,6 +322,8 @@ export default function MembershipTierManagement() {
       start_mode: inferredStartMode,
       flat_cost: inferredFlatCost,
       invoice_description: c.invoice_description || null,
+      auto_approve_fees: c.auto_approve_fees ?? false,
+      online_card_payment: c.online_card_payment ?? false,
     });
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
@@ -611,6 +617,8 @@ export default function MembershipTierManagement() {
       start_mode: currentConfig?.start_mode || 'fixed_date',
       flat_cost: currentConfig?.flat_cost ?? null,
       invoice_description: currentConfig?.invoice_description || null,
+      auto_approve_fees: false,
+      online_card_payment: false,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -890,6 +898,40 @@ export default function MembershipTierManagement() {
             </div>
           </div>
         </div>
+
+        {config.structure_scope_type === 'member' && (
+          <div className="border-t pt-4 mt-2 space-y-4">
+            <h3 className="text-sm font-medium mb-3">Member Payment Settings</h3>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Auto-approve fees</Label>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Automatically approve membership fees when a member matching this scope is created, allowing immediate payment without admin review.
+                </p>
+              </div>
+              <Switch
+                checked={config.auto_approve_fees}
+                onCheckedChange={(v) => handleConfigChange('auto_approve_fees', v)}
+                disabled={!isEditable}
+                data-testid="switch-auto-approve-fees"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Online card payment</Label>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Members pay by card online. Hides renewal scheduling and purchase order controls in the admin view.
+                </p>
+              </div>
+              <Switch
+                checked={config.online_card_payment}
+                onCheckedChange={(v) => handleConfigChange('online_card_payment', v)}
+                disabled={!isEditable}
+                data-testid="switch-online-card-payment"
+              />
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1827,6 +1869,18 @@ export default function MembershipTierManagement() {
                 {config.invoice_description || 'Default (Membership subscription for {year})'}
               </span>
             </div>
+            {config.structure_scope_type === 'member' && (
+              <>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Auto-approve fees</span>
+                  <span className="font-medium" data-testid="text-summary-auto-approve">{config.auto_approve_fees ? 'Enabled' : 'Disabled'}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Online card payment</span>
+                  <span className="font-medium" data-testid="text-summary-online-card-payment">{config.online_card_payment ? 'Enabled' : 'Disabled'}</span>
+                </div>
+              </>
+            )}
           </>
         ))}
 

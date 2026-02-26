@@ -205,6 +205,7 @@ async function handleGet(req, res, tenantId) {
       effective_from: config.effective_from,
       membership_start_month: config.membership_start_month,
       membership_start_day: config.membership_start_day,
+      online_card_payment: !!config.online_card_payment,
     },
     currentYearCost,
     nextYearPreview,

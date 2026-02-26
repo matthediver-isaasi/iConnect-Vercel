@@ -599,6 +599,8 @@ async function handlePost(req, res, tenantId) {
         pricing_model: config.pricing_model || 'tiered',
         flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
         invoice_description: config.invoice_description || null,
+        auto_approve_fees: (config.structure_scope_type === 'member') ? (config.auto_approve_fees ?? false) : false,
+        online_card_payment: (config.structure_scope_type === 'member') ? (config.online_card_payment ?? false) : false,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -703,6 +705,8 @@ async function handlePost(req, res, tenantId) {
       pricing_model: config.pricing_model || 'tiered',
       flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
       invoice_description: config.invoice_description || null,
+      auto_approve_fees: ((config.structure_scope_type || 'organization') === 'member') ? (config.auto_approve_fees ?? false) : false,
+      online_card_payment: ((config.structure_scope_type || 'organization') === 'member') ? (config.online_card_payment ?? false) : false,
     })
     .select()
     .single();
