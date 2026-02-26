@@ -4,15 +4,15 @@ const TENANT_ID = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d';
 const FIELD_NAME = 'member_class';
 const TARGET_VALUE = 'University';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+if (!supabaseKey) {
+  console.error('Missing DEST_SUPABASE_KEY');
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const isExecute = process.argv.includes('--execute');
 const mode = isExecute ? 'EXECUTE' : 'DRY RUN';
@@ -26,7 +26,7 @@ async function run() {
     .from('preference_field')
     .select('id, name, label')
     .eq('name', FIELD_NAME)
-    .eq('tenant_id', TENANT_ID)
+    .eq('entity_scope', 'member')
     .maybeSingle();
 
   if (fieldError) {
@@ -73,8 +73,9 @@ async function run() {
 
   const memberIds = allMembers.map(m => m.id);
   let existingValues = [];
-  for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
-    const batch = memberIds.slice(i, i + PAGE_SIZE);
+  const LOOKUP_BATCH = 200;
+  for (let i = 0; i < memberIds.length; i += LOOKUP_BATCH) {
+    const batch = memberIds.slice(i, i + LOOKUP_BATCH);
     const { data, error } = await supabase
       .from('member_preference_value')
       .select('id, member_id, value')
@@ -129,7 +130,6 @@ async function run() {
             member_id: member.id,
             field_id: field.id,
             value: TARGET_VALUE,
-            tenant_id: TENANT_ID,
           }, { onConflict: 'member_id,field_id' });
 
         if (error) {
