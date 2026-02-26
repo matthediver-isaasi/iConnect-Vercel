@@ -1098,6 +1098,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       toast.error(`Please fill in required fields: ${missingFields.map(f => f.label).join(', ')}`);
       return false;
     }
+
+    const overLimitFields = pageFields.filter(field =>
+      field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
+    );
+    if (overLimitFields.length > 0) {
+      toast.error(`Character limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
+      return false;
+    }
+
     return true;
   };
 
@@ -1287,6 +1296,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       const errors = missingFields.map(f => `Please fill in the required field: ${f.label}`);
       setValidationErrors(errors);
       toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
+      return;
+    }
+
+    const overLimitFields = visibleFields.filter(field =>
+      field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
+    );
+    if (overLimitFields.length > 0) {
+      const errors = overLimitFields.map(f => `Character limit exceeded: ${f.label}`);
+      setValidationErrors(errors);
+      toast.error(`Character limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
       return;
     }
 

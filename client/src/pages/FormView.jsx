@@ -1810,6 +1810,14 @@ export default function FormViewPage() {
       }
     }
 
+    const overLimitFields = visibleFields.filter(field =>
+      field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
+    );
+    if (overLimitFields.length > 0) {
+      toast.error(`Character limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
+      return;
+    }
+
     const paymentFields = visibleFields.filter(field => field.type === 'membership_payment');
     const unpaidPayments = paymentFields.filter(field => {
       const val = formValues[field.id];
@@ -2198,6 +2206,15 @@ export default function FormViewPage() {
       toast.error(`Please fill in required fields: ${missingFields.map(f => f.label).join(', ')}`);
       return false;
     }
+
+    const overLimitFields = pageFields.filter(field =>
+      field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
+    );
+    if (overLimitFields.length > 0) {
+      toast.error(`Character limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
+      return false;
+    }
+
     return true;
   };
   

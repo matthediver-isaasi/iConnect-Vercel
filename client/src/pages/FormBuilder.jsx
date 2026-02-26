@@ -3255,6 +3255,24 @@ function FieldCard({
                     />
                   )}
                   
+                  {field.type === 'textarea' && (
+                    <div className="pt-3 border-t border-slate-200 mt-3">
+                      <Label className="text-xs font-medium text-slate-700">Maximum Characters (Optional)</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={field.max_characters ?? ''}
+                        onChange={(e) => updateField(originalIndex, { 
+                          max_characters: e.target.value ? parseInt(e.target.value, 10) : null 
+                        })}
+                        placeholder="No limit"
+                        className="h-8 text-xs mt-2"
+                        data-testid={`input-max-characters-${field.id}`}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Leave blank for no limit</p>
+                    </div>
+                  )}
+                  
                   {/* Number field */}
                   {field.type === 'number' && (
                     <Input
