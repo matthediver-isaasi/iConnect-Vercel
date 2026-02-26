@@ -165,6 +165,8 @@ export const entityTenantScope = {
   'MemberPreferenceValue': TENANT_SCOPE.MEMBER,
   'MemberCommunicationPreference': TENANT_SCOPE.TENANT, // TENANT scope so admins can view all member preferences
   'MemberCredentials': TENANT_SCOPE.MEMBER,
+  'MemberMembershipHistory': TENANT_SCOPE.TENANT,
+  'MemberMembershipInvoicing': TENANT_SCOPE.TENANT,
 };
 
 /**

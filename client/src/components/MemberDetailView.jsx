@@ -50,7 +50,8 @@ import {
   ChevronRight,
   Key,
   Copy,
-  Check
+  Check,
+  Wallet
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -75,6 +76,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 // DISABLED: import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
+import MemberMembershipTab from "@/components/MemberMembershipTab";
 
 export default function MemberDetailView({ 
   member, 
@@ -981,6 +983,12 @@ export default function MemberDetailView({
               <Mail className="w-4 h-4" />
               Communications
             </TabsTrigger>
+            {!member?.organization_id && !isNew && (
+              <TabsTrigger value="membership" className="gap-1" data-testid="tab-member-membership">
+                <Wallet className="w-4 h-4" />
+                Membership
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -2222,6 +2230,12 @@ export default function MemberDetailView({
               </CardContent>
             </Card>
           </TabsContent>
+
+          {!member?.organization_id && !isNew && (
+            <TabsContent value="membership" className="space-y-6">
+              <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
+            </TabsContent>
+          )}
         </Tabs>
 
         <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>

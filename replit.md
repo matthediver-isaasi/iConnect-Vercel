@@ -41,7 +41,16 @@ The application is deployed on Vercel, using `iconn.app` for tenant owner manage
 Event times are stored in UTC with a separate timezone field for display, prioritizing Zoom, then event-specific, then 'Europe/London'.
 
 ## Membership Tier System
-Supports membership pricing based on organization attributes with historical versioning, multi-structure support, and configurable discounts. Includes pro-rata pricing logic, free periods, and rollover discounts, with a go-live date determining discount application. The tier management UI uses a 6-step wizard for configuration.
+Supports membership pricing based on organization OR member attributes with historical versioning, multi-structure support, and configurable discounts. Includes pro-rata pricing logic, free periods, and rollover discounts, with a go-live date determining discount application. The tier management UI uses a 6-step wizard for configuration.
+-   **Scope Types:** Each tier config has `structure_scope_type` (`'organization'` or `'member'`). Member-scoped tiers are for members not linked to an organisation.
+-   **Member Simulation:** `simulateMembershipForMember()` in `api/_lib/membershipSimulation.js` mirrors org simulation but uses member fields, `member_membership_history`, and `member_membership_invoicing` tables.
+-   **Member Config Resolution:** `getConfigForMember()` in `api/_lib/membershipConfigResolver.js` matches configs with `structure_scope_type='member'` against member core fields (via `core:field_name` IDs) or custom fields.
+-   **Member Invoicing:** `api/membership/member-membership-invoicing.js` handles GET/PUT/POST/PATCH for member invoicing settings, manual renewals, and fee approval.
+-   **Member Fees Portal:** `api/membership/member-fees.js` routes members without orgs to member-scoped simulation and payment flows.
+-   **Member Membership API:** `api/membership/member-membership.js` provides combined membership data (config, year costs, history) for the admin member detail view.
+-   **Cron Renewals:** `api/cron/process-membership-renewals.js` processes both org-based and member-based automatic/scheduled renewals.
+-   **Admin UI:** `MemberMembershipTab.jsx` displays membership info, invoicing controls, and history in the member detail view for members without organisations.
+-   **Tables:** `member_membership_history` and `member_membership_invoicing` (parallel to org equivalents), entity-mapped as `MemberMembershipHistory` and `MemberMembershipInvoicing`.
 
 ## UI/UX
 The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent, responsive user experience with a collapsible sidebar.

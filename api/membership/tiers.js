@@ -215,14 +215,20 @@ async function getPreview(req, res, tenantId, configId) {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (error || !data) {
-      return res.json({ organizations: [], unmapped: [] });
+      return res.json({ organizations: [], members: [], unmapped: [] });
     }
     config = data;
   } else {
     config = await getCurrentConfig(tenantId);
     if (!config) {
-      return res.json({ organizations: [], unmapped: [] });
+      return res.json({ organizations: [], members: [], unmapped: [] });
     }
+  }
+
+  const scopeType = config.structure_scope_type || 'organization';
+
+  if (scopeType === 'member') {
+    return getMemberPreview(req, res, tenantId, config);
   }
 
   const bands = await getBandsForConfig(config.id, tenantId);
@@ -345,6 +351,150 @@ async function getPreview(req, res, tenantId, configId) {
   });
 }
 
+async function getMemberPreview(req, res, tenantId, config) {
+  const bands = await getBandsForConfig(config.id, tenantId);
+
+  const { data: allMembers, error: memberError } = await supabase
+    .from('member')
+    .select('id, first_name, last_name, email, status, organization_id')
+    .eq('tenant_id', tenantId)
+    .order('last_name', { ascending: true });
+
+  if (memberError) {
+    return res.status(500).json({ error: 'Failed to fetch members' });
+  }
+
+  let members = (allMembers || []).filter(m => !m.organization_id);
+
+  if (config.structure_field_id && config.structure_match_value) {
+    const isCoreField = config.structure_field_id.startsWith('core:');
+
+    if (isCoreField) {
+      const coreFieldName = config.structure_field_id.replace('core:', '');
+      members = members.filter(m => {
+        const val = (m[coreFieldName] || '').toString().toLowerCase().trim();
+        const matchVal = config.structure_match_value.toString().toLowerCase().trim();
+        return val === matchVal;
+      });
+    } else {
+      const memberIds = members.map(m => m.id);
+      if (memberIds.length > 0) {
+        const { data: scopeValues } = await supabase
+          .from('member_preference_value')
+          .select('member_id, value')
+          .eq('field_id', config.structure_field_id)
+          .in('member_id', memberIds);
+
+        const matchingMemberIds = new Set(
+          (scopeValues || [])
+            .filter(pv => {
+              const val = (pv.value || '').toString().toLowerCase().trim();
+              const matchVal = config.structure_match_value.toString().toLowerCase().trim();
+              return val === matchVal;
+            })
+            .map(pv => pv.member_id)
+        );
+        members = members.filter(m => matchingMemberIds.has(m.id));
+      }
+    }
+  }
+
+  const isFlat = config.pricing_model === 'flat';
+  const flatCost = isFlat ? parseFloat(config.flat_cost) || 0 : null;
+
+  let memberValues = {};
+
+  if (!isFlat && config.field_id) {
+    const isCoreField = config.field_id.startsWith && config.field_id.startsWith('core:');
+
+    if (config.field_source === 'core' || isCoreField) {
+      const coreFieldName = isCoreField ? config.field_id.replace('core:', '') : config.field_name;
+      if (coreFieldName) {
+        members.forEach(m => {
+          const numVal = parseFloat(m[coreFieldName]);
+          if (!isNaN(numVal)) {
+            memberValues[m.id] = numVal;
+          }
+        });
+      }
+    } else {
+      const memberIds = members.map(m => m.id);
+      if (memberIds.length > 0) {
+        const { data: prefValues } = await supabase
+          .from('member_preference_value')
+          .select('member_id, value')
+          .eq('field_id', config.field_id)
+          .in('member_id', memberIds);
+
+        (prefValues || []).forEach(pv => {
+          const numVal = parseFloat(pv.value);
+          if (!isNaN(numVal)) {
+            memberValues[pv.member_id] = numVal;
+          }
+        });
+      }
+    }
+  }
+
+  const results = members.map(member => {
+    const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || member.email || 'Unknown';
+
+    if (isFlat) {
+      return {
+        id: member.id,
+        name,
+        email: member.email,
+        status: member.status,
+        fieldValue: null,
+        tierLabel: 'Flat Rate',
+        annualCost: flatCost,
+        bandId: 'flat'
+      };
+    }
+
+    const fieldValue = memberValues[member.id] ?? null;
+    let matchedBand = null;
+
+    if (fieldValue !== null && bands?.length > 0) {
+      for (const band of bands) {
+        const min = parseFloat(band.min_value);
+        const max = band.max_value !== null ? parseFloat(band.max_value) : Infinity;
+        if (fieldValue >= min && fieldValue <= max) {
+          matchedBand = band;
+          break;
+        }
+      }
+    }
+
+    return {
+      id: member.id,
+      name,
+      email: member.email,
+      status: member.status,
+      fieldValue,
+      tierLabel: matchedBand?.label || null,
+      annualCost: matchedBand ? parseFloat(matchedBand.annual_cost) : null,
+      bandId: matchedBand?.id || null
+    };
+  });
+
+  const mapped = results.filter(r => r.bandId);
+  const unmapped = results.filter(r => !r.bandId);
+
+  return res.json({
+    config,
+    bands: bands || [],
+    members: mapped,
+    unmapped,
+    summary: {
+      totalMembers: results.length,
+      mappedMembers: mapped.length,
+      unmappedMembers: unmapped.length,
+      totalAnnualRevenue: mapped.reduce((sum, r) => sum + (r.annualCost || 0), 0)
+    }
+  });
+}
+
 function validateBands(bands) {
   if (!bands || !Array.isArray(bands) || bands.length === 0) return null;
 
@@ -445,6 +595,7 @@ async function handlePost(req, res, tenantId) {
         rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
         structure_field_id: config.structure_field_id || null,
         structure_match_value: config.structure_match_value || null,
+        structure_scope_type: config.structure_scope_type || 'organization',
         pricing_model: config.pricing_model || 'tiered',
         flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
         invoice_description: config.invoice_description || null,
@@ -548,6 +699,7 @@ async function handlePost(req, res, tenantId) {
       rollover_enabled: config.free_period_amount ? (config.rollover_enabled ?? false) : false,
       structure_field_id: structureFieldId,
       structure_match_value: structureMatchValue,
+      structure_scope_type: config.structure_scope_type || 'organization',
       pricing_model: config.pricing_model || 'tiered',
       flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
       invoice_description: config.invoice_description || null,
@@ -803,6 +955,30 @@ async function deleteDiscountsForConfig(configId, tenantId) {
 }
 
 async function getStructureFields(req, res, tenantId) {
+  const scopeType = req.query.scope_type || 'organization';
+
+  if (scopeType === 'member') {
+    const coreFields = [
+      { id: 'core:job_title', name: 'job_title', label: 'Job Title', field_type: 'text', entity_scope: 'member', options: null, is_core: true },
+      { id: 'core:status', name: 'status', label: 'Status', field_type: 'picklist', entity_scope: 'member', options: ['Active', 'Inactive', 'Pending'], is_core: true },
+    ];
+
+    const { data: customFields, error } = await supabase
+      .from('preference_field')
+      .select('id, name, label, field_type, entity_scope, options')
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'member')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true });
+
+    if (error) {
+      console.error('[Membership Tiers] Error fetching member structure fields:', error);
+      return res.status(500).json({ error: 'Failed to fetch fields' });
+    }
+
+    return res.json([...coreFields, ...(customFields || [])]);
+  }
+
   const { data: fields, error } = await supabase
     .from('preference_field')
     .select('id, name, label, field_type, entity_scope, options')

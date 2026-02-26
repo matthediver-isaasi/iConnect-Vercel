@@ -1,7 +1,7 @@
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
 import { evaluateVatOverrideForOrg } from './vatOverrideHelper.js';
-import { getConfigForOrganisation, getAllActiveConfigs } from './membershipConfigResolver.js';
+import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs } from './membershipConfigResolver.js';
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
   const {
@@ -864,4 +864,570 @@ async function getOrgFieldValue(orgId, tenantId, config) {
   }
 
   return null;
+}
+
+async function getMemberGoLiveDate(memberId, tenantId) {
+  try {
+    const { data: field } = await supabase
+      .from('preference_field')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'member')
+      .eq('is_active', true)
+      .eq('name', 'go_live')
+      .maybeSingle();
+    if (!field?.id) return null;
+
+    const { data: pv } = await supabase
+      .from('member_preference_value')
+      .select('value')
+      .eq('member_id', memberId)
+      .eq('field_id', field.id)
+      .maybeSingle();
+    if (!pv?.value) return null;
+    const dateStr = String(pv.value).trim();
+    if (!dateStr || dateStr === 'null') return null;
+    return dateStr.split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+async function getMemberFieldValue(memberId, tenantId, config) {
+  if (!config) return null;
+
+  if (config.field_source === 'core' && config.field_name) {
+    const coreFieldName = config.field_name;
+    const { data: member } = await supabase
+      .from('member')
+      .select(coreFieldName)
+      .eq('id', memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (member && member[coreFieldName] !== undefined && member[coreFieldName] !== null) {
+      const num = parseFloat(member[coreFieldName]);
+      return isNaN(num) ? null : num;
+    }
+    return null;
+  }
+
+  if (config.field_id) {
+    const { data: pv } = await supabase
+      .from('member_preference_value')
+      .select('value')
+      .eq('member_id', memberId)
+      .eq('field_id', config.field_id)
+      .maybeSingle();
+    if (pv?.value) {
+      const num = parseFloat(pv.value);
+      return isNaN(num) ? null : num;
+    }
+  }
+
+  return null;
+}
+
+export async function simulateMembershipForMember(tenantId, memberId, options = {}) {
+  const {
+    source = 'workflow',
+    mode = 'automatic',
+    workflowName = null,
+    verbose = false,
+    targetYear = null,
+  } = options;
+
+  const steps = [];
+  const log = (step, detail, status = 'ok') => {
+    steps.push({ step, detail, status, timestamp: new Date().toISOString() });
+  };
+
+  log('Start', source === 'workflow'
+    ? `Dry run simulation for member via workflow "${workflowName || 'Unknown'}"`
+    : `Simulating "${mode}" renewal for member ${memberId}`);
+
+  const { data: member } = await supabase
+    .from('member')
+    .select('id, first_name, last_name, email, tenant_id, organization_id, created_on')
+    .eq('id', memberId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (!member) {
+    log('Lookup Member', 'Member not found', 'error');
+    return { success: false, steps, error: 'Member not found or does not belong to this tenant' };
+  }
+  const memberName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email;
+  log('Lookup Member', `Found: ${memberName} (${member.email || 'no email'})`);
+
+  const { data: allInvoicingSettings } = await supabase
+    .from('member_membership_invoicing')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('member_id', memberId);
+
+  let invoicingSettings = null;
+  if (allInvoicingSettings && allInvoicingSettings.length > 0) {
+    invoicingSettings = allInvoicingSettings.find(s => s.membership_year === (targetYear || null));
+    if (!invoicingSettings) {
+      invoicingSettings = allInvoicingSettings.find(s => !s.membership_year);
+    }
+  }
+
+  const currentMode = invoicingSettings?.invoicing_mode || 'manual';
+  log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}${invoicingSettings?.membership_year ? ` (for ${invoicingSettings.membership_year})` : ''}`);
+
+  const config = await getConfigForMember(tenantId, memberId);
+  if (!config) {
+    const allActive = await getAllActiveConfigs(tenantId);
+    const memberConfigs = allActive.filter(c => c.structure_scope_type === 'member');
+    if (memberConfigs.length > 0) {
+      log('Fetch Tier Config', `No matching member tier configuration found. There are ${memberConfigs.length} member-scoped config(s), but none match this member's field values.`, 'error');
+    } else {
+      log('Fetch Tier Config', 'No active member-scoped tier configuration found for this tenant', 'error');
+    }
+    return { success: false, steps, error: 'No active member-scoped tier configuration found' };
+  }
+  log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", pricing: ${config.pricing_model || 'banded'}, currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'}`);
+
+  if (config.structure_field_id && config.structure_match_value) {
+    let structureFieldLabel = config.structure_field_id;
+    try {
+      if (config.structure_field_id.startsWith('core:')) {
+        structureFieldLabel = config.structure_field_id.replace('core:', '');
+      } else {
+        const { data: fieldDef } = await supabase
+          .from('preference_field')
+          .select('label, name')
+          .eq('id', config.structure_field_id)
+          .maybeSingle();
+        if (fieldDef) structureFieldLabel = fieldDef.label || fieldDef.name || config.structure_field_id;
+      }
+    } catch {}
+    log('Config Resolution', `Scoped config matched — field "${structureFieldLabel}" = "${config.structure_match_value}"`);
+  } else {
+    log('Config Resolution', 'Using default (unscoped) member tier configuration — no structure scope defined');
+  }
+
+  const currentYearObj = calculateMembershipYear(config);
+  const nextYearObj = calculateNextMembershipYear(config);
+  log('Calculate Membership Year', `Current year: ${currentYearObj.label}, Next year: ${nextYearObj.label}`);
+
+  let membershipYear;
+  if (targetYear) {
+    membershipYear = targetYear === currentYearObj.label ? currentYearObj : nextYearObj;
+  } else {
+    membershipYear = source === 'simulate' ? nextYearObj : currentYearObj;
+  }
+
+  const goLiveDate = await getMemberGoLiveDate(memberId, tenantId);
+  const createdDate = member.created_on ? String(member.created_on).split('T')[0] : null;
+  const assumedGoLiveDate = goLiveDate || createdDate || new Date().toISOString().split('T')[0];
+  const yearNumber = determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
+  const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYearObj, config);
+
+  if (goLiveDate) {
+    let yearDesc;
+    if (yearNumber === 1) yearDesc = 'First year - pro-rata and free period discounts apply';
+    else if (yearNumber === 2) yearDesc = 'Second year - free period spillover may apply';
+    else yearDesc = `Year ${yearNumber} - established member, full annual fee`;
+    log('Go-Live Date', `${goLiveDate} → membership year ${yearNumber}. ${yearDesc}`);
+  } else {
+    log('Go-Live Date', `Not set - using ${createdDate ? `member created date (${createdDate})` : `today (${assumedGoLiveDate})`} → membership year ${yearNumber}`, 'info');
+  }
+
+  const { data: existingRecord } = await supabase
+    .from('member_membership_history')
+    .select('id, membership_year, final_cost, xero_invoice_id')
+    .eq('tenant_id', tenantId)
+    .eq('member_id', memberId)
+    .eq('membership_year', membershipYear.label)
+    .maybeSingle();
+
+  if (existingRecord) {
+    log('Check Existing Record', `A membership record for ${membershipYear.label} already exists (final cost: ${existingRecord.final_cost}). Renewal would be blocked.`, 'warning');
+  } else {
+    log('Check Existing Record', `No existing record for ${membershipYear.label} - creation would proceed`);
+  }
+
+  const isFlat = config.pricing_model === 'flat';
+  let annualCostRaw;
+  let annualCost;
+  let tierLabel;
+  let matchedBand = null;
+  let usedConfigId = config.id;
+  let usedBandId = null;
+  let fieldValue = null;
+
+  if (isFlat) {
+    annualCostRaw = parseFloat(config.flat_cost) || 0;
+    annualCost = annualCostRaw;
+    tierLabel = 'Flat Rate';
+    log('Pricing Model', `Flat rate pricing: ${annualCostRaw}`);
+  } else {
+    const bands = await getBandsForConfig(config.id, tenantId);
+    log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
+
+    fieldValue = await getMemberFieldValue(memberId, tenantId, config);
+    const fieldLabel = config.field_name || 'Value';
+    log('Get Member Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
+
+    matchedBand = matchBand(fieldValue, bands);
+    if (!matchedBand) {
+      log('Match Tier Band', `No band matches the current field value (${fieldValue})`, 'error');
+      return { success: false, steps, error: `Member does not match any tier band (field value: ${fieldValue})` };
+    }
+    log('Match Tier Band', `Matched: "${matchedBand.label}" (range: ${matchedBand.min_value}-${matchedBand.max_value || '∞'}, annual cost: ${matchedBand.annual_cost})`);
+
+    annualCostRaw = parseFloat(matchedBand.annual_cost);
+    annualCost = annualCostRaw;
+    tierLabel = matchedBand.label;
+    usedBandId = matchedBand.id;
+  }
+
+  const { data: historyRecords } = await supabase
+    .from('member_membership_history')
+    .select('id, membership_year')
+    .eq('tenant_id', tenantId)
+    .eq('member_id', memberId);
+
+  const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYearObj.label);
+  const isNewMember = (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
+  const effectiveJoinDate = goLiveDate ? new Date(goLiveDate) : (createdDate ? new Date(createdDate) : new Date());
+
+  const yearStartMidnight = new Date(membershipYear.start);
+  yearStartMidnight.setHours(0, 0, 0, 0);
+  const yearEndMidnight = new Date(membershipYear.end);
+  yearEndMidnight.setHours(0, 0, 0, 0);
+  const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+  let dailyCost = null;
+  let prorataDays = null;
+  let prorataCost = null;
+  let freePeriodDaysApplied = 0;
+  let freeDiscount = 0;
+  let billableDays = null;
+  let finalCost = annualCost;
+  let proRataEnabled = false;
+
+  if (yearNumber === 1) {
+    dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+    const isPercentIncentive = config.free_period_unit === 'percent';
+
+    if (config.prorata_enabled && isNewMember) {
+      proRataEnabled = true;
+      const joinMidnight = new Date(effectiveJoinDate);
+      joinMidnight.setHours(0, 0, 0, 0);
+      prorataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+      prorataCost = parseFloat((dailyCost * prorataDays).toFixed(2));
+      log('Pro-Rata', `${prorataDays} days × ${dailyCost.toFixed(4)} = ${prorataCost.toFixed(2)}`);
+
+      if (config.free_period_amount && config.free_period_unit) {
+        if (isPercentIncentive) {
+          const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+          const proportionUsed = prorataDays / totalDaysInYear;
+          freeDiscount = parseFloat((fullDiscountAmount * proportionUsed).toFixed(2));
+          freeDiscount = Math.min(freeDiscount, prorataCost);
+          log('Percentage Discount', `${config.free_period_amount}% of ${annualCost.toFixed(2)} = ${fullDiscountAmount.toFixed(2)} full year discount, pro-rated: ${(proportionUsed * 100).toFixed(1)}% = ${freeDiscount.toFixed(2)} applied in year 1`);
+        } else {
+          const freePeriodMonths = getFreeMonths(config);
+          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+          const freePeriodEnd = new Date(joinMidnight);
+          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+          const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+          freePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          freePeriodDaysApplied = Math.min(freePeriodDaysApplied, prorataDays);
+          freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+          log('Free Period', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}`);
+        }
+      }
+
+      if (isPercentIncentive) {
+        finalCost = parseFloat(Math.max(0, prorataCost - freeDiscount).toFixed(2));
+        log('Final Cost', `Pro-rata ${prorataCost.toFixed(2)} - discount ${freeDiscount.toFixed(2)} = ${finalCost.toFixed(2)}`);
+      } else {
+        billableDays = prorataDays - freePeriodDaysApplied;
+        finalCost = parseFloat((dailyCost * billableDays).toFixed(2));
+        log('Final Cost', `${billableDays} billable days × ${dailyCost.toFixed(4)} = ${finalCost.toFixed(2)}`);
+      }
+    } else if (isNewMember && config.free_period_amount && config.free_period_unit) {
+      dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+      if (isPercentIncentive) {
+        freeDiscount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+        log('Percentage Discount (no pro-rata)', `${config.free_period_amount}% of ${annualCost.toFixed(2)} = ${freeDiscount.toFixed(2)}, final: ${finalCost.toFixed(2)}`);
+      } else {
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        freePeriodDaysApplied = Math.min(freePeriodTotalDays, totalDaysInYear);
+        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        finalCost = parseFloat((annualCost - freeDiscount).toFixed(2));
+        log('Free Period (no pro-rata)', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)}, final: ${finalCost.toFixed(2)}`);
+      }
+    } else {
+      log('Year 1', `No pro-rata or free period applicable. Final cost: ${finalCost.toFixed(2)}`);
+    }
+  } else if (yearNumber === 2) {
+    dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
+    const isPercentIncentive = config.free_period_unit === 'percent';
+
+    if (isNewMember && config.free_period_amount && config.free_period_unit) {
+      if (isPercentIncentive) {
+        const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
+        const startMonth = config.membership_start_month || 1;
+        const startDay = config.membership_start_day || 1;
+        const joinMidnight = new Date(effectiveJoinDate);
+        joinMidnight.setHours(0, 0, 0, 0);
+        const joinDateYear = joinMidnight.getFullYear();
+        const y1Start = new Date(joinDateYear, startMonth - 1, startDay);
+        const firstYearStart = joinMidnight >= y1Start ? y1Start : new Date(joinDateYear - 1, startMonth - 1, startDay);
+        const firstYearEnd = new Date(firstYearStart.getFullYear() + 1, startMonth - 1, startDay);
+        const firstYearTotalDays = Math.ceil((firstYearEnd - firstYearStart) / (1000 * 60 * 60 * 24));
+        const remainingDaysInFirstYear = Math.max(0, Math.ceil((firstYearEnd - joinMidnight) / (1000 * 60 * 60 * 24)));
+
+        let y1ProportionUsed = 1;
+        if (config.prorata_enabled) {
+          y1ProportionUsed = Math.min(1, remainingDaysInFirstYear / firstYearTotalDays);
+        }
+
+        const y1DiscountApplied = parseFloat((fullDiscountAmount * y1ProportionUsed).toFixed(2));
+        const spilloverDiscount = parseFloat(Math.max(0, fullDiscountAmount - y1DiscountApplied).toFixed(2));
+        freeDiscount = Math.min(spilloverDiscount, annualCost);
+        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+
+        if (freeDiscount > 0) {
+          log('Percentage Discount Rollover', `Full discount: ${fullDiscountAmount.toFixed(2)} (${config.free_period_amount}%), applied in Y1: ${y1DiscountApplied.toFixed(2)}, rollover to Y2: ${freeDiscount.toFixed(2)}`);
+        } else {
+          log('Percentage Discount Rollover', `No rollover - full ${config.free_period_amount}% discount was used in year 1`);
+        }
+      } else {
+        const freePeriodMonths = getFreeMonths(config);
+        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+        const curYear = calculateMembershipYear(config);
+        const curYearStartMidnight = new Date(curYear.start);
+        curYearStartMidnight.setHours(0, 0, 0, 0);
+        const curYearEndMidnight = new Date(curYear.end);
+        curYearEndMidnight.setHours(0, 0, 0, 0);
+        const curYearTotalDays = Math.floor((curYearEndMidnight - curYearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
+
+        let freeDaysInCurrentYear = 0;
+        if (config.prorata_enabled) {
+          const joinMidnight = new Date(effectiveJoinDate);
+          joinMidnight.setHours(0, 0, 0, 0);
+          const currentProrataDays = Math.max(0, Math.floor((curYearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          const freePeriodEnd = new Date(joinMidnight);
+          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+          const lastFreeDay = freePeriodEnd < curYearEndMidnight ? freePeriodEnd : curYearEndMidnight;
+          freeDaysInCurrentYear = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          freeDaysInCurrentYear = Math.min(freeDaysInCurrentYear, currentProrataDays);
+        } else {
+          freeDaysInCurrentYear = Math.min(freePeriodTotalDays, curYearTotalDays);
+        }
+
+        const spilloverDays = Math.max(0, freePeriodTotalDays - freeDaysInCurrentYear);
+        freePeriodDaysApplied = Math.min(spilloverDays, totalDaysInYear);
+        freeDiscount = parseFloat((dailyCost * freePeriodDaysApplied).toFixed(2));
+        finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
+
+        if (freePeriodDaysApplied > 0) {
+          log('Free Period Spillover', `${freePeriodDaysApplied} days × ${dailyCost.toFixed(4)} = ${freeDiscount.toFixed(2)} (spillover from year 1)`);
+        } else {
+          log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
+        }
+      }
+    } else {
+      log('Year 2', `Full annual cost applies. Final cost: ${finalCost.toFixed(2)}`);
+    }
+  } else {
+    log('Discounts', `Year ${yearNumber} - no pro-rata, free period, or rollover discounts apply`);
+  }
+
+  const computedFinalCost = parseFloat(Math.max(0, finalCost).toFixed(2));
+  const currency = config.currency || 'GBP';
+
+  log('Calculate Final Cost', `Annual: ${annualCost.toFixed(2)}, Free discount: ${freeDiscount.toFixed(2)}${prorataCost !== null ? `, Pro-rata: ${prorataCost.toFixed(2)}` : ''}, Final: ${computedFinalCost.toFixed(2)} ${currency}`);
+
+  const { data: membershipLedgerSetting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'membership_nominal_ledger')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  let xeroAccountCode = membershipLedgerSetting?.setting_value;
+  if (!xeroAccountCode) {
+    const { data: accountCodeSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_sales_account_code')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    xeroAccountCode = accountCodeSetting?.setting_value || '200';
+  }
+
+  const { data: invoiceStatusSetting } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'xero_invoice_status')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+
+  let taxType = null;
+  let taxLabel = null;
+
+  const bandVatRate = matchedBand?.vat_rate || null;
+  if (bandVatRate) {
+    try {
+      const parsed = JSON.parse(bandVatRate);
+      taxType = parsed.taxType || null;
+      taxLabel = parsed.name || null;
+    } catch {
+      taxType = bandVatRate;
+      taxLabel = bandVatRate;
+    }
+  }
+
+  let vatRatePercent = null;
+  if (taxType) {
+    try {
+      const vatRatesKey = `xero_vat_rates_${tenantId}`;
+      const { data: vatRatesSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', vatRatesKey)
+        .maybeSingle();
+
+      if (vatRatesSetting?.setting_value) {
+        const cachedData = JSON.parse(vatRatesSetting.setting_value);
+        const matchedRate = (cachedData.rates || []).find(r => r.taxType === taxType);
+        if (matchedRate && matchedRate.effectiveRate != null) {
+          vatRatePercent = parseFloat(matchedRate.effectiveRate);
+        }
+      }
+    } catch (vatLookupErr) {
+      log('VAT Rate Lookup', `Could not look up numeric VAT rate: ${vatLookupErr.message}`, 'warning');
+    }
+
+    if (vatRatePercent == null && taxLabel) {
+      const percentMatch = taxLabel.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (percentMatch) {
+        vatRatePercent = parseFloat(percentMatch[1]);
+      }
+    }
+  }
+
+  const vatAmount = vatRatePercent ? parseFloat((computedFinalCost * vatRatePercent / 100).toFixed(2)) : 0;
+  const totalWithVat = parseFloat((computedFinalCost + vatAmount).toFixed(2));
+
+  log('Xero Settings', `Account code: ${xeroAccountCode}, Invoice status: ${xeroInvoiceStatus}, VAT: ${taxLabel ? `${taxLabel} (${taxType})` : 'Not set on tier band (no VAT applied)'}${vatRatePercent ? `, Rate: ${vatRatePercent}%, VAT Amount: ${vatAmount.toFixed(2)}, Total incl VAT: ${totalWithVat.toFixed(2)}` : ''}`);
+
+  const scheduleStartDate = formatDate(membershipYear.start) + ' at 00:00';
+  const scheduledInvoiceDate = invoicingSettings?.invoice_date ? formatDate(new Date(invoicingSettings.invoice_date)) + ' at 00:00' : null;
+  const nowFormatted = formatDate(new Date(), true);
+  const effectiveMode = mode || currentMode || 'manual';
+
+  if (effectiveMode === 'automatic') {
+    log('Mode: Automatic', 'Both renewal and invoicing happen together on the membership schedule start date');
+    log(`Step 1 - Renew (${scheduleStartDate})`, `Create membership history record for ${membershipYear.label} with final cost ${computedFinalCost.toFixed(2)} ${currency}`);
+    log(`Step 2 - Invoice (${scheduleStartDate})`, `Generate and send invoice for ${computedFinalCost.toFixed(2)} ${currency} via Xero`);
+  } else if (effectiveMode === 'scheduled') {
+    log('Mode: Scheduled', 'Renewal happens at schedule start, invoicing on a separate scheduled date');
+    log(`Step 1 - Renew (${scheduleStartDate})`, `Create membership history record for ${membershipYear.label} with final cost ${computedFinalCost.toFixed(2)} ${currency}`);
+    if (scheduledInvoiceDate) {
+      log(`Step 2 - Invoice (${scheduledInvoiceDate})`, `Generate and send invoice on ${scheduledInvoiceDate}`);
+    } else {
+      log('Step 2 - Invoice (date not set)', 'No invoice date has been saved. Scheduled mode requires a date.', 'warning');
+    }
+  } else if (effectiveMode === 'manual') {
+    log('Mode: Manual', 'Admin triggers renewal manually');
+    log(`Step 1 - Renew (${nowFormatted} - when clicked)`, `Create membership history record for ${membershipYear.label} with final cost ${computedFinalCost.toFixed(2)} ${currency}`);
+    log(`Step 2 - Invoice (${nowFormatted} - when clicked)`, `Generate and send invoice for ${computedFinalCost.toFixed(2)} ${currency} via Xero immediately`);
+  }
+
+  const customDesc = config.invoice_description
+    ? config.invoice_description.replace(/\{year\}/gi, membershipYear.label)
+    : `Membership subscription for ${membershipYear.label}`;
+  const invoiceDescription = `${customDesc}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${computedFinalCost.toFixed(2)}`;
+  const invoiceReference = `Membership ${membershipYear.label}`;
+  const invoiceDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const lineItem = {
+    description: invoiceDescription,
+    quantity: 1,
+    unitAmount: computedFinalCost.toFixed(2),
+    accountCode: xeroAccountCode,
+  };
+  if (taxType) {
+    lineItem.taxType = taxType;
+    lineItem.taxLabel = taxLabel;
+  }
+
+  const invoicePreview = {
+    contact: memberName,
+    reference: invoiceReference,
+    status: xeroInvoiceStatus,
+    dueDate: invoiceDueDate,
+    lineItems: [lineItem],
+  };
+
+  if (!existingRecord) {
+    log('Would Create History', `Membership history record for ${membershipYear.label}: tier "${tierLabel}", final cost ${computedFinalCost.toFixed(2)} ${currency}`);
+    log('Invoice Preview - Contact', memberName);
+    log('Invoice Preview - Reference', invoiceReference);
+    log('Invoice Preview - Status', xeroInvoiceStatus);
+    log('Invoice Preview - Due Date', `${invoiceDueDate} (30 days from invoice creation date)`);
+    log('Invoice Preview - Line Description', invoiceDescription.replace(/\n/g, ' | '));
+    log('Invoice Preview - Unit Amount', `${currency} ${computedFinalCost.toFixed(2)}`);
+    log('Invoice Preview - Account Code', xeroAccountCode);
+    log('Invoice Preview - VAT / Tax Type', taxLabel ? `${taxLabel} (${taxType})` : 'Not set (no VAT applied)');
+  } else {
+    log('Would Be Blocked', `A record for ${membershipYear.label} already exists (final cost: ${existingRecord.final_cost}). Real renewal would be rejected.`, 'warning');
+  }
+
+  log('Dry Run Complete', 'No records were created or modified', 'info');
+
+  const rolloverDiscount = yearNumber === 2 ? freeDiscount : 0;
+  const year1FreeDiscount = yearNumber === 1 ? freeDiscount : 0;
+
+  return {
+    success: true,
+    member: { id: member.id, name: memberName, email: member.email },
+    config,
+    matchedBand,
+    tierLabel,
+    fieldValue,
+    annualCost,
+    annualCostBeforeDiscounts: annualCostRaw,
+    finalCost: computedFinalCost,
+    currency,
+    membershipYear,
+    yearNumber,
+    dailyCost,
+    totalDaysInYear,
+    proRataEnabled,
+    prorataDays: proRataEnabled ? prorataDays : null,
+    prorataCost: proRataEnabled ? prorataCost : null,
+    freeDiscount: year1FreeDiscount,
+    rolloverDiscount,
+    freePeriodDaysApplied,
+    freePeriodAmount: config.free_period_amount,
+    freePeriodUnit: config.free_period_unit,
+    billableDays: proRataEnabled ? billableDays : null,
+    customDiscountTotal: 0,
+    customDiscountDetails: [],
+    overrideApplied: false,
+    existingRecord,
+    invoicePreview: !existingRecord ? invoicePreview : null,
+    invoicingSettings,
+    xeroAccountCode,
+    xeroInvoiceStatus,
+    billingPeriod: config.billing_period || 'annual',
+    goLiveDate,
+    isNewMember,
+    vatRatePercent,
+    vatAmount,
+    totalWithVat,
+    taxType,
+    taxLabel,
+    steps,
+  };
 }

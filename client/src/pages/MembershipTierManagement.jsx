@@ -134,6 +134,7 @@ export default function MembershipTierManagement() {
     rollover_enabled: false,
     structure_field_id: null,
     structure_match_value: null,
+    structure_scope_type: 'organization',
     pricing_model: 'tiered',
     start_mode: 'fixed_date',
     flat_cost: null,
@@ -191,9 +192,10 @@ export default function MembershipTierManagement() {
   });
 
   const { data: structureFields = [] } = useQuery({
-    queryKey: ['membership-structure-fields'],
+    queryKey: ['membership-structure-fields', config.structure_scope_type],
     queryFn: async () => {
-      const response = await fetch('/api/membership/tiers?action=structure_fields', { credentials: 'include' });
+      const scopeType = config.structure_scope_type || 'organization';
+      const response = await fetch(`/api/membership/tiers?action=structure_fields&scope_type=${scopeType}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch structure fields');
       return response.json();
     },
@@ -264,6 +266,7 @@ export default function MembershipTierManagement() {
         rollover_enabled: c.rollover_enabled ?? false,
         structure_field_id: c.structure_field_id || null,
         structure_match_value: c.structure_match_value || null,
+        structure_scope_type: c.structure_scope_type || 'organization',
         pricing_model: c.pricing_model || 'tiered',
         start_mode: c.start_mode || 'fixed_date',
         flat_cost: c.flat_cost ?? null,
@@ -310,6 +313,7 @@ export default function MembershipTierManagement() {
       rollover_enabled: c.rollover_enabled ?? false,
       structure_field_id: c.structure_field_id || null,
       structure_match_value: c.structure_match_value || null,
+      structure_scope_type: c.structure_scope_type || 'organization',
       pricing_model: inferredPricingModel,
       start_mode: inferredStartMode,
       flat_cost: inferredFlatCost,
@@ -602,6 +606,7 @@ export default function MembershipTierManagement() {
       rollover_enabled: currentConfig?.rollover_enabled ?? false,
       structure_field_id: null,
       structure_match_value: null,
+      structure_scope_type: 'organization',
       pricing_model: currentConfig?.pricing_model || 'tiered',
       start_mode: currentConfig?.start_mode || 'fixed_date',
       flat_cost: currentConfig?.flat_cost ?? null,
@@ -683,12 +688,16 @@ export default function MembershipTierManagement() {
     return field?.label || field?.name || config.field_name || '';
   }, [config, availableFields]);
 
+  const isMemberScoped = config.structure_scope_type === 'member';
+
   const filteredPreviewOrgs = useMemo(() => {
-    const all = [...(previewData?.organizations || []), ...(previewData?.unmapped || [])];
-    if (!previewSearch) return all;
+    const items = isMemberScoped
+      ? [...(previewData?.members || []), ...(previewData?.unmapped || [])]
+      : [...(previewData?.organizations || []), ...(previewData?.unmapped || [])];
+    if (!previewSearch) return items;
     const q = previewSearch.toLowerCase();
-    return all.filter(o => o.name.toLowerCase().includes(q));
-  }, [previewData, previewSearch]);
+    return items.filter(o => o.name.toLowerCase().includes(q));
+  }, [previewData, previewSearch, isMemberScoped]);
 
   const selectedStructureField = useMemo(() => {
     if (!config.structure_field_id) return null;
@@ -710,16 +719,19 @@ export default function MembershipTierManagement() {
 
   const handleExportCsv = () => {
     if (!previewData) return;
-    const allOrgs = [...(previewData.organizations || []), ...(previewData.unmapped || [])];
+    const allItems = isMemberScoped
+      ? [...(previewData.members || []), ...(previewData.unmapped || [])]
+      : [...(previewData.organizations || []), ...(previewData.unmapped || [])];
     const symbol = getCurrencySymbol(config.currency);
     const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
-    const headers = ['Organisation', 'Status', selectedFieldLabel || 'Field Value', 'Tier', `${periodLabel} Cost (${symbol})`];
-    const rows = allOrgs.map(org => [
-      org.name,
-      org.status || '',
-      org.fieldValue ?? 'N/A',
-      org.tierLabel || 'Unmapped',
-      org.annualCost != null ? org.annualCost.toFixed(2) : '',
+    const entityLabel = isMemberScoped ? 'Member' : 'Organisation';
+    const headers = [entityLabel, 'Status', selectedFieldLabel || 'Field Value', 'Tier', `${periodLabel} Cost (${symbol})`];
+    const rows = allItems.map(item => [
+      item.name,
+      item.status || '',
+      item.fieldValue ?? 'N/A',
+      item.tierLabel || 'Unmapped',
+      item.annualCost != null ? item.annualCost.toFixed(2) : '',
     ]);
     const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -790,69 +802,92 @@ export default function MembershipTierManagement() {
         <div className="border-t pt-4 mt-2">
           <h3 className="text-sm font-medium mb-3">Structure Scope</h3>
           <p className="text-sm text-muted-foreground mb-3">
-            Optionally scope this tier structure to organisations with a specific field value. This allows multiple active tier structures for different organisation types.
+            Optionally scope this tier structure to {config.structure_scope_type === 'member' ? 'members' : 'organisations'} with a specific field value. This allows multiple active tier structures for different {config.structure_scope_type === 'member' ? 'member' : 'organisation'} types.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Scope by Organisation Field</Label>
+              <Label>Scope Type</Label>
               <Select
-                value={config.structure_field_id || '__none'}
+                value={config.structure_scope_type || 'organization'}
                 onValueChange={(v) => {
-                  if (v === '__none') {
-                    handleConfigChange('structure_field_id', null);
-                    handleConfigChange('structure_match_value', null);
-                  } else {
-                    handleConfigChange('structure_field_id', v);
-                    handleConfigChange('structure_match_value', null);
-                  }
+                  handleConfigChange('structure_scope_type', v);
+                  handleConfigChange('structure_field_id', null);
+                  handleConfigChange('structure_match_value', null);
                 }}
                 disabled={!isEditable}
               >
-                <SelectTrigger data-testid="select-structure-field">
-                  <SelectValue placeholder="No scope (applies to all)" />
+                <SelectTrigger data-testid="select-structure-scope-type">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">No scope (applies to all)</SelectItem>
-                  {structureFields.map(field => (
-                    <SelectItem key={field.id} value={field.id} data-testid={`option-structure-field-${field.name}`}>
-                      {field.label || field.name}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="organization">Organisation Field</SelectItem>
+                  <SelectItem value="member">Member Field</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {config.structure_field_id && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Match Value</Label>
-                {structureFieldOptions.length > 0 ? (
-                  <Select
-                    value={config.structure_match_value || ''}
-                    onValueChange={(v) => handleConfigChange('structure_match_value', v)}
-                    disabled={!isEditable}
-                  >
-                    <SelectTrigger data-testid="select-structure-match-value">
-                      <SelectValue placeholder="Select a value" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {structureFieldOptions.map(opt => (
-                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    value={config.structure_match_value || ''}
-                    onChange={(e) => handleConfigChange('structure_match_value', e.target.value)}
-                    placeholder="Enter the value to match"
-                    disabled={!isEditable}
-                    data-testid="input-structure-match-value"
-                  />
-                )}
-                <p className="text-sm text-muted-foreground">
-                  Only organisations whose "{selectedStructureField?.label || selectedStructureField?.name || 'field'}" matches this value will use this tier structure
-                </p>
+                <Label>Scope by {config.structure_scope_type === 'member' ? 'Member' : 'Organisation'} Field</Label>
+                <Select
+                  value={config.structure_field_id || '__none'}
+                  onValueChange={(v) => {
+                    if (v === '__none') {
+                      handleConfigChange('structure_field_id', null);
+                      handleConfigChange('structure_match_value', null);
+                    } else {
+                      handleConfigChange('structure_field_id', v);
+                      handleConfigChange('structure_match_value', null);
+                    }
+                  }}
+                  disabled={!isEditable}
+                >
+                  <SelectTrigger data-testid="select-structure-field">
+                    <SelectValue placeholder="No scope (applies to all)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">No scope (applies to all)</SelectItem>
+                    {structureFields.map(field => (
+                      <SelectItem key={field.id || field.name} value={field.id} data-testid={`option-structure-field-${field.name}`}>
+                        {field.label || field.name}
+                        {field.is_core && <span className="text-muted-foreground ml-1">(Core)</span>}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
+              {config.structure_field_id && (
+                <div className="space-y-2">
+                  <Label>Match Value</Label>
+                  {structureFieldOptions.length > 0 ? (
+                    <Select
+                      value={config.structure_match_value || ''}
+                      onValueChange={(v) => handleConfigChange('structure_match_value', v)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid="select-structure-match-value">
+                        <SelectValue placeholder="Select a value" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {structureFieldOptions.map(opt => (
+                          <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={config.structure_match_value || ''}
+                      onChange={(e) => handleConfigChange('structure_match_value', e.target.value)}
+                      placeholder="Enter the value to match"
+                      disabled={!isEditable}
+                      data-testid="input-structure-match-value"
+                    />
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    Only {config.structure_scope_type === 'member' ? 'members' : 'organisations'} whose "{selectedStructureField?.label || selectedStructureField?.name || 'field'}" matches this value will use this tier structure
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -893,7 +928,7 @@ export default function MembershipTierManagement() {
               </div>
               <div>
                 <p className="font-medium">Flat cost</p>
-                <p className="text-sm text-muted-foreground mt-1">All organisations pay the same fixed membership fee</p>
+                <p className="text-sm text-muted-foreground mt-1">All {isMemberScoped ? 'members' : 'organisations'} pay the same fixed membership fee</p>
               </div>
             </CardContent>
           </Card>
@@ -930,7 +965,7 @@ export default function MembershipTierManagement() {
             </Select>
             {selectedFieldLabel && (
               <p className="text-sm text-muted-foreground">
-                Tiers will be based on each organisation's "{selectedFieldLabel}" value
+                Tiers will be based on each {isMemberScoped ? "member's" : "organisation's"} "{selectedFieldLabel}" value
               </p>
             )}
           </div>
@@ -1594,7 +1629,7 @@ export default function MembershipTierManagement() {
                 data-testid="input-flat-cost"
               />
             </div>
-            <p className="text-sm text-muted-foreground">The {periodLabel.toLowerCase()} fee charged to all organisations</p>
+            <p className="text-sm text-muted-foreground">The {periodLabel.toLowerCase()} fee charged to all {isMemberScoped ? 'members' : 'organisations'}</p>
           </div>
         ) : (
           <div className="mt-4">
@@ -1768,6 +1803,10 @@ export default function MembershipTierManagement() {
               <span className="text-muted-foreground">Effective From</span>
               <span className="font-medium">{formatDate(config.effective_from) || 'Not set'}</span>
             </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-muted-foreground">Scope Type</span>
+              <span className="font-medium">{config.structure_scope_type === 'member' ? 'Member Field' : 'Organisation Field'}</span>
+            </div>
             {config.structure_field_id && (
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Scope</span>
@@ -1779,7 +1818,7 @@ export default function MembershipTierManagement() {
             {!config.structure_field_id && (
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Scope</span>
-                <span className="text-muted-foreground">Applies to all organisations</span>
+                <span className="text-muted-foreground">Applies to all {config.structure_scope_type === 'member' ? 'members' : 'organisations'}</span>
               </div>
             )}
             <div className="flex justify-between gap-2">
@@ -2145,14 +2184,14 @@ export default function MembershipTierManagement() {
       {showPreview && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <CardTitle className="text-lg">Organisation Preview</CardTitle>
+            <CardTitle className="text-lg">{isMemberScoped ? 'Member' : 'Organisation'} Preview</CardTitle>
             <div className="flex items-center gap-2">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={previewSearch}
                   onChange={(e) => setPreviewSearch(e.target.value)}
-                  placeholder="Search organisations..."
+                  placeholder={isMemberScoped ? "Search members..." : "Search organisations..."}
                   className="pl-9 w-60"
                   data-testid="input-preview-search"
                 />
@@ -2177,16 +2216,16 @@ export default function MembershipTierManagement() {
               <>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                   <div className="p-3 bg-muted/50 rounded-md" data-testid="card-total-orgs">
-                    <p className="text-xs text-muted-foreground">Total Organisations</p>
-                    <p className="text-xl font-bold">{previewData.summary?.totalOrgs || 0}</p>
+                    <p className="text-xs text-muted-foreground">Total {isMemberScoped ? 'Members' : 'Organisations'}</p>
+                    <p className="text-xl font-bold">{(isMemberScoped ? previewData.summary?.totalMembers : previewData.summary?.totalOrgs) || 0}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-md" data-testid="card-mapped-orgs">
                     <p className="text-xs text-muted-foreground">Mapped to Tiers</p>
-                    <p className="text-xl font-bold">{previewData.summary?.mappedOrgs || 0}</p>
+                    <p className="text-xl font-bold">{(isMemberScoped ? previewData.summary?.mappedMembers : previewData.summary?.mappedOrgs) || 0}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-md" data-testid="card-unmapped-orgs">
                     <p className="text-xs text-muted-foreground">Unmapped</p>
-                    <p className="text-xl font-bold">{previewData.summary?.unmappedOrgs || 0}</p>
+                    <p className="text-xl font-bold">{(isMemberScoped ? previewData.summary?.unmappedMembers : previewData.summary?.unmappedOrgs) || 0}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-md" data-testid="card-total-revenue">
                     <p className="text-xs text-muted-foreground">Total {periodLabel} Revenue</p>
@@ -2202,7 +2241,7 @@ export default function MembershipTierManagement() {
                       <table className="w-full text-sm" data-testid="table-preview">
                         <thead>
                           <tr className="border-b bg-muted/50">
-                            <th className="text-left p-3 font-medium">Organisation</th>
+                            <th className="text-left p-3 font-medium">{isMemberScoped ? 'Member' : 'Organisation'}</th>
                             {!previewIsFlat && (
                               <th className="text-left p-3 font-medium">{selectedFieldLabel || 'Value'}</th>
                             )}
@@ -2214,7 +2253,7 @@ export default function MembershipTierManagement() {
                           {filteredPreviewOrgs.length === 0 ? (
                             <tr>
                               <td colSpan={colCount} className="p-6 text-center text-muted-foreground">
-                                No organisations found
+                                {isMemberScoped ? 'No members found' : 'No organisations found'}
                               </td>
                             </tr>
                           ) : (

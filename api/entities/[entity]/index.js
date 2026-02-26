@@ -185,6 +185,8 @@ const entityToTable = {
   'ForumReport': 'forum_report',
   'ForumModerationLog': 'forum_moderation_log',
   'MemberBookmark': 'member_bookmark',
+  'MemberMembershipHistory': 'member_membership_history',
+  'MemberMembershipInvoicing': 'member_membership_invoicing',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -676,7 +678,8 @@ export default async function handler(req, res) {
               'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
               'CommunicationCategory', 'CommunicationCategoryRole',
               'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
-              'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
+              'MemberBookmark', 'MemberMembershipHistory', 'MemberMembershipInvoicing',
+              'Role', 'Speaker', 'ResourceView',
               'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
               'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
               'IEditPage', 'IEditPageElement'
@@ -855,7 +858,8 @@ export default async function handler(req, res) {
             'MemberGroup', 'MemberGroupAssignment', 'MemberGroupGuest', 'GuestWriter',
             'CommunicationCategory', 'CommunicationCategoryRole',
             'ForumCategory', 'ForumThread', 'ForumPost', 'ForumReaction', 'ForumReport', 'ForumModerationLog',
-            'MemberBookmark', 'Role', 'Speaker', 'ResourceView',
+            'MemberBookmark', 'MemberMembershipHistory', 'MemberMembershipInvoicing',
+            'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'IEditPage', 'IEditPageElement'

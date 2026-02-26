@@ -97,6 +97,8 @@ const entityToTable = {
   'ForumReport': 'forum_report',
   'ForumModerationLog': 'forum_moderation_log',
   'MemberBookmark': 'member_bookmark',
+  'MemberMembershipHistory': 'member_membership_history',
+  'MemberMembershipInvoicing': 'member_membership_invoicing',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
