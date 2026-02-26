@@ -1203,7 +1203,19 @@ export default function FormViewPage() {
     const paymentFields = allVisible.filter(f => f.type === 'membership_payment');
     if (paymentFields.length === 0) return;
 
-    const lastMeaningful = [...allVisible].reverse().find(f => !NON_INPUT_FIELD_TYPES.has(f.type));
+    let sortedVisible = allVisible;
+    const formPages = form.pages || [];
+    if (formPages.length > 0 && form.layout_type === 'standard') {
+      const pageOrder = {};
+      formPages.forEach((p, i) => { pageOrder[p.id] = i; });
+      sortedVisible = [...allVisible].sort((a, b) => {
+        const aPage = a.page_id ? (pageOrder[a.page_id] ?? -1) : -1;
+        const bPage = b.page_id ? (pageOrder[b.page_id] ?? -1) : -1;
+        return aPage - bPage;
+      });
+    }
+
+    const lastMeaningful = [...sortedVisible].reverse().find(f => !NON_INPUT_FIELD_TYPES.has(f.type));
     if (!lastMeaningful || lastMeaningful.type !== 'membership_payment') return;
 
     const val = formValues[lastMeaningful.id];
