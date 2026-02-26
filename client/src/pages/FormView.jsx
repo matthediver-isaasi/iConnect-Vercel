@@ -1810,6 +1810,16 @@ export default function FormViewPage() {
       }
     }
 
+    const paymentFields = visibleFields.filter(field => field.type === 'membership_payment');
+    const unpaidPayments = paymentFields.filter(field => {
+      const val = formValues[field.id];
+      return !val || (typeof val === 'object' && val.status !== 'paid' && val.status !== 'already_paid');
+    });
+    if (unpaidPayments.length > 0) {
+      toast.error('Please complete the membership payment before submitting');
+      return;
+    }
+
     // Validate terms_conditions fields - must be toggled to true before submission
     // Accept both boolean true and string "true" for compatibility
     const termsFields = visibleFields.filter(field => field.type === 'terms_conditions');

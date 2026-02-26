@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
 import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import SignatureField from "@/components/forms/SignatureField";
+import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
 import {
   Select,
   SelectContent,
@@ -1473,6 +1474,16 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             disabled={isFieldDisabled}
             required={field.required}
             label={field.label}
+          />
+        );
+
+      case 'membership_payment':
+        return (
+          <MembershipPaymentField
+            value={value}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+            field={field}
           />
         );
 

@@ -545,6 +545,16 @@ export default function EmbedFormPage() {
       return;
     }
 
+    const paymentFields = visibleFields.filter(field => field.type === 'membership_payment');
+    const unpaidPayments = paymentFields.filter(field => {
+      const val = formValues[field.id];
+      return !val || (typeof val === 'object' && val.status !== 'paid' && val.status !== 'already_paid');
+    });
+    if (unpaidPayments.length > 0) {
+      toast.error('Please complete the membership payment before submitting');
+      return;
+    }
+
     // Uniqueness validation (runs if uniqueness checks are configured)
     if (form.uniqueness_checks && form.uniqueness_checks.length > 0) {
       try {

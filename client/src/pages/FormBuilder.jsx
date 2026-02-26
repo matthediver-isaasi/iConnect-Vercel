@@ -70,12 +70,17 @@ const AUTO_FIELD_TYPES = [
   { value: 'user_job_title', label: 'User Job Title (Auto)' },
 ];
 
-const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES];
+const PAYMENT_FIELD_TYPES = [
+  { value: 'membership_payment', label: 'Membership Payment' },
+];
+
+const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES];
 
 const getFieldTypeCategory = (fieldType) => {
   if (STANDARD_FIELD_TYPES.find(f => f.value === fieldType)) return 'standard';
   if (PREPOPULATE_FIELD_TYPES.find(f => f.value === fieldType)) return 'prepopulate';
   if (AUTO_FIELD_TYPES.find(f => f.value === fieldType)) return 'auto';
+  if (PAYMENT_FIELD_TYPES.find(f => f.value === fieldType)) return 'payment';
   return 'standard';
 };
 
@@ -2353,7 +2358,7 @@ function FieldCard({
 
               <div className="space-y-4">
                 {/* Field Type Selection */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-4 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Standard Fields</Label>
                     <Select
@@ -2435,6 +2440,26 @@ function FieldCard({
                     </SelectTrigger>
                     <SelectContent className="max-h-60 overflow-y-auto">
                       {AUTO_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Payment Fields</Label>
+                  <Select
+                    value={getFieldTypeCategory(field.type) === 'payment' ? field.type : ''}
+                    onValueChange={(value) => {
+                      if (value) updateField(originalIndex, { type: value });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-payment-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {PAYMENT_FIELD_TYPES.map(type => (
                         <SelectItem key={type.value} value={type.value}>
                           {type.label}
                         </SelectItem>
