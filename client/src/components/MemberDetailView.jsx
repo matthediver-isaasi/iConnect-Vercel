@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { supabase } from "@/api/supabaseClient";
+import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -159,6 +161,15 @@ export default function MemberDetailView({
   const getMemberName = (m) => {
     return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || '';
   };
+  const {
+    pendingWorkflows,
+    showConfirmationModal,
+    setShowConfirmationModal,
+    checkForPendingWorkflows,
+    handleConfirmWorkflow,
+    handleSkipWorkflow,
+    handleSkipAllWorkflows,
+  } = useWorkflowConfirmation();
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   // selectedSubcategories: Array of {category_id, subcategory_name} pairs
@@ -628,6 +639,32 @@ export default function MemberDetailView({
     }
   });
 
+  const updateCustomFieldMutation = useMutation({
+    mutationFn: async ({ fieldId, value }) => {
+      const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
+      const res = await fetch('/api/entities/member-preference-value/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          member_id: member.id,
+          field_id: fieldId,
+          value: storedValue
+        })
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save custom field');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
+      queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
+      checkForPendingWorkflows(data);
+    }
+  });
+
   // Member Notes query
   const { data: memberNotes = [], isLoading: notesLoading } = useQuery({
     queryKey: ['member-notes', member?.id],
@@ -753,6 +790,22 @@ export default function MemberDetailView({
       updateMutation.mutate({
         ...formData,
         role_id: selectedRoleId
+      });
+
+      const currentCustomFieldValues = { ...customFieldValues };
+      const currentMemberValues = [...memberValues];
+
+      Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
+        const existingVal = currentMemberValues.find(v => v.field_id === fieldId);
+        const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
+        const existingStored = existingVal?.value || '';
+
+        if (storedValue !== existingStored) {
+          updateCustomFieldMutation.mutate({
+            fieldId,
+            value
+          });
+        }
       });
     }
   };
@@ -2302,6 +2355,14 @@ export default function MemberDetailView({
             </div>
           </DialogContent>
         </Dialog>
+        <WorkflowConfirmationModal
+          open={showConfirmationModal}
+          onOpenChange={setShowConfirmationModal}
+          pendingWorkflows={pendingWorkflows}
+          onConfirm={handleConfirmWorkflow}
+          onSkip={handleSkipWorkflow}
+          onSkipAll={handleSkipAllWorkflows}
+        />
       </main>
     </div>
   );
