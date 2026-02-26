@@ -1196,6 +1196,30 @@ export default function FormViewPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!form || submitted || submitFormMutation.isPending) return;
+
+    const allVisible = filterVisibleFields(form.fields);
+    const paymentFields = allVisible.filter(f => f.type === 'membership_payment');
+    if (paymentFields.length === 0) return;
+
+    const lastMeaningful = [...allVisible].reverse().find(f => !NON_INPUT_FIELD_TYPES.has(f.type));
+    if (!lastMeaningful || lastMeaningful.type !== 'membership_payment') return;
+
+    const val = formValues[lastMeaningful.id];
+    if (!val || typeof val !== 'object') return;
+    if (val.status !== 'paid' && val.status !== 'already_paid') return;
+
+    const key = `${lastMeaningful.id}:${val.status}:${val.paymentIntentId || ''}`;
+    if (lastPaymentFieldRef.current === key) return;
+    lastPaymentFieldRef.current = key;
+
+    if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
+    autoSubmitTimerRef.current = setTimeout(() => {
+      if (handleSubmitRef.current) handleSubmitRef.current();
+    }, 800);
+  }, [formValues, form, submitted, submitFormMutation.isPending]);
+
   const handleFieldChange = (fieldId, newValue) => {
     // Check if this field is a trigger for any visibility rules
     const isTriggerField = triggerDependencyMap.has(fieldId);
@@ -2005,30 +2029,6 @@ export default function FormViewPage() {
   };
 
   handleSubmitRef.current = handleSubmit;
-
-  useEffect(() => {
-    if (!form || submitted || submitFormMutation.isPending) return;
-
-    const allVisible = filterVisibleFields(form.fields);
-    const paymentFields = allVisible.filter(f => f.type === 'membership_payment');
-    if (paymentFields.length === 0) return;
-
-    const lastMeaningful = [...allVisible].reverse().find(f => !NON_INPUT_FIELD_TYPES.has(f.type));
-    if (!lastMeaningful || lastMeaningful.type !== 'membership_payment') return;
-
-    const val = formValues[lastMeaningful.id];
-    if (!val || typeof val !== 'object') return;
-    if (val.status !== 'paid' && val.status !== 'already_paid') return;
-
-    const key = `${lastMeaningful.id}:${val.status}:${val.paymentIntentId || ''}`;
-    if (lastPaymentFieldRef.current === key) return;
-    lastPaymentFieldRef.current = key;
-
-    if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
-    autoSubmitTimerRef.current = setTimeout(() => {
-      if (handleSubmitRef.current) handleSubmitRef.current();
-    }, 800);
-  }, [formValues, form, submitted, submitFormMutation.isPending]);
 
   if (submitted) {
     return (
