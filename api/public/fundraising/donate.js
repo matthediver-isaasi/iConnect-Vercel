@@ -71,7 +71,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'This campaign is not currently accepting donations' });
     }
 
-    const stripeCredentials = await getStripeCredentials(teamMember.tenant_id);
+    const stripeCredentials = await getStripeCredentials(teamMember.tenant_id, 'fundraising');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment processing is not configured for this campaign' });
     }

@@ -42,7 +42,7 @@ function decrypt(encryptedText) {
   }
 }
 
-const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs'];
+const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising'];
 
 function encryptCredentials(credentials) {
   if (!credentials) return {};

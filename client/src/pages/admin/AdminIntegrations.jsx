@@ -136,7 +136,8 @@ export default function AdminIntegrations() {
   const [stripeModes, setStripeModes] = useState({
     stripe_mode_events: 'live',
     stripe_mode_membership: 'live',
-    stripe_mode_jobs: 'live'
+    stripe_mode_jobs: 'live',
+    stripe_mode_fundraising: 'live'
   });
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [stripeSaving, setStripeSaving] = useState(false);
@@ -289,7 +290,8 @@ export default function AdminIntegrations() {
             setStripeModes({
               stripe_mode_events: stripeIntegration.credentials.stripe_mode_events || 'live',
               stripe_mode_membership: stripeIntegration.credentials.stripe_mode_membership || 'live',
-              stripe_mode_jobs: stripeIntegration.credentials.stripe_mode_jobs || 'live'
+              stripe_mode_jobs: stripeIntegration.credentials.stripe_mode_jobs || 'live',
+              stripe_mode_fundraising: stripeIntegration.credentials.stripe_mode_fundraising || 'live'
             });
           }
         }
@@ -1587,7 +1589,8 @@ export default function AdminIntegrations() {
                   {[
                     { key: 'stripe_mode_events', label: 'Events' },
                     { key: 'stripe_mode_membership', label: 'Membership' },
-                    { key: 'stripe_mode_jobs', label: 'Jobs' }
+                    { key: 'stripe_mode_jobs', label: 'Jobs' },
+                    { key: 'stripe_mode_fundraising', label: 'Fundraising' }
                   ].map(({ key, label }) => {
                     const isTest = stripeModes[key] === 'test';
                     return (
@@ -1616,7 +1619,7 @@ export default function AdminIntegrations() {
                   })}
                 </div>
 
-                {(stripeModes.stripe_mode_events === 'test' || stripeModes.stripe_mode_membership === 'test' || stripeModes.stripe_mode_jobs === 'test') &&
+                {(stripeModes.stripe_mode_events === 'test' || stripeModes.stripe_mode_membership === 'test' || stripeModes.stripe_mode_jobs === 'test' || stripeModes.stripe_mode_fundraising === 'test') &&
                   (!stripeForm.test_secret_key || !stripeForm.test_publishable_key) && (
                   <div className="mt-3 rounded-md bg-amber-500/10 p-3 border border-amber-500/30">
                     <div className="flex items-start gap-2">

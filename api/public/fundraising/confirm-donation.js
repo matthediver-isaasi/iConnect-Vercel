@@ -42,7 +42,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Donation not found or already confirmed' });
     }
 
-    const stripeCredentials = await getStripeCredentials(donation.tenant_id);
+    const stripeCredentials = await getStripeCredentials(donation.tenant_id, 'fundraising');
     if (!stripeCredentials?.secret_key) {
       console.error('[Fundraising Confirm] No Stripe credentials for tenant:', donation.tenant_id);
       return res.status(503).json({ error: 'Payment verification not available' });
