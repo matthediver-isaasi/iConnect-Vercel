@@ -38,23 +38,25 @@ async function getMemberById(memberId) {
   return member;
 }
 
-async function getStripePublishableKey(tenantId) {
+async function getStripePublishableKey(tenantId, skipGlobalCheck = false) {
   try {
-    const { data: stripeSetting } = await supabase
-      .from('system_settings')
-      .select('setting_value')
-      .eq('setting_key', 'membership_stripe_enabled')
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
+    if (!skipGlobalCheck) {
+      const { data: stripeSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'membership_stripe_enabled')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
 
-    const stripeSettingEnabled = stripeSetting?.setting_value !== 'false';
-
-    if (stripeSettingEnabled) {
-      const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
-      const creds = await getStripeCredentials(tenantId);
-      if (creds?.is_enabled && creds?.publishable_key) {
-        return creds.publishable_key;
+      if (stripeSetting?.setting_value === 'false') {
+        return null;
       }
+    }
+
+    const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
+    const creds = await getStripeCredentials(tenantId);
+    if (creds?.is_enabled && creds?.publishable_key) {
+      return creds.publishable_key;
     }
   } catch (err) {
     console.error('[FormMembershipPayment] Error fetching Stripe publishable key:', err.message);
@@ -204,7 +206,8 @@ async function handleGet(req, res, resolvedTenantId) {
     .eq('membership_year', simResult.membershipYear?.label)
     .maybeSingle();
 
-  const stripePublishableKey = await getStripePublishableKey(tenantId);
+  const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
+  const stripePublishableKey = await getStripePublishableKey(tenantId, tierHasOnlineCardPayment);
   const approvalInfo = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
   const { finalCost, currency, tierLabel, costBreakdown, vatRatePercent, vatAmount, totalWithVat } = buildCostResponse(existingRecord, simResult);
 
