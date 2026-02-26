@@ -53,3 +53,40 @@ The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (R
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).
 -   **Zoho Campaigns:** Syncing member communication preferences.
+
+# Database Connection Instructions
+⚠️ NEVER REMOVE THIS SECTION - These instructions are essential for database access ⚠️
+
+This project uses Supabase PostgreSQL databases. Direct psql commands and execute_sql_tool DO NOT WORK on Replit due to IPv6 connectivity issues.
+
+## Available Database Secrets
+| Secret | Database | Purpose |
+|--------|----------|---------|
+| SOURCE_DATABASE_URL | Legacy single-tenant Supabase | Original data source for migrations |
+| DEST_DATABASE_URL | New multi-tenant Supabase | Production destination database |
+| DEST_SUPABASE_KEY | New multi-tenant Supabase | Service role key for Supabase client |
+
+## How to Query the Database
+USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool
+
+```javascript
+import { createClient } from '@supabase/supabase-js';
+
+// For destination (multi-tenant) database:
+const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const { data, error } = await supabase
+  .from('member')
+  .select('*')
+  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
+  .limit(10);
+```
+
+## Important Notes
+- Replit's built-in database tools won't work due to IPv6 routing issues
+- Always use `@supabase/supabase-js` for all database operations
+- Tenant ID for migrations: `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+- See `scripts/debug-tenant.mjs` for a working example
