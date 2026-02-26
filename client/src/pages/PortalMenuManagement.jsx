@@ -20,26 +20,27 @@ import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
 
 // Build grouped role access options by module for better organization (sorted alphabetically)
-const groupedRoleAccessOptions = (() => {
+const staticRoleAccessOptions = (() => {
   const groups = [];
+  const allKeys = new Set();
   for (const module of ROLE_ACCESS_MAP) {
     const items = [];
-    // Add module itself
     items.push({ value: module.id, label: module.label, type: 'module' });
-    // Add pages
+    allKeys.add(module.id);
     for (const page of module.pages) {
       items.push({ value: page.id, label: page.label, type: 'page' });
-      // Add features
+      allKeys.add(page.id);
       if (page.features) {
         for (const feature of page.features) {
           items.push({ value: feature.id, label: feature.label, type: 'feature', parentPage: page.label });
+          allKeys.add(feature.id);
         }
       }
     }
     groups.push({ module: module.label, icon: module.icon, items });
   }
-  // Sort groups alphabetically by module name
-  return groups.sort((a, b) => a.module.localeCompare(b.module));
+  groups.sort((a, b) => a.module.localeCompare(b.module));
+  return { groups, allKeys };
 })();
 
 const availableIcons = {
@@ -230,6 +231,36 @@ export default function PortalMenuManagementPage() {
     },
     staleTime: 60 * 1000,
   });
+
+  const { data: roleAccessItems = [] } = useQuery({
+    queryKey: ['role-access-items-for-menu'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.RoleAccessItem.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const groupedRoleAccessOptions = useMemo(() => {
+    const dynamicItems = roleAccessItems.filter(
+      item => item.is_active && !staticRoleAccessOptions.allKeys.has(item.item_key)
+    );
+    if (dynamicItems.length === 0) return staticRoleAccessOptions.groups;
+
+    const dynamicGroup = {
+      module: 'Dynamic Directories',
+      icon: 'FolderTree',
+      items: dynamicItems.map(item => ({
+        value: item.item_key,
+        label: item.label,
+        type: item.item_type || 'page'
+      }))
+    };
+    return [...staticRoleAccessOptions.groups, dynamicGroup].sort((a, b) => a.module.localeCompare(b.module));
+  }, [roleAccessItems]);
 
   // Combine built-in pages with dynamic CMS pages and dynamic directories
   const availablePages = useMemo(() => {
