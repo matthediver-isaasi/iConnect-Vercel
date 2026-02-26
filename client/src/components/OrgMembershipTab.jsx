@@ -107,15 +107,17 @@ function YearCostSection({
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          <Button
-            size="sm"
-            variant={hasOverride ? "secondary" : "outline"}
-            onClick={() => onOpenOverride(yearData.membershipYear)}
-            data-testid={`button-override-${testIdPrefix}`}
-          >
-            <Pencil className="w-3 h-3 mr-1" />
-            {hasOverride ? 'Edit Override' : 'Override'}
-          </Button>
+          {!currentYearRecorded && (
+            <Button
+              size="sm"
+              variant={hasOverride ? "secondary" : "outline"}
+              onClick={() => onOpenOverride(yearData.membershipYear)}
+              data-testid={`button-override-${testIdPrefix}`}
+            >
+              <Pencil className="w-3 h-3 mr-1" />
+              {hasOverride ? 'Edit Override' : 'Override'}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -201,6 +203,18 @@ function YearCostSection({
                 {formatCost(yearData.finalCost, currency)}
               </span>
             </div>
+            {yearData.vatRatePercent > 0 && yearData.vatAmount > 0 && (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">VAT ({yearData.vatRatePercent}%{yearData.taxLabel ? ` - ${yearData.taxLabel}` : ''})</span>
+                  <span className="font-medium">{formatCost(yearData.vatAmount, currency)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm border-t pt-1">
+                  <span className="text-muted-foreground font-medium">Total (incl. VAT)</span>
+                  <span className="font-semibold">{formatCost(yearData.totalWithVat, currency)}</span>
+                </div>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -256,6 +270,18 @@ function YearCostSection({
               </span>
               <span className="font-semibold">{formatCost(yearData.finalCost, currency)}</span>
             </div>
+            {yearData.vatRatePercent > 0 && yearData.vatAmount > 0 && (
+              <>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">VAT ({yearData.vatRatePercent}%{yearData.taxLabel ? ` - ${yearData.taxLabel}` : ''})</span>
+                  <span className="font-medium">{formatCost(yearData.vatAmount, currency)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm border-t pt-1">
+                  <span className="text-muted-foreground font-medium">Total (incl. VAT)</span>
+                  <span className="font-semibold">{formatCost(yearData.totalWithVat, currency)}</span>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -1511,13 +1537,25 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           )}
 
           {simulationResults && (
-            <div className="mt-3 p-3 rounded-md bg-muted/50">
+            <div className="mt-3 p-3 rounded-md bg-muted/50 space-y-1">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Final Cost</span>
                 <span className="font-semibold">
                   {formatCost(simulationResults.finalCost, simulationResults.currency)}
                 </span>
               </div>
+              {simulationResults.vatRatePercent > 0 && simulationResults.vatAmount > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">VAT ({simulationResults.vatRatePercent}%{simulationResults.taxLabel ? ` - ${simulationResults.taxLabel}` : ''})</span>
+                    <span className="font-medium">{formatCost(simulationResults.vatAmount, simulationResults.currency)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm border-t pt-1">
+                    <span className="text-muted-foreground font-medium">Total (incl. VAT)</span>
+                    <span className="font-semibold">{formatCost(simulationResults.totalWithVat, simulationResults.currency)}</span>
+                  </div>
+                </>
+              )}
               {simulationResults.overrideApplied && (
                 <p className="text-xs text-muted-foreground mt-1">Override was applied to this calculation</p>
               )}
