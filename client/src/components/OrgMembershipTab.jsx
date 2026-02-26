@@ -107,7 +107,7 @@ function YearCostSection({
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          {!currentYearRecorded && (
+          {!currentYearRecorded && !feesApproved && (
             <Button
               size="sm"
               variant={hasOverride ? "secondary" : "outline"}
