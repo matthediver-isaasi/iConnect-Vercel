@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -1138,6 +1138,24 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const currentPage = hasPages ? pages[currentPageIndex] : null;
   const displayFields = filterVisibleFields(getCurrentPageFields());
 
+  const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']), []);
+
+  const autoSubmitTimerRef = useRef(null);
+  const lastPaymentFieldRef = useRef(null);
+  const handleSubmitRef = useRef(null);
+
+  const pendingAutoSubmitRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
+    };
+  }, []);
+
+  const handleFieldChange = useCallback((fieldId, newValue) => {
+    setFormValues(prev => ({ ...prev, [fieldId]: newValue }));
+  }, []);
+
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
       if (memberInfo) {
@@ -1370,6 +1388,32 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     submitFormMutation.mutate(submissionData);
   };
 
+  handleSubmitRef.current = handleSubmit;
+
+  useEffect(() => {
+    if (!form || submitted || submitFormMutation.isPending || isValidating) return;
+
+    const allVisible = filterVisibleFields(form.fields);
+    const paymentFields = allVisible.filter(f => f.type === 'membership_payment');
+    if (paymentFields.length === 0) return;
+
+    const lastMeaningful = [...allVisible].reverse().find(f => !NON_INPUT_FIELD_TYPES.has(f.type));
+    if (!lastMeaningful || lastMeaningful.type !== 'membership_payment') return;
+
+    const val = formValues[lastMeaningful.id];
+    if (!val || typeof val !== 'object') return;
+    if (val.status !== 'paid' && val.status !== 'already_paid') return;
+
+    const key = `${lastMeaningful.id}:${val.status}:${val.paymentIntentId || ''}`;
+    if (lastPaymentFieldRef.current === key) return;
+    lastPaymentFieldRef.current = key;
+
+    if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
+    autoSubmitTimerRef.current = setTimeout(() => {
+      if (handleSubmitRef.current) handleSubmitRef.current();
+    }, 800);
+  }, [formValues, form, submitted, submitFormMutation.isPending, isValidating]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
@@ -1550,7 +1594,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   key={currentStep}
                   field={currentField}
                   value={formValues[currentField.id]}
-                  onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
+                  onChange={(value) => handleFieldChange(currentField.id, value)}
                   memberInfo={memberInfo}
                   organizationInfo={effectiveOrganizationInfo}
                   disabled={disabledFieldIds.has(currentField.id)}
@@ -1688,7 +1732,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     key={field.id}
                     field={field}
                     value={formValues[field.id]}
-                    onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
+                    onChange={(value) => handleFieldChange(field.id, value)}
                     memberInfo={memberInfo}
                     organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
@@ -1710,7 +1754,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           key={field.id}
                           field={field}
                           value={formValues[field.id]}
-                          onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
+                          onChange={(value) => handleFieldChange(field.id, value)}
                           memberInfo={memberInfo}
                           organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
@@ -1732,7 +1776,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               key={field.id}
                               field={field}
                               value={formValues[field.id]}
-                              onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
+                              onChange={(value) => handleFieldChange(field.id, value)}
                               memberInfo={memberInfo}
                               organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
