@@ -627,15 +627,6 @@ export default function MemberDetailView({
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       return await base44.entities.Member.update(member.id, data);
-    },
-    onSuccess: () => {
-      toast.success("Member updated successfully");
-      setIsEditing(false);
-      queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
-      queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member.id] });
-    },
-    onError: (error) => {
-      toast.error("Failed to update member: " + (error.message || "Unknown error"));
     }
   });
 
@@ -780,11 +771,6 @@ export default function MemberDetailView({
         }
       });
     } else {
-      updateMutation.mutate({
-        ...formData,
-        role_id: selectedRoleId
-      });
-
       const currentCustomFieldValues = { ...customFieldValues };
       const currentMemberValues = [...memberValues];
 
@@ -795,29 +781,35 @@ export default function MemberDetailView({
         return storedValue !== existingStored;
       });
 
-      if (changedFields.length > 0) {
-        (async () => {
-          try {
-            const results = [];
-            for (const [fieldId, value] of changedFields) {
-              const result = await saveCustomField(fieldId, value);
-              results.push(result);
-            }
-            queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
-            queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
-            const allPending = results.flatMap(r => r?._pendingWorkflowConfirmations || []);
-            const allReverts = results.flatMap(r => r?._workflowReverts || []);
-            if (allPending.length > 0 || allReverts.length > 0) {
-              checkForPendingWorkflows({
-                _pendingWorkflowConfirmations: allPending,
-                _workflowReverts: allReverts
-              });
-            }
-          } catch (err) {
-            console.error('Failed to save custom fields:', err);
-            toast.error('Failed to save one or more custom fields');
-          }
-        })();
+      try {
+        await updateMutation.mutateAsync({
+          ...formData,
+          role_id: selectedRoleId
+        });
+
+        const results = [];
+        for (const [fieldId, value] of changedFields) {
+          const result = await saveCustomField(fieldId, value);
+          results.push(result);
+        }
+
+        const allPending = results.flatMap(r => r?._pendingWorkflowConfirmations || []);
+        const allReverts = results.flatMap(r => r?._workflowReverts || []);
+        if (allPending.length > 0 || allReverts.length > 0) {
+          checkForPendingWorkflows({
+            _pendingWorkflowConfirmations: allPending,
+            _workflowReverts: allReverts
+          });
+        }
+
+        toast.success("Member updated successfully");
+        setIsEditing(false);
+        queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+        queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
+        queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
+      } catch (err) {
+        console.error('Failed to save member:', err);
+        toast.error("Failed to update member: " + (err.message || "Unknown error"));
       }
     }
   };
