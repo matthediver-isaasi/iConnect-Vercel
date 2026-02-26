@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
+import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +52,15 @@ export default function MemberDetail() {
   const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { formatDate } = useDateFormat();
 
+  const {
+    pendingWorkflows,
+    showConfirmationModal,
+    setShowConfirmationModal,
+    checkForPendingWorkflows,
+    handleConfirmWorkflow,
+    handleSkipWorkflow,
+    handleSkipAllWorkflows,
+  } = useWorkflowConfirmation();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [formData, setFormData] = useState({
@@ -670,21 +681,32 @@ export default function MemberDetail() {
       if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
         storedValue = JSON.stringify(value);
       }
-      if (existingValue) {
-        return await base44.entities.MemberPreferenceValue.update(existingValue.id, {
-          value: storedValue,
-          updated_at: new Date().toISOString()
-        });
-      } else if (storedValue !== undefined && storedValue !== '' && storedValue !== null) {
-        return await base44.entities.MemberPreferenceValue.create({
+      const existingStored = existingValue?.value || '';
+      const newStored = Array.isArray(storedValue) ? JSON.stringify(storedValue) : String(storedValue ?? '');
+      if (newStored === existingStored) return;
+      if (!existingValue && (storedValue === undefined || storedValue === '' || storedValue === null)) return;
+
+      const res = await fetch('/api/entities/member-preference-value/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
           member_id: member.id,
           field_id: fieldId,
-          value: storedValue
-        });
+          value: newStored
+        })
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save custom field');
       }
+      const data = await res.json();
+      checkForPendingWorkflows(data);
+      return data;
     });
     await Promise.all(updates);
     queryClient.invalidateQueries({ queryKey: ['member-pref-values', id] });
+    queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
   };
 
   // Handlers
@@ -2021,6 +2043,15 @@ export default function MemberDetail() {
           isSaving={isLayoutSaving}
         />
       )}
+
+      <WorkflowConfirmationModal
+        isOpen={showConfirmationModal}
+        onClose={() => setShowConfirmationModal(false)}
+        workflows={pendingWorkflows}
+        onConfirm={handleConfirmWorkflow}
+        onSkip={handleSkipWorkflow}
+        onSkipAll={handleSkipAllWorkflows}
+      />
     </div>
   );
 }

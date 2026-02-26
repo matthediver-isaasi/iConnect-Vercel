@@ -47,6 +47,8 @@ import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import OutlookConnection from "@/components/OutlookConnection";
 import BookingAvailabilitySettings from "@/components/BookingAvailabilitySettings";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
@@ -154,6 +156,16 @@ export default function PreferencesPage() {
   // Get hasBanner from layout context (since props don't work through React Router)
   const { hasBanner } = useLayoutContext();
   
+  const {
+    pendingWorkflows,
+    showConfirmationModal,
+    setShowConfirmationModal,
+    checkForPendingWorkflows,
+    handleConfirmWorkflow,
+    handleSkipWorkflow,
+    handleSkipAllWorkflows,
+  } = useWorkflowConfirmation();
+
   // Resource prefs
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1052,36 +1064,36 @@ export default function PreferencesPage() {
   });
 
 
-  // Save additional info (custom preference fields)
   const saveAdditionalInfoMutation = useMutation({
     mutationFn: async (values) => {
       if (!memberRecord?.id) throw new Error("No member record");
       
-      // For each field, upsert the value
       const updates = Object.entries(values).map(async ([fieldId, value]) => {
-        const existingValue = memberPreferenceValues.find(pv => pv.field_id === fieldId);
         const field = preferenceFields.find(f => f.id === fieldId);
         
-        // Convert picklist and list arrays to JSON string
         let storedValue = value;
         if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
           storedValue = JSON.stringify(value);
         }
+        const newStored = Array.isArray(storedValue) ? JSON.stringify(storedValue) : String(storedValue ?? '');
         
-        if (existingValue) {
-          // Update existing
-          return await base44.entities.MemberPreferenceValue.update(existingValue.id, {
-            value: storedValue,
-            updated_at: new Date().toISOString()
-          });
-        } else {
-          // Create new
-          return await base44.entities.MemberPreferenceValue.create({
+        const res = await fetch('/api/entities/member-preference-value/upsert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
             member_id: memberRecord.id,
             field_id: fieldId,
-            value: storedValue
-          });
+            value: newStored
+          })
+        });
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || 'Failed to save custom field');
         }
+        const data = await res.json();
+        checkForPendingWorkflows(data);
+        return data;
       });
       
       await Promise.all(updates);
@@ -2951,6 +2963,15 @@ export default function PreferencesPage() {
 
         {sectionOrder.map((sectionId) => renderSection(sectionId))}
       </div>
+
+      <WorkflowConfirmationModal
+        isOpen={showConfirmationModal}
+        onClose={() => setShowConfirmationModal(false)}
+        workflows={pendingWorkflows}
+        onConfirm={handleConfirmWorkflow}
+        onSkip={handleSkipWorkflow}
+        onSkipAll={handleSkipAllWorkflows}
+      />
     </div>
   );
 }
