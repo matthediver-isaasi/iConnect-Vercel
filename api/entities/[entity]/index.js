@@ -682,6 +682,7 @@ export default async function handler(req, res) {
               'Role', 'Speaker', 'ResourceView',
               'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
               'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+              'DynamicDirectory',
               'IEditPage', 'IEditPageElement'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
@@ -862,6 +863,7 @@ export default async function handler(req, res) {
             'Role', 'Speaker', 'ResourceView',
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
+            'DynamicDirectory',
             'IEditPage', 'IEditPageElement'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
