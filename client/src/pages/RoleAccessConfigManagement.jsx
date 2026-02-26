@@ -51,7 +51,7 @@ const extractDefaultKeys = () => {
 const DEFAULT_KEYS = extractDefaultKeys();
 
 // Combobox component for selecting item keys with autocomplete
-function ItemKeyCombobox({ type, value, onChange, existingKeys = [] }) {
+function ItemKeyCombobox({ type, value, onChange, existingKeys = [], dynamicPages = [] }) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
   
@@ -61,13 +61,13 @@ function ItemKeyCombobox({ type, value, onChange, existingKeys = [] }) {
     if (type === 'module') {
       items = DEFAULT_KEYS.modules;
     } else if (type === 'page') {
-      items = DEFAULT_KEYS.pages;
+      items = [...DEFAULT_KEYS.pages, ...dynamicPages];
     } else if (type === 'feature') {
       items = DEFAULT_KEYS.features;
     }
     // Filter out already used keys
     return items.filter(item => !existingKeys.includes(item.id) || item.id === value);
-  }, [type, existingKeys, value]);
+  }, [type, existingKeys, value, dynamicPages]);
 
   const handleSelect = (selectedId) => {
     const item = suggestions.find(s => s.id === selectedId);
@@ -166,6 +166,25 @@ export default function RoleAccessConfigManagement() {
   const { data: accessItems = [], isLoading, error } = useQuery({
     queryKey: ['role-access-items'],
     queryFn: () => base44.entities.RoleAccessItem.list(),
+  });
+
+  const { data: dynamicDirectoryPages = [] } = useQuery({
+    queryKey: ['dynamic-directories-for-role-access'],
+    queryFn: async () => {
+      try {
+        const directories = await base44.entities.DynamicDirectory.list({
+          filter: { is_active: true }
+        });
+        return (directories || []).map(dir => ({
+          id: `directory.${dir.slug}`,
+          label: `Directory: ${dir.name}`,
+          parentLabel: 'Dynamic'
+        }));
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
   });
 
   const createMutation = useMutation({
@@ -960,6 +979,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
               <ItemKeyCombobox
                 type={editingItem?.item_type}
                 value={editingItem?.item_key || ''}
+                dynamicPages={dynamicDirectoryPages}
                 onChange={(value, label) => {
                   setEditingItem({ 
                     ...editingItem, 
