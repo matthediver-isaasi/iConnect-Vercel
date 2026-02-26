@@ -1341,7 +1341,7 @@ export default async function handler(req, res) {
     if (createdMemberId) {
       try {
         const { getConfigForMember } = await import('../_lib/membershipConfigResolver.js');
-        const matchedConfig = await getConfigForMember(tenantId, createdMemberId);
+        const matchedConfig = await getConfigForMember(tenant_id, createdMemberId);
         if (matchedConfig && matchedConfig.structure_scope_type === 'member' && matchedConfig.auto_approve_fees) {
           const startMonth = matchedConfig.membership_start_month || 1;
           const startDay = matchedConfig.membership_start_day || 1;
@@ -1355,7 +1355,7 @@ export default async function handler(req, res) {
           const { error: invoicingErr } = await supabase
             .from('member_membership_invoicing')
             .upsert({
-              tenant_id: tenantId,
+              tenant_id: tenant_id,
               member_id: createdMemberId,
               membership_year: membershipYearLabel,
               fees_approved: true,
