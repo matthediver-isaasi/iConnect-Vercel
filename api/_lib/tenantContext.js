@@ -368,6 +368,41 @@ export async function checkCrossOrgPermissions(roleId) {
 }
 
 /**
+ * Check if a member has cross-member access based on their role
+ * Cross-member access allows viewing/editing member-scoped data for any member within the tenant
+ * 
+ * @param {string|null} roleId - The member's role_id
+ * @returns {Promise<{hasCrossMemberAccess: boolean}>}
+ */
+export async function checkCrossMemberPermissions(roleId) {
+  if (!roleId || !supabase) {
+    return { hasCrossMemberAccess: false };
+  }
+  
+  try {
+    const { data: role, error } = await supabase
+      .from('role')
+      .select('excluded_features')
+      .eq('id', roleId)
+      .single();
+    
+    if (error || !role) {
+      return { hasCrossMemberAccess: false };
+    }
+    
+    const excludedFeatures = role.excluded_features || [];
+    
+    const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
+    const canAccessMembers = !isResourceExcluded(excludedFeatures, 'admin.member-role-assignment');
+    
+    return { hasCrossMemberAccess: isAdmin || canAccessMembers };
+  } catch (err) {
+    console.error('Error checking cross-member permissions:', err);
+    return { hasCrossMemberAccess: false };
+  }
+}
+
+/**
  * Check if a member has access to a specific feature based on their role
  * 
  * @param {string|null} roleId - The member's role_id

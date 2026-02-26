@@ -1,7 +1,7 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -131,8 +131,14 @@ export default async function handler(req, res) {
     if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !tenantCtx.tenantId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
-    // For member-scoped entities, require a valid member_id unless allowsTenantWideAccess
-    const allowsTenantWideAccess = (entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue') && tenantCtx.tenantId;
+    // For member-scoped entities, check role-based cross-member access
+    let allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    if (entity === 'MemberPreferenceValue' && tenantCtx.tenantId && tenantCtx.roleId) {
+      const { hasCrossMemberAccess } = await checkCrossMemberPermissions(tenantCtx.roleId);
+      if (hasCrossMemberAccess) {
+        allowsTenantWideAccess = true;
+      }
+    }
     if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId && !allowsTenantWideAccess) {
       return res.status(403).json({ error: 'Invalid member context' });
     }

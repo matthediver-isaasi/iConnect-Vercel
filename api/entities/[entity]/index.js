@@ -1,7 +1,7 @@
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -232,7 +232,15 @@ export default async function handler(req, res) {
     // Exceptions that allow tenant-wide access:
     // - OrganizationPreferenceValue: for viewing org details on the /organisations page
     // - Booking with event_id filter: for viewing all event attendees (access controlled by RBAC button visibility)
-    let allowsTenantWideAccess = (entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue') && tenantCtx.tenantId;
+    let allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    
+    // MemberPreferenceValue: check role-based permission before granting cross-member access
+    if (entity === 'MemberPreferenceValue' && tenantCtx.tenantId && tenantCtx.roleId) {
+      const { hasCrossMemberAccess } = await checkCrossMemberPermissions(tenantCtx.roleId);
+      if (hasCrossMemberAccess) {
+        allowsTenantWideAccess = true;
+      }
+    }
     
     // Resolve tenantId from organization if not present (for migration period)
     // Do this once, outside of entity-specific logic
