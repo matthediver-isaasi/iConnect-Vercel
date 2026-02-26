@@ -336,61 +336,38 @@ async function handleGet(req, res, tenantId) {
     const totalDaysInYear = Math.floor((yearEndMidnight - yearStartMidnight) / (1000 * 60 * 60 * 24)) + 1;
 
     if (currentYearRecord) {
+      try {
+        const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
+          source: 'tab',
+          targetYear: currentYear.label,
+        });
+        if (simResult.success) {
+          currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
+        }
+      } catch (simErr) {
+        console.warn('[Org Membership] Current year simulation error (recorded year):', simErr.message);
+      }
+
       const recAnnual = parseFloat(currentYearRecord.annual_cost);
+      const recCustomTotal = parseFloat(currentYearRecord.custom_discount_total || 0);
       const recProrata = currentYearRecord.prorata_cost != null ? parseFloat(currentYearRecord.prorata_cost) : null;
       const recFreeDiscount = parseFloat(currentYearRecord.free_period_discount || 0);
       const recRollover = parseFloat(currentYearRecord.rollover_discount || 0);
-      const recCustomTotal = parseFloat(currentYearRecord.custom_discount_total || 0);
       const recFinal = parseFloat(currentYearRecord.final_cost);
-      const recDailyCost = recAnnual > 0 ? parseFloat((recAnnual / totalDaysInYear).toFixed(4)) : 0;
+      const hasProRata = recProrata !== null;
 
-      const hasProRata = recProrata !== null && recProrata !== recAnnual;
-      let recProrataDays = null;
-      let recFreePeriodDaysApplied = 0;
-      let recBillableDays = null;
-
-      if (hasProRata && goLiveDate && config.prorata_enabled) {
-        const joinMidnight = new Date(goLiveDate);
-        joinMidnight.setHours(0, 0, 0, 0);
-        recProrataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-      }
-      if (recFreeDiscount > 0 && goLiveDate && config.free_period_amount && config.free_period_unit) {
-        const joinMidnight = new Date(goLiveDate);
-        joinMidnight.setHours(0, 0, 0, 0);
-        const freePeriodMonths = getFreeMonths(config);
-        const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
-        const freePeriodEnd = new Date(joinMidnight);
-        freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
-        const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
-        recFreePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
-        if (recProrataDays !== null) {
-          recFreePeriodDaysApplied = Math.min(recFreePeriodDaysApplied, recProrataDays);
-        }
-      }
-      if (hasProRata && recProrataDays !== null) {
-        recBillableDays = Math.max(0, recProrataDays - recFreePeriodDaysApplied);
-      }
-
-      currentYearCost = {
+      const historyOverrides = {
         membershipYear: currentYear.label,
-        yearNumber,
         startDate: currentYearStartDate,
-        tierLabel: currentYearRecord.tier_label || matchedBand?.label || null,
-        fieldValue: currentYearRecord.field_value != null ? parseFloat(currentYearRecord.field_value) : fieldValue,
+        tierLabel: currentYearRecord.tier_label || (currentYearCost?.tierLabel ?? null),
+        fieldValue: currentYearRecord.field_value != null ? parseFloat(currentYearRecord.field_value) : (currentYearCost?.fieldValue ?? fieldValue),
         annualCost: recAnnual,
         annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,
         customDiscountTotal: recCustomTotal,
         customDiscountDetails: currentYearRecord.custom_discount_details || [],
-        dailyCost: recDailyCost,
-        totalDaysInYear,
         proRataEnabled: hasProRata,
-        prorataDays: hasProRata ? recProrataDays : null,
-        prorataCost: hasProRata ? recProrata : null,
+        prorataCost: recProrata,
         freeDiscount: recFreeDiscount,
-        freePeriodDaysApplied: recFreePeriodDaysApplied,
-        freePeriodAmount: config.free_period_amount,
-        freePeriodUnit: config.free_period_unit,
-        billableDays: hasProRata ? recBillableDays : null,
         rolloverDiscount: recRollover,
         finalCost: recFinal,
         goLiveDate,
@@ -399,15 +376,62 @@ async function handleGet(req, res, tenantId) {
         billingPeriod: currentYearRecord.billing_period || config.billing_period || 'annual',
         recordedFromHistory: true,
       };
-    } else {
-      const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
-        source: 'tab',
-        targetYear: currentYear.label,
-      });
-      if (simResult.success) {
-        currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
+
+      if (currentYearCost) {
+        Object.assign(currentYearCost, historyOverrides);
       } else {
-        console.warn('[Org Membership] Current year simulation failed:', simResult.error);
+        const recDailyCost = recAnnual > 0 ? parseFloat((recAnnual / totalDaysInYear).toFixed(4)) : 0;
+        let recProrataDays = null;
+        let recFreePeriodDaysApplied = 0;
+        let recBillableDays = null;
+
+        if (hasProRata && goLiveDate && config.prorata_enabled) {
+          const joinMidnight = new Date(goLiveDate);
+          joinMidnight.setHours(0, 0, 0, 0);
+          recProrataDays = Math.max(0, Math.floor((yearEndMidnight - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+        }
+        if (recFreeDiscount > 0 && goLiveDate && config.free_period_amount && config.free_period_unit) {
+          const joinMidnight = new Date(goLiveDate);
+          joinMidnight.setHours(0, 0, 0, 0);
+          const freePeriodMonths = getFreeMonths(config);
+          const freePeriodTotalDays = Math.round(freePeriodMonths * 30.44);
+          const freePeriodEnd = new Date(joinMidnight);
+          freePeriodEnd.setDate(freePeriodEnd.getDate() + freePeriodTotalDays - 1);
+          const lastFreeDay = freePeriodEnd < yearEndMidnight ? freePeriodEnd : yearEndMidnight;
+          recFreePeriodDaysApplied = Math.max(0, Math.floor((lastFreeDay - joinMidnight) / (1000 * 60 * 60 * 24)) + 1);
+          if (recProrataDays !== null) {
+            recFreePeriodDaysApplied = Math.min(recFreePeriodDaysApplied, recProrataDays);
+          }
+        }
+        if (hasProRata && recProrataDays !== null) {
+          recBillableDays = Math.max(0, recProrataDays - recFreePeriodDaysApplied);
+        }
+
+        currentYearCost = {
+          ...historyOverrides,
+          yearNumber,
+          dailyCost: recDailyCost,
+          totalDaysInYear,
+          prorataDays: hasProRata ? recProrataDays : null,
+          freePeriodDaysApplied: recFreePeriodDaysApplied,
+          freePeriodAmount: config.free_period_amount,
+          freePeriodUnit: config.free_period_unit,
+          billableDays: hasProRata ? recBillableDays : null,
+        };
+      }
+    } else {
+      try {
+        const simResult = await simulateMembershipForOrg(tenantId, organizationId, {
+          source: 'tab',
+          targetYear: currentYear.label,
+        });
+        if (simResult.success) {
+          currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
+        } else {
+          console.warn('[Org Membership] Current year simulation failed:', simResult.error);
+        }
+      } catch (simErr) {
+        console.warn('[Org Membership] Current year simulation error:', simErr.message);
       }
     }
 

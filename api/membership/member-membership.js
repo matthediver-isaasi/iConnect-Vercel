@@ -151,29 +151,56 @@ async function handleGet(req, res, tenantId) {
   const currentYearRecord = history.find(h => h.membership_year === currentYear.label);
 
   if (currentYearRecord) {
-    currentYearCost = {
+    try {
+      const simResult = await simulateMembershipForMember(tenantId, memberId, {
+        source: 'tab',
+        targetYear: currentYear.label,
+      });
+      if (simResult.success) {
+        currentYearCost = mapSimResultToYearData(simResult, currentYearStartDate);
+      }
+    } catch (simErr) {
+      console.warn('[Member Membership] Current year simulation failed (recorded year):', simErr.message);
+    }
+
+    const recAnnual = parseFloat(currentYearRecord.annual_cost);
+    const recCustomTotal = parseFloat(currentYearRecord.custom_discount_total || 0);
+    const recProrata = currentYearRecord.prorata_cost != null ? parseFloat(currentYearRecord.prorata_cost) : null;
+    const recFreeDiscount = parseFloat(currentYearRecord.free_period_discount || 0);
+    const recFinal = parseFloat(currentYearRecord.final_cost);
+    const hasProRata = recProrata !== null;
+
+    const historyOverrides = {
       membershipYear: currentYear.label,
-      yearNumber: null,
       startDate: currentYearStartDate,
-      tierLabel: currentYearRecord.tier_label,
+      tierLabel: currentYearRecord.tier_label || (currentYearCost?.tierLabel ?? null),
       fieldValue: currentYearRecord.field_value,
-      annualCost: parseFloat(currentYearRecord.annual_cost),
-      annualCostBeforeDiscounts: parseFloat(currentYearRecord.annual_cost) + parseFloat(currentYearRecord.custom_discount_total || 0),
-      customDiscountTotal: parseFloat(currentYearRecord.custom_discount_total || 0),
+      annualCost: recAnnual,
+      annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,
+      customDiscountTotal: recCustomTotal,
       customDiscountDetails: currentYearRecord.custom_discount_details || [],
-      dailyCost: null,
-      proRataEnabled: currentYearRecord.prorata_cost !== null,
-      prorataDays: null,
-      prorataCost: currentYearRecord.prorata_cost != null ? parseFloat(currentYearRecord.prorata_cost) : null,
-      freeDiscount: parseFloat(currentYearRecord.free_period_discount || 0),
-      freePeriodDaysApplied: 0,
-      freePeriodAmount: config.free_period_amount,
-      freePeriodUnit: config.free_period_unit,
-      finalCost: parseFloat(currentYearRecord.final_cost),
+      proRataEnabled: hasProRata,
+      prorataCost: recProrata,
+      freeDiscount: recFreeDiscount,
+      finalCost: recFinal,
       currency: currentYearRecord.currency || config.currency || 'GBP',
       billingPeriod: currentYearRecord.billing_period || config.billing_period || 'annual',
       recordedFromHistory: true,
     };
+
+    if (currentYearCost) {
+      Object.assign(currentYearCost, historyOverrides);
+    } else {
+      currentYearCost = {
+        ...historyOverrides,
+        yearNumber: null,
+        dailyCost: null,
+        prorataDays: null,
+        freePeriodDaysApplied: 0,
+        freePeriodAmount: config.free_period_amount,
+        freePeriodUnit: config.free_period_unit,
+      };
+    }
   } else {
     try {
       const simResult = await simulateMembershipForMember(tenantId, memberId, {
