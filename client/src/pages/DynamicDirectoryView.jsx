@@ -1067,7 +1067,7 @@ export default function DynamicDirectoryView() {
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center gap-4">
-                  {memberDisplaySettings?.show_organization && (
+                  {memberDisplaySettings?.show_organization && directory?.entity_type === 'organization' && (
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-slate-500" />
                       <Label className="text-sm text-slate-700">Organisation:</Label>
