@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
+import MemberMembershipTab from "@/components/MemberMembershipTab";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
@@ -1012,6 +1013,12 @@ export default function MemberDetail() {
             <Mail className="w-4 h-4" />
             Communications
           </TabsTrigger>
+          {!member?.organization_id && (
+            <TabsTrigger value="membership" className="gap-1" data-testid="tab-member-membership">
+              <Wallet className="w-4 h-4" />
+              Membership
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Overview Tab */}
@@ -1915,6 +1922,12 @@ export default function MemberDetail() {
             </CardContent>
           </Card>
         </TabsContent>
+
+          {!member?.organization_id && (
+            <TabsContent value="membership" className="space-y-6">
+              <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
+            </TabsContent>
+          )}
       </Tabs>
 
       {/* Delete Note Confirmation Dialog */}
