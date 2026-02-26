@@ -54,7 +54,7 @@ async function getStripePublishableKey(tenantId, skipGlobalCheck = false) {
     }
 
     const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
-    const creds = await getStripeCredentials(tenantId);
+    const creds = await getStripeCredentials(tenantId, 'membership');
     if (creds?.is_enabled && creds?.publishable_key) {
       return creds.publishable_key;
     }
@@ -289,7 +289,7 @@ async function handlePost(req, res, resolvedTenantId) {
     const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
-    const stripeCredentials = await getStripeCredentials(tenantId);
+    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment processing is not available' });
     }
@@ -374,7 +374,7 @@ async function handlePost(req, res, resolvedTenantId) {
     const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
-    const stripeCredentials = await getStripeCredentials(tenantId);
+    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment verification not available' });
     }

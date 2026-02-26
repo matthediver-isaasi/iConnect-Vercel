@@ -37,7 +37,7 @@ function decryptCredentials(credentials) {
   return decrypted;
 }
 
-export async function getStripeCredentials(tenantId) {
+export async function getStripeCredentials(tenantId, feature) {
   if (!supabase) {
     throw new Error('Database not configured');
   }
@@ -63,10 +63,25 @@ export async function getStripeCredentials(tenantId) {
   }
 
   const decrypted = decryptCredentials(integration.credentials);
+
+  let secret_key = decrypted.secret_key || null;
+  let publishable_key = decrypted.publishable_key || null;
+
+  if (feature) {
+    const modeKey = `stripe_mode_${feature}`;
+    const mode = decrypted[modeKey] || 'live';
+    if (mode === 'test' && decrypted.test_secret_key && decrypted.test_publishable_key) {
+      secret_key = decrypted.test_secret_key;
+      publishable_key = decrypted.test_publishable_key;
+      console.log(`[Stripe] Using TEST keys for feature "${feature}" (tenant: ${tenantId})`);
+    } else if (mode === 'test') {
+      console.warn(`[Stripe] Feature "${feature}" set to test mode but test keys not configured, falling back to live keys (tenant: ${tenantId})`);
+    }
+  }
   
   return {
-    secret_key: decrypted.secret_key || null,
-    publishable_key: decrypted.publishable_key || null,
+    secret_key,
+    publishable_key,
     is_enabled: integration.is_enabled
   };
 }

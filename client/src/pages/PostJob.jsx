@@ -212,7 +212,7 @@ export default function PostJobPage() {
   useEffect(() => {
     const initStripe = async () => {
       try {
-        const response = await base44.functions.invoke('getStripePublishableKey');
+        const response = await base44.functions.invoke('getStripePublishableKey', { feature: 'jobs' });
         if (response.data.publishableKey) {
           stripePromise = loadStripe(response.data.publishableKey);
         } else {

@@ -508,7 +508,7 @@ export default function PaymentOptions({
         return;
       }
       try {
-        const response = await base44.functions.invoke('getStripePublishableKey');
+        const response = await base44.functions.invoke('getStripePublishableKey', { feature: 'events' });
         if (response.data.publishableKey) {
           stripePromise = loadStripe(response.data.publishableKey);
           setStripeAvailable(true);

@@ -42,11 +42,13 @@ function decrypt(encryptedText) {
   }
 }
 
+const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs'];
+
 function encryptCredentials(credentials) {
   if (!credentials) return {};
   const encrypted = {};
   for (const [key, value] of Object.entries(credentials)) {
-    if (value && typeof value === 'string') {
+    if (value && typeof value === 'string' && !NON_SECRET_FIELDS.includes(key)) {
       encrypted[key] = encrypt(value);
     } else {
       encrypted[key] = value;
@@ -72,7 +74,7 @@ function maskCredentials(credentials) {
   if (!credentials) return {};
   const masked = {};
   // Fields that should not be masked (non-sensitive configuration values)
-  const unmaskedFields = ['region', 'accounts_domain', 'campaigns_domain'];
+  const unmaskedFields = NON_SECRET_FIELDS;
   
   for (const [key, value] of Object.entries(credentials)) {
     if (unmaskedFields.includes(key)) {

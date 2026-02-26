@@ -129,7 +129,14 @@ export default function AdminIntegrations() {
 
   const [stripeForm, setStripeForm] = useState({
     secret_key: '',
-    publishable_key: ''
+    publishable_key: '',
+    test_secret_key: '',
+    test_publishable_key: ''
+  });
+  const [stripeModes, setStripeModes] = useState({
+    stripe_mode_events: 'live',
+    stripe_mode_membership: 'live',
+    stripe_mode_jobs: 'live'
   });
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [stripeSaving, setStripeSaving] = useState(false);
@@ -275,7 +282,14 @@ export default function AdminIntegrations() {
           if (stripeIntegration.credentials) {
             setStripeForm({
               secret_key: stripeIntegration.credentials.secret_key || '',
-              publishable_key: stripeIntegration.credentials.publishable_key || ''
+              publishable_key: stripeIntegration.credentials.publishable_key || '',
+              test_secret_key: stripeIntegration.credentials.test_secret_key || '',
+              test_publishable_key: stripeIntegration.credentials.test_publishable_key || ''
+            });
+            setStripeModes({
+              stripe_mode_events: stripeIntegration.credentials.stripe_mode_events || 'live',
+              stripe_mode_membership: stripeIntegration.credentials.stripe_mode_membership || 'live',
+              stripe_mode_jobs: stripeIntegration.credentials.stripe_mode_jobs || 'live'
             });
           }
         }
@@ -654,7 +668,10 @@ export default function AdminIntegrations() {
           integration_type: 'stripe',
           credentials: {
             secret_key: stripeForm.secret_key,
-            publishable_key: stripeForm.publishable_key
+            publishable_key: stripeForm.publishable_key,
+            test_secret_key: stripeForm.test_secret_key,
+            test_publishable_key: stripeForm.test_publishable_key,
+            ...stripeModes
           },
           is_enabled: stripeEnabled
         })
@@ -1453,7 +1470,7 @@ export default function AdminIntegrations() {
               <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
                 <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
                   <Plug className="h-4 w-4 text-slate-400" />
-                  API Keys
+                  Live API Keys
                 </h4>
                 <p className="text-xs text-slate-400 mb-4">
                   Get your API keys from the{" "}
@@ -1470,7 +1487,7 @@ export default function AdminIntegrations() {
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="stripe_secret_key" className="text-slate-300">Secret Key</Label>
+                    <Label htmlFor="stripe_secret_key" className="text-slate-300">Live Secret Key</Label>
                     <Input
                       id="stripe_secret_key"
                       type={showStripeSecrets ? "text" : "password"}
@@ -1481,12 +1498,12 @@ export default function AdminIntegrations() {
                       data-testid="input-stripe-secret-key"
                     />
                     <p className="text-xs text-slate-500">
-                      Your Stripe secret key (starts with sk_live_ or sk_test_)
+                      Your Stripe live secret key (starts with sk_live_)
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="stripe_publishable_key" className="text-slate-300">Publishable Key</Label>
+                    <Label htmlFor="stripe_publishable_key" className="text-slate-300">Live Publishable Key</Label>
                     <Input
                       id="stripe_publishable_key"
                       type={showStripeSecrets ? "text" : "password"}
@@ -1497,7 +1514,7 @@ export default function AdminIntegrations() {
                       data-testid="input-stripe-publishable-key"
                     />
                     <p className="text-xs text-slate-500">
-                      Your Stripe publishable key (starts with pk_live_ or pk_test_)
+                      Your Stripe live publishable key (starts with pk_live_)
                     </p>
                   </div>
 
@@ -1517,6 +1534,99 @@ export default function AdminIntegrations() {
                     </Button>
                   </div>
                 </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <TestTube2 className="h-4 w-4 text-slate-400" />
+                  Test API Keys
+                </h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  Optional. Enter your Stripe test keys to enable test mode for individual features.
+                </p>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe_test_secret_key" className="text-slate-300">Test Secret Key</Label>
+                    <Input
+                      id="stripe_test_secret_key"
+                      type={showStripeSecrets ? "text" : "password"}
+                      value={stripeForm.test_secret_key}
+                      onChange={(e) => setStripeForm(prev => ({ ...prev, test_secret_key: e.target.value }))}
+                      placeholder="sk_test_..."
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-stripe-test-secret-key"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe_test_publishable_key" className="text-slate-300">Test Publishable Key</Label>
+                    <Input
+                      id="stripe_test_publishable_key"
+                      type={showStripeSecrets ? "text" : "password"}
+                      value={stripeForm.test_publishable_key}
+                      onChange={(e) => setStripeForm(prev => ({ ...prev, test_publishable_key: e.target.value }))}
+                      placeholder="pk_test_..."
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-stripe-test-publishable-key"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <CreditCard className="h-4 w-4 text-slate-400" />
+                  Feature Payment Modes
+                </h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  Choose whether each feature uses your live or test Stripe keys. Test keys must be saved above for test mode to work.
+                </p>
+
+                <div className="space-y-3">
+                  {[
+                    { key: 'stripe_mode_events', label: 'Events' },
+                    { key: 'stripe_mode_membership', label: 'Membership' },
+                    { key: 'stripe_mode_jobs', label: 'Jobs' }
+                  ].map(({ key, label }) => {
+                    const isTest = stripeModes[key] === 'test';
+                    return (
+                      <div key={key} className="flex items-center justify-between py-2 px-3 rounded-md bg-slate-800/50 border border-slate-700/50">
+                        <span className="text-sm text-slate-300">{label}</span>
+                        <div className="flex items-center gap-3">
+                          <Badge
+                            variant="outline"
+                            className={isTest
+                              ? "border-amber-500/50 text-amber-400 bg-amber-500/10"
+                              : "border-green-500/50 text-green-400 bg-green-500/10"
+                            }
+                          >
+                            {isTest ? 'Test' : 'Live'}
+                          </Badge>
+                          <Switch
+                            checked={isTest}
+                            onCheckedChange={(checked) =>
+                              setStripeModes(prev => ({ ...prev, [key]: checked ? 'test' : 'live' }))
+                            }
+                            data-testid={`switch-${key}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {(stripeModes.stripe_mode_events === 'test' || stripeModes.stripe_mode_membership === 'test' || stripeModes.stripe_mode_jobs === 'test') &&
+                  (!stripeForm.test_secret_key || !stripeForm.test_publishable_key) && (
+                  <div className="mt-3 rounded-md bg-amber-500/10 p-3 border border-amber-500/30">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                      <p className="text-xs text-amber-300">
+                        One or more features are set to test mode but test keys haven't been entered. Those features will fall back to live keys until test keys are saved.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-3 pt-2">

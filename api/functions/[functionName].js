@@ -10,13 +10,13 @@ import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 
 // Helper: Get Stripe client for a tenant
-async function getStripeClient(tenantId) {
+async function getStripeClient(tenantId, feature) {
   if (!tenantId) {
     console.error('[Stripe] Cannot get Stripe client: tenantId is required');
     return null;
   }
   
-  const creds = await getStripeCredentials(tenantId);
+  const creds = await getStripeCredentials(tenantId, feature);
   
   if (!creds || !creds.secret_key) {
     console.error('[Stripe] No Stripe credentials configured for tenant:', tenantId);
@@ -28,18 +28,18 @@ async function getStripeClient(tenantId) {
     return null;
   }
   
-  console.log('[Stripe] Got Stripe client for tenant:', tenantId);
+  console.log('[Stripe] Got Stripe client for tenant:', tenantId, feature ? `(feature: ${feature})` : '');
   return new Stripe(creds.secret_key);
 }
 
 // Helper: Get Stripe publishable key for a tenant
-async function getStripePublishableKeyForTenant(tenantId) {
+async function getStripePublishableKeyForTenant(tenantId, feature) {
   if (!tenantId) {
     console.error('[Stripe] Cannot get publishable key: tenantId is required');
     return null;
   }
   
-  const creds = await getStripeCredentials(tenantId);
+  const creds = await getStripeCredentials(tenantId, feature);
   
   if (!creds || !creds.publishable_key) {
     return null;
@@ -800,7 +800,8 @@ const functionHandlers = {
       throw new Error('Unable to determine tenant context');
     }
     
-    const publishableKey = await getStripePublishableKeyForTenant(tenantId);
+    const feature = params?.feature || null;
+    const publishableKey = await getStripePublishableKeyForTenant(tenantId, feature);
     if (!publishableKey) throw new Error('Stripe not configured for this tenant');
     return { publishableKey };
   },
@@ -813,7 +814,7 @@ const functionHandlers = {
       throw new Error('Unable to determine tenant context');
     }
     
-    const stripe = await getStripeClient(tenantId);
+    const stripe = await getStripeClient(tenantId, 'events');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
     
     const { amount, currency = 'gbp', metadata, memberEmail } = params;
@@ -1706,7 +1707,7 @@ const functionHandlers = {
       console.log('[createOneOffEventBooking] Verifying Stripe payment:', stripePaymentIntentId);
       
       // Get tenant-scoped Stripe client from event's tenant
-      const stripe = await getStripeClient(event.tenant_id);
+      const stripe = await getStripeClient(event.tenant_id, 'events');
       if (!stripe) {
         return { success: false, error: 'Stripe is not configured for this tenant' };
       }
@@ -3185,7 +3186,7 @@ const functionHandlers = {
       throw new Error('Unable to determine tenant context');
     }
     
-    const stripe = await getStripeClient(tenantId);
+    const stripe = await getStripeClient(tenantId, 'jobs');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
     
     // Frontend sends: amount, currency, metadata: { job_posting_id, contact_email, company_name, job_title }
@@ -3629,7 +3630,7 @@ const functionHandlers = {
     }
     
     // Get tenant-scoped Stripe client from job posting's tenant
-    const stripe = await getStripeClient(jobPosting.tenant_id);
+    const stripe = await getStripeClient(jobPosting.tenant_id, 'jobs');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
     
     // Verify payment was successful with Stripe

@@ -59,7 +59,7 @@ The frontend utilizes a custom "new-york" design system, leveraging shadcn/ui (R
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.
--   **Stripe:** Payment processing.
+-   **Stripe:** Payment processing. Supports per-feature test/live mode switching via `AdminIntegrations.jsx`. Tenants can store both live (`secret_key`, `publishable_key`) and test (`test_secret_key`, `test_publishable_key`) Stripe keys. Per-feature toggles (`stripe_mode_events`, `stripe_mode_membership`, `stripe_mode_jobs`) in the credentials JSONB control which key set each feature uses. `getStripeCredentials(tenantId, feature)` in `api/_lib/stripeCredentials.js` resolves the correct keys based on the feature's mode setting, falling back to live keys if test keys aren't configured.
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).

@@ -268,7 +268,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
     const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
-    const stripeCredentials = await getStripeCredentials(tenantId);
+    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment processing is not available' });
     }
@@ -348,7 +348,7 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
     const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
-    const stripeCredentials = await getStripeCredentials(tenantId);
+    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment verification not available' });
     }
@@ -599,7 +599,7 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
     const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
-    const stripeCredentials = await getStripeCredentials(tenantId);
+    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment processing is not available' });
     }
@@ -672,7 +672,7 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
     const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
-    const stripeCredentials = await getStripeCredentials(tenantId);
+    const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
     if (!stripeCredentials?.secret_key) {
       return res.status(503).json({ error: 'Payment verification not available' });
     }
@@ -928,7 +928,7 @@ async function getStripePublishableKey(tenantId) {
 
     if (stripeSettingEnabled) {
       const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
-      const creds = await getStripeCredentials(tenantId);
+      const creds = await getStripeCredentials(tenantId, 'membership');
       if (creds?.is_enabled && creds?.publishable_key) {
         return creds.publishable_key;
       }
