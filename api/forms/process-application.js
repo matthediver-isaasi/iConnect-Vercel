@@ -1352,15 +1352,33 @@ export default async function handler(req, res) {
             ? `${currentYear - 1}/${currentYear}`
             : `${currentYear}/${currentYear + 1}`;
 
-          const { error: invoicingErr } = await supabase
+          const { data: existingInvoicing } = await supabase
             .from('member_membership_invoicing')
-            .upsert({
-              tenant_id: tenant_id,
-              member_id: createdMemberId,
-              membership_year: membershipYearLabel,
-              fees_approved: true,
-              invoicing_mode: 'manual',
-            }, { onConflict: 'tenant_id,member_id,membership_year' });
+            .select('id')
+            .eq('tenant_id', tenant_id)
+            .eq('member_id', createdMemberId)
+            .eq('membership_year', membershipYearLabel)
+            .maybeSingle();
+
+          let invoicingErr;
+          if (existingInvoicing) {
+            const { error } = await supabase
+              .from('member_membership_invoicing')
+              .update({ fees_approved: true })
+              .eq('id', existingInvoicing.id);
+            invoicingErr = error;
+          } else {
+            const { error } = await supabase
+              .from('member_membership_invoicing')
+              .insert({
+                tenant_id: tenant_id,
+                member_id: createdMemberId,
+                membership_year: membershipYearLabel,
+                fees_approved: true,
+                invoicing_mode: 'manual',
+              });
+            invoicingErr = error;
+          }
 
           if (invoicingErr) {
             console.error('[AppProcessor] Failed to auto-approve fees:', invoicingErr);
