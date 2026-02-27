@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink, Send, Globe } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -32,6 +32,19 @@ export default function CommunicationsManagementPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncProgress, setSyncProgress] = useState(null); // { categoryId, processed, total, subscribed, unsubscribed, errors }
   const [activeJobId, setActiveJobId] = useState(null);
+
+  const [showEditListDialog, setShowEditListDialog] = useState(false);
+  const [editingList, setEditingList] = useState(null);
+  const [editListName, setEditListName] = useState('');
+  const [editListCategoryId, setEditListCategoryId] = useState('');
+  const [editListAudiences, setEditListAudiences] = useState([]);
+  const [savingListEdit, setSavingListEdit] = useState(false);
+  const [showDeleteListConfirm, setShowDeleteListConfirm] = useState(false);
+  const [listToDelete, setListToDelete] = useState(null);
+  const [deletingList, setDeletingList] = useState(false);
+  const [showAddListSegment, setShowAddListSegment] = useState(false);
+  const [addListSegmentType, setAddListSegmentType] = useState('');
+  const [addListSegmentIds, setAddListSegmentIds] = useState([]);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -180,6 +193,158 @@ export default function CommunicationsManagementPage() {
   const zohoLists = zohoListsData?.lists || [];
   const isZohoConnected = zohoStatus?.connected === true;
   const isZohoCredentialsConfigured = zohoStatus?.credentialsConfigured === true;
+
+  const { data: audienceLists = [] } = useQuery({
+    queryKey: ['audience-lists'],
+    queryFn: async () => {
+      const response = await fetch('/api/audience-lists', { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    staleTime: 30000,
+  });
+
+  const { data: memberGroups = [] } = useQuery({
+    queryKey: ['member-groups'],
+    queryFn: () => base44.entities.MemberGroup.list(),
+    staleTime: 60000,
+  });
+
+  const { data: formsWithCategory = [] } = useQuery({
+    queryKey: ['forms-with-category'],
+    queryFn: async () => {
+      try {
+        const allForms = await base44.entities.Form.list();
+        return (allForms || []).filter(f => f.communication_category_id && f.is_active !== false);
+      } catch (e) { return []; }
+    },
+    staleTime: 60000,
+  });
+
+  const { data: fundraisingCampaigns = [] } = useQuery({
+    queryKey: ['fundraising-campaigns-list'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/fundraising/campaigns', { credentials: 'include' });
+        if (!response.ok) return [];
+        return await response.json() || [];
+      } catch (e) { return []; }
+    },
+    staleTime: 60000,
+  });
+
+  const getListsForCategory = (categoryId) => {
+    return audienceLists.filter(l => l.communication_category_id === categoryId);
+  };
+
+  const getSegmentSummary = (segment) => {
+    const typeLabels = {
+      communication_category: 'Categories',
+      member_group: 'Groups',
+      role: 'Roles',
+      form: 'Forms',
+      fundraisers: 'Fundraisers',
+      donors: 'Donors',
+      all_members: 'All Members',
+      audience_list: 'Saved Lists'
+    };
+    const label = typeLabels[segment.type] || segment.type;
+    if (segment.type === 'all_members') return label;
+    const count = (segment.ids || []).length;
+    if (segment.type === 'role') {
+      const names = (segment.ids || []).map(id => roleLookup[id]).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'member_group') {
+      const names = (segment.ids || []).map(id => memberGroups.find(g => g.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'communication_category') {
+      const names = (segment.ids || []).map(id => categories.find(c => c.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'form') {
+      const names = (segment.ids || []).map(id => formsWithCategory.find(f => f.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'fundraisers' || segment.type === 'donors') {
+      if (segment.ids?.includes('all')) return segment.type === 'fundraisers' ? 'All Fundraisers' : 'All Donors';
+      const names = (segment.ids || []).map(id => fundraisingCampaigns.find(c => c.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    if (segment.type === 'audience_list') {
+      const names = (segment.ids || []).map(id => audienceLists.find(l => l.id === id)?.name).filter(Boolean);
+      return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+    }
+    return `${label} (${count})`;
+  };
+
+  const openEditListDialog = (list) => {
+    setEditingList(list);
+    setEditListName(list.name);
+    setEditListCategoryId(list.communication_category_id || '');
+    setEditListAudiences(Array.isArray(list.target_audiences) ? [...list.target_audiences] : []);
+    setShowAddListSegment(false);
+    setAddListSegmentType('');
+    setAddListSegmentIds([]);
+    setShowEditListDialog(true);
+  };
+
+  const handleSaveListEdit = async () => {
+    if (!editListName.trim()) { toast.error('Please enter a list name'); return; }
+    if (!editListCategoryId) { toast.error('Please select a communication category'); return; }
+    if (editListAudiences.length === 0) { toast.error('At least one audience segment is required'); return; }
+    setSavingListEdit(true);
+    try {
+      const response = await fetch('/api/audience-lists', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          id: editingList.id,
+          name: editListName.trim(),
+          communication_category_id: editListCategoryId,
+          target_audiences: editListAudiences
+        })
+      });
+      if (response.ok) {
+        toast.success('Audience list updated');
+        setShowEditListDialog(false);
+        queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
+      } else {
+        const err = await response.json();
+        toast.error(err.error || 'Failed to update list');
+      }
+    } catch (e) {
+      toast.error('Failed to update audience list');
+    } finally {
+      setSavingListEdit(false);
+    }
+  };
+
+  const handleDeleteList = async () => {
+    if (!listToDelete) return;
+    setDeletingList(true);
+    try {
+      const response = await fetch(`/api/audience-lists?id=${listToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        toast.success('Audience list deleted');
+        setShowDeleteListConfirm(false);
+        setListToDelete(null);
+        queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
+      } else {
+        const err = await response.json();
+        toast.error(err.error || 'Failed to delete list');
+      }
+    } catch (e) {
+      toast.error('Failed to delete audience list');
+    } finally {
+      setDeletingList(false);
+    }
+  };
 
   
   const handleSyncCategory = async (categoryId) => {
@@ -1017,6 +1182,51 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 )}
                               </div>
                             )}
+
+                            {getListsForCategory(category.id).length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-slate-100">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <ListFilter className="w-4 h-4 text-slate-400" />
+                                  <span className="text-sm font-medium text-slate-600">Saved Lists</span>
+                                </div>
+                                <div className="space-y-1">
+                                  {getListsForCategory(category.id).map(list => (
+                                    <div
+                                      key={list.id}
+                                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 group"
+                                      data-testid={`audience-list-${list.id}`}
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-sm font-medium text-slate-800">{list.name}</span>
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                          {(list.target_audiences || []).map(s => getSegmentSummary(s)).join(' + ')}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1 invisible group-hover:visible">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7"
+                                          onClick={() => openEditListDialog(list)}
+                                          data-testid={`button-edit-list-${list.id}`}
+                                        >
+                                          <Pencil className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-red-600 hover:text-red-700"
+                                          onClick={() => { setListToDelete(list); setShowDeleteListConfirm(true); }}
+                                          data-testid={`button-delete-list-${list.id}`}
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                           
                           <div className="flex items-center gap-2 ml-4">
@@ -1449,6 +1659,273 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 </TabsContent>
               </Tabs>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showDeleteListConfirm} onOpenChange={setShowDeleteListConfirm}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete Saved List</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete "{listToDelete?.name}"? This cannot be undone. Any campaigns using this list will no longer resolve its recipients.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeleteListConfirm(false)} data-testid="button-cancel-delete-list">
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteList}
+                disabled={deletingList}
+                data-testid="button-confirm-delete-list"
+              >
+                {deletingList ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showEditListDialog} onOpenChange={setShowEditListDialog}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Edit Saved List</DialogTitle>
+              <DialogDescription>
+                Update the name, category, or audience segments for this list.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>List Name</Label>
+                <Input
+                  value={editListName}
+                  onChange={(e) => setEditListName(e.target.value)}
+                  placeholder="e.g. AGM Event"
+                  data-testid="input-edit-list-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Communication Category</Label>
+                <Select value={editListCategoryId} onValueChange={setEditListCategoryId}>
+                  <SelectTrigger data-testid="select-edit-list-category">
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.filter(c => c.is_active !== false).map(cat => (
+                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Recipients who opt out of this category will be excluded when this list is used.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Audience Segments</Label>
+                {editListAudiences.length > 0 && (
+                  <div className="space-y-1">
+                    {editListAudiences.map((segment, idx) => (
+                      <div key={idx} className="flex items-center gap-2 border rounded-md p-2" data-testid={`edit-list-segment-${idx}`}>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm">{getSegmentSummary(segment)}</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setEditListAudiences(prev => prev.filter((_, i) => i !== idx))}
+                          data-testid={`button-remove-edit-segment-${idx}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!showAddListSegment ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAddListSegmentType('');
+                      setAddListSegmentIds([]);
+                      setShowAddListSegment(true);
+                    }}
+                    className="w-full"
+                    data-testid="button-add-list-segment"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Segment
+                  </Button>
+                ) : (
+                  <div className="border rounded-md p-3 space-y-3 bg-muted/20">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-sm font-medium">Add Segment</Label>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowAddListSegment(false)}>
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); }}>
+                      <SelectTrigger data-testid="select-add-list-segment-type">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {!editListAudiences.some(a => a.type === 'all_members') && (
+                          <SelectItem value="all_members">All Members</SelectItem>
+                        )}
+                        <SelectItem value="communication_category">Categories</SelectItem>
+                        <SelectItem value="member_group">Groups</SelectItem>
+                        <SelectItem value="role">Roles</SelectItem>
+                        {formsWithCategory.length > 0 && (
+                          <SelectItem value="form">Form Subscribers</SelectItem>
+                        )}
+                        {!editListAudiences.some(a => a.type === 'fundraisers') && (
+                          <SelectItem value="fundraisers">Fundraisers</SelectItem>
+                        )}
+                        {!editListAudiences.some(a => a.type === 'donors') && (
+                          <SelectItem value="donors">Donors</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+
+                    {addListSegmentType && addListSegmentType !== 'all_members' && (
+                      <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1 bg-background">
+                        {addListSegmentType === 'communication_category' && categories.filter(c => c.is_active !== false).map(cat => (
+                          <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={addListSegmentIds.includes(cat.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setAddListSegmentIds(prev => [...prev, cat.id]);
+                                else setAddListSegmentIds(prev => prev.filter(i => i !== cat.id));
+                              }} className="rounded" />
+                            <span className="text-sm">{cat.name}</span>
+                          </label>
+                        ))}
+                        {addListSegmentType === 'member_group' && memberGroups.map(group => (
+                          <label key={group.id} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={addListSegmentIds.includes(group.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setAddListSegmentIds(prev => [...prev, group.id]);
+                                else setAddListSegmentIds(prev => prev.filter(i => i !== group.id));
+                              }} className="rounded" />
+                            <span className="text-sm">{group.name}</span>
+                          </label>
+                        ))}
+                        {addListSegmentType === 'role' && roles.map(role => (
+                          <label key={role.id} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={addListSegmentIds.includes(role.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setAddListSegmentIds(prev => [...prev, role.id]);
+                                else setAddListSegmentIds(prev => prev.filter(i => i !== role.id));
+                              }} className="rounded" />
+                            <span className="text-sm">{role.name}</span>
+                          </label>
+                        ))}
+                        {addListSegmentType === 'form' && formsWithCategory.map(form => {
+                          const linkedCategory = categories.find(c => c.id === form.communication_category_id);
+                          return (
+                            <label key={form.id} className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={addListSegmentIds.includes(form.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setAddListSegmentIds(prev => [...prev, form.id]);
+                                  else setAddListSegmentIds(prev => prev.filter(i => i !== form.id));
+                                }} className="rounded" />
+                              <span className="text-sm">{form.name}</span>
+                              {linkedCategory && <span className="text-xs text-muted-foreground ml-1">({linkedCategory.name})</span>}
+                            </label>
+                          );
+                        })}
+                        {(addListSegmentType === 'fundraisers' || addListSegmentType === 'donors') && (
+                          fundraisingCampaigns.length === 0 ? (
+                            <div className="text-sm text-muted-foreground py-2">No fundraising campaigns found.</div>
+                          ) : (
+                            <>
+                              <label className="flex items-center gap-2 cursor-pointer font-medium border-b pb-1 mb-1">
+                                <input type="checkbox"
+                                  checked={addListSegmentIds.includes('all')}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setAddListSegmentIds(['all']);
+                                    else setAddListSegmentIds([]);
+                                  }} className="rounded" />
+                                <span className="text-sm">{addListSegmentType === 'fundraisers' ? 'All fundraisers' : 'All donors'}</span>
+                              </label>
+                              {fundraisingCampaigns.map(fc => (
+                                <label key={fc.id} className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox"
+                                    checked={addListSegmentIds.includes('all') || addListSegmentIds.includes(fc.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setAddListSegmentIds(prev => {
+                                          const newIds = prev.filter(i => i !== 'all');
+                                          newIds.push(fc.id);
+                                          if (newIds.length === fundraisingCampaigns.length) return ['all'];
+                                          return newIds;
+                                        });
+                                      } else {
+                                        setAddListSegmentIds(prev => {
+                                          let curr = prev.includes('all') ? fundraisingCampaigns.map(c => c.id) : [...prev];
+                                          return curr.filter(i => i !== fc.id);
+                                        });
+                                      }
+                                    }} className="rounded" />
+                                  <span className="text-sm">{fc.name}</span>
+                                </label>
+                              ))}
+                            </>
+                          )
+                        )}
+                      </div>
+                    )}
+
+                    {addListSegmentType && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (addListSegmentType === 'all_members') {
+                            setEditListAudiences(prev => [...prev, { type: 'all_members', ids: [] }]);
+                          } else if (addListSegmentIds.length > 0) {
+                            const existingIdx = editListAudiences.findIndex(a => a.type === addListSegmentType);
+                            if (existingIdx >= 0) {
+                              setEditListAudiences(prev => {
+                                const updated = [...prev];
+                                const existing = new Set(updated[existingIdx].ids || []);
+                                addListSegmentIds.forEach(id => existing.add(id));
+                                updated[existingIdx] = { ...updated[existingIdx], ids: [...existing] };
+                                return updated;
+                              });
+                            } else {
+                              setEditListAudiences(prev => [...prev, { type: addListSegmentType, ids: addListSegmentIds }]);
+                            }
+                          }
+                          setShowAddListSegment(false);
+                          setAddListSegmentType('');
+                          setAddListSegmentIds([]);
+                        }}
+                        disabled={addListSegmentType !== 'all_members' && addListSegmentIds.length === 0}
+                        data-testid="button-confirm-add-list-segment"
+                      >
+                        <Check className="w-4 h-4 mr-1" />
+                        Add
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEditListDialog(false)} data-testid="button-cancel-edit-list">
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveListEdit}
+                disabled={savingListEdit || !editListName.trim() || !editListCategoryId || editListAudiences.length === 0}
+                data-testid="button-save-edit-list"
+              >
+                {savingListEdit ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+                Save Changes
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
