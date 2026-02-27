@@ -579,6 +579,9 @@ async function handleGet(req, res, tenantId) {
       rollover_enabled: config.rollover_enabled,
       membership_start_month: config.membership_start_month,
       membership_start_day: config.membership_start_day,
+      pricing_model: config.pricing_model || 'tiered',
+      flat_cost: config.flat_cost != null ? parseFloat(config.flat_cost) : null,
+      flat_vat_rate: config.flat_vat_rate || null,
     },
     currentTier: matchedBand ? {
       bandId: matchedBand.id,

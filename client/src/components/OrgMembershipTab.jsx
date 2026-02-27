@@ -80,6 +80,7 @@ function YearCostSection({
   onApprove,
   onUnapprove,
   approvePending,
+  isFlat,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const isPoLocked = poSuppliedByMember && !poUnlocked;
@@ -178,20 +179,24 @@ function YearCostSection({
             <span className="font-medium">{new Date(yearData.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
           </div>
         )}
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Based on {fieldLabel}</span>
-          <span className="font-medium">{yearData.fieldValue?.toLocaleString() ?? 'N/A'}</span>
-        </div>
+        {!isFlat && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Based on {fieldLabel}</span>
+            <span className="font-medium">{yearData.fieldValue?.toLocaleString() ?? 'N/A'}</span>
+          </div>
+        )}
         {configName && (
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Structure</span>
             <span className="font-medium">{yearData.overrideConfigName || configName}</span>
           </div>
         )}
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Tier</span>
-          <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
-        </div>
+        {!isFlat && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Tier</span>
+            <Badge variant="secondary">{yearData.tierLabel || 'Unmapped'}</Badge>
+          </div>
+        )}
         {hasOverride && yearData.overrideType === 'price' ? (
           <>
             <div className="flex items-center justify-between text-sm border-t pt-1">
@@ -307,7 +312,7 @@ function YearCostSection({
         </div>
       )}
 
-      {!hasOverride && (
+      {!hasOverride && !isFlat && (
         <p className="text-xs text-muted-foreground mt-2">
           Based on current {fieldLabel.toLowerCase()} and the active tier structure. This may change if the {fieldLabel.toLowerCase()} or structure is updated.
         </p>
@@ -944,6 +949,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const currency = config.currency || 'GBP';
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
   const isAutoField = config.field_source === 'core' && config.field_name === 'member_count';
+  const isFlat = config.pricing_model === 'flat';
 
   const currentYearRecorded = history?.find(h => h.membership_year === currentYear?.label);
 
@@ -963,72 +969,90 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm text-muted-foreground">{fieldLabel}</p>
-              {isEditingField && !isAutoField ? (
-                <div className="flex items-center gap-2 mt-1">
-                  <Input
-                    type="number"
-                    min="0"
-                    value={editingFieldValue}
-                    onChange={(e) => setEditingFieldValue(e.target.value)}
-                    className="w-28"
-                    data-testid="input-field-value"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleSaveFieldValue}
-                    disabled={updateFieldMutation.isPending}
-                    data-testid="button-save-field"
-                  >
-                    {updateFieldMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={handleCancelEditing} data-testid="button-cancel-field">
-                    Cancel
-                  </Button>
+          {isFlat ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
+                <p className="text-lg font-semibold" data-testid="text-annual-cost">
+                  {config.flat_cost != null ? formatCost(config.flat_cost, currency) : '-'}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-muted-foreground">Structure</p>
+                <p className="text-sm font-medium" data-testid="text-structure-name">{config.name || 'Default'}</p>
+                <Badge variant="secondary" className="mt-1">Flat Rate</Badge>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{fieldLabel}</p>
+                  {isEditingField && !isAutoField ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        type="number"
+                        min="0"
+                        value={editingFieldValue}
+                        onChange={(e) => setEditingFieldValue(e.target.value)}
+                        className="w-28"
+                        data-testid="input-field-value"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleSaveFieldValue}
+                        disabled={updateFieldMutation.isPending}
+                        data-testid="button-save-field"
+                      >
+                        {updateFieldMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handleCancelEditing} data-testid="button-cancel-field">
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-xl font-bold" data-testid="text-field-value">
+                        {fieldValue !== null && fieldValue !== undefined ? fieldValue.toLocaleString() : 'N/A'}
+                      </p>
+                      {!isAutoField && (
+                        <Button size="sm" variant="outline" onClick={handleStartEditing} data-testid="button-edit-field">
+                          Edit
+                        </Button>
+                      )}
+                      {isAutoField && (
+                        <Badge variant="outline" className="text-xs">Auto</Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="flex items-center gap-2 mt-1">
-                  <p className="text-xl font-bold" data-testid="text-field-value">
-                    {fieldValue !== null && fieldValue !== undefined ? fieldValue.toLocaleString() : 'N/A'}
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Matched Tier</p>
+                  {currentTier ? (
+                    <Badge variant="secondary" className="mt-1" data-testid="badge-current-tier">{currentTier.label}</Badge>
+                  ) : (
+                    <Badge variant="outline" className="mt-1 text-muted-foreground" data-testid="badge-no-tier">Unmapped</Badge>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
+                  <p className="text-lg font-semibold" data-testid="text-annual-cost">
+                    {currentTier ? formatCost(currentTier.annualCost, currency) : '-'}
                   </p>
-                  {!isAutoField && (
-                    <Button size="sm" variant="outline" onClick={handleStartEditing} data-testid="button-edit-field">
-                      Edit
-                    </Button>
-                  )}
-                  {isAutoField && (
-                    <Badge variant="outline" className="text-xs">Auto</Badge>
-                  )}
                 </div>
-              )}
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-muted-foreground">Matched Tier</p>
-              {currentTier ? (
-                <Badge variant="secondary" className="mt-1" data-testid="badge-current-tier">{currentTier.label}</Badge>
-              ) : (
-                <Badge variant="outline" className="mt-1 text-muted-foreground" data-testid="badge-no-tier">Unmapped</Badge>
-              )}
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm text-muted-foreground">{periodLabel} Cost</p>
-              <p className="text-lg font-semibold" data-testid="text-annual-cost">
-                {currentTier ? formatCost(currentTier.annualCost, currency) : '-'}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-muted-foreground">Structure</p>
-              <p className="text-sm font-medium" data-testid="text-structure-name">{config.name || 'Default'}</p>
-              <p className="text-xs text-muted-foreground">From {config.effective_from}</p>
-            </div>
-          </div>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Structure</p>
+                  <p className="text-sm font-medium" data-testid="text-structure-name">{config.name || 'Default'}</p>
+                  <p className="text-xs text-muted-foreground">From {config.effective_from}</p>
+                </div>
+              </div>
+            </>
+          )}
 
           {currentTier && bands?.length > 0 && (
             <>
@@ -1087,6 +1111,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[currentYearCost?.membershipYear] || 'manual', targetYear: membershipYear }); }}
                 simulatePending={simulateRenewalMutation.isPending && simulatingYear === currentYearCost?.membershipYear}
                 testIdPrefix="current-year"
+                isFlat={isFlat}
                 invoicingMode={invoicingModes[currentYearCost?.membershipYear] || 'manual'}
                 invoiceDate={invoiceDates[currentYearCost?.membershipYear] || ''}
                 onInvoicingModeChange={(val) => {
@@ -1163,6 +1188,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearPreview?.membershipYear] || 'manual', targetYear: membershipYear }); }}
                 simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearPreview?.membershipYear}
                 testIdPrefix="next-year"
+                isFlat={isFlat}
                 invoicingMode={invoicingModes[nextYearPreview?.membershipYear] || 'manual'}
                 invoiceDate={invoiceDates[nextYearPreview?.membershipYear] || ''}
                 onInvoicingModeChange={(val) => {
