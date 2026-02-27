@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -32,6 +32,12 @@ export default function CommunicationsManagementPage() {
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncProgress, setSyncProgress] = useState(null); // { categoryId, processed, total, subscribed, unsubscribed, errors }
   const [activeJobId, setActiveJobId] = useState(null);
+
+  const [expandedCategories, setExpandedCategories] = useState({});
+
+  const toggleCategory = (categoryId) => {
+    setExpandedCategories(prev => ({ ...prev, [categoryId]: !prev[categoryId] }));
+  };
 
   const [showEditListDialog, setShowEditListDialog] = useState(false);
   const [editingList, setEditingList] = useState(null);
@@ -1041,7 +1047,12 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
+                            <div
+                              className="flex items-center gap-3 cursor-pointer select-none"
+                              onClick={() => toggleCategory(category.id)}
+                              data-testid={`button-toggle-category-${category.id}`}
+                            >
+                              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expandedCategories[category.id] ? 'rotate-0' : '-rotate-90'}`} />
                               <h3 className="text-lg font-semibold text-slate-900">
                                 {category.name}
                               </h3>
@@ -1055,10 +1066,15 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   Inactive
                                 </Badge>
                               )}
+                              <span className="text-sm text-muted-foreground">
+                                {totalCount} subscriber{totalCount !== 1 ? 's' : ''}
+                              </span>
                             </div>
-                            
+
+                          {expandedCategories[category.id] && (
+                            <>
                             {category.description && (
-                              <p className="text-sm text-slate-600 mb-3">
+                              <p className="text-sm text-slate-600 mt-2 mb-3">
                                 {category.description}
                               </p>
                             )}
@@ -1227,6 +1243,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 </div>
                               </div>
                             )}
+                            </>
+                          )}
                           </div>
                           
                           <div className="flex items-center gap-2 ml-4">
