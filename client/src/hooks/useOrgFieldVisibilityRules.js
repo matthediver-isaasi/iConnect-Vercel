@@ -7,11 +7,12 @@ const DEFAULT_RULES = {
   rules: []
 };
 
-export function useOrgFieldVisibilityRules() {
+export function useOrgFieldVisibilityRules({ enabled = true } = {}) {
   const queryClient = useQueryClient();
 
   const { data: rulesData, isLoading } = useQuery({
     queryKey: ['org-field-visibility-rules'],
+    enabled,
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === RULES_SETTING_KEY);

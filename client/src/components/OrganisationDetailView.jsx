@@ -175,7 +175,7 @@ export default function OrganisationDetailView({
   isNew = false,
   onCreated 
 }) {
-  const { isAdmin, memberInfo } = useMemberAccess();
+  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
 
@@ -262,8 +262,8 @@ export default function OrganisationDetailView({
     }
   }, [organization, isEditing]);
   
-  const { layoutConfig, saveLayout, isSaving: isLayoutSaving, isLoading: isLayoutLoading } = useOrgDetailLayout();
-  const { rulesConfig, saveRules, isSaving: isRulesSaving, isLoading: isRulesLoading } = useOrgFieldVisibilityRules();
+  const { layoutConfig, saveLayout, isSaving: isLayoutSaving, isLoading: isLayoutLoading } = useOrgDetailLayout({ enabled: isAccessReady });
+  const { rulesConfig, saveRules, isSaving: isRulesSaving, isLoading: isRulesLoading } = useOrgFieldVisibilityRules({ enabled: isAccessReady });
   const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
 
   const { data: orgMembersRaw = [], isLoading: membersLoading } = useQuery({

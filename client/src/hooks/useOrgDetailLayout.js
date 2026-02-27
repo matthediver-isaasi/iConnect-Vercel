@@ -59,11 +59,12 @@ export const CORE_FIELDS = [
   { id: 'core:created_at', fieldKey: 'created_at', label: 'Created Date', type: 'date' }
 ];
 
-export function useOrgDetailLayout() {
+export function useOrgDetailLayout({ enabled = true } = {}) {
   const queryClient = useQueryClient();
 
   const { data: layoutData, isLoading } = useQuery({
     queryKey: ['org-detail-layout'],
+    enabled,
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === LAYOUT_SETTING_KEY);

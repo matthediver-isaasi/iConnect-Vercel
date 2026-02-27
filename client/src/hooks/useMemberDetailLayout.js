@@ -60,11 +60,12 @@ export const MEMBER_CORE_FIELDS = [
   { id: 'core:biography', fieldKey: 'biography', label: 'Biography', type: 'textarea' }
 ];
 
-export function useMemberDetailLayout() {
+export function useMemberDetailLayout({ enabled = true } = {}) {
   const queryClient = useQueryClient();
 
   const { data: layoutData, isLoading } = useQuery({
     queryKey: ['member-detail-layout'],
+    enabled,
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === LAYOUT_SETTING_KEY);

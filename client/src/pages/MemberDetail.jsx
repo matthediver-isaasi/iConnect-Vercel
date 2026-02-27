@@ -209,8 +209,8 @@ export default function MemberDetail() {
     queryFn: () => base44.entities.Role.list()
   });
 
-  const { layoutConfig, isLoading: isLayoutLoading, saveLayout, isSaving: isLayoutSaving } = useMemberDetailLayout();
-  const { rulesConfig, saveRules, isSaving: isRulesSaving } = useMemberFieldVisibilityRules();
+  const { layoutConfig, isLoading: isLayoutLoading, saveLayout, isSaving: isLayoutSaving } = useMemberDetailLayout({ enabled: isAccessReady });
+  const { rulesConfig, saveRules, isSaving: isRulesSaving } = useMemberFieldVisibilityRules({ enabled: isAccessReady });
 
   const { data: memberCustomFields = [] } = useQuery({
     queryKey: ['member-custom-fields-for-detail'],

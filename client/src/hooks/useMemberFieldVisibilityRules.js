@@ -8,11 +8,12 @@ const DEFAULT_RULES = {
   rules: []
 };
 
-export function useMemberFieldVisibilityRules() {
+export function useMemberFieldVisibilityRules({ enabled = true } = {}) {
   const queryClient = useQueryClient();
 
   const { data: rulesData, isLoading } = useQuery({
     queryKey: ['member-field-visibility-rules'],
+    enabled,
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === RULES_SETTING_KEY);
