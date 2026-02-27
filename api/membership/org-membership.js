@@ -302,7 +302,12 @@ async function handleGet(req, res, tenantId) {
   const currentYear = calculateMembershipYear(config);
   const nextYear = calculateNextMembershipYear(config);
 
-  const annualCostRaw = matchedBand ? parseFloat(matchedBand.annual_cost) : null;
+  let annualCostRaw = null;
+  if (config.pricing_model === 'flat' && config.flat_cost != null) {
+    annualCostRaw = parseFloat(config.flat_cost);
+  } else if (matchedBand) {
+    annualCostRaw = parseFloat(matchedBand.annual_cost);
+  }
 
   const { data: historyRecords } = await supabase
     .from('organisation_membership_history')
