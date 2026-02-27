@@ -53,6 +53,8 @@ export default async function handler(req, res) {
 
     query = query.eq('tenant_id', tenantId);
 
+    query = query.not('email', 'like', 'deleted_%@deleted.local');
+
     if (search && search.trim()) {
       const searchTerm = `%${search.trim().toLowerCase()}%`;
       query = query.or(`first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},email.ilike.${searchTerm},mobile.ilike.${searchTerm},job_title.ilike.${searchTerm}`);

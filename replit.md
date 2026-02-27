@@ -54,6 +54,29 @@ Supports membership pricing based on organization or member attributes with hist
 ## UI/UX
 The frontend employs a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS to ensure a consistent, responsive user experience with a collapsible sidebar.
 
+# Database Connection Instructions
+⚠️ NEVER REMOVE THIS SECTION - These instructions are essential for database access ⚠️
+
+This project uses Supabase PostgreSQL databases. Direct psql commands and execute_sql_tool DO NOT WORK on Replit due to IPv6 connectivity issues.
+
+## Available Database Secrets
+- `SOURCE_DATABASE_URL` — Legacy single-tenant Supabase (original data source for migrations)
+- `DEST_DATABASE_URL` — New multi-tenant Supabase (production destination database)
+- `DEST_SUPABASE_KEY` — New multi-tenant Supabase service role key for Supabase client
+- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — Used by the app at runtime (points to SOURCE in Replit dev, DEST in Vercel prod)
+
+## How to Query the Database
+USE NODE.JS SCRIPTS with Supabase client — NOT psql or execute_sql_tool:
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient('https://lvmzliemqnieeoruhkik.supabase.co', process.env.DEST_SUPABASE_KEY);
+```
+- Tenant ID: `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+- See `scripts/debug-tenant.mjs` for a working example
+
+## Soft-Deleted Members
+Members are soft-deleted by changing their email to `deleted_<uuid>@deleted.local`. The utility `isDeletedMember()` in `client/src/utils/index.ts` checks for this pattern. Server-side queries should exclude these with `.not('email', 'like', 'deleted_%@deleted.local')`.
+
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.
 -   **Stripe:** Payment processing, supporting per-feature test/live mode switching.

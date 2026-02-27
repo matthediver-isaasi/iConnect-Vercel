@@ -820,7 +820,7 @@ export default function MembersListPage() {
 
           <div className="p-4 border-t border-slate-200 bg-slate-50 min-w-[288px]">
             <p className="text-xs text-slate-500">
-              Showing {filteredMembers.length} of {members.length} members
+              Showing {filteredMembers.length} of {pagination.total} members
             </p>
           </div>
         </aside>
@@ -845,7 +845,7 @@ export default function MembersListPage() {
                     Members
                   </h1>
                   <p className="text-sm text-slate-500">
-                    {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''}
+                    {pagination.total} member{pagination.total !== 1 ? 's' : ''}
                   </p>
                 </div>
               </div>
