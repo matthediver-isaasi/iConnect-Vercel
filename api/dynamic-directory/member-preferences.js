@@ -32,14 +32,13 @@ export default async function handler(req, res) {
 
       let query = supabase
         .from('member_preference_value')
-        .select('id, member_id, preference_field_id, value, tenant_id')
-        .eq('tenant_id', tenantId)
+        .select('id, member_id, field_id, value')
         .in('member_id', batch);
 
       if (field_ids) {
         const fieldIdList = field_ids.split(',').filter(Boolean);
         if (fieldIdList.length > 0) {
-          query = query.in('preference_field_id', fieldIdList);
+          query = query.in('field_id', fieldIdList);
         }
       }
 

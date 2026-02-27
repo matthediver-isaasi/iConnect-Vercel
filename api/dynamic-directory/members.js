@@ -187,8 +187,7 @@ async function getMemberIdsForFieldValue(tenantId, fieldId, filterValue) {
     const { data, error } = await supabase
       .from('member_preference_value')
       .select('member_id, value')
-      .eq('tenant_id', tenantId)
-      .eq('preference_field_id', fieldId)
+      .eq('field_id', fieldId)
       .range(offset, offset + batchSize - 1);
 
     if (error) {
