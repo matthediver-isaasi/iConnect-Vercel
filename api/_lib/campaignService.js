@@ -568,6 +568,60 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
           last_name: nameParts.slice(1).join(' ') || ''
         };
       });
+  } else if (targetType === 'audience_list' && targetIds.length > 0) {
+    const { data: lists } = await supabase
+      .from('audience_list')
+      .select('id, target_audiences, communication_category_id')
+      .eq('tenant_id', tenantId)
+      .in('id', targetIds);
+
+    if (lists && lists.length > 0) {
+      for (const list of lists) {
+        let listRecipients = [];
+        const savedAudiences = list.target_audiences;
+        if (Array.isArray(savedAudiences) && savedAudiences.length > 0) {
+          for (const segment of savedAudiences) {
+            if (segment.type === 'audience_list') continue;
+            const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId);
+            listRecipients.push(...segRecipients);
+          }
+        }
+
+        if (list.communication_category_id && listRecipients.length > 0) {
+          const memberRecipients = listRecipients.filter(r => r.member_id || r.id);
+          const memberIds = [...new Set(memberRecipients.map(r => r.member_id || r.id).filter(Boolean))];
+
+          if (memberIds.length > 0) {
+            const unsubscribedMemberIds = new Set();
+            const PAGE_SIZE = 1000;
+
+            for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
+              const batch = memberIds.slice(i, i + PAGE_SIZE);
+              const { data: prefs } = await supabase
+                .from('member_communication_preference')
+                .select('member_id, is_subscribed')
+                .eq('category_id', list.communication_category_id)
+                .eq('is_subscribed', false)
+                .in('member_id', batch);
+
+              if (prefs && prefs.length > 0) {
+                for (const p of prefs) {
+                  unsubscribedMemberIds.add(p.member_id);
+                }
+              }
+            }
+
+            listRecipients = listRecipients.filter(r => {
+              const memberId = r.member_id || r.id;
+              if (!memberId) return true;
+              return !unsubscribedMemberIds.has(memberId);
+            });
+          }
+        }
+
+        recipients.push(...listRecipients);
+      }
+    }
   }
 
   return recipients;

@@ -58,6 +58,11 @@ export default function EmailCampaignEdit() {
   const [recipientPage, setRecipientPage] = useState(1);
   const RECIPIENTS_PER_PAGE = 50;
 
+  const [showSaveListDialog, setShowSaveListDialog] = useState(false);
+  const [saveListName, setSaveListName] = useState('');
+  const [saveListCategoryId, setSaveListCategoryId] = useState('');
+  const [savingList, setSavingList] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '',
     subject: '',
@@ -206,6 +211,20 @@ export default function EmailCampaignEdit() {
       }
     },
     enabled: formData.target_audiences.some(a => a.type === 'fundraisers' || a.type === 'donors') || addAudienceType === 'fundraisers' || addAudienceType === 'donors',
+    staleTime: 60000
+  });
+
+  const { data: audienceLists = [] } = useQuery({
+    queryKey: ['audience-lists'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/audience-lists', { credentials: 'include' });
+        if (!response.ok) return [];
+        return response.json();
+      } catch (e) {
+        return [];
+      }
+    },
     staleTime: 60000
   });
 
@@ -669,7 +688,8 @@ export default function EmailCampaignEdit() {
                     form: 'Forms',
                     fundraisers: 'Fundraisers',
                     donors: 'Donors',
-                    all_members: 'All Members'
+                    all_members: 'All Members',
+                    audience_list: 'Saved Lists'
                   };
                   const typeLabel = typeLabels[segment.type] || segment.type;
                   let itemNames = [];
@@ -681,6 +701,13 @@ export default function EmailCampaignEdit() {
                     itemNames = (segment.ids || []).map(sid => roles.find(r => r.id === sid)?.name).filter(Boolean);
                   } else if (segment.type === 'form') {
                     itemNames = (segment.ids || []).map(sid => formsWithCategory.find(f => f.id === sid)?.name).filter(Boolean);
+                  } else if (segment.type === 'audience_list') {
+                    itemNames = (segment.ids || []).map(sid => {
+                      const list = audienceLists.find(l => l.id === sid);
+                      if (!list) return null;
+                      const catName = list.communication_category?.name;
+                      return catName ? `${list.name} (${catName})` : list.name;
+                    }).filter(Boolean);
                   } else if (segment.type === 'fundraisers' || segment.type === 'donors') {
                     if (segment.ids?.includes('all')) {
                       itemNames = [segment.type === 'fundraisers' ? 'All fundraisers' : 'All donors'];
@@ -766,6 +793,9 @@ export default function EmailCampaignEdit() {
                       {!formData.target_audiences.some(a => a.type === 'donors') && (
                         <SelectItem value="donors">Donors</SelectItem>
                       )}
+                      {audienceLists.length > 0 && (
+                        <SelectItem value="audience_list">Saved Lists</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -830,6 +860,23 @@ export default function EmailCampaignEdit() {
                           <span className="text-sm">{role.name}</span>
                         </label>
                       ))}
+                      {addAudienceType === 'audience_list' && (
+                        audienceLists.length === 0 ? (
+                          <div className="text-sm text-muted-foreground py-2">No saved lists found.</div>
+                        ) : audienceLists.map(list => (
+                          <label key={list.id} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={addAudienceIds.includes(list.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setAddAudienceIds(prev => [...prev, list.id]);
+                                else setAddAudienceIds(prev => prev.filter(i => i !== list.id));
+                              }} className="rounded" />
+                            <span className="text-sm">{list.name}</span>
+                            {list.communication_category?.name && (
+                              <span className="text-xs text-muted-foreground ml-1">({list.communication_category.name})</span>
+                            )}
+                          </label>
+                        ))
+                      )}
                       {(addAudienceType === 'fundraisers' || addAudienceType === 'donors') && (
                         fundraisingCampaigns.length === 0 ? (
                           <div className="text-sm text-muted-foreground py-2">No fundraising campaigns found.</div>
@@ -935,41 +982,56 @@ export default function EmailCampaignEdit() {
                     )}
                   </div>
                   {recipientPreviewCount !== null && recipientPreviewCount > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={async () => {
-                        setLoadingRecipientList(true);
-                        setShowRecipientListDialog(true);
-                        setRecipientPage(1);
-                        try {
-                          const response = await fetch('/api/email-campaigns/send', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
-                            body: JSON.stringify({
-                              campaignId: 'preview',
-                              preview: true,
-                              previewList: true,
-                              targetAudiences: formData.target_audiences
-                            })
-                          });
-                          if (response.ok) {
-                            const data = await response.json();
-                            setRecipientList(data.recipients || []);
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          setLoadingRecipientList(true);
+                          setShowRecipientListDialog(true);
+                          setRecipientPage(1);
+                          try {
+                            const response = await fetch('/api/email-campaigns/send', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({
+                                campaignId: 'preview',
+                                preview: true,
+                                previewList: true,
+                                targetAudiences: formData.target_audiences
+                              })
+                            });
+                            if (response.ok) {
+                              const data = await response.json();
+                              setRecipientList(data.recipients || []);
+                            }
+                          } catch (e) {
+                            console.error('Failed to fetch recipient list:', e);
+                            toast.error('Failed to load recipient list');
+                          } finally {
+                            setLoadingRecipientList(false);
                           }
-                        } catch (e) {
-                          console.error('Failed to fetch recipient list:', e);
-                          toast.error('Failed to load recipient list');
-                        } finally {
-                          setLoadingRecipientList(false);
-                        }
-                      }}
-                      data-testid="button-view-recipients"
-                    >
-                      <Users className="w-4 h-4 mr-1" />
-                      View Recipients
-                    </Button>
+                        }}
+                        data-testid="button-view-recipients"
+                      >
+                        <Users className="w-4 h-4 mr-1" />
+                        View Recipients
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSaveListName('');
+                          setSaveListCategoryId('');
+                          setShowSaveListDialog(true);
+                        }}
+                        data-testid="button-save-list"
+                      >
+                        <Save className="w-4 h-4 mr-1" />
+                        Save List
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1329,6 +1391,92 @@ export default function EmailCampaignEdit() {
                   {scheduleMode === 'scheduled' ? 'Schedule Campaign' : 'Send Now'}
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSaveListDialog} onOpenChange={setShowSaveListDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Save Audience List</DialogTitle>
+            <DialogDescription>
+              Save the current audience segments as a reusable list. Choose a communication category to control opt-out behaviour.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>List Name</Label>
+              <Input
+                value={saveListName}
+                onChange={(e) => setSaveListName(e.target.value)}
+                placeholder="e.g. AGM Event, Gala Event"
+                data-testid="input-save-list-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Communication Category</Label>
+              <Select value={saveListCategoryId} onValueChange={setSaveListCategoryId}>
+                <SelectTrigger data-testid="select-save-list-category">
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.filter(c => c.is_active !== false).map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Recipients who opt out of this category will be excluded when this list is used.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSaveListDialog(false)} data-testid="button-cancel-save-list">
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!saveListName.trim()) {
+                  toast.error('Please enter a list name');
+                  return;
+                }
+                if (!saveListCategoryId) {
+                  toast.error('Please select a communication category');
+                  return;
+                }
+                setSavingList(true);
+                try {
+                  const response = await fetch('/api/audience-lists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      name: saveListName.trim(),
+                      communication_category_id: saveListCategoryId,
+                      target_audiences: formData.target_audiences
+                    })
+                  });
+                  if (response.ok) {
+                    toast.success('Audience list saved successfully');
+                    setShowSaveListDialog(false);
+                    queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
+                  } else {
+                    const err = await response.json();
+                    toast.error(err.error || 'Failed to save list');
+                  }
+                } catch (e) {
+                  console.error('Failed to save audience list:', e);
+                  toast.error('Failed to save audience list');
+                } finally {
+                  setSavingList(false);
+                }
+              }}
+              disabled={savingList || !saveListName.trim() || !saveListCategoryId}
+              data-testid="button-confirm-save-list"
+            >
+              {savingList ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+              Save List
             </Button>
           </DialogFooter>
         </DialogContent>
