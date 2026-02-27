@@ -424,27 +424,41 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!memberInfo && !!prefillOrgId && form?.prefill_source === 'organization'
   });
 
-  // Prefill: Fetch custom field values for prefill entity
-  // Only enabled for authenticated users to prevent 401 errors on public pages
-  const { data: prefillCustomFieldValues = [] } = useQuery({
-    queryKey: ['prefill-custom-values-embed', form?.prefill_source, prefillMemberId, prefillOrgId],
+  // Prefill: Fetch member's organization when prefill_source = 'member'
+  const { data: prefillMemberOrg } = useQuery({
+    queryKey: ['prefill-member-org-embed', prefillMember?.organization_id],
     queryFn: async () => {
-      if (form?.prefill_source === 'member' && prefillMemberId) {
-        const values = await base44.entities.MemberPreferenceValue.list({
-          filter: { member_id: prefillMemberId }
-        });
-        return values || [];
-      } else if (form?.prefill_source === 'organization' && prefillOrgId) {
-        const values = await base44.entities.OrganizationPreferenceValue.list({
-          filter: { organization_id: prefillOrgId }
-        });
-        return values || [];
-      }
-      return [];
+      return base44.entities.Organization.get(prefillMember.organization_id);
     },
-    enabled: !!memberInfo && form?.prefill_source && form.prefill_source !== 'none' && 
-      ((form.prefill_source === 'member' && !!prefillMemberId) || 
-       (form.prefill_source === 'organization' && !!prefillOrgId))
+    enabled: !!memberInfo && !!prefillMember?.organization_id && form?.prefill_source === 'member'
+  });
+
+  // Prefill: Fetch member custom field values
+  const { data: prefillMemberCustomValues = [] } = useQuery({
+    queryKey: ['prefill-member-custom-values-embed', prefillMemberId],
+    queryFn: async () => {
+      const values = await base44.entities.MemberPreferenceValue.list({
+        filter: { member_id: prefillMemberId }
+      });
+      return values || [];
+    },
+    enabled: !!memberInfo && !!prefillMemberId && form?.prefill_source === 'member'
+  });
+
+  // Prefill: Fetch org custom field values (from direct org prefill or member's org)
+  const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization'
+    ? prefillOrgId
+    : prefillMember?.organization_id;
+
+  const { data: prefillOrgCustomValues = [] } = useQuery({
+    queryKey: ['prefill-org-custom-values-embed', effectiveOrgIdForCustomFields],
+    queryFn: async () => {
+      const values = await base44.entities.OrganizationPreferenceValue.list({
+        filter: { organization_id: effectiveOrgIdForCustomFields }
+      });
+      return values || [];
+    },
+    enabled: !!memberInfo && !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
   });
 
   // Find the organisation_dropdown field (if any) to determine selected org for domain validation
@@ -537,48 +551,69 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // Prefill: Populate form values when prefill entity loads (one-time only)
   useEffect(() => {
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
-    if (!defaultsInitialized) return; // Wait for boolean defaults to be set first
-    if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
+    if (!defaultsInitialized) return;
+    if (prefillApplied) return;
     
-    const entity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
-    if (!entity) return;
+    const memberEntity = prefillMember;
+    const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
+    const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
+    if (!primaryEntity) return;
+
+    const parseCustomFieldValue = (cfv, fieldType) => {
+      if (!cfv || cfv.value === undefined || cfv.value === null) return null;
+      let parsedValue = cfv.value;
+      if (fieldType === 'list') {
+        try {
+          const parsed = JSON.parse(cfv.value);
+          parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
+        } catch {
+          parsedValue = cfv.value ? [cfv.value] : [];
+        }
+      }
+      return parsedValue;
+    };
     
     const newValues = {};
     for (const field of (form.fields || [])) {
-      // Special handling for organisation_dropdown: always use the entity's ID
       if (field.type === 'organisation_dropdown') {
         if (form.prefill_source === 'organization' && prefillOrgId) {
           newValues[field.id] = prefillOrgId;
-        } else if (form.prefill_source === 'member' && entity.organization_id) {
-          newValues[field.id] = entity.organization_id;
+        } else if (form.prefill_source === 'member' && memberEntity?.organization_id) {
+          newValues[field.id] = memberEntity.organization_id;
         }
         continue;
       }
       
-      if (field.prefill_field) {
-        // Check if custom field (prefixed with 'custom:')
-        if (field.prefill_field.startsWith('custom:')) {
-          const customFieldId = field.prefill_field.replace('custom:', '');
-          const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
-          if (cfv && cfv.value !== undefined && cfv.value !== null) {
-            let parsedValue = cfv.value;
-            // For list fields, custom field values are stored as JSON strings
-            if (field.type === 'list') {
-              try {
-                const parsed = JSON.parse(cfv.value);
-                parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
-              } catch {
-                parsedValue = cfv.value ? [cfv.value] : [];
-              }
-            }
-            newValues[field.id] = parsedValue;
-          }
-        } else {
-          // Core field - get value from entity
-          if (entity[field.prefill_field] !== undefined) {
-            newValues[field.id] = entity[field.prefill_field];
-          }
-        }
+      if (!field.prefill_field) continue;
+
+      const prefillField = field.prefill_field;
+      let value = null;
+
+      if (prefillField.startsWith('member:')) {
+        const fieldName = prefillField.replace('member:', '');
+        value = memberEntity?.[fieldName];
+      } else if (prefillField.startsWith('org:')) {
+        const fieldName = prefillField.replace('org:', '');
+        value = orgEntity?.[fieldName];
+      } else if (prefillField.startsWith('member_custom:')) {
+        const customFieldId = prefillField.replace('member_custom:', '');
+        const cfv = prefillMemberCustomValues.find(v => v.field_id === customFieldId);
+        value = parseCustomFieldValue(cfv, field.type);
+      } else if (prefillField.startsWith('org_custom:')) {
+        const customFieldId = prefillField.replace('org_custom:', '');
+        const cfv = prefillOrgCustomValues.find(v => v.field_id === customFieldId);
+        value = parseCustomFieldValue(cfv, field.type);
+      } else if (prefillField.startsWith('custom:')) {
+        const customFieldId = prefillField.replace('custom:', '');
+        const customValues = form.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const cfv = customValues.find(v => v.field_id === customFieldId);
+        value = parseCustomFieldValue(cfv, field.type);
+      } else {
+        value = primaryEntity?.[prefillField];
+      }
+
+      if (value !== null && value !== undefined) {
+        newValues[field.id] = value;
       }
     }
     
@@ -587,12 +622,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         const merged = { ...prev };
         for (const [key, value] of Object.entries(newValues)) {
           const field = form.fields?.find(f => f.id === key);
-          // For boolean fields, always allow prefill to override defaults
           if (field?.type === 'boolean') {
             merged[key] = value;
-          }
-          // For non-boolean fields, only prefill if empty/null/undefined
-          else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
+          } else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
             merged[key] = value;
           }
         }
@@ -600,7 +632,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       });
       setPrefillApplied(true);
     }
-  }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied, defaultsInitialized, prefillOrgId]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId]);
 
   // Helper to evaluate a rule condition
   const evaluateCondition = (triggerValue, operator, value) => {

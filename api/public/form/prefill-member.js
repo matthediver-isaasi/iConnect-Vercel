@@ -105,8 +105,7 @@ export default async function handler(req, res) {
     const { data: customValues, error: cvError } = await supabase
       .from('member_preference_value')
       .select('id, member_id, field_id, value')
-      .eq('member_id', member_id)
-      .eq('tenant_id', tenantId);
+      .eq('member_id', member_id);
 
     if (cvError) {
       console.error('[Public Prefill Member] Error fetching custom values:', cvError);
