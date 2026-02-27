@@ -3,13 +3,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, Calendar, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2 } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { useMemberDetailLayout, mergeLayoutWithCustomFields, MEMBER_CORE_FIELDS } from "@/hooks/useMemberDetailLayout";
 import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
+import { useMemberFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useMemberFieldVisibilityRules";
+import MemberFieldVisibilityRulesEditor from "@/components/MemberFieldVisibilityRulesEditor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,6 +100,7 @@ export default function MemberDetail() {
   
   // Layout state
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
+  const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState({});
   const [customFieldValues, setCustomFieldValues] = useState({});
 
@@ -207,6 +210,7 @@ export default function MemberDetail() {
   });
 
   const { layoutConfig, isLoading: isLayoutLoading, saveLayout, isSaving: isLayoutSaving } = useMemberDetailLayout();
+  const { rulesConfig, saveRules, isSaving: isRulesSaving } = useMemberFieldVisibilityRules();
 
   const { data: memberCustomFields = [] } = useQuery({
     queryKey: ['member-custom-fields-for-detail'],
@@ -863,12 +867,20 @@ export default function MemberDetail() {
     }
   };
 
+  const { hiddenFields, hiddenCards } = evaluateVisibilityRules(
+    rulesConfig,
+    { ...formData, custom_field_values: customFieldValues },
+    memberCustomFields
+  );
+
   const renderLayoutCard = (card) => {
     if (card.fields.length === 0) return null;
+    if (hiddenCards.has(card.id)) return null;
     const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
     const isCollapsed = collapsedSections[card.id];
 
     const renderField = (field) => {
+      if (hiddenFields.has(field.id)) return null;
       if (field.type === 'core') {
         return <div key={field.id}>{renderMemberCoreField(field.fieldKey)}</div>;
       } else {
@@ -964,6 +976,10 @@ export default function MemberDetail() {
               <Button variant="outline" size="sm" onClick={() => setShowLayoutEditor(true)} disabled={isLayoutLoading} data-testid="button-customize-member-layout">
                 <LayoutGrid className="w-4 h-4 mr-1" />
                 Customize Layout
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowRulesEditor(true)} data-testid="button-member-visibility-rules">
+                <Settings2 className="w-4 h-4 mr-1" />
+                Rules
               </Button>
               <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
                 <Pencil className="w-4 h-4 mr-1" />
@@ -2043,6 +2059,17 @@ export default function MemberDetail() {
           isSaving={isLayoutSaving}
         />
       )}
+
+      <MemberFieldVisibilityRulesEditor
+        open={showRulesEditor}
+        onOpenChange={setShowRulesEditor}
+        rulesConfig={rulesConfig}
+        customFields={memberCustomFields}
+        layoutCards={effectiveLayout?.cards || []}
+        onSave={saveRules}
+        onCancel={() => setShowRulesEditor(false)}
+        isSaving={isRulesSaving}
+      />
 
       <WorkflowConfirmationModal
         open={showConfirmationModal}
