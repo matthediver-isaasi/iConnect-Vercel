@@ -1161,7 +1161,12 @@ export default function MemberDetail() {
                         <Building2 className="w-4 h-4 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900 text-sm">{org.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-slate-900 text-sm">{org.name}</p>
+                          <Link to={`/organisations/${org.id}`} className="text-slate-400 hover:text-blue-600 transition-colors" data-testid="link-go-to-org">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Link>
+                        </div>
                         {org.website_url && (
                           <a
                             href={org.website_url}
