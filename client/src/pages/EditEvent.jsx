@@ -550,6 +550,8 @@ export default function EditEvent() {
     email_type: emailType,
     timing_type: emailType === 'booking_confirmation' ? null : '1_day_before',
     custom_hours_before: null,
+    custom_unit: 'hours',
+    custom_send_at: null,
     subject: emailType === 'booking_confirmation' 
       ? 'Your booking confirmation for {{event_name}}'
       : 'Reminder: {{event_name}} is coming up!',
@@ -3015,17 +3017,55 @@ export default function EditEvent() {
                           </Select>
                           
                           {email.timing_type === 'custom' && (
-                            <div className="mt-2 flex items-center gap-2">
-                              <Input
-                                type="number"
-                                min="1"
-                                value={email.custom_hours_before || ''}
-                                onChange={(e) => updateEventEmail(email.id, 'custom_hours_before', parseInt(e.target.value) || null)}
-                                placeholder="Hours"
-                                className="w-24 bg-white"
-                                data-testid={`input-custom-hours-${email.id}`}
-                              />
-                              <span className="text-sm text-slate-600">hours before event</span>
+                            <div className="mt-2 space-y-2">
+                              <Select
+                                value={email.custom_unit || 'hours'}
+                                onValueChange={(value) => updateEventEmail(email.id, 'custom_unit', value)}
+                              >
+                                <SelectTrigger className="w-full bg-white" data-testid={`select-custom-unit-${email.id}`}>
+                                  <SelectValue placeholder="Select unit" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="days">Days before event</SelectItem>
+                                  <SelectItem value="hours">Hours before event</SelectItem>
+                                  <SelectItem value="minutes">Minutes before event</SelectItem>
+                                  <SelectItem value="specific_datetime">Specific date & time</SelectItem>
+                                </SelectContent>
+                              </Select>
+
+                              {(email.custom_unit || 'hours') !== 'specific_datetime' ? (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={email.custom_hours_before || ''}
+                                    onChange={(e) => updateEventEmail(email.id, 'custom_hours_before', parseInt(e.target.value) || null)}
+                                    placeholder={
+                                      (email.custom_unit || 'hours') === 'days' ? 'Days' :
+                                      (email.custom_unit || 'hours') === 'minutes' ? 'Minutes' : 'Hours'
+                                    }
+                                    className="w-24 bg-white"
+                                    data-testid={`input-custom-value-${email.id}`}
+                                  />
+                                  <span className="text-sm text-slate-600">
+                                    {(email.custom_unit || 'hours') === 'days' ? 'days before event' :
+                                     (email.custom_unit || 'hours') === 'minutes' ? 'minutes before event' : 'hours before event'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div>
+                                  <Input
+                                    type="datetime-local"
+                                    value={email.custom_send_at ? email.custom_send_at.slice(0, 16) : ''}
+                                    onChange={(e) => updateEventEmail(email.id, 'custom_send_at', e.target.value ? new Date(e.target.value).toISOString() : null)}
+                                    className="w-full bg-white"
+                                    data-testid={`input-custom-datetime-${email.id}`}
+                                  />
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    Choose the exact date and time to send this reminder
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

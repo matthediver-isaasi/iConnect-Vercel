@@ -67,11 +67,17 @@ export default async function handler(req, res) {
       const savedEmails = [];
 
       for (const email of emails) {
+        const resolvedUnit = email.timing_type === 'custom' ? (email.custom_unit || 'hours') : null;
+        const resolvedSendAt = (email.timing_type === 'custom' && resolvedUnit === 'specific_datetime' && email.custom_send_at)
+          ? email.custom_send_at : null;
+
         const emailData = {
           event_id: eventId,
           email_type: email.email_type,
           timing_type: email.timing_type || null,
           custom_hours_before: email.custom_hours_before || null,
+          custom_unit: resolvedUnit,
+          custom_send_at: resolvedSendAt,
           subject: email.subject,
           body: email.body,
           is_enabled: email.is_enabled !== false,
@@ -157,10 +163,9 @@ async function scheduleReminderEmails(eventId) {
     const eventStart = new Date(event.start_date);
     
     for (const email of reminderEmails) {
-      const hoursBeforeEvent = getHoursFromTimingType(email.timing_type, email.custom_hours_before);
-      const scheduledTime = new Date(eventStart.getTime() - hoursBeforeEvent * 60 * 60 * 1000);
+      const scheduledTime = calculateScheduledTime(eventStart, email);
 
-      if (scheduledTime <= new Date()) {
+      if (!scheduledTime || scheduledTime <= new Date()) {
         continue;
       }
 
@@ -200,7 +205,21 @@ async function scheduleReminderEmails(eventId) {
   }
 }
 
-function getHoursFromTimingType(timingType, customHours) {
+function calculateScheduledTime(eventStart, email) {
+  const { timing_type, custom_hours_before, custom_unit, custom_send_at } = email;
+
+  if (timing_type === 'custom' && custom_unit === 'specific_datetime') {
+    if (custom_send_at) {
+      return new Date(custom_send_at);
+    }
+    return null;
+  }
+
+  const hoursBeforeEvent = getHoursFromTimingType(timing_type, custom_hours_before, custom_unit);
+  return new Date(eventStart.getTime() - hoursBeforeEvent * 60 * 60 * 1000);
+}
+
+function getHoursFromTimingType(timingType, customValue, customUnit) {
   switch (timingType) {
     case '7_days_before': return 7 * 24;
     case '3_days_before': return 3 * 24;
@@ -209,7 +228,15 @@ function getHoursFromTimingType(timingType, customHours) {
     case '6_hours_before': return 6;
     case '1_hour_before': return 1;
     case '30_minutes_before': return 0.5;
-    case 'custom': return customHours || 24;
+    case 'custom': {
+      const value = customValue || 24;
+      switch (customUnit) {
+        case 'days': return value * 24;
+        case 'minutes': return value / 60;
+        case 'hours':
+        default: return value;
+      }
+    }
     default: return 24;
   }
 }
