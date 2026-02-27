@@ -84,11 +84,11 @@ export default async function handler(req, res) {
       .from('member')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenantId)
-      .neq('show_in_directory', false)
+      .or('show_in_directory.is.null,show_in_directory.neq.false')
       .not('email', 'ilike', 'deleted_%@deleted.local');
 
     if (!showDisabled) {
-      countQuery = countQuery.neq('login_enabled', false);
+      countQuery = countQuery.or('login_enabled.is.null,login_enabled.neq.false');
     }
 
     if (memberIds) {
@@ -111,11 +111,11 @@ export default async function handler(req, res) {
       .from('member')
       .select('id, first_name, last_name, email, job_title, organization_id, profile_photo_url, login_enabled, show_in_directory, role_id, handle, biography, mobile')
       .eq('tenant_id', tenantId)
-      .neq('show_in_directory', false)
+      .or('show_in_directory.is.null,show_in_directory.neq.false')
       .not('email', 'ilike', 'deleted_%@deleted.local');
 
     if (!showDisabled) {
-      dataQuery = dataQuery.neq('login_enabled', false);
+      dataQuery = dataQuery.or('login_enabled.is.null,login_enabled.neq.false');
     }
 
     if (memberIds) {
