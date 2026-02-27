@@ -109,7 +109,7 @@ export default async function handler(req, res) {
 
     let dataQuery = supabase
       .from('member')
-      .select('id, first_name, last_name, email, job_title, organization_id, profile_photo, linkedin_url, bio, login_enabled, show_in_directory, role_id')
+      .select('id, first_name, last_name, email, job_title, organization_id, profile_photo_url, linkedin_url, bio, login_enabled, show_in_directory, role_id')
       .eq('tenant_id', tenantId)
       .neq('show_in_directory', false)
       .not('email', 'ilike', 'deleted_%@deleted.local');
