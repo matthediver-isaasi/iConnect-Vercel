@@ -240,6 +240,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const overlayScrollRef = useRef(null);
   const [overlayRect, setOverlayRect] = useState(null);
   const [navLinePath, setNavLinePath] = useState('');
+  const subDotCorrectionRef = useRef(0);
   const [subDotCorrection, setSubDotCorrection] = useState(0);
   const {
     title,
@@ -578,20 +579,24 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const parentCx = parentDot.getBoundingClientRect().left + parentDot.getBoundingClientRect().width / 2;
     const subCx = subDot.getBoundingClientRect().left + subDot.getBoundingClientRect().width / 2;
     const subOffX = typeof parentWithSubs.sub_items[0].offset_x === 'number' ? parentWithSubs.sub_items[0].offset_x : sub_offset_x;
-    const rawDelta = parentCx - subCx + subOffX;
-    const newCorrection = Math.round(rawDelta);
-    setSubDotCorrection(prev => Math.abs(newCorrection - prev) > 0.5 ? newCorrection : prev);
+    const currentCorrection = subDotCorrectionRef.current;
+    const naturalDelta = parentCx - (subCx - currentCorrection - subOffX);
+    const newCorrection = Math.round(naturalDelta);
+    if (Math.abs(newCorrection - currentCorrection) > 0.5) {
+      subDotCorrectionRef.current = newCorrection;
+      setSubDotCorrection(newCorrection);
+    }
   }, [items, sub_offset_x, isLeftLabel]);
 
   useEffect(() => {
     computeNavLine();
     measureSubDotCorrection();
-    const timer = setTimeout(() => { computeNavLine(); measureSubDotCorrection(); }, 100);
+    const timer = setTimeout(() => { measureSubDotCorrection(); computeNavLine(); }, 100);
     return () => clearTimeout(timer);
-  }, [computeNavLine, measureSubDotCorrection, items, activeYear, sub_offset_x, sub_offset_y, subDotCorrection]);
+  }, [computeNavLine, measureSubDotCorrection, items, activeYear, sub_offset_x, sub_offset_y]);
 
   useEffect(() => {
-    const observer = new ResizeObserver(() => { computeNavLine(); measureSubDotCorrection(); });
+    const observer = new ResizeObserver(() => { measureSubDotCorrection(); computeNavLine(); });
     if (navRef.current) observer.observe(navRef.current);
     return () => observer.disconnect();
   }, [computeNavLine, measureSubDotCorrection]);
