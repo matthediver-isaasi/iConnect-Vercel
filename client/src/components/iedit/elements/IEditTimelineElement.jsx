@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -231,6 +231,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [isExpanded, setIsExpanded] = useState(!!(content || {}).auto_expand);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
+  const navRef = useRef(null);
   const contentPanelRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const isClickScrolling = useRef(false);
@@ -238,6 +239,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [bgLeft, setBgLeft] = useState(0);
   const overlayScrollRef = useRef(null);
   const [overlayRect, setOverlayRect] = useState(null);
+  const [navLinePath, setNavLinePath] = useState('');
 
   const {
     title,
@@ -264,11 +266,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     rail_background_gradient_angle = 135,
     rail_background_image,
     rail_gradient_stops,
-    rail_gradient_angle = 180
+    rail_gradient_angle = 180,
+    nav_top_offset = 0,
+    label_position = 'below',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
   const effectiveRailBgType = _rail_bg_type || (rail_background_image ? 'image' : 'none');
+  const isLeftLabel = label_position === 'left';
 
   useEffect(() => {
     if (isExpanded) {
@@ -334,7 +339,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   useEffect(() => {
     if (!activeYear || !railRef.current) return;
-    const activeMarker = railRef.current.querySelector(`[data-testid="timeline-marker-${activeYear}"]`);
+    const activeMarker = railRef.current.querySelector(`[data-testid="timeline-marker-${activeYear}"]`) ||
+      railRef.current.querySelector(`[data-testid="timeline-marker-sub-${activeYear}"]`);
     if (activeMarker) {
       const rail = railRef.current;
       const railRect = rail.getBoundingClientRect();
@@ -480,6 +486,86 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     }
   }, [items]);
 
+  const computeNavLine = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav || !items.length) { setNavLinePath(''); return; }
+    const navRect = nav.getBoundingClientRect();
+    const navH = navRect.height;
+    if (!navH) return;
+
+    const findDotCenter = (el) => {
+      if (!el) return null;
+      const dotEl = el.querySelector('[class*="rounded-full"], svg');
+      const dotR = dotEl ? dotEl.getBoundingClientRect() : el.getBoundingClientRect();
+      return {
+        cx: dotR.left + dotR.width / 2 - navRect.left,
+        cy: dotR.top + dotR.height / 2 - navRect.top,
+      };
+    };
+
+    const markers = [];
+    let mainX = null;
+    items.forEach((item) => {
+      const el = nav.querySelector(`[data-testid="timeline-marker-${item.year}"]`);
+      const pos = findDotCenter(el);
+      if (pos) {
+        if (mainX === null) mainX = pos.cx;
+        markers.push({ type: 'parent', ...pos, year: item.year });
+      }
+      (item.sub_items || []).forEach((sub, sIdx) => {
+        const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+        const subEl = nav.querySelector(`[data-testid="timeline-marker-sub-${subKey}"]`);
+        const subPos = findDotCenter(subEl);
+        if (subPos) {
+          markers.push({ type: 'sub', ...subPos, year: subKey });
+        }
+      });
+    });
+
+    if (!markers.length || mainX === null) { setNavLinePath(''); return; }
+
+    let d = `M ${mainX} 0`;
+    let curY = 0;
+
+    for (let i = 0; i < markers.length; i++) {
+      const m = markers[i];
+      if (m.type === 'parent') {
+        d += ` L ${mainX} ${m.cy}`;
+        curY = m.cy;
+      } else {
+        const diagDist = Math.abs(m.cx - mainX);
+        const diagStartY = Math.max(curY, m.cy - diagDist);
+        d += ` L ${mainX} ${diagStartY}`;
+        d += ` L ${m.cx} ${m.cy}`;
+        const nextMarker = markers[i + 1];
+        if (nextMarker) {
+          const returnDist = nextMarker.type === 'sub' ? 0 : diagDist;
+          const returnY = m.cy + returnDist;
+          d += ` L ${mainX} ${returnY}`;
+          curY = returnY;
+        } else {
+          d += ` L ${mainX} ${m.cy + diagDist}`;
+          curY = m.cy + diagDist;
+        }
+      }
+    }
+
+    d += ` L ${mainX} ${navH}`;
+    setNavLinePath(d);
+  }, [items, marker_size, isLeftLabel, nav_top_offset]);
+
+  useEffect(() => {
+    computeNavLine();
+    const timer = setTimeout(computeNavLine, 100);
+    return () => clearTimeout(timer);
+  }, [computeNavLine, items, activeYear]);
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => computeNavLine());
+    if (navRef.current) observer.observe(navRef.current);
+    return () => observer.disconnect();
+  }, [computeNavLine]);
+
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
     if (!el) return;
@@ -534,6 +620,63 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     </button>
   );
 
+  const renderMarkerDot = (item, isActive, size_override) => {
+    const hl = item.highlight;
+    const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
+    const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
+    const customColor = hl?.enabled && hl.marker_color ? hl.marker_color : null;
+    const markerBg = hl?.enabled && hl.marker_bg ? hl.marker_bg : null;
+    const markerBorderColor = hl?.enabled && hl.marker_border_color ? hl.marker_border_color : null;
+    const mSize = size_override || marker_size;
+    const defaultColor = isActive ? active_color : line_color;
+    const fillColor = customColor || defaultColor;
+
+    const wrapperStyle = {};
+    if (markerBg || markerBorderColor) {
+      const pad = Math.max(4, Math.round(mSize * 0.35));
+      wrapperStyle.padding = `${pad}px`;
+      wrapperStyle.borderRadius = '50%';
+      wrapperStyle.display = 'flex';
+      wrapperStyle.alignItems = 'center';
+      wrapperStyle.justifyContent = 'center';
+      if (markerBg) wrapperStyle.backgroundColor = markerBg;
+      if (markerBorderColor) {
+        wrapperStyle.border = `2px solid ${markerBorderColor}`;
+      }
+    }
+
+    const hasWrapper = markerBg || markerBorderColor;
+    const size = isActive ? mSize + 4 : mSize;
+
+    if (ShapeIcon) {
+      const icon = (
+        <ShapeIcon
+          className="transition-all duration-200"
+          style={{
+            width: `${size}px`,
+            height: `${size}px`,
+            color: fillColor,
+            fill: fillColor,
+            filter: isActive ? `drop-shadow(0 0 3px ${fillColor}33)` : 'none',
+          }}
+        />
+      );
+      return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{icon}</div> : icon;
+    }
+    const dot = (
+      <div
+        className="rounded-full transition-all duration-200 ring-2 ring-white"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          backgroundColor: fillColor,
+          boxShadow: isActive ? `0 0 0 3px ${fillColor}33` : 'none'
+        }}
+      />
+    );
+    return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{dot}</div> : dot;
+  };
+
   const markerNav = (idx, item) => {
     const isActive = activeYear === item.year;
     return (
@@ -543,8 +686,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         role="tab"
         aria-selected={isActive}
         aria-current={isActive ? 'true' : undefined}
-        className="relative z-10 flex flex-col items-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-        style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}
+        className={`relative z-10 flex group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+          isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
+        }`}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
             e.preventDefault();
@@ -573,71 +717,29 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         }}
         data-testid={`timeline-marker-${item.year}`}
       >
-        {(() => {
-          const hl = item.highlight;
-          const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
-          const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
-          const customColor = hl?.enabled && hl.marker_color ? hl.marker_color : null;
-          const markerBg = hl?.enabled && hl.marker_bg ? hl.marker_bg : null;
-          const markerBorderColor = hl?.enabled && hl.marker_border_color ? hl.marker_border_color : null;
-          const defaultColor = isActive ? active_color : line_color;
-          const fillColor = customColor || defaultColor;
-
-          const wrapperStyle = {};
-          if (markerBg || markerBorderColor) {
-            const pad = Math.max(4, Math.round(marker_size * 0.35));
-            wrapperStyle.padding = `${pad}px`;
-            wrapperStyle.borderRadius = '50%';
-            wrapperStyle.display = 'flex';
-            wrapperStyle.alignItems = 'center';
-            wrapperStyle.justifyContent = 'center';
-            if (markerBg) wrapperStyle.backgroundColor = markerBg;
-            if (markerBorderColor) {
-              wrapperStyle.border = `2px solid ${markerBorderColor}`;
-            }
-          }
-
-          const hasWrapper = markerBg || markerBorderColor;
-
-          if (ShapeIcon) {
-            const size = isActive ? marker_size + 4 : marker_size;
-            const icon = (
-              <ShapeIcon
-                className="transition-all duration-200"
-                style={{
-                  width: `${size}px`,
-                  height: `${size}px`,
-                  color: fillColor,
-                  fill: fillColor,
-                  filter: isActive ? `drop-shadow(0 0 3px ${fillColor}33)` : 'none',
-                }}
-              />
-            );
-            return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{icon}</div> : icon;
-          }
-          const size = isActive ? marker_size + 4 : marker_size;
-          const dot = (
-            <div
-              className="rounded-full transition-all duration-200 ring-2 ring-white"
-              style={{
-                width: `${size}px`,
-                height: `${size}px`,
-                backgroundColor: fillColor,
-                boxShadow: isActive ? `0 0 0 3px ${fillColor}33` : 'none'
-              }}
-            />
-          );
-          return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{dot}</div> : dot;
-        })()}
-        <span
-          className="mt-1.5 text-sm transition-colors duration-200"
-          style={{
-            fontWeight: isActive ? 700 : 500,
-            color: isActive ? active_color : '#9ca3af'
-          }}
-        >
-          {item.year}
-        </span>
+        {isLeftLabel && (
+          <span
+            className="mr-2 text-sm whitespace-nowrap transition-colors duration-200"
+            style={{
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? active_color : '#9ca3af'
+            }}
+          >
+            {item.year}
+          </span>
+        )}
+        {renderMarkerDot(item, isActive)}
+        {!isLeftLabel && (
+          <span
+            className="mt-1.5 text-sm transition-colors duration-200"
+            style={{
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? active_color : '#9ca3af'
+            }}
+          >
+            {item.year}
+          </span>
+        )}
       </button>
     );
   };
@@ -719,6 +821,46 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             </div>
           </div>
         ) : innerContent}
+      </div>
+    );
+  };
+
+  const subContentSection = (sub, subKey, inOverlay = false) => {
+    const isActive = activeYear === subKey;
+    const effectiveOffset = isExpanded ? 16 : header_offset;
+    const widthStyle = getContentWidthStyle(content, inOverlay);
+
+    return (
+      <div
+        key={subKey}
+        ref={(el) => setSectionRef(subKey, el)}
+        data-year={subKey}
+        style={{
+          scrollMarginTop: `${effectiveOffset + 8}px`,
+          marginBottom: '32px',
+          ...widthStyle,
+        }}
+        data-testid={`timeline-section-${subKey}`}
+      >
+        <div className="border-l-2 pl-4 ml-2" style={{ borderColor: isActive ? active_color : line_color }}>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span
+              className="text-lg font-semibold transition-colors duration-200"
+              style={{ color: isActive ? active_color : '#9ca3af' }}
+            >
+              {sub.year}
+            </span>
+            {sub.heading && (
+              <h4 className="text-base font-medium" style={{ color: '#1e293b' }}>{sub.heading}</h4>
+            )}
+          </div>
+          {sub.body && (
+            <div
+              className="prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
+            />
+          )}
+        </div>
       </div>
     );
   };
@@ -966,20 +1108,89 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           }}
         >
           <style>{`[data-timeline-rail]::-webkit-scrollbar { display: none; }`}</style>
-          <nav className="relative flex flex-col items-center py-2" role="tablist" aria-label="Timeline years">
-            <div
-              className="absolute left-1/2 -translate-x-1/2 w-0.5 rounded-full"
-              style={{ backgroundColor: line_color, top: `${marker_size / 2}px`, bottom: `${marker_size / 2}px` }}
-              aria-hidden="true"
-            />
-            {items.map((item, idx) => markerNav(idx, item))}
+          <nav
+            ref={navRef}
+            className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_top_offset}px` }}
+            role="tablist"
+            aria-label="Timeline years"
+          >
+            {navLinePath && (
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                style={{ zIndex: 1 }}
+                aria-hidden="true"
+              >
+                <path
+                  d={navLinePath}
+                  fill="none"
+                  stroke={line_color}
+                  strokeWidth={2}
+                />
+              </svg>
+            )}
+            {items.map((item, idx) => {
+              const subs = item.sub_items || [];
+              return (
+                <div key={item.year} className="flex flex-col" style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}>
+                  {markerNav(idx, item)}
+                  {subs.length > 0 && subs.map((sub, sIdx) => {
+                    const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                    const isSubActive = activeYear === subKey;
+                    return (
+                      <button
+                        key={subKey}
+                        onClick={() => scrollToSection(subKey)}
+                        className={`relative z-10 flex group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                          isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
+                        }`}
+                        style={{ marginTop: '16px', marginLeft: isLeftLabel ? '0px' : '20px' }}
+                        data-testid={`timeline-marker-sub-${subKey}`}
+                        data-sub-marker
+                      >
+                        {isLeftLabel && (
+                          <span
+                            className="mr-2 text-xs whitespace-nowrap transition-colors duration-200"
+                            style={{
+                              fontWeight: isSubActive ? 700 : 500,
+                              color: isSubActive ? active_color : '#9ca3af'
+                            }}
+                          >
+                            {sub.year}
+                          </span>
+                        )}
+                        {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7))}
+                        {!isLeftLabel && (
+                          <span
+                            className="mt-1 text-xs transition-colors duration-200"
+                            style={{
+                              fontWeight: isSubActive ? 700 : 500,
+                              color: isSubActive ? active_color : '#9ca3af'
+                            }}
+                          >
+                            {sub.year}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </nav>
         </div>
         <div ref={contentPanelRef} className="flex-1 min-w-0 relative">
           {!inOverlay && hasContentBg && renderBgLayer(effectiveBgType, contentBgProps, bgFixedBase, 'timeline-background')}
           {!inOverlay && !isUnified && hasRailBg && renderBgLayer(effectiveRailBgType, railBgProps, railBgBase, 'timeline-rail-background')}
           <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined, width: '100%' }}>
-            {items.map((item, idx) => contentSection(item, idx, inOverlay))}
+            {items.flatMap((item, idx) => {
+              const sections = [contentSection(item, idx, inOverlay)];
+              (item.sub_items || []).forEach((sub, sIdx) => {
+                const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                sections.push(subContentSection(sub, subKey, inOverlay));
+              });
+              return sections;
+            })}
           </div>
         </div>
       </div>
@@ -1065,7 +1276,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                       ))}
                     </div>
                     <div className="space-y-8">
-                      {items.map((item) => mobileContentSection(item, true))}
+                      {items.flatMap((item) => {
+                        const sections = [mobileContentSection(item, true)];
+                        (item.sub_items || []).forEach((sub, sIdx) => {
+                          const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                          sections.push(subContentSection(sub, subKey, true));
+                        });
+                        return sections;
+                      })}
                     </div>
                   </>
                 ) : (
@@ -1114,7 +1332,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         </div>
 
         <div className="space-y-8">
-          {items.map((item) => mobileContentSection(item))}
+          {items.flatMap((item) => {
+            const sections = [mobileContentSection(item)];
+            (item.sub_items || []).forEach((sub, sIdx) => {
+              const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+              sections.push(subContentSection(sub, subKey));
+            });
+            return sections;
+          })}
         </div>
       </div>
     );
@@ -1264,6 +1489,33 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     newItems.splice(toIndex, 0, moved);
     updateContent('items', newItems);
     setExpandedItem(toIndex);
+  };
+
+  const addSubItem = (parentIndex) => {
+    const parent = items[parentIndex];
+    const subs = parent.sub_items || [];
+    const nextLabel = `${parent.year || '????'}.${subs.length + 1}`;
+    const newSubs = [...subs, { year: nextLabel, heading: '', body: '', media_items: [] }];
+    updateItem(parentIndex, 'sub_items', newSubs);
+  };
+
+  const updateSubItem = (parentIndex, subIndex, key, value) => {
+    const subs = [...(items[parentIndex].sub_items || [])];
+    subs[subIndex] = { ...subs[subIndex], [key]: value };
+    updateItem(parentIndex, 'sub_items', subs);
+  };
+
+  const removeSubItem = (parentIndex, subIndex) => {
+    const subs = (items[parentIndex].sub_items || []).filter((_, i) => i !== subIndex);
+    updateItem(parentIndex, 'sub_items', subs);
+  };
+
+  const moveSubItem = (parentIndex, fromIndex, toIndex) => {
+    const subs = [...(items[parentIndex].sub_items || [])];
+    if (toIndex < 0 || toIndex >= subs.length) return;
+    const [moved] = subs.splice(fromIndex, 1);
+    subs.splice(toIndex, 0, moved);
+    updateItem(parentIndex, 'sub_items', subs);
   };
 
   const handleBgUpload = async (file) => {
@@ -1723,6 +1975,45 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         <p className="text-xs text-slate-400 mt-1">Accounts for a fixed header when scrolling</p>
       </div>
 
+      <div>
+        <Label className="text-sm font-medium text-slate-700">First Marker Offset (px)</Label>
+        <Input
+          type="number"
+          value={content.nav_top_offset ?? 0}
+          onChange={(e) => updateContent('nav_top_offset', Math.max(0, Math.min(200, parseInt(e.target.value) || 0)))}
+          min="0"
+          max="200"
+          className="mt-1"
+          data-testid="input-nav-top-offset"
+        />
+        <p className="text-xs text-slate-400 mt-1">Pushes the first marker down from the top of the navigation rail</p>
+      </div>
+
+      <div>
+        <Label className="text-sm font-medium text-slate-700">Label Position</Label>
+        <div className="flex gap-1 mt-1">
+          {[
+            { value: 'below', label: 'Below' },
+            { value: 'left', label: 'Left' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => updateContent('label_position', opt.value)}
+              className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                (content.label_position || 'below') === opt.value
+                  ? 'bg-slate-800 text-white border-slate-800'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+              data-testid={`button-label-position-${opt.value}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Where the year label appears relative to the marker</p>
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <Label className="text-sm font-medium text-slate-700">Open in Popup View</Label>
@@ -2133,6 +2424,96 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           </div>
                         )}
                       </div>
+                    </div>
+
+                    {/* Sub-Years */}
+                    <div className="border-t border-slate-200 pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-xs text-slate-600 font-medium">Sub-Years ({(item.sub_items || []).length})</Label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); addSubItem(index); }}
+                          data-testid={`button-add-sub-item-${index}`}
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add
+                        </Button>
+                      </div>
+                      {(item.sub_items || []).length > 0 && (
+                        <div className="space-y-2 pl-3 border-l-2 border-slate-200">
+                          {(item.sub_items || []).map((sub, sIdx) => (
+                            <div key={sIdx} className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+                              <div className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-50">
+                                <span className="font-mono text-xs text-slate-600 shrink-0">{sub.year || '????'}</span>
+                                <span className="text-xs text-slate-400 truncate flex-1">{sub.heading || '(no heading)'}</span>
+                                <button
+                                  onClick={() => moveSubItem(index, sIdx, sIdx - 1)}
+                                  disabled={sIdx === 0}
+                                  className="p-0.5 rounded text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                                  type="button"
+                                  data-testid={`button-move-sub-up-${index}-${sIdx}`}
+                                >
+                                  <ChevronUp className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => moveSubItem(index, sIdx, sIdx + 1)}
+                                  disabled={sIdx === (item.sub_items || []).length - 1}
+                                  className="p-0.5 rounded text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                                  type="button"
+                                  data-testid={`button-move-sub-down-${index}-${sIdx}`}
+                                >
+                                  <ChevronDown className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => removeSubItem(index, sIdx)}
+                                  className="p-0.5 rounded text-red-400 hover:text-red-600"
+                                  type="button"
+                                  data-testid={`button-remove-sub-${index}-${sIdx}`}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <div className="p-2 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Label</Label>
+                                    <Input
+                                      value={sub.year || ''}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'year', e.target.value)}
+                                      placeholder="e.g., 2020.1"
+                                      className="mt-0.5 h-7 text-xs"
+                                      data-testid={`input-sub-year-${index}-${sIdx}`}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Heading</Label>
+                                    <Input
+                                      value={sub.heading || ''}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'heading', e.target.value)}
+                                      placeholder="e.g., Q1 Update"
+                                      className="mt-0.5 h-7 text-xs"
+                                      data-testid={`input-sub-heading-${index}-${sIdx}`}
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-slate-500">Body</Label>
+                                  <div className="mt-0.5 [&_.ql-container]:min-h-[60px] [&_.ql-editor]:min-h-[60px] [&_.ql-toolbar]:p-1 [&_.ql-editor]:text-xs">
+                                    <ReactQuill
+                                      theme="snow"
+                                      value={sub.body || ''}
+                                      onChange={(val) => updateSubItem(index, sIdx, 'body', val)}
+                                      modules={timelineQuillModules}
+                                      formats={timelineQuillFormats}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Highlight */}

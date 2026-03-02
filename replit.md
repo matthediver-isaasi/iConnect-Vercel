@@ -29,7 +29,7 @@ The application is deployed on Vercel, utilizing `iconn.app` for tenant owner ma
 -   **Workflow Automation:** Provides tenant-scoped workflows for automating actions such as sending emails, updating fields, creating contracts, managing memberships, and Due Diligence processes.
 -   **Field Visibility Rules:** Implements conditional show/hide rules for fields and cards on organisation and member detail views, based on AND/OR logic.
 -   **Branding & Customization:** Supports per-tenant branding for public-facing pages and embeddable forms.
--   **Page Builder Timeline:** Advanced timeline element with unified/split background modes (solid, gradient, image with overlay), independent navigation panel and content panel backgrounds, item-level highlight styling, and fullscreen overlay view.
+-   **Page Builder Timeline:** Advanced timeline element with unified/split background modes (solid, gradient, image with overlay), independent navigation panel and content panel backgrounds, item-level highlight styling, fullscreen overlay view, configurable first marker offset, label positioning (below/left), and sub-year branching with diagonal SVG line paths.
 -   **Data Management:** Incorporates server-side pagination and a data migration system.
 -   **Email Domain Provisioning:** Automates Mailgun domain provisioning for each tenant.
 -   **Realtime Updates:** Utilizes Supabase Realtime Subscriptions for frontend cache invalidation.
