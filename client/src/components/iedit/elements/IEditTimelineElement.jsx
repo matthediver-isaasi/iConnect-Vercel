@@ -269,6 +269,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     rail_gradient_stops,
     rail_gradient_angle = 180,
     nav_top_offset = 0,
+    nav_bottom_offset = 0,
     label_position = 'below',
   } = content || {};
 
@@ -562,7 +563,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     d += ` L ${mainX} ${navH}`;
     setNavLinePath(d);
-  }, [items, marker_size, isLeftLabel, nav_top_offset]);
+  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset]);
 
   useEffect(() => {
     computeNavLine();
@@ -1167,7 +1168,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_top_offset}px` }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px` }}
             role="tablist"
             aria-label="Timeline years"
           >
@@ -2043,6 +2044,20 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           data-testid="input-nav-top-offset"
         />
         <p className="text-xs text-slate-400 mt-1">Pushes the first marker down from the top of the navigation rail</p>
+      </div>
+
+      <div>
+        <Label className="text-sm font-medium text-slate-700">Last Marker Trail (px)</Label>
+        <Input
+          type="number"
+          value={content.nav_bottom_offset ?? 0}
+          onChange={(e) => updateContent('nav_bottom_offset', Math.max(0, Math.min(200, parseInt(e.target.value) || 0)))}
+          min="0"
+          max="200"
+          className="mt-1"
+          data-testid="input-nav-bottom-offset"
+        />
+        <p className="text-xs text-slate-400 mt-1">Extends the line below the last marker</p>
       </div>
 
       <div>
