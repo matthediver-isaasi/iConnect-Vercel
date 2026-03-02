@@ -589,11 +589,11 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   }, [items, sub_offset_x, isLeftLabel]);
 
   useEffect(() => {
-    computeNavLine();
     measureSubDotCorrection();
-    const timer = setTimeout(() => { measureSubDotCorrection(); computeNavLine(); }, 100);
-    return () => clearTimeout(timer);
-  }, [computeNavLine, measureSubDotCorrection, items, activeYear, sub_offset_x, sub_offset_y]);
+    const t1 = setTimeout(() => { computeNavLine(); }, 50);
+    const t2 = setTimeout(() => { measureSubDotCorrection(); computeNavLine(); }, 200);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [computeNavLine, measureSubDotCorrection, items, activeYear, sub_offset_x, sub_offset_y, subDotCorrection]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => { measureSubDotCorrection(); computeNavLine(); });
