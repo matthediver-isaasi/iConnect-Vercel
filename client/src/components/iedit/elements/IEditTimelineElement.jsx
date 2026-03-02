@@ -240,6 +240,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const overlayScrollRef = useRef(null);
   const [overlayRect, setOverlayRect] = useState(null);
   const [navLinePath, setNavLinePath] = useState('');
+  const [subDotCorrection, setSubDotCorrection] = useState(0);
   const {
     title,
     items = [],
@@ -565,17 +566,35 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     setNavLinePath(d);
   }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset]);
 
-  useEffect(() => {
-    computeNavLine();
-    const timer = setTimeout(computeNavLine, 100);
-    return () => clearTimeout(timer);
-  }, [computeNavLine, items, activeYear, sub_offset_x, sub_offset_y]);
+  const measureSubDotCorrection = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav || !items.length) return;
+    const parentWithSubs = items.find(item => (item.sub_items || []).length > 0);
+    if (!parentWithSubs) return;
+    const firstSubKey = `${parentWithSubs.year}-sub0-${parentWithSubs.sub_items[0].year}`;
+    const parentDot = nav.querySelector(`[data-dot-key="${parentWithSubs.year}"]`);
+    const subDot = nav.querySelector(`[data-dot-key="${firstSubKey}"]`);
+    if (!parentDot || !subDot) return;
+    const parentCx = parentDot.getBoundingClientRect().left + parentDot.getBoundingClientRect().width / 2;
+    const subCx = subDot.getBoundingClientRect().left + subDot.getBoundingClientRect().width / 2;
+    const subOffX = typeof parentWithSubs.sub_items[0].offset_x === 'number' ? parentWithSubs.sub_items[0].offset_x : sub_offset_x;
+    const rawDelta = parentCx - subCx + subOffX;
+    const newCorrection = Math.round(rawDelta);
+    setSubDotCorrection(prev => Math.abs(newCorrection - prev) > 0.5 ? newCorrection : prev);
+  }, [items, sub_offset_x, isLeftLabel]);
 
   useEffect(() => {
-    const observer = new ResizeObserver(() => { computeNavLine(); });
+    computeNavLine();
+    measureSubDotCorrection();
+    const timer = setTimeout(() => { computeNavLine(); measureSubDotCorrection(); }, 100);
+    return () => clearTimeout(timer);
+  }, [computeNavLine, measureSubDotCorrection, items, activeYear, sub_offset_x, sub_offset_y, subDotCorrection]);
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => { computeNavLine(); measureSubDotCorrection(); });
     if (navRef.current) observer.observe(navRef.current);
     return () => observer.disconnect();
-  }, [computeNavLine]);
+  }, [computeNavLine, measureSubDotCorrection]);
 
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
@@ -1110,7 +1129,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     gradientCss: buildRailGradientCss(),
   };
 
-  const maxSubOffX = Math.max(0, ...items.flatMap(i => (i.sub_items || []).map(s => Math.abs(typeof s.offset_x === 'number' ? s.offset_x : sub_offset_x))));
+  const maxSubOffX = Math.max(0, ...items.flatMap(i => (i.sub_items || []).map(s => Math.abs((typeof s.offset_x === 'number' ? s.offset_x : sub_offset_x) + subDotCorrection))));
 
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
@@ -1185,7 +1204,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         key={subKey}
                         onClick={() => scrollToSection(subKey)}
                         className="relative z-10 flex flex-col items-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                        style={{ marginTop: '16px', transform: `translateX(${subOffX}px) translateY(${subOffY}px)` }}
+                        style={{ marginTop: '16px', transform: `translateX(${subOffX + subDotCorrection}px) translateY(${subOffY}px)` }}
                         data-testid={`timeline-marker-sub-${subKey}`}
                         data-sub-marker
                       >
