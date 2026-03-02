@@ -296,6 +296,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     heading_color = '',
     body_size = 16,
     body_color = '',
+    label_color = '#9ca3af',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -790,7 +791,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             style={{
               fontSize: `${item.label_size || label_size}px`,
               fontWeight: isActive ? 700 : 500,
-              color: isActive ? active_color : '#9ca3af'
+              color: isActive ? active_color : (item.label_color || label_color)
             }}
           >
             {item.year}
@@ -803,7 +804,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             style={{
               fontSize: `${item.label_size || label_size}px`,
               fontWeight: isActive ? 700 : 500,
-              color: isActive ? active_color : '#9ca3af'
+              color: isActive ? active_color : (item.label_color || label_color)
             }}
           >
             {item.year}
@@ -832,7 +833,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         <div className="flex items-baseline gap-3 mb-3">
           <span
             className="font-bold transition-colors duration-200"
-            style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : '#9ca3af') }}
+            style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
           >
             {item.year}
           </span>
@@ -920,7 +921,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <div className="flex items-baseline gap-2 mb-2">
             <span
               className="font-semibold transition-colors duration-200"
-              style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : '#9ca3af' }}
+              style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || item.label_color || label_color) }}
             >
               {sub.year}
             </span>
@@ -1231,7 +1232,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     const subLabelStyle = {
                       fontSize: `${subFontSize}px`,
                       fontWeight: isSubActive ? 700 : 500,
-                      color: isSubActive ? active_color : '#9ca3af'
+                      color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color)
                     };
                     return (
                       <button
@@ -2138,6 +2139,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           <p className="text-xs text-slate-400 mt-1">Nav marker labels (sub-markers use 85%)</p>
         </div>
         <div>
+          <Label className="text-sm font-medium text-slate-700">Label Colour</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="color"
+              value={content.label_color || '#9ca3af'}
+              onChange={(e) => updateContent('label_color', e.target.value)}
+              className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+            />
+            <Input
+              value={content.label_color || ''}
+              onChange={(e) => updateContent('label_color', e.target.value)}
+              placeholder="#9ca3af"
+              className="flex-1"
+              data-testid="input-label-color"
+            />
+            {content.label_color && content.label_color !== '#9ca3af' && (
+              <Button size="sm" variant="ghost" onClick={() => updateContent('label_color', '')} data-testid="button-clear-label-color">
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Non-selected label colour (default grey)</p>
+        </div>
+        <div>
           <Label className="text-sm font-medium text-slate-700">Heading Size</Label>
           <Input
             type="number"
@@ -2646,6 +2671,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           )}
                         </div>
                       </div>
+                      <div>
+                        <Label className="text-xs text-slate-600">Label Colour <span className="text-slate-400">(overrides default)</span></Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="color"
+                            value={item.label_color || content.label_color || '#9ca3af'}
+                            onChange={(e) => updateItem(index, 'label_color', e.target.value)}
+                            className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <Input
+                            value={item.label_color || ''}
+                            onChange={(e) => updateItem(index, 'label_color', e.target.value)}
+                            placeholder="Default"
+                            className="flex-1"
+                            data-testid={`input-label-color-${index}`}
+                          />
+                          {item.label_color && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'label_color', undefined)} data-testid={`button-clear-label-color-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -3043,6 +3091,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
                                       data-testid={`input-sub-body-size-${index}-${sIdx}`}
                                     />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-slate-500">Label Colour</Label>
+                                  <div className="flex items-center gap-1 mt-0.5">
+                                    <input
+                                      type="color"
+                                      value={sub.label_color || content.label_color || '#9ca3af'}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'label_color', e.target.value)}
+                                      className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                    />
+                                    <input
+                                      value={sub.label_color || ''}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'label_color', e.target.value)}
+                                      placeholder="Default"
+                                      className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                      data-testid={`input-sub-label-color-${index}-${sIdx}`}
+                                    />
+                                    {sub.label_color && (
+                                      <button type="button" onClick={() => updateSubItem(index, sIdx, 'label_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
