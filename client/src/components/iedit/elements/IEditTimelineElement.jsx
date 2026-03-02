@@ -495,8 +495,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     const findDotCenter = (el) => {
       if (!el) return null;
-      const dotEl = el.querySelector('[class*="rounded-full"], svg');
-      const dotR = dotEl ? dotEl.getBoundingClientRect() : el.getBoundingClientRect();
+      const stableEl = el.querySelector('[data-dot-stable]');
+      const dotR = stableEl ? stableEl.getBoundingClientRect() : el.getBoundingClientRect();
       return {
         cx: dotR.left + dotR.width / 2 - navRect.left,
         cy: dotR.top + dotR.height / 2 - navRect.top,
@@ -656,6 +656,17 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     const hasWrapper = markerBg || markerBorderColor;
     const size = isActive ? mSize + 4 : mSize;
+    const stableSize = mSize + 4;
+
+    const stableContainer = (child) => (
+      <div
+        data-dot-stable
+        className="flex items-center justify-center"
+        style={{ width: `${stableSize}px`, height: `${stableSize}px`, flexShrink: 0 }}
+      >
+        {child}
+      </div>
+    );
 
     if (ShapeIcon) {
       const icon = (
@@ -670,7 +681,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           }}
         />
       );
-      return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{icon}</div> : icon;
+      const inner = hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{icon}</div> : icon;
+      return stableContainer(inner);
     }
     const dot = (
       <div
@@ -683,7 +695,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         }}
       />
     );
-    return hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{dot}</div> : dot;
+    const inner = hasWrapper ? <div style={wrapperStyle} className="transition-all duration-200">{dot}</div> : dot;
+    return stableContainer(inner);
   };
 
   const markerNav = (idx, item) => {
