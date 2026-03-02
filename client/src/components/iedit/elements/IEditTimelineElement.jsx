@@ -1154,7 +1154,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           ref={railRef}
           data-timeline-rail
           className={`shrink-0 w-28 lg:w-36 ${inOverlay ? 'self-stretch' : 'self-start'}`}
-          style={{
+          style={inOverlay ? {
+            zIndex: 1,
+          } : {
             position: 'sticky',
             top: `${stickyTop}px`,
             maxHeight: maxH,
