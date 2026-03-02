@@ -1132,7 +1132,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <style>{`[data-timeline-rail]::-webkit-scrollbar { display: none; }`}</style>
           <nav
             ref={navRef}
-            className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
+            className="relative flex flex-col w-full"
             style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_top_offset}px` }}
             role="tablist"
             aria-label="Timeline years"
@@ -1156,48 +1156,51 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               return (
                 <div
                   key={item.year}
-                  className={`flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-                  style={{ marginBottom: idx < items.length - 1 ? '24px' : 0, width: '100%' }}
+                  className="flex flex-col"
+                  style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}
                 >
-                  {markerNav(idx, item)}
+                  <div className={`flex ${isLeftLabel ? 'justify-end' : 'justify-center'}`}>
+                    {markerNav(idx, item)}
+                  </div>
                   {subs.length > 0 && subs.map((sub, sIdx) => {
                     const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
                     const isSubActive = activeYear === subKey;
                     return (
-                      <button
-                        key={subKey}
-                        onClick={() => scrollToSection(subKey)}
-                        className={`relative z-10 flex self-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                          isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
-                        }`}
-                        style={{ marginTop: '16px', marginLeft: isLeftLabel ? '0px' : '20px' }}
-                        data-testid={`timeline-marker-sub-${subKey}`}
-                        data-sub-marker
-                      >
-                        {isLeftLabel && (
-                          <span
-                            className="mr-2 text-xs whitespace-nowrap transition-colors duration-200"
-                            style={{
-                              fontWeight: isSubActive ? 700 : 500,
-                              color: isSubActive ? active_color : '#9ca3af'
-                            }}
-                          >
-                            {sub.year}
-                          </span>
-                        )}
-                        {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7))}
-                        {!isLeftLabel && (
-                          <span
-                            className="mt-1 text-xs transition-colors duration-200"
-                            style={{
-                              fontWeight: isSubActive ? 700 : 500,
-                              color: isSubActive ? active_color : '#9ca3af'
-                            }}
-                          >
-                            {sub.year}
-                          </span>
-                        )}
-                      </button>
+                      <div key={subKey} className={`flex ${isLeftLabel ? 'justify-end' : 'justify-center'}`}>
+                        <button
+                          onClick={() => scrollToSection(subKey)}
+                          className={`relative z-10 flex group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                            isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
+                          }`}
+                          style={{ marginTop: '16px', marginLeft: isLeftLabel ? '0px' : '20px' }}
+                          data-testid={`timeline-marker-sub-${subKey}`}
+                          data-sub-marker
+                        >
+                          {isLeftLabel && (
+                            <span
+                              className="mr-2 text-xs whitespace-nowrap transition-colors duration-200"
+                              style={{
+                                fontWeight: isSubActive ? 700 : 500,
+                                color: isSubActive ? active_color : '#9ca3af'
+                              }}
+                            >
+                              {sub.year}
+                            </span>
+                          )}
+                          {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7))}
+                          {!isLeftLabel && (
+                            <span
+                              className="mt-1 text-xs transition-colors duration-200"
+                              style={{
+                                fontWeight: isSubActive ? 700 : 500,
+                                color: isSubActive ? active_color : '#9ca3af'
+                              }}
+                            >
+                              {sub.year}
+                            </span>
+                          )}
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
