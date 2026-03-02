@@ -527,40 +527,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     if (!markers.length || mainX === null) { setNavLinePath(''); return; }
 
     let d = `M ${mainX} 0`;
-    let curX = mainX;
-    let curY = 0;
 
     for (let i = 0; i < markers.length; i++) {
       const m = markers[i];
-      if (m.type === 'parent') {
-        if (curX !== mainX) {
-          const returnDist = Math.abs(curX - mainX);
-          d += ` L ${mainX} ${curY + returnDist}`;
-          curX = mainX;
-          curY = curY + returnDist;
-        }
-        d += ` L ${mainX} ${m.cy}`;
-        curY = m.cy;
-      } else {
-        const subX = m.cx;
-        const dx = Math.abs(subX - curX);
-        if (dx > 0.5) {
-          const diagEndY = curY + dx;
-          d += ` L ${subX} ${diagEndY}`;
-          curX = subX;
-          curY = diagEndY;
-        }
-        d += ` L ${subX} ${m.cy}`;
-        curX = subX;
-        curY = m.cy;
-      }
-    }
-
-    if (curX !== mainX) {
-      const returnDist = Math.abs(curX - mainX);
-      d += ` L ${mainX} ${curY + returnDist}`;
-      curX = mainX;
-      curY = curY + returnDist;
+      d += ` L ${m.cx} ${m.cy}`;
     }
 
     d += ` L ${mainX} ${navH}`;
