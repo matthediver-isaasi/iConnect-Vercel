@@ -277,6 +277,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     line_weight = 2,
     line_dash = 'solid',
     marker_color: timeline_marker_color,
+    label_size = 14,
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -767,8 +768,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       >
         {isLeftLabel && (
           <span
-            className="mr-2 text-sm whitespace-nowrap transition-colors duration-200"
+            className="mr-2 whitespace-nowrap transition-colors duration-200"
             style={{
+              fontSize: `${item.label_size || label_size}px`,
               fontWeight: isActive ? 700 : 500,
               color: isActive ? active_color : '#9ca3af'
             }}
@@ -779,8 +781,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         {renderMarkerDot(item, isActive, undefined, item.year)}
         {!isLeftLabel && (
           <span
-            className="mt-1.5 text-sm transition-colors duration-200"
+            className="mt-1.5 transition-colors duration-200"
             style={{
+              fontSize: `${item.label_size || label_size}px`,
               fontWeight: isActive ? 700 : 500,
               color: isActive ? active_color : '#9ca3af'
             }}
@@ -1200,7 +1203,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     const subLabelSide = sub.label_side || (isLeftLabel ? 'left' : 'below');
                     const subOffX = typeof sub.offset_x === 'number' ? sub.offset_x : sub_offset_x;
                     const subOffY = typeof sub.offset_y === 'number' ? sub.offset_y : sub_offset_y;
+                    const subFontSize = sub.label_size || Math.round(label_size * 0.85);
                     const subLabelStyle = {
+                      fontSize: `${subFontSize}px`,
                       fontWeight: isSubActive ? 700 : 500,
                       color: isSubActive ? active_color : '#9ca3af'
                     };
@@ -1216,18 +1221,18 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         <div className="flex items-center w-full">
                           <div className="flex-1 min-w-0 flex justify-end">
                             {subLabelSide === 'left' && (
-                              <span className="mr-2 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
+                              <span className="mr-2 whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
                             )}
                           </div>
                           {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7), subKey)}
                           <div className="flex-1 min-w-0 flex justify-start">
                             {subLabelSide === 'right' && (
-                              <span className="ml-2 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
+                              <span className="ml-2 whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
                             )}
                           </div>
                         </div>
                         {subLabelSide === 'below' && (
-                          <span className="mt-1 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
+                          <span className="mt-1 whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
                         )}
                       </button>
                     );
@@ -2094,6 +2099,20 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           </div>
           <p className="text-xs text-slate-400 mt-1">Default dot colour (uses line colour if empty)</p>
         </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Label Size</Label>
+          <Input
+            type="number"
+            min={8}
+            max={32}
+            step={1}
+            value={content.label_size ?? 14}
+            onChange={(e) => updateContent('label_size', parseInt(e.target.value) || 14)}
+            className="mt-1"
+            data-testid="input-label-size"
+          />
+          <p className="text-xs text-slate-400 mt-1">Default label size in px (sub-markers use 85%)</p>
+        </div>
       </div>
 
       <div>
@@ -2486,28 +2505,51 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                         />
                       </div>
                     </div>
-                    <div>
-                      <Label className="text-xs text-slate-600">Marker Colour <span className="text-slate-400">(overrides default)</span></Label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <input
-                          type="color"
-                          value={item.marker_color || content.marker_color || content.line_color || '#d1d5db'}
-                          onChange={(e) => updateItem(index, 'marker_color', e.target.value)}
-                          className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
-                          data-testid={`input-marker-color-picker-${index}`}
-                        />
-                        <Input
-                          value={item.marker_color || ''}
-                          onChange={(e) => updateItem(index, 'marker_color', e.target.value)}
-                          placeholder="Default"
-                          className="flex-1"
-                          data-testid={`input-marker-color-${index}`}
-                        />
-                        {item.marker_color && (
-                          <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'marker_color', '')} data-testid={`button-clear-marker-color-${index}`}>
-                            <X className="w-3 h-3" />
-                          </Button>
-                        )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-slate-600">Marker Colour <span className="text-slate-400">(overrides default)</span></Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="color"
+                            value={item.marker_color || content.marker_color || content.line_color || '#d1d5db'}
+                            onChange={(e) => updateItem(index, 'marker_color', e.target.value)}
+                            className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
+                            data-testid={`input-marker-color-picker-${index}`}
+                          />
+                          <Input
+                            value={item.marker_color || ''}
+                            onChange={(e) => updateItem(index, 'marker_color', e.target.value)}
+                            placeholder="Default"
+                            className="flex-1"
+                            data-testid={`input-marker-color-${index}`}
+                          />
+                          {item.marker_color && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'marker_color', '')} data-testid={`button-clear-marker-color-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-600">Label Size <span className="text-slate-400">(px)</span></Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Input
+                            type="number"
+                            min={8}
+                            max={32}
+                            step={1}
+                            value={item.label_size || ''}
+                            placeholder={String(content.label_size || 14)}
+                            onChange={(e) => updateItem(index, 'label_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                            className="flex-1"
+                            data-testid={`input-label-size-${index}`}
+                          />
+                          {item.label_size && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'label_size', undefined)} data-testid={`button-clear-label-size-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -2743,6 +2785,20 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       data-testid={`input-sub-offset-y-${index}-${sIdx}`}
                                     />
                                   </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-slate-500">Label Size (px)</Label>
+                                  <input
+                                    type="number"
+                                    min={8}
+                                    max={32}
+                                    step={1}
+                                    value={sub.label_size || ''}
+                                    placeholder={String(Math.round((content.label_size || 14) * 0.85))}
+                                    onChange={(e) => updateSubItem(index, sIdx, 'label_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                    className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                    data-testid={`input-sub-label-size-${index}-${sIdx}`}
+                                  />
                                 </div>
                                 <div>
                                   <Label className="text-[10px] text-slate-500">Body</Label>
