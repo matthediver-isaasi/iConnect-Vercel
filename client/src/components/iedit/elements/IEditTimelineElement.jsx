@@ -497,10 +497,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const navH = navRect.height;
     if (!navH) return;
 
-    const findDotCenter = (el) => {
+    const findDotCenter = (dotKey) => {
+      const el = nav.querySelector(`[data-dot-key="${dotKey}"]`);
       if (!el) return null;
-      const stableEl = el.querySelector('[data-dot-stable]');
-      const dotR = stableEl ? stableEl.getBoundingClientRect() : el.getBoundingClientRect();
+      const dotR = el.getBoundingClientRect();
       return {
         cx: dotR.left + dotR.width / 2 - navRect.left,
         cy: dotR.top + dotR.height / 2 - navRect.top,
@@ -510,16 +510,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const markers = [];
     let mainX = null;
     items.forEach((item) => {
-      const el = nav.querySelector(`[data-testid="timeline-marker-${item.year}"]`);
-      const pos = findDotCenter(el);
+      const pos = findDotCenter(item.year);
       if (pos) {
         if (mainX === null) mainX = pos.cx;
         markers.push({ type: 'parent', ...pos, year: item.year });
       }
       (item.sub_items || []).forEach((sub, sIdx) => {
         const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-        const subEl = nav.querySelector(`[data-testid="timeline-marker-sub-${subKey}"]`);
-        const subPos = findDotCenter(subEl);
+        const subPos = findDotCenter(subKey);
         if (subPos) {
           markers.push({ type: 'sub', ...subPos, year: subKey });
         }
@@ -586,17 +584,16 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     if (!nav || !rail || !items.length) return;
     const parentWithSubs = items.find(item => (item.sub_items || []).length > 0);
     if (!parentWithSubs) return;
-    const parentEl = nav.querySelector(`[data-testid="timeline-marker-${parentWithSubs.year}"]`);
     const firstSubKey = `${parentWithSubs.year}-sub0-${parentWithSubs.sub_items[0].year}`;
-    const subEl = nav.querySelector(`[data-testid="timeline-marker-sub-${firstSubKey}"]`);
-    if (!parentEl || !subEl) return;
+    const parentDot = nav.querySelector(`[data-dot-key="${parentWithSubs.year}"]`);
+    const subDot = nav.querySelector(`[data-dot-key="${firstSubKey}"]`);
+    if (!parentDot || !subDot) return;
     const getCenter = (el) => {
-      const stable = el.querySelector('[data-dot-stable]');
-      const r = stable ? stable.getBoundingClientRect() : el.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
       return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
     };
-    const parentC = getCenter(parentEl);
-    const subC = getCenter(subEl);
+    const parentC = getCenter(parentDot);
+    const subC = getCenter(subDot);
     const vDrop = Math.abs(subC.cy - parentC.cy);
     const railW = rail.getBoundingClientRect().width;
     const maxOffset = Math.floor(railW * 0.25);
@@ -672,7 +669,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     </button>
   );
 
-  const renderMarkerDot = (item, isActive, size_override) => {
+  const renderMarkerDot = (item, isActive, size_override, dotKey) => {
     const hl = item.highlight;
     const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
     const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
@@ -704,6 +701,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const stableContainer = (child) => (
       <div
         data-dot-stable
+        {...(dotKey ? { 'data-dot-key': dotKey } : {})}
         className="flex items-center justify-center"
         style={{ width: `${stableSize}px`, height: `${stableSize}px`, flexShrink: 0 }}
       >
@@ -793,7 +791,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {item.year}
           </span>
         )}
-        {renderMarkerDot(item, isActive)}
+        {renderMarkerDot(item, isActive, undefined, item.year)}
         {!isLeftLabel && (
           <span
             className="mt-1.5 text-sm transition-colors duration-200"
@@ -1242,7 +1240,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                               <span className="mr-2 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
                             )}
                           </div>
-                          {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7))}
+                          {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7), subKey)}
                           <div className="flex-1 min-w-0 flex justify-start">
                             {subLabelSide === 'right' && (
                               <span className="ml-2 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
