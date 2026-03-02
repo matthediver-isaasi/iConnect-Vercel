@@ -521,7 +521,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         const subEl = nav.querySelector(`[data-testid="timeline-marker-sub-${subKey}"]`);
         const subPos = findDotCenter(subEl);
         if (subPos) {
-          markers.push({ type: 'sub', ...subPos, year: subKey });
+          const perSubIndent = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
+          markers.push({ type: 'sub', ...subPos, year: subKey, indent: perSubIndent });
         }
       });
     });
@@ -544,7 +545,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         d += ` L ${mainX} ${m.cy}`;
         curY = m.cy;
       } else {
-        const subX = resolvedSubIndent === 'center' ? mainX : resolvedSubIndent === 'left' ? mainX - subMarkerOffset : mainX + subMarkerOffset;
+        const subX = m.indent === 'center' ? mainX : m.indent === 'left' ? mainX - subMarkerOffset : mainX + subMarkerOffset;
         const dx = Math.abs(subX - curX);
         if (dx > 0.5) {
           const diagEndY = curY + dx;
@@ -575,8 +576,12 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     return () => clearTimeout(timer);
   }, [computeNavLine, items, activeYear, subMarkerOffset]);
 
+  const anySubNonCenter = items.some(item => (item.sub_items || []).some(sub => {
+    const si = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
+    return si !== 'center';
+  }));
   const measureSubOffset = useCallback(() => {
-    if (resolvedSubIndent === 'center') return;
+    if (!anySubNonCenter) return;
     const nav = navRef.current;
     const rail = railRef.current;
     if (!nav || !rail || !items.length) return;
@@ -595,8 +600,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const subC = getCenter(subEl);
     const vDrop = Math.abs(subC.cy - parentC.cy);
     const railW = rail.getBoundingClientRect().width;
-    const maxOffset = Math.floor(railW * 0.4);
-    const newOffset = Math.round(Math.max(10, Math.min(vDrop, maxOffset)));
+    const maxOffset = Math.floor(railW * 0.25);
+    const newOffset = Math.round(Math.max(10, Math.min(vDrop * 0.6, maxOffset)));
     if (Math.abs(newOffset - subMarkerOffset) > 1) {
       setSubMarkerOffset(newOffset);
     }
@@ -1146,6 +1151,15 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     gradientCss: buildRailGradientCss(),
   };
 
+  const hasSubIndentLeft = items.some(item => (item.sub_items || []).some(sub => {
+    const si = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
+    return si === 'left';
+  }));
+  const hasSubIndentRight = items.some(item => (item.sub_items || []).some(sub => {
+    const si = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
+    return si === 'right';
+  }));
+
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
     const maxH = inOverlay ? 'calc(95vh - 72px)' : `calc(100vh - ${header_offset + 48}px)`;
@@ -1181,7 +1195,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: resolvedSubIndent === 'left' ? `${subMarkerOffset + 8}px` : '8px', paddingRight: resolvedSubIndent === 'right' ? `${subMarkerOffset + 8}px` : '8px', minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: hasSubIndentLeft ? `${subMarkerOffset + 8}px` : '8px', paddingRight: hasSubIndentRight ? `${subMarkerOffset + 8}px` : '8px', minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
             role="tablist"
             aria-label="Timeline years"
           >
@@ -1208,7 +1222,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
                     const isSubActive = activeYear === subKey;
                     const subLabelSide = sub.label_side || (isLeftLabel ? 'left' : 'below');
-                    const subTranslateX = resolvedSubIndent === 'center' ? 0 : resolvedSubIndent === 'left' ? -subMarkerOffset : subMarkerOffset;
+                    const subIndent = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
+                    const subTranslateX = subIndent === 'center' ? 0 : subIndent === 'left' ? -subMarkerOffset : subMarkerOffset;
                     const subLabelStyle = {
                       fontWeight: isSubActive ? 700 : 500,
                       color: isSubActive ? active_color : '#9ca3af'
@@ -2605,28 +2620,55 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     />
                                   </div>
                                 </div>
-                                <div>
-                                  <Label className="text-[10px] text-slate-500">Label Side</Label>
-                                  <div className="flex gap-1 mt-0.5">
-                                    {[
-                                      { value: 'left', label: 'Left' },
-                                      { value: 'right', label: 'Right' },
-                                      { value: 'below', label: 'Below' },
-                                    ].map(opt => (
-                                      <button
-                                        key={opt.value}
-                                        type="button"
-                                        onClick={() => updateSubItem(index, sIdx, 'label_side', opt.value)}
-                                        className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
-                                          (sub.label_side || (content.label_position === 'left' ? 'left' : 'below')) === opt.value
-                                            ? 'bg-slate-700 text-white border-slate-700'
-                                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
-                                        }`}
-                                        data-testid={`button-sub-label-side-${index}-${sIdx}-${opt.value}`}
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    ))}
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Label Side</Label>
+                                    <div className="flex gap-1 mt-0.5">
+                                      {[
+                                        { value: 'left', label: 'L' },
+                                        { value: 'right', label: 'R' },
+                                        { value: 'below', label: 'B' },
+                                      ].map(opt => (
+                                        <button
+                                          key={opt.value}
+                                          type="button"
+                                          onClick={() => updateSubItem(index, sIdx, 'label_side', opt.value)}
+                                          className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                                            (sub.label_side || (content.label_position === 'left' ? 'left' : 'below')) === opt.value
+                                              ? 'bg-slate-700 text-white border-slate-700'
+                                              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                                          }`}
+                                          data-testid={`button-sub-label-side-${index}-${sIdx}-${opt.value}`}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Indent</Label>
+                                    <div className="flex gap-1 mt-0.5">
+                                      {[
+                                        { value: 'auto', label: 'A' },
+                                        { value: 'left', label: 'L' },
+                                        { value: 'right', label: 'R' },
+                                        { value: 'center', label: 'C' },
+                                      ].map(opt => (
+                                        <button
+                                          key={opt.value}
+                                          type="button"
+                                          onClick={() => updateSubItem(index, sIdx, 'indent', opt.value)}
+                                          className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                                            (sub.indent || 'auto') === opt.value
+                                              ? 'bg-slate-700 text-white border-slate-700'
+                                              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                                          }`}
+                                          data-testid={`button-sub-indent-${index}-${sIdx}-${opt.value}`}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
                                 <div>
