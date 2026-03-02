@@ -163,33 +163,47 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
 
   if (images.length === 0) return null;
 
+  const getImageClasses = (img) => {
+    const display = img.display || 'original';
+    if (display === 'circle') return `rounded-full object-cover aspect-square`;
+    if (display === 'square') return `rounded-lg object-cover aspect-square`;
+    return `rounded-lg object-cover ${maxHeightClass}`;
+  };
+
   if (images.length === 1) {
-    return (
+    const cls = getImageClasses(images[0]);
+    const isShaped = images[0].display === 'circle' || images[0].display === 'square';
+    const img = (
       <img
         src={images[0].src}
         alt={images[0].alt || heading || year}
-        className={`w-full ${maxWidthClass} rounded-lg object-cover ${maxHeightClass}`}
+        className={`${isShaped ? 'h-64' : 'w-full'} ${isShaped ? '' : maxWidthClass} ${cls}`}
         loading="lazy"
         data-testid={`timeline-image-${year}`}
       />
     );
+    return isShaped ? <div className="flex justify-center">{img}</div> : img;
   }
 
   return (
     <div className={`relative ${maxWidthClass}`} data-testid={`timeline-carousel-${year}`}>
       <Carousel setApi={setApi} opts={{ loop: true }} className="w-full">
         <CarouselContent>
-          {images.map((img, idx) => (
-            <CarouselItem key={idx}>
+          {images.map((img, idx) => {
+            const cls = getImageClasses(img);
+            const isShaped = img.display === 'circle' || img.display === 'square';
+            return (
+            <CarouselItem key={idx} className={isShaped ? 'flex justify-center' : ''}>
               <img
                 src={img.src}
                 alt={img.alt || heading || `${year} image ${idx + 1}`}
-                className={`w-full rounded-lg object-cover ${maxHeightClass}`}
+                className={`${isShaped ? 'h-64' : 'w-full'} ${cls}`}
                 loading="lazy"
                 data-testid={`timeline-image-${year}-${idx}`}
               />
             </CarouselItem>
-          ))}
+            );
+          })}
         </CarouselContent>
         <button
           onClick={() => api?.scrollPrev()}
@@ -2615,18 +2629,46 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 >
                                   <X className="w-3 h-3" />
                                 </button>
-                                <input
-                                  value={mediaImg.alt || ''}
-                                  onChange={(e) => {
-                                    const current = getItemMediaItems(items[index]);
-                                    const updated = [...current];
-                                    updated[mIdx] = { ...updated[mIdx], alt: e.target.value };
-                                    updateItemMediaItems(index, updated);
-                                  }}
-                                  placeholder="Alt text"
-                                  className="w-full text-[10px] px-1.5 py-0.5 border-t border-slate-200 bg-white"
-                                  data-testid={`input-media-alt-${index}-${mIdx}`}
-                                />
+                                <div className="flex border-t border-slate-200 bg-white">
+                                  <input
+                                    value={mediaImg.alt || ''}
+                                    onChange={(e) => {
+                                      const current = getItemMediaItems(items[index]);
+                                      const updated = [...current];
+                                      updated[mIdx] = { ...updated[mIdx], alt: e.target.value };
+                                      updateItemMediaItems(index, updated);
+                                    }}
+                                    placeholder="Alt text"
+                                    className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-transparent"
+                                    data-testid={`input-media-alt-${index}-${mIdx}`}
+                                  />
+                                </div>
+                                <div className="flex border-t border-slate-200 bg-white">
+                                  {[
+                                    { value: 'original', label: 'Orig' },
+                                    { value: 'square', label: 'Sq' },
+                                    { value: 'circle', label: 'Circ' },
+                                  ].map(opt => (
+                                    <button
+                                      key={opt.value}
+                                      type="button"
+                                      onClick={() => {
+                                        const current = getItemMediaItems(items[index]);
+                                        const updated = [...current];
+                                        updated[mIdx] = { ...updated[mIdx], display: opt.value };
+                                        updateItemMediaItems(index, updated);
+                                      }}
+                                      className={`flex-1 text-[9px] py-0.5 transition-colors ${
+                                        (mediaImg.display || 'original') === opt.value
+                                          ? 'bg-slate-700 text-white'
+                                          : 'text-slate-500 hover:bg-slate-100'
+                                      }`}
+                                      data-testid={`button-media-display-${index}-${mIdx}-${opt.value}`}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                               );
                             })}
