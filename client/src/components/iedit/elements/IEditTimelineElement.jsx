@@ -297,6 +297,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     body_size = 16,
     body_color = '',
     label_color = '#9ca3af',
+    content_layout = 'stacked',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -828,45 +829,66 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const itemBodySize = item.body_size || body_size;
     const itemBodyColor = item.body_color || body_color || '';
 
-    const innerContent = (
-      <>
-        <div className="flex items-baseline gap-3 mb-3">
-          <span
-            className="font-bold transition-colors duration-200"
-            style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
-          >
-            {item.year}
-          </span>
-          {item.heading && (
-            <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
-          )}
-        </div>
+    const itemLayout = item.content_layout || content_layout;
+    const isSideBySide = itemLayout === 'side-by-side';
 
-        {item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
-          <div className="mb-4 rounded-lg overflow-hidden">
-            <video
-              src={item.media.src}
-              controls
-              className="w-full max-w-2xl rounded-lg"
-              data-testid={`timeline-video-${item.year}`}
-            />
-          </div>
-        ) : (() => {
-          const mediaImages = getMediaItems(item);
-          return mediaImages.length > 0 ? (
-            <div className="mb-4 rounded-lg overflow-visible">
-              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-80" maxWidthClass="max-w-2xl" />
-            </div>
-          ) : null;
-        })()}
-
-        {item.body && (
-          <div
-            className="prose max-w-none"
-            style={{ fontSize: `${itemBodySize}px`, ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}) }}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
-          />
+    const headingBlock = (
+      <div className={`flex items-baseline gap-3 ${isSideBySide ? 'mb-2' : 'mb-3'}`}>
+        <span
+          className="font-bold transition-colors duration-200"
+          style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
+        >
+          {item.year}
+        </span>
+        {item.heading && (
+          <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
         )}
+      </div>
+    );
+
+    const mediaBlock = item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
+      <div className={`${isSideBySide ? '' : 'mb-4'} rounded-lg overflow-hidden`}>
+        <video
+          src={item.media.src}
+          controls
+          className="w-full max-w-2xl rounded-lg"
+          data-testid={`timeline-video-${item.year}`}
+        />
+      </div>
+    ) : (() => {
+      const mediaImages = getMediaItems(item);
+      return mediaImages.length > 0 ? (
+        <div className={`${isSideBySide ? '' : 'mb-4'} rounded-lg overflow-visible`}>
+          <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass={isSideBySide ? 'max-h-64' : 'max-h-80'} maxWidthClass={isSideBySide ? 'w-full' : 'max-w-2xl'} />
+        </div>
+      ) : null;
+    })();
+
+    const bodyBlock = item.body ? (
+      <div
+        className="prose max-w-none"
+        style={{ fontSize: `${itemBodySize}px`, ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}) }}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
+      />
+    ) : null;
+
+    const innerContent = isSideBySide && mediaBlock ? (
+      <>
+        {headingBlock}
+        <div className="flex gap-4">
+          <div className="w-2/5 shrink-0">
+            {mediaBlock}
+          </div>
+          <div className="flex-1 min-w-0">
+            {bodyBlock}
+          </div>
+        </div>
+      </>
+    ) : (
+      <>
+        {headingBlock}
+        {mediaBlock}
+        {bodyBlock}
       </>
     );
 
@@ -2163,6 +2185,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           <p className="text-xs text-slate-400 mt-1">Non-selected label colour (default grey)</p>
         </div>
         <div>
+          <Label className="text-sm font-medium text-slate-700">Content Layout</Label>
+          <div className="flex gap-1 mt-1">
+            {[
+              { value: 'stacked', label: 'Stacked' },
+              { value: 'side-by-side', label: 'Side by Side' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => updateContent('content_layout', opt.value)}
+                className={`px-3 py-1.5 text-xs rounded border transition-colors ${
+                  (content.content_layout || 'stacked') === opt.value
+                    ? 'bg-slate-700 text-white border-slate-700'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                }`}
+                data-testid={`button-content-layout-${opt.value}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Image position relative to heading & text</p>
+        </div>
+        <div>
           <Label className="text-sm font-medium text-slate-700">Heading Size</Label>
           <Input
             type="number"
@@ -2692,6 +2738,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               <X className="w-3 h-3" />
                             </Button>
                           )}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-600">Content Layout</Label>
+                        <div className="flex items-center gap-1 mt-1">
+                          {[
+                            { value: '', label: 'Default' },
+                            { value: 'stacked', label: 'Stacked' },
+                            { value: 'side-by-side', label: 'Side' },
+                          ].map(opt => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => updateItem(index, 'content_layout', opt.value || undefined)}
+                              className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                                (item.content_layout || '') === opt.value
+                                  ? 'bg-slate-700 text-white border-slate-700'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                              }`}
+                              data-testid={`button-item-layout-${index}-${opt.value || 'default'}`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </div>
