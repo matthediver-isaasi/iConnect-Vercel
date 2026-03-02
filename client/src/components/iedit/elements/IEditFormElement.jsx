@@ -880,6 +880,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return disabled;
   }, [form?.visibility_rules, formValues, initialDisabledFieldIds]);
 
+  const prefillCustomFieldValues = form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+
   // Helper to compute the value for a set_value action
   const computeSetValue = (action, prefillEntity) => {
     const sourceType = action.set_value_source || 'static';
