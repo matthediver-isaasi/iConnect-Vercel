@@ -900,7 +900,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
-  const subContentSection = (sub, subKey, inOverlay = false) => {
+  const subContentSection = (sub, subKey, inOverlay = false, parentItem = {}) => {
     const isActive = activeYear === subKey;
     const effectiveOffset = isExpanded ? 16 : header_offset;
     const widthStyle = getContentWidthStyle(content, inOverlay);
@@ -921,7 +921,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <div className="flex items-baseline gap-2 mb-2">
             <span
               className="font-semibold transition-colors duration-200"
-              style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || item.label_color || label_color) }}
+              style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || parentItem.label_color || label_color) }}
             >
               {sub.year}
             </span>
@@ -1275,7 +1275,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               const sections = [contentSection(item, idx, inOverlay)];
               (item.sub_items || []).forEach((sub, sIdx) => {
                 const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                sections.push(subContentSection(sub, subKey, inOverlay));
+                sections.push(subContentSection(sub, subKey, inOverlay, item));
               });
               return sections;
             })}
@@ -1368,7 +1368,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         const sections = [mobileContentSection(item, true)];
                         (item.sub_items || []).forEach((sub, sIdx) => {
                           const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                          sections.push(subContentSection(sub, subKey, true));
+                          sections.push(subContentSection(sub, subKey, true, item));
                         });
                         return sections;
                       })}
@@ -1424,7 +1424,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             const sections = [mobileContentSection(item)];
             (item.sub_items || []).forEach((sub, sIdx) => {
               const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-              sections.push(subContentSection(sub, subKey));
+              sections.push(subContentSection(sub, subKey, false, item));
             });
             return sections;
           })}
