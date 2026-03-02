@@ -195,6 +195,17 @@ export default function SingleFieldEditModal({
       toast.error('No field selected');
       return;
     }
+    if (field.type === 'custom_field' && (customFieldDef?.field_type === 'textarea' || customFieldDef?.field_type === 'long_text')) {
+      const len = (typeof value === 'string' ? value : '').length;
+      if (customFieldDef.min_length && len > 0 && len < customFieldDef.min_length) {
+        toast.error(`${field.label || 'Field'} must be at least ${customFieldDef.min_length} characters`);
+        return;
+      }
+      if (customFieldDef.max_length && len > customFieldDef.max_length) {
+        toast.error(`${field.label || 'Field'} must be at most ${customFieldDef.max_length} characters`);
+        return;
+      }
+    }
     updateMutation.mutate({
       submission_id: submissionId,
       field_id: field.id,
@@ -500,13 +511,48 @@ export default function SingleFieldEditModal({
           </div>
         );
 
-      case 'custom_field':
+      case 'custom_field': {
         // Check if customFieldDef indicates this is a file upload type
         const customValue = value || {};
         const isFileValue = customValue && typeof customValue === 'object' && 
           (customValue.file_url || customValue.file_name || customValue.storage_path);
         const isCustomFileField = customFieldDef?.field_type === 'file';
         
+        if (customFieldDef?.field_type === 'textarea' || customFieldDef?.field_type === 'long_text') {
+          const cfCharCount = (typeof value === 'string' ? value : '').length;
+          const cfMaxLen = customFieldDef.max_length;
+          const cfMinLen = customFieldDef.min_length;
+          const cfOverLimit = cfMaxLen && cfCharCount > cfMaxLen;
+          const cfUnderLimit = cfMinLen && cfCharCount > 0 && cfCharCount < cfMinLen;
+          return (
+            <div className="space-y-1">
+              <Textarea
+                value={value || ''}
+                onChange={(e) => setValue(e.target.value)}
+                placeholder={field?.placeholder || ''}
+                rows={4}
+                maxLength={cfMaxLen || undefined}
+                className={cfOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}
+                data-testid="textarea-edit-custom-field"
+              />
+              {(cfMaxLen || cfMinLen) && (
+                <div className="flex justify-between text-xs">
+                  {cfMinLen ? (
+                    <span className={cfUnderLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                      Min: {cfMinLen} characters
+                    </span>
+                  ) : <span />}
+                  {cfMaxLen ? (
+                    <span className={cfOverLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                      {cfCharCount} / {cfMaxLen}
+                    </span>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          );
+        }
+
         // Show file upload UI if the definition says it's a file OR if the value is file-like
         if (isCustomFileField || isFileValue) {
           // Render file upload UI for custom field file uploads
@@ -599,6 +645,7 @@ export default function SingleFieldEditModal({
             data-testid="input-edit-custom-field"
           />
         );
+      }
 
       default:
         return (

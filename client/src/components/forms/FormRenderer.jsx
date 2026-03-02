@@ -1072,19 +1072,41 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         }
         
         // Handle text-based custom field types that don't need options
-        const textBasedTypes = ['text', 'email', 'url', 'number', 'textarea', 'phone', 'date'];
+        const textBasedTypes = ['text', 'email', 'url', 'number', 'textarea', 'long_text', 'phone', 'date'];
         if (textBasedTypes.includes(customFieldDef.field_type)) {
           // Render appropriate input based on field_type
-          if (customFieldDef.field_type === 'textarea') {
+          if (customFieldDef.field_type === 'textarea' || customFieldDef.field_type === 'long_text') {
+            const cfCharCount = (value || '').length;
+            const cfMaxLen = customFieldDef.max_length;
+            const cfMinLen = customFieldDef.min_length;
+            const cfOverLimit = cfMaxLen && cfCharCount > cfMaxLen;
+            const cfUnderLimit = cfMinLen && cfCharCount > 0 && cfCharCount < cfMinLen;
             return (
-              <Textarea
-                value={value || ''}
-                onChange={(e) => !isFieldDisabled && onChange(e.target.value)}
-                placeholder={field.placeholder}
-                disabled={isFieldDisabled}
-                className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
-                data-testid={`textarea-custom-${field.id}`}
-              />
+              <div className="space-y-1">
+                <Textarea
+                  value={value || ''}
+                  onChange={(e) => !isFieldDisabled && onChange(e.target.value)}
+                  placeholder={field.placeholder}
+                  disabled={isFieldDisabled}
+                  maxLength={cfMaxLen || undefined}
+                  className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${cfOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                  data-testid={`textarea-custom-${field.id}`}
+                />
+                {(cfMaxLen || cfMinLen) && (
+                  <div className="flex justify-between text-xs">
+                    {cfMinLen ? (
+                      <span className={cfUnderLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                        Min: {cfMinLen} characters
+                      </span>
+                    ) : <span />}
+                    {cfMaxLen ? (
+                      <span className={cfOverLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                        {cfCharCount} / {cfMaxLen}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             );
           }
           

@@ -164,6 +164,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [fieldFilterable, setFieldFilterable] = useState(false);
   const [minSelections, setMinSelections] = useState('');
   const [maxSelections, setMaxSelections] = useState('');
+  const [minLength, setMinLength] = useState('');
+  const [maxLength, setMaxLength] = useState('');
   const [allowedFileTypes, setAllowedFileTypes] = useState([]);
   const [publicAccess, setPublicAccess] = useState(false);
   // Country field configuration
@@ -286,6 +288,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldFilterable(false);
     setMinSelections('');
     setMaxSelections('');
+    setMinLength('');
+    setMaxLength('');
     setAllowedFileTypes([]);
     setPublicAccess(false);
     // Reset country configuration
@@ -317,6 +321,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldFilterable(field.is_filterable || false);
     setMinSelections(field.min_selections != null ? String(field.min_selections) : '');
     setMaxSelections(field.max_selections != null ? String(field.max_selections) : '');
+    setMinLength(field.min_length != null ? String(field.min_length) : '');
+    setMaxLength(field.max_length != null ? String(field.max_length) : '');
     // Parse allowed_file_types - handle both array and JSON string formats
     let parsedFileTypes = [];
     if (field.allowed_file_types) {
@@ -420,6 +426,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown' || fieldType === 'country' || fieldType === 'countries') ? fieldFilterable : false,
       min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
       max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null,
+      min_length: fieldType === 'textarea' && minLength ? parseInt(minLength, 10) : null,
+      max_length: fieldType === 'textarea' && maxLength ? parseInt(maxLength, 10) : null,
       allowed_file_types: fieldType === 'file' ? allowedFileTypes : null,
       public_access: fieldType === 'file' ? publicAccess : null,
       // Country field configuration
@@ -1001,6 +1009,41 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                 data-testid="switch-field-required"
               />
             </div>
+
+            {fieldType === 'textarea' && (
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
+                <Label className="text-sm font-medium text-blue-800">Character Limits (Optional)</Label>
+                <p className="text-xs text-blue-600 -mt-1">
+                  Set minimum and/or maximum number of characters allowed
+                </p>
+                <div className="flex gap-4">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="minLength" className="text-xs">Minimum</Label>
+                    <Input
+                      id="minLength"
+                      type="number"
+                      min="0"
+                      value={minLength}
+                      onChange={(e) => setMinLength(e.target.value)}
+                      placeholder="No min"
+                      data-testid="input-min-length"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="maxLength" className="text-xs">Maximum</Label>
+                    <Input
+                      id="maxLength"
+                      type="number"
+                      min="1"
+                      value={maxLength}
+                      onChange={(e) => setMaxLength(e.target.value)}
+                      placeholder="No max"
+                      data-testid="input-max-length"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {fieldType === 'picklist' && (
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-3">

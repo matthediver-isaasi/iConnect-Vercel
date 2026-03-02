@@ -724,6 +724,22 @@ export default function MemberDetailView({
   });
 
   const handleSave = async () => {
+    const textareaFields = (preferenceFields || []).filter(f => 
+      (f.field_type === 'textarea' || f.field_type === 'long_text') && (f.min_length || f.max_length)
+    );
+    for (const field of textareaFields) {
+      const val = customFieldValues[field.id] || '';
+      const len = val.length;
+      if (field.min_length && len > 0 && len < field.min_length) {
+        toast.error(`${field.label} must be at least ${field.min_length} characters`);
+        return;
+      }
+      if (field.max_length && len > field.max_length) {
+        toast.error(`${field.label} must be at most ${field.max_length} characters`);
+        return;
+      }
+    }
+
     if (isNew) {
       if (createMutation.isPending) return;
       
@@ -1481,15 +1497,36 @@ export default function MemberDetailView({
                             </div>
                           );
                         } else if (field.field_type === 'textarea' || field.field_type === 'long_text') {
+                          const taCharCount = (value || '').length;
+                          const taMaxLen = field.max_length;
+                          const taMinLen = field.min_length;
+                          const taOverLimit = taMaxLen && taCharCount > taMaxLen;
+                          const taUnderLimit = taMinLen && taCharCount > 0 && taCharCount < taMinLen;
                           return (
-                            <div key={field.id} className="space-y-2 md:col-span-2">
+                            <div key={field.id} className="space-y-1 md:col-span-2">
                               <Label>{field.label}</Label>
                               <Textarea
                                 value={value}
                                 onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
                                 rows={3}
+                                maxLength={taMaxLen || undefined}
+                                className={taOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}
                                 data-testid={`textarea-custom-field-${field.id}`}
                               />
+                              {(taMaxLen || taMinLen) && (
+                                <div className="flex justify-between text-xs">
+                                  {taMinLen ? (
+                                    <span className={taUnderLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                                      Min: {taMinLen} characters
+                                    </span>
+                                  ) : <span />}
+                                  {taMaxLen ? (
+                                    <span className={taOverLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                                      {taCharCount} / {taMaxLen}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )}
                             </div>
                           );
                         } else if (field.field_type === 'date') {
