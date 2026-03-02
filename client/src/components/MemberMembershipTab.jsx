@@ -27,7 +27,7 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X,
   FileText, Send, PlayCircle, ShieldAlert, CheckCircle2,
-  XCircle, Info, AlertTriangle,
+  XCircle, Info, AlertTriangle, CreditCard,
   Lock, LockOpen, ShieldCheck, Mail
 } from "lucide-react";
 import { toast } from "sonner";
@@ -218,21 +218,40 @@ function MemberYearCostSection({
         )}
       </div>
 
-      {showRecordFee && currentYearRecorded && (
-        <div className="mt-2">
-          <Badge variant="secondary">
-            Recorded: {formatCost(currentYearRecorded.final_cost, currency)}
-          </Badge>
-        </div>
-      )}
-
       {currentYearRecorded ? (
         <>
           <Separator className="my-3" />
-          <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-member-invoicing-complete-${testIdPrefix}`}>
-            <FileText className="w-3 h-3" />
-            <span>Fee recorded for {yearData.membershipYear}</span>
-          </div>
+          {currentYearRecorded.payment_method === 'stripe' ? (
+            <div className="flex items-start gap-3 p-3 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800" data-testid={`card-member-payment-info-${testIdPrefix}`}>
+              <CreditCard className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-sm font-medium">Paid by card</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatCost(currentYearRecorded.total_with_vat || currentYearRecorded.final_cost, currency)} inc. VAT
+                </p>
+                {currentYearRecorded.xero_invoice_number && (
+                  <p className="text-xs text-muted-foreground">
+                    Invoice: {currentYearRecorded.xero_invoice_number}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-3 p-3 rounded-md bg-muted/50 border" data-testid={`card-member-payment-info-${testIdPrefix}`}>
+              <FileText className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-sm font-medium">Invoiced</p>
+                <p className="text-sm text-muted-foreground">
+                  {formatCost(currentYearRecorded.final_cost, currency)} excl. VAT
+                </p>
+                {currentYearRecorded.xero_invoice_number && (
+                  <p className="text-xs text-muted-foreground">
+                    Invoice: {currentYearRecorded.xero_invoice_number}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </>
       ) : hideInvoicing ? (
         <>
@@ -957,7 +976,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                     <th className="text-left p-3 font-medium">Tier</th>
                     <th className="text-right p-3 font-medium">{periodLabel} Cost</th>
                     <th className="text-right p-3 font-medium">Adjustments</th>
-                    <th className="text-right p-3 font-medium">Final Cost</th>
+                    <th className="text-center p-3 font-medium">Method</th>
+                    <th className="text-right p-3 font-medium">Net Cost</th>
+                    <th className="text-right p-3 font-medium">Gross Cost</th>
                     <th className="text-left p-3 font-medium">Status</th>
                   </tr>
                 </thead>
@@ -986,7 +1007,15 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                             </>
                           ) : '-'}
                         </td>
+                        <td className="p-3 text-center" data-testid={`cell-member-history-method-${record.id}`}>
+                          {record.payment_method === 'stripe' ? (
+                            <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400 inline-block" />
+                          ) : record.payment_method ? (
+                            <FileText className="w-4 h-4 text-muted-foreground inline-block" />
+                          ) : '-'}
+                        </td>
                         <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
+                        <td className="p-3 text-right font-semibold">{formatCost(record.total_with_vat || record.final_cost, record.currency)}</td>
                         <td className="p-3">
                           <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
                             {record.status || 'active'}
