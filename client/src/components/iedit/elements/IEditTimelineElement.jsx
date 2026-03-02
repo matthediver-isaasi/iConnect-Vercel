@@ -273,6 +273,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     label_position = 'below',
     sub_offset_x = 0,
     sub_offset_y = 0,
+    line_style = 'straight',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -526,16 +527,41 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     if (!markers.length || mainX === null) { setNavLinePath(''); return; }
 
-    let d = `M ${mainX} 0`;
+    markers.sort((a, b) => a.cy - b.cy);
+    const pts = [{ cx: mainX, cy: 0 }, ...markers, { cx: mainX, cy: navH }];
 
-    for (let i = 0; i < markers.length; i++) {
-      const m = markers[i];
-      d += ` L ${m.cx} ${m.cy}`;
+    const seededRandom = (idx, salt) => {
+      const seed = Math.sin(idx * 127.1 + salt * 311.7) * 43758.5453;
+      return seed - Math.floor(seed);
+    };
+
+    let d = `M ${pts[0].cx} ${pts[0].cy}`;
+
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const cur = pts[i];
+
+      if (line_style === 'organic') {
+        const dx = cur.cx - prev.cx;
+        const dy = cur.cy - prev.cy;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1) { d += ` L ${cur.cx} ${cur.cy}`; continue; }
+        const nx = -dy / len;
+        const ny = dx / len;
+        const wobble1 = (seededRandom(i, 1) - 0.5) * Math.min(16, len * 0.3);
+        const wobble2 = (seededRandom(i, 2) - 0.5) * Math.min(16, len * 0.3);
+        const cp1x = prev.cx + dx * 0.33 + nx * wobble1;
+        const cp1y = prev.cy + dy * 0.33 + ny * wobble1;
+        const cp2x = prev.cx + dx * 0.66 + nx * wobble2;
+        const cp2y = prev.cy + dy * 0.66 + ny * wobble2;
+        d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${cur.cx} ${cur.cy}`;
+      } else {
+        d += ` L ${cur.cx} ${cur.cy}`;
+      }
     }
 
-    d += ` L ${mainX} ${navH}`;
     setNavLinePath(d);
-  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset]);
+  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, line_style]);
 
   const measureSubDotCorrection = useCallback(() => {
     const nav = navRef.current;
@@ -1956,6 +1982,23 @@ export function IEditTimelineElementEditor({ element, onChange }) {
 
       {/* Styling */}
       <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Line Style</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Button
+              size="sm"
+              variant={(!content.line_style || content.line_style === 'straight') ? 'default' : 'outline'}
+              onClick={() => updateContent('line_style', 'straight')}
+              data-testid="button-line-style-straight"
+            >Straight</Button>
+            <Button
+              size="sm"
+              variant={content.line_style === 'organic' ? 'default' : 'outline'}
+              onClick={() => updateContent('line_style', 'organic')}
+              data-testid="button-line-style-organic"
+            >Organic</Button>
+          </div>
+        </div>
         <div>
           <Label className="text-sm font-medium text-slate-700">Line Colour</Label>
           <div className="flex items-center gap-2 mt-1">
