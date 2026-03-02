@@ -243,6 +243,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const isMobile = useIsMobile();
   const [activeYear, setActiveYear] = useState(null);
   const [isExpanded, setIsExpanded] = useState(!!(content || {}).auto_expand);
+  const [expandedTexts, setExpandedTexts] = useState({});
   const sectionRefs = useRef({});
   const railRef = useRef(null);
   const navRef = useRef(null);
@@ -869,12 +870,38 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       ) : null;
     })();
 
+    const hlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
+    const isTextExpanded = !!expandedTexts[item.year];
+    const shouldClamp = hlTextLines > 0 && !isTextExpanded;
+
     const bodyBlock = item.body ? (
-      <div
-        className="prose max-w-none"
-        style={{ fontSize: `${itemBodySize}px`, ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}) }}
-        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
-      />
+      <div>
+        <div
+          className="prose max-w-none"
+          style={{
+            fontSize: `${itemBodySize}px`,
+            ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
+            ...(shouldClamp ? {
+              display: '-webkit-box',
+              WebkitLineClamp: hlTextLines,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            } : {}),
+          }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
+        />
+        {hlTextLines > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
+            className="mt-2 text-sm font-medium transition-colors"
+            style={{ color: textColor || active_color }}
+            data-testid={`button-read-more-${item.year}`}
+          >
+            {isTextExpanded ? 'Read less' : 'Read more'}
+          </button>
+        )}
+      </div>
     ) : null;
 
     const mediaCol = <div className="w-2/5 shrink-0">{mediaBlock}</div>;
@@ -1051,13 +1078,40 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             </div>
           ) : null;
         })()}
-        {item.body && (
-          <div
-            className="prose prose-sm max-w-none"
-            style={{ fontSize: `${Math.round((item.body_size || body_size) * 0.9)}px`, ...(textColor ? { color: textColor } : (item.body_color || body_color) ? { color: item.body_color || body_color } : {}) }}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
-          />
-        )}
+        {(() => {
+          const mobileHlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
+          const mobileIsTextExpanded = !!expandedTexts[item.year];
+          const mobileShouldClamp = mobileHlTextLines > 0 && !mobileIsTextExpanded;
+          return item.body ? (
+            <div>
+              <div
+                className="prose prose-sm max-w-none"
+                style={{
+                  fontSize: `${Math.round((item.body_size || body_size) * 0.9)}px`,
+                  ...(textColor ? { color: textColor } : (item.body_color || body_color) ? { color: item.body_color || body_color } : {}),
+                  ...(mobileShouldClamp ? {
+                    display: '-webkit-box',
+                    WebkitLineClamp: mobileHlTextLines,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  } : {}),
+                }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
+              />
+              {mobileHlTextLines > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
+                  className="mt-2 text-sm font-medium transition-colors"
+                  style={{ color: textColor || active_color }}
+                  data-testid={`button-read-more-mobile-${item.year}`}
+                >
+                  {mobileIsTextExpanded ? 'Read less' : 'Read more'}
+                </button>
+              )}
+            </div>
+          ) : null;
+        })()}
       </>
     );
 
@@ -3723,6 +3777,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                 />
                               </div>
                             )}
+                          </div>
+
+                          <div className="border-t border-slate-100 pt-3">
+                            <Label className="text-xs text-slate-500 mb-1 block font-medium">Text Lines</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={50}
+                                step={1}
+                                value={item.highlight.text_lines || ''}
+                                placeholder="All (no limit)"
+                                onChange={(e) => updateItemHighlight(index, 'text_lines', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                className="w-28 text-xs"
+                                data-testid={`input-highlight-text-lines-${index}`}
+                              />
+                              {item.highlight.text_lines > 0 && (
+                                <Button size="sm" variant="ghost" onClick={() => updateItemHighlight(index, 'text_lines', 0)} data-testid={`button-clear-text-lines-${index}`}>
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">Limit visible text with "Read more" button</p>
                           </div>
                         </div>
                       )}
