@@ -1143,7 +1143,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
-    const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${header_offset + 48}px)`;
+    const maxH = inOverlay ? 'calc(95vh - 72px)' : `calc(100vh - ${header_offset + 48}px)`;
     const isUnified = background_mode === 'unified';
     const contentBgLeft = isUnified ? 0 : bgLeft;
     const bgFixedBase = { position: 'fixed', top: 0, left: `${contentBgLeft}px`, right: 0, bottom: 0 };
@@ -1176,7 +1176,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px`, minHeight: inOverlay ? 'calc(95vh - 160px)' : '100%' }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px`, minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
             role="tablist"
             aria-label="Timeline years"
           >
