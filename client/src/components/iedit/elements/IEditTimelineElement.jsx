@@ -240,6 +240,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const overlayScrollRef = useRef(null);
   const [overlayRect, setOverlayRect] = useState(null);
   const [navLinePath, setNavLinePath] = useState('');
+  const [subMarkerOffset, setSubMarkerOffset] = useState(30);
 
   const {
     title,
@@ -567,13 +568,45 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     computeNavLine();
     const timer = setTimeout(computeNavLine, 100);
     return () => clearTimeout(timer);
-  }, [computeNavLine, items, activeYear]);
+  }, [computeNavLine, items, activeYear, subMarkerOffset]);
+
+  const measureSubOffset = useCallback(() => {
+    const nav = navRef.current;
+    const rail = railRef.current;
+    if (!nav || !rail || !items.length) return;
+    const parentWithSubs = items.find(item => (item.sub_items || []).length > 0);
+    if (!parentWithSubs) return;
+    const parentEl = nav.querySelector(`[data-testid="timeline-marker-${parentWithSubs.year}"]`);
+    const firstSubKey = `${parentWithSubs.year}-sub0-${parentWithSubs.sub_items[0].year}`;
+    const subEl = nav.querySelector(`[data-testid="timeline-marker-sub-${firstSubKey}"]`);
+    if (!parentEl || !subEl) return;
+    const getCenter = (el) => {
+      const stable = el.querySelector('[data-dot-stable]');
+      const r = stable ? stable.getBoundingClientRect() : el.getBoundingClientRect();
+      return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+    };
+    const parentC = getCenter(parentEl);
+    const subC = getCenter(subEl);
+    const vDrop = Math.abs(subC.cy - parentC.cy);
+    const railW = rail.getBoundingClientRect().width;
+    const maxOffset = Math.floor(railW * 0.4);
+    const newOffset = Math.max(10, Math.min(vDrop, maxOffset));
+    if (Math.abs(newOffset - subMarkerOffset) > 1) {
+      setSubMarkerOffset(newOffset);
+    }
+  }, [items, marker_size, isLeftLabel, subMarkerOffset]);
 
   useEffect(() => {
-    const observer = new ResizeObserver(() => computeNavLine());
+    const observer = new ResizeObserver(() => { computeNavLine(); measureSubOffset(); });
     if (navRef.current) observer.observe(navRef.current);
     return () => observer.disconnect();
-  }, [computeNavLine]);
+  }, [computeNavLine, measureSubOffset]);
+
+  useEffect(() => {
+    measureSubOffset();
+    const timer = setTimeout(measureSubOffset, 150);
+    return () => clearTimeout(timer);
+  }, [measureSubOffset]);
 
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
@@ -1167,7 +1200,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         className={`relative z-10 flex group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
                           isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
                         }`}
-                        style={{ marginTop: '16px', marginLeft: isLeftLabel ? '0px' : '20px' }}
+                        style={{ marginTop: '16px', transform: `translateX(${isLeftLabel ? -subMarkerOffset : subMarkerOffset}px)` }}
                         data-testid={`timeline-marker-sub-${subKey}`}
                         data-sub-marker
                       >
