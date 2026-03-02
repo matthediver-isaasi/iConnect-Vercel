@@ -1153,8 +1153,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         <div
           ref={railRef}
           data-timeline-rail
-          className={`shrink-0 w-28 lg:w-36 ${inOverlay ? 'self-stretch' : 'self-start'}`}
+          className="shrink-0 w-28 lg:w-36 self-start"
           style={inOverlay ? {
+            position: 'sticky',
+            top: 0,
             zIndex: 1,
           } : {
             position: 'sticky',
@@ -1170,7 +1172,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px`, minHeight: '100%' }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px`, minHeight: inOverlay ? 'calc(95vh - 160px)' : '100%' }}
             role="tablist"
             aria-label="Timeline years"
           >
