@@ -67,7 +67,7 @@ export default async function handler(req, res) {
     // PreferenceField is now TENANT-scoped (tenant_id column added via migration)
     const { data, error } = await supabase
       .from('preference_field')
-      .select('id, label, field_type, options, entity_scope, min_selections, max_selections, allowed_file_types')
+      .select('id, label, field_type, options, entity_scope, min_selections, max_selections, allowed_file_types, min_length, max_length')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
