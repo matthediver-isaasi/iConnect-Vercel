@@ -271,11 +271,13 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     nav_top_offset = 0,
     nav_bottom_offset = 0,
     label_position = 'below',
+    sub_indent = 'auto',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
   const effectiveRailBgType = _rail_bg_type || (rail_background_image ? 'image' : 'none');
   const isLeftLabel = label_position === 'left';
+  const resolvedSubIndent = sub_indent === 'auto' ? (isLeftLabel ? 'left' : 'right') : sub_indent;
 
   useEffect(() => {
     if (isExpanded) {
@@ -542,7 +544,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         d += ` L ${mainX} ${m.cy}`;
         curY = m.cy;
       } else {
-        const subX = isLeftLabel ? mainX - subMarkerOffset : mainX + subMarkerOffset;
+        const subX = resolvedSubIndent === 'center' ? mainX : resolvedSubIndent === 'left' ? mainX - subMarkerOffset : mainX + subMarkerOffset;
         const dx = Math.abs(subX - curX);
         if (dx > 0.5) {
           const diagEndY = curY + dx;
@@ -565,7 +567,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     d += ` L ${mainX} ${navH}`;
     setNavLinePath(d);
-  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, subMarkerOffset]);
+  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, subMarkerOffset, resolvedSubIndent]);
 
   useEffect(() => {
     computeNavLine();
@@ -574,6 +576,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   }, [computeNavLine, items, activeYear, subMarkerOffset]);
 
   const measureSubOffset = useCallback(() => {
+    if (resolvedSubIndent === 'center') return;
     const nav = navRef.current;
     const rail = railRef.current;
     if (!nav || !rail || !items.length) return;
@@ -597,7 +600,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     if (Math.abs(newOffset - subMarkerOffset) > 1) {
       setSubMarkerOffset(newOffset);
     }
-  }, [items, marker_size, isLeftLabel, subMarkerOffset]);
+  }, [items, marker_size, isLeftLabel, subMarkerOffset, resolvedSubIndent]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => { computeNavLine(); measureSubOffset(); });
@@ -1178,7 +1181,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px`, minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: resolvedSubIndent === 'left' ? `${subMarkerOffset + 8}px` : '8px', paddingRight: resolvedSubIndent === 'right' ? `${subMarkerOffset + 8}px` : '8px', minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
             role="tablist"
             aria-label="Timeline years"
           >
@@ -1204,39 +1207,36 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   {subs.length > 0 && subs.map((sub, sIdx) => {
                     const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
                     const isSubActive = activeYear === subKey;
+                    const subLabelSide = sub.label_side || (isLeftLabel ? 'left' : 'below');
+                    const subTranslateX = resolvedSubIndent === 'center' ? 0 : resolvedSubIndent === 'left' ? -subMarkerOffset : subMarkerOffset;
+                    const subLabelStyle = {
+                      fontWeight: isSubActive ? 700 : 500,
+                      color: isSubActive ? active_color : '#9ca3af'
+                    };
                     return (
                       <button
                         key={subKey}
                         onClick={() => scrollToSection(subKey)}
-                        className={`relative z-10 flex group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                          isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
-                        }`}
-                        style={{ marginTop: '16px', transform: `translateX(${isLeftLabel ? -subMarkerOffset : subMarkerOffset}px)` }}
+                        className="relative z-10 flex flex-col items-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                        style={{ marginTop: '16px', transform: `translateX(${subTranslateX}px)` }}
                         data-testid={`timeline-marker-sub-${subKey}`}
                         data-sub-marker
                       >
-                        {isLeftLabel && (
-                          <span
-                            className="mr-2 text-xs whitespace-nowrap transition-colors duration-200"
-                            style={{
-                              fontWeight: isSubActive ? 700 : 500,
-                              color: isSubActive ? active_color : '#9ca3af'
-                            }}
-                          >
-                            {sub.year}
-                          </span>
-                        )}
-                        {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7))}
-                        {!isLeftLabel && (
-                          <span
-                            className="mt-1 text-xs transition-colors duration-200"
-                            style={{
-                              fontWeight: isSubActive ? 700 : 500,
-                              color: isSubActive ? active_color : '#9ca3af'
-                            }}
-                          >
-                            {sub.year}
-                          </span>
+                        <div className="flex items-center w-full">
+                          <div className="flex-1 min-w-0 flex justify-end">
+                            {subLabelSide === 'left' && (
+                              <span className="mr-2 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
+                            )}
+                          </div>
+                          {renderMarkerDot(sub, isSubActive, Math.round(marker_size * 0.7))}
+                          <div className="flex-1 min-w-0 flex justify-start">
+                            {subLabelSide === 'right' && (
+                              <span className="ml-2 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
+                            )}
+                          </div>
+                        </div>
+                        {subLabelSide === 'below' && (
+                          <span className="mt-1 text-xs whitespace-nowrap transition-colors duration-200" style={subLabelStyle}>{sub.year}</span>
                         )}
                       </button>
                     );
@@ -2095,6 +2095,33 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         <p className="text-xs text-slate-400 mt-1">Where the year label appears relative to the marker</p>
       </div>
 
+      <div>
+        <Label className="text-sm font-medium text-slate-700">Sub-Marker Indent</Label>
+        <div className="flex gap-1 mt-1">
+          {[
+            { value: 'auto', label: 'Auto' },
+            { value: 'left', label: 'Left' },
+            { value: 'right', label: 'Right' },
+            { value: 'center', label: 'Center' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => updateContent('sub_indent', opt.value)}
+              className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                (content.sub_indent || 'auto') === opt.value
+                  ? 'bg-slate-800 text-white border-slate-800'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+              data-testid={`button-sub-indent-${opt.value}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Direction sub-markers are offset from the main line</p>
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <Label className="text-sm font-medium text-slate-700">Open in Popup View</Label>
@@ -2576,6 +2603,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       className="mt-0.5 h-7 text-xs"
                                       data-testid={`input-sub-heading-${index}-${sIdx}`}
                                     />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-slate-500">Label Side</Label>
+                                  <div className="flex gap-1 mt-0.5">
+                                    {[
+                                      { value: 'left', label: 'Left' },
+                                      { value: 'right', label: 'Right' },
+                                      { value: 'below', label: 'Below' },
+                                    ].map(opt => (
+                                      <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => updateSubItem(index, sIdx, 'label_side', opt.value)}
+                                        className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                                          (sub.label_side || (isLeftLabel ? 'left' : 'below')) === opt.value
+                                            ? 'bg-slate-700 text-white border-slate-700'
+                                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                                        }`}
+                                        data-testid={`button-sub-label-side-${index}-${sIdx}-${opt.value}`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
                                   </div>
                                 </div>
                                 <div>
