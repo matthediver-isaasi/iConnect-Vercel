@@ -1153,7 +1153,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         <div
           ref={railRef}
           data-timeline-rail
-          className="shrink-0 w-28 lg:w-36 self-start"
+          className={`shrink-0 w-28 lg:w-36 ${inOverlay ? 'self-stretch' : 'self-start'}`}
           style={{
             position: 'sticky',
             top: `${stickyTop}px`,
@@ -1168,7 +1168,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px` }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: isLeftLabel ? `${subMarkerOffset + 8}px` : '8px', paddingRight: isLeftLabel ? '8px' : `${subMarkerOffset + 8}px`, minHeight: '100%' }}
             role="tablist"
             aria-label="Timeline years"
           >
@@ -1236,7 +1236,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             })}
           </nav>
         </div>
-        <div ref={contentPanelRef} className="flex-1 min-w-0 relative">
+        <div ref={contentPanelRef} className="flex-1 min-w-0 relative" style={inOverlay ? { paddingTop: '24px', paddingBottom: '24px' } : undefined}>
           {!inOverlay && hasContentBg && renderBgLayer(effectiveBgType, contentBgProps, bgFixedBase, 'timeline-background')}
           {!inOverlay && !isUnified && hasRailBg && renderBgLayer(effectiveRailBgType, railBgProps, railBgBase, 'timeline-rail-background')}
           <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined, width: '100%' }}>
@@ -1287,7 +1287,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             </div>
             <div
               ref={(el) => { scrollContainerRef.current = el; overlayScrollRef.current = el; }}
-              className="flex-1 overflow-y-auto px-8 py-6"
+              className="flex-1 overflow-y-auto px-8"
             >
               {hasBg && overlayRect && (() => {
                 const clipPath = `inset(0 0 0 0 round 0 0 0.75rem 0.75rem)`;
@@ -1307,7 +1307,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               })()}
               <div style={{ position: 'relative', zIndex: 2, width: '100%' }}>
                 {isMobile ? (
-                  <>
+                  <div className="py-6">
                     <div
                       className="flex overflow-x-auto gap-2 pb-3 mb-6 sticky z-20 bg-white/95 backdrop-blur-sm pt-2"
                       style={{ top: 0 }}
@@ -1342,7 +1342,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         return sections;
                       })}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   desktopTimeline(true)
                 )}
