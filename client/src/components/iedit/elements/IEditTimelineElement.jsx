@@ -250,8 +250,15 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     background_image,
     background_opacity = 0.15,
     gradient_stops,
-    gradient_angle = 180
+    gradient_angle = 180,
+    background_type: _bg_type,
+    background_color,
+    background_gradient_from,
+    background_gradient_to,
+    background_gradient_angle = 135
   } = content || {};
+
+  const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
 
   useEffect(() => {
     if (isExpanded) {
@@ -273,8 +280,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     prefersReducedMotion.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
+  const hasBgActive = effectiveBgType !== 'none' && (effectiveBgType !== 'image' || !!background_image);
+
   useEffect(() => {
-    if (!background_image || !contentPanelRef.current) return;
+    if (!hasBgActive || !contentPanelRef.current) return;
     const updateBgLeft = () => {
       if (contentPanelRef.current) {
         setBgLeft(contentPanelRef.current.getBoundingClientRect().left);
@@ -288,10 +297,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       window.removeEventListener('resize', updateBgLeft);
       ro.disconnect();
     };
-  }, [background_image, isExpanded]);
+  }, [hasBgActive, isExpanded]);
 
   useEffect(() => {
-    if (!isExpanded || !background_image || !overlayScrollRef.current) {
+    if (!isExpanded || !hasBgActive || !overlayScrollRef.current) {
       setOverlayRect(null);
       return;
     }
@@ -309,7 +318,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       window.removeEventListener('resize', update);
       ro.disconnect();
     };
-  }, [isExpanded, background_image]);
+  }, [isExpanded, hasBgActive]);
 
   useEffect(() => {
     if (!activeYear || !railRef.current) return;
@@ -834,7 +843,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
     const maxH = inOverlay ? 'calc(95vh - 160px)' : `calc(100vh - ${header_offset + 48}px)`;
-    const hasBg = !!background_image;
+    const bgFixedBase = { position: 'fixed', top: 0, left: `${bgLeft}px`, right: 0, bottom: 0 };
     return (
       <div className="flex gap-8 lg:gap-12 w-full">
         <div
@@ -862,17 +871,37 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         </div>
         <div ref={contentPanelRef} className="flex-1 min-w-0 relative">
           {hasBg && !inOverlay && (() => {
+            if (effectiveBgType === 'solid') {
+              return (
+                <div
+                  className="pointer-events-none"
+                  style={{ ...bgFixedBase, zIndex: 0, backgroundColor: background_color || '#1e3a5f' }}
+                  aria-hidden="true"
+                  data-testid="timeline-background"
+                />
+              );
+            }
+            if (effectiveBgType === 'gradient') {
+              return (
+                <div
+                  className="pointer-events-none"
+                  style={{
+                    ...bgFixedBase,
+                    zIndex: 0,
+                    background: `linear-gradient(${background_gradient_angle}deg, ${background_gradient_from || '#1e3a5f'}, ${background_gradient_to || '#4a90d9'})`,
+                  }}
+                  aria-hidden="true"
+                  data-testid="timeline-background"
+                />
+              );
+            }
             const gradientCss = buildGradientCss();
             return (
               <>
                 <div
                   className="pointer-events-none"
                   style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: `${bgLeft}px`,
-                    right: 0,
-                    bottom: 0,
+                    ...bgFixedBase,
                     zIndex: 0,
                     backgroundImage: `url(${background_image})`,
                     backgroundSize: 'cover',
@@ -884,15 +913,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                 />
                 <div
                   className="pointer-events-none"
-                  style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: `${bgLeft}px`,
-                    right: 0,
-                    bottom: 0,
-                    zIndex: 1,
-                    background: gradientCss,
-                  }}
+                  style={{ ...bgFixedBase, zIndex: 1, background: gradientCss }}
                   aria-hidden="true"
                 />
               </>
@@ -907,6 +928,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   };
 
   /* ── Expanded overlay ── */
+  const hasBg = effectiveBgType !== 'none' && (effectiveBgType !== 'image' || !!background_image);
   if (isExpanded) {
     return (
       <>
@@ -940,42 +962,62 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               ref={(el) => { scrollContainerRef.current = el; overlayScrollRef.current = el; }}
               className="flex-1 overflow-y-auto px-8 py-6"
             >
-              {!!background_image && overlayRect && (
-                <>
-                  <div
-                    className="pointer-events-none"
-                    style={{
-                      position: 'fixed',
-                      top: `${overlayRect.top}px`,
-                      left: `${overlayRect.left}px`,
-                      width: `${overlayRect.width}px`,
-                      height: `${overlayRect.height}px`,
-                      zIndex: 0,
-                      backgroundImage: `url(${background_image})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      backgroundRepeat: 'no-repeat',
-                      clipPath: `inset(0 0 0 0 round 0 0 0.75rem 0.75rem)`,
-                    }}
-                    aria-hidden="true"
-                    data-testid="timeline-overlay-background"
-                  />
-                  <div
-                    className="pointer-events-none"
-                    style={{
-                      position: 'fixed',
-                      top: `${overlayRect.top}px`,
-                      left: `${overlayRect.left}px`,
-                      width: `${overlayRect.width}px`,
-                      height: `${overlayRect.height}px`,
-                      zIndex: 1,
-                      background: buildGradientCss(),
-                      clipPath: `inset(0 0 0 0 round 0 0 0.75rem 0.75rem)`,
-                    }}
-                    aria-hidden="true"
-                  />
-                </>
-              )}
+              {hasBg && overlayRect && (() => {
+                const overlayBase = {
+                  position: 'fixed',
+                  top: `${overlayRect.top}px`,
+                  left: `${overlayRect.left}px`,
+                  width: `${overlayRect.width}px`,
+                  height: `${overlayRect.height}px`,
+                  clipPath: `inset(0 0 0 0 round 0 0 0.75rem 0.75rem)`,
+                };
+                if (effectiveBgType === 'solid') {
+                  return (
+                    <div
+                      className="pointer-events-none"
+                      style={{ ...overlayBase, zIndex: 0, backgroundColor: background_color || '#1e3a5f' }}
+                      aria-hidden="true"
+                      data-testid="timeline-overlay-background"
+                    />
+                  );
+                }
+                if (effectiveBgType === 'gradient') {
+                  return (
+                    <div
+                      className="pointer-events-none"
+                      style={{
+                        ...overlayBase,
+                        zIndex: 0,
+                        background: `linear-gradient(${background_gradient_angle}deg, ${background_gradient_from || '#1e3a5f'}, ${background_gradient_to || '#4a90d9'})`,
+                      }}
+                      aria-hidden="true"
+                      data-testid="timeline-overlay-background"
+                    />
+                  );
+                }
+                return (
+                  <>
+                    <div
+                      className="pointer-events-none"
+                      style={{
+                        ...overlayBase,
+                        zIndex: 0,
+                        backgroundImage: `url(${background_image})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        backgroundRepeat: 'no-repeat',
+                      }}
+                      aria-hidden="true"
+                      data-testid="timeline-overlay-background"
+                    />
+                    <div
+                      className="pointer-events-none"
+                      style={{ ...overlayBase, zIndex: 1, background: buildGradientCss() }}
+                      aria-hidden="true"
+                    />
+                  </>
+                );
+              })()}
               <div style={{ position: 'relative', zIndex: 2, width: '100%' }}>
                 {isMobile ? (
                   <>
@@ -1222,6 +1264,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         ...element,
         content: {
           ...(element.content || {}),
+          background_type: 'image',
           background_image: response.file_url,
           gradient_stops: [
             { color: '#000000', opacity: 0, position: 0 },
@@ -1444,168 +1487,272 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         )}
       </div>
 
-      {/* Background Image */}
+      {/* Background */}
       <div className="space-y-3 border border-slate-200 rounded-lg p-3">
-        <Label className="text-sm font-medium text-slate-700">Background Image (optional)</Label>
+        <Label className="text-sm font-medium text-slate-700">Background</Label>
         <p className="text-xs text-slate-400">Fixed background behind the content panel — stays still while content scrolls over it.</p>
 
-        {content.background_image ? (
-          <div className="space-y-3">
-            <div className="relative rounded-lg overflow-hidden border border-slate-200 h-32">
-              <img src={content.background_image} alt="Background preview" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
-              <button
-                onClick={() => {
-                  updateContent('background_image', '');
-                  updateContent('gradient_stops', undefined);
-                  updateContent('gradient_angle', undefined);
-                }}
-                className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
-                title="Remove background"
-                type="button"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-
-            {/* Gradient Overlay */}
-            <div className="space-y-3 border border-slate-100 rounded-lg p-3 bg-slate-50">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium text-slate-700">Gradient Overlay</Label>
-              </div>
-              <p className="text-xs text-slate-400">Add a gradient over the background to improve text readability.</p>
-
-              <div className="flex items-center gap-3">
-                <Label className="text-xs text-slate-600 shrink-0">Angle</Label>
-                <input
-                  type="range"
-                  min="0"
-                  max="360"
-                  step="1"
-                  value={gradientAngle}
-                  onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
-                  className="flex-1"
-                  data-testid="input-timeline-gradient-angle"
-                />
-                <Input
-                  type="number"
-                  min="0"
-                  max="360"
-                  value={gradientAngle}
-                  onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value) || 0)}
-                  className="w-16 text-xs"
-                />
-                <span className="text-xs text-slate-400">°</span>
-              </div>
-
-              {/* Gradient preview */}
-              <div
-                className="h-8 rounded-md border border-slate-200"
-                style={{
-                  background: `linear-gradient(${gradientAngle}deg, ${
-                    [...gradientStops]
-                      .sort((a, b) => a.position - b.position)
-                      .map(s => {
-                        const r = parseInt(s.color.slice(1, 3), 16);
-                        const g = parseInt(s.color.slice(3, 5), 16);
-                        const b = parseInt(s.color.slice(5, 7), 16);
-                        return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
-                      })
-                      .join(', ')
-                  })`
-                }}
-                data-testid="timeline-gradient-preview"
-              />
-
-              {/* Stops */}
-              <div className="space-y-2">
-                {gradientStops.map((stop, idx) => (
-                  <div key={idx} className="flex items-center gap-2 bg-white rounded-md p-2 border border-slate-100">
-                    <input
-                      type="color"
-                      value={stop.color}
-                      onChange={(e) => updateGradientStop(idx, 'color', e.target.value)}
-                      className="w-7 h-7 rounded border border-slate-200 cursor-pointer shrink-0"
-                    />
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-[10px] text-slate-400 w-10 shrink-0">Opacity</Label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={stop.opacity}
-                          onChange={(e) => updateGradientStop(idx, 'opacity', parseFloat(e.target.value))}
-                          className="flex-1"
-                        />
-                        <span className="text-[10px] text-slate-500 w-8 text-right">{Math.round(stop.opacity * 100)}%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Label className="text-[10px] text-slate-400 w-10 shrink-0">Position</Label>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value={stop.position}
-                          onChange={(e) => updateGradientStop(idx, 'position', parseInt(e.target.value))}
-                          className="flex-1"
-                        />
-                        <span className="text-[10px] text-slate-500 w-8 text-right">{stop.position}%</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => removeGradientStop(idx)}
-                      disabled={gradientStops.length <= 2}
-                      className="p-1 rounded text-slate-400 hover:text-red-500 disabled:opacity-30 shrink-0"
-                      title="Remove stop"
-                      type="button"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addGradientStop}
-                className="w-full"
-                data-testid="button-add-gradient-stop"
-              >
-                <Plus className="w-3 h-3 mr-1" />
-                Add Stop
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <label className="cursor-pointer block" data-testid="input-timeline-bg-upload">
-            <div className={`flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-slate-200 rounded-lg transition-colors ${
-              isBgUploading ? 'bg-slate-100 cursor-not-allowed' : 'hover:border-blue-400 hover:bg-blue-50/50'
-            }`}>
-              {isBgUploading ? (
-                <span className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
-              ) : (
-                <>
-                  <Upload className="w-6 h-6 text-slate-400" />
-                  <span className="text-sm text-slate-500">Click to upload background image</span>
-                  <span className="text-xs text-slate-400">JPEG, PNG, GIF, WebP — max 10MB</span>
-                </>
-              )}
-            </div>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleBgUpload(file);
-                e.target.value = '';
+        <div className="flex gap-1">
+          {['none', 'solid', 'gradient', 'image'].map(t => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => {
+                const prev = content.background_type || (content.background_image ? 'image' : 'none');
+                if (t === prev) return;
+                const updates = { background_type: t };
+                if (prev === 'image') {
+                  updates.background_image = undefined;
+                  updates.gradient_stops = undefined;
+                  updates.gradient_angle = undefined;
+                } else if (prev === 'solid') {
+                  updates.background_color = undefined;
+                } else if (prev === 'gradient') {
+                  updates.background_gradient_from = undefined;
+                  updates.background_gradient_to = undefined;
+                  updates.background_gradient_angle = undefined;
+                }
+                onChange({ ...element, content: { ...(element.content || {}), ...updates } });
               }}
-              className="hidden"
-              disabled={isBgUploading}
+              className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+                (content.background_type || (content.background_image ? 'image' : 'none')) === t
+                  ? 'bg-slate-800 text-white border-slate-800'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+              data-testid={`button-timeline-bg-type-${t}`}
+            >
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {(content.background_type || (content.background_image ? 'image' : 'none')) === 'solid' && (
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-slate-500 shrink-0">Colour</Label>
+            <input
+              type="color"
+              value={content.background_color || '#1e3a5f'}
+              onChange={(e) => updateContent('background_color', e.target.value)}
+              className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+              data-testid="input-timeline-bg-color"
             />
-          </label>
+            <Input
+              value={content.background_color || '#1e3a5f'}
+              onChange={(e) => updateContent('background_color', e.target.value)}
+              className="w-24 text-xs"
+            />
+          </div>
+        )}
+
+        {(content.background_type || (content.background_image ? 'image' : 'none')) === 'gradient' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-slate-500 shrink-0">From</Label>
+              <input
+                type="color"
+                value={content.background_gradient_from || '#1e3a5f'}
+                onChange={(e) => updateContent('background_gradient_from', e.target.value)}
+                className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                data-testid="input-timeline-bg-gradient-from"
+              />
+              <Label className="text-xs text-slate-500 shrink-0">To</Label>
+              <input
+                type="color"
+                value={content.background_gradient_to || '#4a90d9'}
+                onChange={(e) => updateContent('background_gradient_to', e.target.value)}
+                className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
+                data-testid="input-timeline-bg-gradient-to"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-slate-500 shrink-0 w-10">Angle</Label>
+              <input
+                type="range"
+                min="0"
+                max="360"
+                step="1"
+                value={content.background_gradient_angle ?? 135}
+                onChange={(e) => updateContent('background_gradient_angle', parseInt(e.target.value))}
+                className="flex-1"
+                data-testid="input-timeline-bg-gradient-angle"
+              />
+              <span className="text-xs text-slate-500 w-8 text-right">{content.background_gradient_angle ?? 135}°</span>
+            </div>
+            <div
+              className="h-6 rounded-md border border-slate-200"
+              style={{
+                background: `linear-gradient(${content.background_gradient_angle ?? 135}deg, ${content.background_gradient_from || '#1e3a5f'}, ${content.background_gradient_to || '#4a90d9'})`
+              }}
+              data-testid="timeline-bg-gradient-preview"
+            />
+          </div>
+        )}
+
+        {(content.background_type || (content.background_image ? 'image' : 'none')) === 'image' && (
+          <>
+            {content.background_image ? (
+              <div className="space-y-3">
+                <div className="relative rounded-lg overflow-hidden border border-slate-200 h-32">
+                  <img src={content.background_image} alt="Background preview" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                  <button
+                    onClick={() => {
+                      onChange({
+                        ...element,
+                        content: {
+                          ...(element.content || {}),
+                          background_type: 'none',
+                          background_image: undefined,
+                          gradient_stops: undefined,
+                          gradient_angle: undefined,
+                        }
+                      });
+                    }}
+                    className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
+                    title="Remove background"
+                    type="button"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 border border-slate-100 rounded-lg p-3 bg-slate-50">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium text-slate-700">Gradient Overlay</Label>
+                  </div>
+                  <p className="text-xs text-slate-400">Add a gradient over the background to improve text readability.</p>
+
+                  <div className="flex items-center gap-3">
+                    <Label className="text-xs text-slate-600 shrink-0">Angle</Label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      step="1"
+                      value={gradientAngle}
+                      onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+                      className="flex-1"
+                      data-testid="input-timeline-gradient-angle"
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      max="360"
+                      value={gradientAngle}
+                      onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value) || 0)}
+                      className="w-16 text-xs"
+                    />
+                    <span className="text-xs text-slate-400">°</span>
+                  </div>
+
+                  <div
+                    className="h-8 rounded-md border border-slate-200"
+                    style={{
+                      background: `linear-gradient(${gradientAngle}deg, ${
+                        [...gradientStops]
+                          .sort((a, b) => a.position - b.position)
+                          .map(s => {
+                            const r = parseInt(s.color.slice(1, 3), 16);
+                            const g = parseInt(s.color.slice(3, 5), 16);
+                            const b = parseInt(s.color.slice(5, 7), 16);
+                            return `rgba(${r},${g},${b},${s.opacity}) ${s.position}%`;
+                          })
+                          .join(', ')
+                      })`
+                    }}
+                    data-testid="timeline-gradient-preview"
+                  />
+
+                  <div className="space-y-2">
+                    {gradientStops.map((stop, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-white rounded-md p-2 border border-slate-100">
+                        <input
+                          type="color"
+                          value={stop.color}
+                          onChange={(e) => updateGradientStop(idx, 'color', e.target.value)}
+                          className="w-7 h-7 rounded border border-slate-200 cursor-pointer shrink-0"
+                        />
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Label className="text-[10px] text-slate-400 w-10 shrink-0">Opacity</Label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={stop.opacity}
+                              onChange={(e) => updateGradientStop(idx, 'opacity', parseFloat(e.target.value))}
+                              className="flex-1"
+                            />
+                            <span className="text-[10px] text-slate-500 w-8 text-right">{Math.round(stop.opacity * 100)}%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-[10px] text-slate-400 w-10 shrink-0">Position</Label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={stop.position}
+                              onChange={(e) => updateGradientStop(idx, 'position', parseInt(e.target.value))}
+                              className="flex-1"
+                            />
+                            <span className="text-[10px] text-slate-500 w-8 text-right">{stop.position}%</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => removeGradientStop(idx)}
+                          disabled={gradientStops.length <= 2}
+                          className="p-1 rounded text-slate-400 hover:text-red-500 disabled:opacity-30 shrink-0"
+                          title="Remove stop"
+                          type="button"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addGradientStop}
+                    className="w-full"
+                    data-testid="button-add-gradient-stop"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Add Stop
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <label className="cursor-pointer block" data-testid="input-timeline-bg-upload">
+                <div className={`flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-slate-200 rounded-lg transition-colors ${
+                  isBgUploading ? 'bg-slate-100 cursor-not-allowed' : 'hover:border-blue-400 hover:bg-blue-50/50'
+                }`}>
+                  {isBgUploading ? (
+                    <span className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+                  ) : (
+                    <>
+                      <Upload className="w-6 h-6 text-slate-400" />
+                      <span className="text-sm text-slate-500">Click to upload background image</span>
+                      <span className="text-xs text-slate-400">JPEG, PNG, GIF, WebP — max 10MB</span>
+                    </>
+                  )}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBgUpload(file);
+                    e.target.value = '';
+                  }}
+                  className="hidden"
+                  disabled={isBgUploading}
+                />
+              </label>
+            )}
+          </>
         )}
       </div>
 
