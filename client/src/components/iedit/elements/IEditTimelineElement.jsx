@@ -525,29 +525,38 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     if (!markers.length || mainX === null) { setNavLinePath(''); return; }
 
     let d = `M ${mainX} 0`;
+    let curX = mainX;
     let curY = 0;
 
     for (let i = 0; i < markers.length; i++) {
       const m = markers[i];
       if (m.type === 'parent') {
+        if (curX !== mainX) {
+          const returnDist = Math.abs(curX - mainX);
+          d += ` L ${mainX} ${curY + returnDist}`;
+          curX = mainX;
+          curY = curY + returnDist;
+        }
         d += ` L ${mainX} ${m.cy}`;
         curY = m.cy;
       } else {
-        const diagDist = Math.abs(m.cx - mainX);
-        const diagStartY = Math.max(curY, m.cy - diagDist);
-        d += ` L ${mainX} ${diagStartY}`;
-        d += ` L ${m.cx} ${m.cy}`;
-        const nextMarker = markers[i + 1];
-        if (nextMarker) {
-          const returnDist = nextMarker.type === 'sub' ? 0 : diagDist;
-          const returnY = m.cy + returnDist;
-          d += ` L ${mainX} ${returnY}`;
-          curY = returnY;
-        } else {
-          d += ` L ${mainX} ${m.cy + diagDist}`;
-          curY = m.cy + diagDist;
+        const dx = Math.abs(m.cx - curX);
+        if (dx > 0.5) {
+          const diagEndY = curY + dx;
+          d += ` L ${m.cx} ${diagEndY}`;
+          curX = m.cx;
+          curY = diagEndY;
         }
+        d += ` L ${m.cx} ${m.cy}`;
+        curY = m.cy;
       }
+    }
+
+    if (curX !== mainX) {
+      const returnDist = Math.abs(curX - mainX);
+      d += ` L ${mainX} ${curY + returnDist}`;
+      curX = mainX;
+      curY = curY + returnDist;
     }
 
     d += ` L ${mainX} ${navH}`;
@@ -1132,7 +1141,11 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {items.map((item, idx) => {
               const subs = item.sub_items || [];
               return (
-                <div key={item.year} className="flex flex-col" style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}>
+                <div
+                  key={item.year}
+                  className={`flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
+                  style={{ marginBottom: idx < items.length - 1 ? '24px' : 0, width: '100%' }}
+                >
                   {markerNav(idx, item)}
                   {subs.length > 0 && subs.map((sub, sIdx) => {
                     const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
@@ -1141,7 +1154,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                       <button
                         key={subKey}
                         onClick={() => scrollToSection(subKey)}
-                        className={`relative z-10 flex group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                        className={`relative z-10 flex self-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
                           isLeftLabel ? 'flex-row items-center' : 'flex-col items-center'
                         }`}
                         style={{ marginTop: '16px', marginLeft: isLeftLabel ? '0px' : '20px' }}
