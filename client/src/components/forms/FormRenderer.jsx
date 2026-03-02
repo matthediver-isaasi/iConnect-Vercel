@@ -101,27 +101,44 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
     : countries;
   
   const toggleCountry = (name) => {
-    // Find the country to get its code for legacy data removal
     const country = countries.find(c => c.name === name);
     const code = country?.code;
-    
-    // Check if the country is currently selected (by name or code)
     const isSelected = value.includes(name) || (code && value.includes(code));
     
     if (isSelected) {
-      // Remove both name and code to handle legacy data
       const newValue = value.filter(c => c !== name && c !== code);
       onChange(newValue);
     } else {
-      // Add by name (new format)
       onChange([...value, name]);
+    }
+  };
+
+  const allFilteredSelected = filteredCountries.length > 0 && filteredCountries.every(
+    c => value.includes(c.name) || value.includes(c.code)
+  );
+
+  const toggleAll = () => {
+    if (allFilteredSelected) {
+      const filteredNames = new Set(filteredCountries.map(c => c.name));
+      const filteredCodes = new Set(filteredCountries.map(c => c.code));
+      const newValue = value.filter(v => !filteredNames.has(v) && !filteredCodes.has(v));
+      onChange(newValue);
+    } else {
+      const currentSet = new Set(value);
+      const newValue = [...value];
+      for (const c of filteredCountries) {
+        if (!currentSet.has(c.name) && !currentSet.has(c.code)) {
+          newValue.push(c.name);
+        }
+      }
+      onChange(newValue);
     }
   };
   
   return (
     <Popover open={open} onOpenChange={(isOpen) => {
       setOpen(isOpen);
-      if (!isOpen) setSearchQuery(""); // Reset search when closing
+      if (!isOpen) setSearchQuery("");
     }}>
       <PopoverTrigger asChild>
         <Button
@@ -156,6 +173,19 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>
+              <CommandItem
+                onSelect={toggleAll}
+                className="font-medium text-primary"
+                data-testid={`toggle-all-countries-${fieldId}`}
+              >
+                <Check
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    allFilteredSelected ? "opacity-100" : "opacity-0"
+                  )}
+                />
+                {allFilteredSelected ? 'Deselect All' : 'Select All'}
+              </CommandItem>
               {filteredCountries.map((country) => (
                 <CommandItem
                   key={country.code}

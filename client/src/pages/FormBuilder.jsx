@@ -3026,7 +3026,21 @@ function FieldCard({
                   {/* Country Selection (when not all) */}
                   {field.all_countries === false && (
                     <div className="space-y-2">
-                      <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline"
+                          data-testid={`toggle-all-selected-countries-${field.id}`}
+                          onClick={() => {
+                            const allCodes = COUNTRIES.map(c => c.code);
+                            const allSelected = allCodes.every(code => (field.selected_countries || []).includes(code));
+                            updateField(originalIndex, { selected_countries: allSelected ? [] : allCodes });
+                          }}
+                        >
+                          {COUNTRIES.every(c => (field.selected_countries || []).includes(c.code)) ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
                       <div className="max-h-48 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
                         {COUNTRIES.map((country) => (
                           <div key={country.code} className="flex items-center gap-2">
@@ -3101,7 +3115,21 @@ function FieldCard({
                   {/* Country Selection (when not all) */}
                   {field.all_countries === false && (
                     <div className="space-y-2">
-                      <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline"
+                          data-testid={`toggle-all-selected-countries-multi-${field.id}`}
+                          onClick={() => {
+                            const allCodes = COUNTRIES.map(c => c.code);
+                            const allSelected = allCodes.every(code => (field.selected_countries || []).includes(code));
+                            updateField(originalIndex, { selected_countries: allSelected ? [] : allCodes });
+                          }}
+                        >
+                          {COUNTRIES.every(c => (field.selected_countries || []).includes(c.code)) ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
                       <div className="max-h-48 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
                         {COUNTRIES.map((country) => (
                           <div key={country.code} className="flex items-center gap-2">
@@ -3130,30 +3158,51 @@ function FieldCard({
                   
                   {/* Default Countries */}
                   <div className="space-y-1">
-                    <Label className="text-xs">Default Countries</Label>
-                    <div className="max-h-32 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
-                      {(field.all_countries !== false ? COUNTRIES : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code))).map((country) => (
-                        <div key={country.code} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`default-countries-${field.id}-${country.code}`}
-                            checked={(field.default_countries || []).includes(country.code)}
-                            onCheckedChange={(checked) => {
-                              const current = field.default_countries || [];
-                              const updated = checked 
-                                ? [...current, country.code]
-                                : current.filter(c => c !== country.code);
-                              updateField(originalIndex, { default_countries: updated });
-                            }}
-                          />
-                          <Label htmlFor={`default-countries-${field.id}-${country.code}`} className="text-xs">
-                            {country.name}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {(field.default_countries || []).length} default countries selected
-                    </p>
+                    {(() => {
+                      const availableDefaults = field.all_countries !== false ? COUNTRIES : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+                      const allDefaultsSelected = availableDefaults.length > 0 && availableDefaults.every(c => (field.default_countries || []).includes(c.code));
+                      return (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs">Default Countries</Label>
+                            <button
+                              type="button"
+                              className="text-xs text-primary hover:underline"
+                              data-testid={`toggle-all-default-countries-${field.id}`}
+                              onClick={() => {
+                                const allCodes = availableDefaults.map(c => c.code);
+                                updateField(originalIndex, { default_countries: allDefaultsSelected ? [] : allCodes });
+                              }}
+                            >
+                              {allDefaultsSelected ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                          <div className="max-h-32 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
+                            {availableDefaults.map((country) => (
+                              <div key={country.code} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`default-countries-${field.id}-${country.code}`}
+                                  checked={(field.default_countries || []).includes(country.code)}
+                                  onCheckedChange={(checked) => {
+                                    const current = field.default_countries || [];
+                                    const updated = checked 
+                                      ? [...current, country.code]
+                                      : current.filter(c => c !== country.code);
+                                    updateField(originalIndex, { default_countries: updated });
+                                  }}
+                                />
+                                <Label htmlFor={`default-countries-${field.id}-${country.code}`} className="text-xs">
+                                  {country.name}
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {(field.default_countries || []).length} default countries selected
+                          </p>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
