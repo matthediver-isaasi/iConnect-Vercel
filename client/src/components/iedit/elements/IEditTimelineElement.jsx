@@ -521,8 +521,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         const subEl = nav.querySelector(`[data-testid="timeline-marker-sub-${subKey}"]`);
         const subPos = findDotCenter(subEl);
         if (subPos) {
-          const perSubIndent = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
-          markers.push({ type: 'sub', ...subPos, year: subKey, indent: perSubIndent });
+          markers.push({ type: 'sub', ...subPos, year: subKey });
         }
       });
     });
@@ -545,7 +544,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         d += ` L ${mainX} ${m.cy}`;
         curY = m.cy;
       } else {
-        const subX = m.indent === 'center' ? mainX : m.indent === 'left' ? mainX - subMarkerOffset : mainX + subMarkerOffset;
+        const subX = m.cx;
         const dx = Math.abs(subX - curX);
         if (dx > 0.5) {
           const diagEndY = curY + dx;
@@ -568,7 +567,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     d += ` L ${mainX} ${navH}`;
     setNavLinePath(d);
-  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, subMarkerOffset, resolvedSubIndent]);
+  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, subMarkerOffset]);
 
   useEffect(() => {
     computeNavLine();
