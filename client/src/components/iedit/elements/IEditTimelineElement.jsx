@@ -542,14 +542,16 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         d += ` L ${mainX} ${m.cy}`;
         curY = m.cy;
       } else {
-        const dx = Math.abs(m.cx - curX);
+        const subX = isLeftLabel ? mainX - subMarkerOffset : mainX + subMarkerOffset;
+        const dx = Math.abs(subX - curX);
         if (dx > 0.5) {
           const diagEndY = curY + dx;
-          d += ` L ${m.cx} ${diagEndY}`;
-          curX = m.cx;
+          d += ` L ${subX} ${diagEndY}`;
+          curX = subX;
           curY = diagEndY;
         }
-        d += ` L ${m.cx} ${m.cy}`;
+        d += ` L ${subX} ${m.cy}`;
+        curX = subX;
         curY = m.cy;
       }
     }
@@ -563,7 +565,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     d += ` L ${mainX} ${navH}`;
     setNavLinePath(d);
-  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset]);
+  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, subMarkerOffset]);
 
   useEffect(() => {
     computeNavLine();
@@ -591,7 +593,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const vDrop = Math.abs(subC.cy - parentC.cy);
     const railW = rail.getBoundingClientRect().width;
     const maxOffset = Math.floor(railW * 0.4);
-    const newOffset = Math.max(10, Math.min(vDrop, maxOffset));
+    const newOffset = Math.round(Math.max(10, Math.min(vDrop, maxOffset)));
     if (Math.abs(newOffset - subMarkerOffset) > 1) {
       setSubMarkerOffset(newOffset);
     }
