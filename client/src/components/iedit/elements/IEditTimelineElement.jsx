@@ -240,8 +240,6 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const overlayScrollRef = useRef(null);
   const [overlayRect, setOverlayRect] = useState(null);
   const [navLinePath, setNavLinePath] = useState('');
-  const [subMarkerOffset, setSubMarkerOffset] = useState(30);
-
   const {
     title,
     items = [],
@@ -271,13 +269,13 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     nav_top_offset = 0,
     nav_bottom_offset = 0,
     label_position = 'below',
-    sub_indent = 'auto',
+    sub_offset_x = 0,
+    sub_offset_y = 0,
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
   const effectiveRailBgType = _rail_bg_type || (rail_background_image ? 'image' : 'none');
   const isLeftLabel = label_position === 'left';
-  const resolvedSubIndent = sub_indent === 'auto' ? (isLeftLabel ? 'left' : 'right') : sub_indent;
 
   useEffect(() => {
     if (isExpanded) {
@@ -565,55 +563,19 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     d += ` L ${mainX} ${navH}`;
     setNavLinePath(d);
-  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset, subMarkerOffset]);
+  }, [items, marker_size, isLeftLabel, nav_top_offset, nav_bottom_offset]);
 
   useEffect(() => {
     computeNavLine();
     const timer = setTimeout(computeNavLine, 100);
     return () => clearTimeout(timer);
-  }, [computeNavLine, items, activeYear, subMarkerOffset]);
-
-  const anySubNonCenter = items.some(item => (item.sub_items || []).some(sub => {
-    const si = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
-    return si !== 'center';
-  }));
-  const measureSubOffset = useCallback(() => {
-    if (!anySubNonCenter) return;
-    const nav = navRef.current;
-    const rail = railRef.current;
-    if (!nav || !rail || !items.length) return;
-    const parentWithSubs = items.find(item => (item.sub_items || []).length > 0);
-    if (!parentWithSubs) return;
-    const firstSubKey = `${parentWithSubs.year}-sub0-${parentWithSubs.sub_items[0].year}`;
-    const parentDot = nav.querySelector(`[data-dot-key="${parentWithSubs.year}"]`);
-    const subDot = nav.querySelector(`[data-dot-key="${firstSubKey}"]`);
-    if (!parentDot || !subDot) return;
-    const getCenter = (el) => {
-      const r = el.getBoundingClientRect();
-      return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
-    };
-    const parentC = getCenter(parentDot);
-    const subC = getCenter(subDot);
-    const vDrop = Math.abs(subC.cy - parentC.cy);
-    const railW = rail.getBoundingClientRect().width;
-    const maxOffset = Math.floor(railW * 0.25);
-    const newOffset = Math.round(Math.max(10, Math.min(vDrop * 0.6, maxOffset)));
-    if (Math.abs(newOffset - subMarkerOffset) > 1) {
-      setSubMarkerOffset(newOffset);
-    }
-  }, [items, marker_size, isLeftLabel, subMarkerOffset, resolvedSubIndent]);
+  }, [computeNavLine, items, activeYear, sub_offset_x, sub_offset_y]);
 
   useEffect(() => {
-    const observer = new ResizeObserver(() => { computeNavLine(); measureSubOffset(); });
+    const observer = new ResizeObserver(() => { computeNavLine(); });
     if (navRef.current) observer.observe(navRef.current);
     return () => observer.disconnect();
-  }, [computeNavLine, measureSubOffset]);
-
-  useEffect(() => {
-    measureSubOffset();
-    const timer = setTimeout(measureSubOffset, 150);
-    return () => clearTimeout(timer);
-  }, [measureSubOffset]);
+  }, [computeNavLine]);
 
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
@@ -1148,14 +1110,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     gradientCss: buildRailGradientCss(),
   };
 
-  const hasSubIndentLeft = items.some(item => (item.sub_items || []).some(sub => {
-    const si = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
-    return si === 'left';
-  }));
-  const hasSubIndentRight = items.some(item => (item.sub_items || []).some(sub => {
-    const si = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
-    return si === 'right';
-  }));
+  const maxSubOffX = Math.max(0, ...items.flatMap(i => (i.sub_items || []).map(s => Math.abs(typeof s.offset_x === 'number' ? s.offset_x : sub_offset_x))));
 
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
@@ -1192,7 +1147,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <nav
             ref={navRef}
             className={`relative flex flex-col ${isLeftLabel ? 'items-end' : 'items-center'}`}
-            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: hasSubIndentLeft ? `${subMarkerOffset + 8}px` : '8px', paddingRight: hasSubIndentRight ? `${subMarkerOffset + 8}px` : '8px', minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
+            style={{ paddingTop: `${nav_top_offset}px`, paddingBottom: `${nav_bottom_offset}px`, paddingLeft: `${maxSubOffX + 8}px`, paddingRight: `${maxSubOffX + 8}px`, minHeight: inOverlay ? 'calc(95vh - 72px)' : '100%' }}
             role="tablist"
             aria-label="Timeline years"
           >
@@ -1219,8 +1174,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
                     const isSubActive = activeYear === subKey;
                     const subLabelSide = sub.label_side || (isLeftLabel ? 'left' : 'below');
-                    const subIndent = (sub.indent && sub.indent !== 'auto') ? sub.indent : resolvedSubIndent;
-                    const subTranslateX = subIndent === 'center' ? 0 : subIndent === 'left' ? -subMarkerOffset : subMarkerOffset;
+                    const subOffX = typeof sub.offset_x === 'number' ? sub.offset_x : sub_offset_x;
+                    const subOffY = typeof sub.offset_y === 'number' ? sub.offset_y : sub_offset_y;
                     const subLabelStyle = {
                       fontWeight: isSubActive ? 700 : 500,
                       color: isSubActive ? active_color : '#9ca3af'
@@ -1230,7 +1185,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                         key={subKey}
                         onClick={() => scrollToSection(subKey)}
                         className="relative z-10 flex flex-col items-center group focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-                        style={{ marginTop: '16px', transform: `translateX(${subTranslateX}px)` }}
+                        style={{ marginTop: '16px', transform: `translateX(${subOffX}px) translateY(${subOffY}px)` }}
                         data-testid={`timeline-marker-sub-${subKey}`}
                         data-sub-marker
                       >
@@ -2108,30 +2063,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       </div>
 
       <div>
-        <Label className="text-sm font-medium text-slate-700">Sub-Marker Indent</Label>
-        <div className="flex gap-1 mt-1">
-          {[
-            { value: 'auto', label: 'Auto' },
-            { value: 'left', label: 'Left' },
-            { value: 'right', label: 'Right' },
-            { value: 'center', label: 'Center' },
-          ].map(opt => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => updateContent('sub_indent', opt.value)}
-              className={`px-3 py-1 text-xs rounded-md border transition-colors ${
-                (content.sub_indent || 'auto') === opt.value
-                  ? 'bg-slate-800 text-white border-slate-800'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-              }`}
-              data-testid={`button-sub-indent-${opt.value}`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <Label className="text-sm font-medium text-slate-700">Default Sub-Marker Offset</Label>
+        <div className="flex gap-3 mt-1">
+          <div className="flex-1">
+            <Label className="text-[10px] text-slate-500">X (horizontal)</Label>
+            <input
+              type="number"
+              value={content.sub_offset_x || 0}
+              onChange={(e) => updateContent('sub_offset_x', parseInt(e.target.value) || 0)}
+              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md"
+              data-testid="input-sub-offset-x"
+            />
+          </div>
+          <div className="flex-1">
+            <Label className="text-[10px] text-slate-500">Y (vertical)</Label>
+            <input
+              type="number"
+              value={content.sub_offset_y || 0}
+              onChange={(e) => updateContent('sub_offset_y', parseInt(e.target.value) || 0)}
+              className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md"
+              data-testid="input-sub-offset-y"
+            />
+          </div>
         </div>
-        <p className="text-xs text-slate-400 mt-1">Direction sub-markers are offset from the main line</p>
+        <p className="text-xs text-slate-400 mt-1">px from center line (X: +right −left, Y: +down −up)</p>
       </div>
 
       <div className="flex items-center justify-between">
@@ -2617,7 +2572,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     />
                                   </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-3 gap-2">
                                   <div>
                                     <Label className="text-[10px] text-slate-500">Label Side</Label>
                                     <div className="flex gap-1 mt-0.5">
@@ -2643,29 +2598,26 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     </div>
                                   </div>
                                   <div>
-                                    <Label className="text-[10px] text-slate-500">Indent</Label>
-                                    <div className="flex gap-1 mt-0.5">
-                                      {[
-                                        { value: 'auto', label: 'A' },
-                                        { value: 'left', label: 'L' },
-                                        { value: 'right', label: 'R' },
-                                        { value: 'center', label: 'C' },
-                                      ].map(opt => (
-                                        <button
-                                          key={opt.value}
-                                          type="button"
-                                          onClick={() => updateSubItem(index, sIdx, 'indent', opt.value)}
-                                          className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
-                                            (sub.indent || 'auto') === opt.value
-                                              ? 'bg-slate-700 text-white border-slate-700'
-                                              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
-                                          }`}
-                                          data-testid={`button-sub-indent-${index}-${sIdx}-${opt.value}`}
-                                        >
-                                          {opt.label}
-                                        </button>
-                                      ))}
-                                    </div>
+                                    <Label className="text-[10px] text-slate-500">X Offset</Label>
+                                    <input
+                                      type="number"
+                                      value={typeof sub.offset_x === 'number' ? sub.offset_x : ''}
+                                      placeholder={String(content.sub_offset_x || 0)}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'offset_x', e.target.value === '' ? undefined : parseInt(e.target.value) || 0)}
+                                      className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                      data-testid={`input-sub-offset-x-${index}-${sIdx}`}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Y Offset</Label>
+                                    <input
+                                      type="number"
+                                      value={typeof sub.offset_y === 'number' ? sub.offset_y : ''}
+                                      placeholder={String(content.sub_offset_y || 0)}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'offset_y', e.target.value === '' ? undefined : parseInt(e.target.value) || 0)}
+                                      className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                      data-testid={`input-sub-offset-y-${index}-${sIdx}`}
+                                    />
                                   </div>
                                 </div>
                                 <div>
