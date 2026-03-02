@@ -19,6 +19,7 @@ import { COUNTRIES } from "@/data/countries";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
+  { value: 'textarea', label: 'Multi-line Text' },
   { value: 'email', label: 'Email Address' },
   { value: 'url', label: 'URL / Website' },
   { value: 'date', label: 'Date' },
