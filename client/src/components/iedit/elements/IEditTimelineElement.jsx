@@ -1127,6 +1127,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             overflowY: 'auto',
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
+            zIndex: 1,
           }}
         >
           <style>{`[data-timeline-rail]::-webkit-scrollbar { display: none; }`}</style>
