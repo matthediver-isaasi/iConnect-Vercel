@@ -715,6 +715,21 @@ export default function MemberDetail() {
 
   // Handlers
   const handleSave = () => {
+    const textareaFields = (memberCustomFields || []).filter(f =>
+      (f.field_type === 'textarea' || f.field_type === 'long_text') && (f.min_length || f.max_length)
+    );
+    for (const field of textareaFields) {
+      const val = customFieldValues[field.id] || '';
+      const len = val.length;
+      if (field.min_length && len > 0 && len < field.min_length) {
+        toast.error(`${field.label} must be at least ${field.min_length} characters`);
+        return;
+      }
+      if (field.max_length && len > field.max_length) {
+        toast.error(`${field.label} must be at most ${field.max_length} characters`);
+        return;
+      }
+    }
     updateMutation.mutate({ ...formData, role_id: selectedRoleId });
   };
 
@@ -805,11 +820,41 @@ export default function MemberDetail() {
           <p className="text-sm">{value ? <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a> : '-'}</p>
         );
       case 'textarea':
+      case 'long_text': {
+        const taCharCount = (value || '').length;
+        const taMaxLen = field.max_length;
+        const taMinLen = field.min_length;
+        const taOverLimit = taMaxLen && taCharCount > taMaxLen;
+        const taUnderLimit = taMinLen && taCharCount > 0 && taCharCount < taMinLen;
         return isEditing ? (
-          <Textarea value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} rows={3} data-testid={`textarea-member-custom-${field.id}`} />
+          <div className="space-y-1">
+            <Textarea
+              value={value || ''}
+              onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+              rows={3}
+              maxLength={taMaxLen || undefined}
+              className={taOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}
+              data-testid={`textarea-member-custom-${field.id}`}
+            />
+            {(taMaxLen || taMinLen) && (
+              <div className="flex justify-between text-xs">
+                {taMinLen ? (
+                  <span className={taUnderLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                    Min: {taMinLen} characters
+                  </span>
+                ) : <span />}
+                {taMaxLen ? (
+                  <span className={taOverLimit ? 'text-red-500 font-medium' : 'text-slate-400'}>
+                    {taCharCount} / {taMaxLen}
+                  </span>
+                ) : null}
+              </div>
+            )}
+          </div>
         ) : (
           <p className="text-sm whitespace-pre-wrap">{value || '-'}</p>
         );
+      }
       default:
         return isEditing ? (
           <Input value={value || ''} onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))} data-testid={`input-member-custom-${field.id}`} />
