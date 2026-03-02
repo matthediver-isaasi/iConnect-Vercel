@@ -292,6 +292,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     line_dash = 'solid',
     marker_color: timeline_marker_color,
     label_size = 14,
+    heading_size = 20,
+    heading_color = '',
+    body_size = 16,
+    body_color = '',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -818,17 +822,22 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const isImageBg = isHighlighted && item.highlight.bg_type === 'image' && item.highlight.bg_image;
     const textColor = isHighlighted ? item.highlight.text_color : undefined;
 
+    const itemHeadingSize = item.heading_size || heading_size;
+    const itemHeadingColor = item.heading_color || heading_color || '#1e293b';
+    const itemBodySize = item.body_size || body_size;
+    const itemBodyColor = item.body_color || body_color || '';
+
     const innerContent = (
       <>
         <div className="flex items-baseline gap-3 mb-3">
           <span
-            className="text-2xl font-bold transition-colors duration-200"
-            style={{ color: textColor || (isActive ? active_color : '#9ca3af') }}
+            className="font-bold transition-colors duration-200"
+            style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : '#9ca3af') }}
           >
             {item.year}
           </span>
           {item.heading && (
-            <h3 className="text-xl font-semibold" style={{ color: textColor || '#1e293b' }}>{item.heading}</h3>
+            <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
           )}
         </div>
 
@@ -853,7 +862,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         {item.body && (
           <div
             className="prose max-w-none"
-            style={textColor ? { color: textColor } : undefined}
+            style={{ fontSize: `${itemBodySize}px`, ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}) }}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
           />
         )}
@@ -910,18 +919,19 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         <div className="border-l-2 pl-4 ml-2" style={{ borderColor: isActive ? active_color : line_color }}>
           <div className="flex items-baseline gap-2 mb-2">
             <span
-              className="text-lg font-semibold transition-colors duration-200"
-              style={{ color: isActive ? active_color : '#9ca3af' }}
+              className="font-semibold transition-colors duration-200"
+              style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : '#9ca3af' }}
             >
               {sub.year}
             </span>
             {sub.heading && (
-              <h4 className="text-base font-medium" style={{ color: '#1e293b' }}>{sub.heading}</h4>
+              <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b' }}>{sub.heading}</h4>
             )}
           </div>
           {sub.body && (
             <div
               className="prose prose-sm max-w-none"
+              style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }}
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
             />
           )}
@@ -980,14 +990,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             return hasWrapper ? <div style={wrapperStyle} className="shrink-0">{dot}</div> : dot;
           })()}
           <span
-            className="text-lg font-bold"
-            style={{ color: textColor || (activeYear === item.year ? active_color : '#374151') }}
+            className="font-bold"
+            style={{ fontSize: `${Math.round((item.heading_size || heading_size) * 0.9)}px`, color: textColor || (activeYear === item.year ? active_color : '#374151') }}
           >
             {item.year}
           </span>
         </div>
         {item.heading && (
-          <h3 className="text-xl font-semibold mb-2" style={{ color: textColor || '#1e293b' }}>{item.heading}</h3>
+          <h3 className="font-semibold mb-2" style={{ fontSize: `${item.heading_size || heading_size}px`, color: textColor || (item.heading_color || heading_color || '#1e293b') }}>{item.heading}</h3>
         )}
         {item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
           <div className="mb-3 rounded-lg overflow-hidden">
@@ -1004,7 +1014,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         {item.body && (
           <div
             className="prose prose-sm max-w-none"
-            style={textColor ? { color: textColor } : undefined}
+            style={{ fontSize: `${Math.round((item.body_size || body_size) * 0.9)}px`, ...(textColor ? { color: textColor } : (item.body_color || body_color) ? { color: item.body_color || body_color } : {}) }}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
           />
         )}
@@ -2125,6 +2135,77 @@ export function IEditTimelineElementEditor({ element, onChange }) {
             className="mt-1"
             data-testid="input-label-size"
           />
+          <p className="text-xs text-slate-400 mt-1">Nav marker labels (sub-markers use 85%)</p>
+        </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Heading Size</Label>
+          <Input
+            type="number"
+            min={10}
+            max={48}
+            step={1}
+            value={content.heading_size ?? 20}
+            onChange={(e) => updateContent('heading_size', parseInt(e.target.value) || 20)}
+            className="mt-1"
+            data-testid="input-heading-size"
+          />
+        </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Heading Colour</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="color"
+              value={content.heading_color || '#1e293b'}
+              onChange={(e) => updateContent('heading_color', e.target.value)}
+              className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+            />
+            <Input
+              value={content.heading_color || ''}
+              onChange={(e) => updateContent('heading_color', e.target.value)}
+              placeholder="#1e293b"
+              className="flex-1"
+            />
+            {content.heading_color && (
+              <Button size="sm" variant="ghost" onClick={() => updateContent('heading_color', '')} data-testid="button-clear-heading-color">
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Body Size</Label>
+          <Input
+            type="number"
+            min={10}
+            max={32}
+            step={1}
+            value={content.body_size ?? 16}
+            onChange={(e) => updateContent('body_size', parseInt(e.target.value) || 16)}
+            className="mt-1"
+            data-testid="input-body-size"
+          />
+        </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Body Colour</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="color"
+              value={content.body_color || '#374151'}
+              onChange={(e) => updateContent('body_color', e.target.value)}
+              className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+            />
+            <Input
+              value={content.body_color || ''}
+              onChange={(e) => updateContent('body_color', e.target.value)}
+              placeholder="Default"
+              className="flex-1"
+            />
+            {content.body_color && (
+              <Button size="sm" variant="ghost" onClick={() => updateContent('body_color', '')} data-testid="button-clear-body-color">
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
           <p className="text-xs text-slate-400 mt-1">Default label size in px (sub-markers use 85%)</p>
         </div>
       </div>
@@ -2566,6 +2647,98 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                         </div>
                       </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-slate-600">Heading Size <span className="text-slate-400">(px)</span></Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Input
+                            type="number"
+                            min={10}
+                            max={48}
+                            step={1}
+                            value={item.heading_size || ''}
+                            placeholder={String(content.heading_size || 20)}
+                            onChange={(e) => updateItem(index, 'heading_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                            className="flex-1"
+                            data-testid={`input-heading-size-${index}`}
+                          />
+                          {item.heading_size && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'heading_size', undefined)} data-testid={`button-clear-heading-size-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-600">Heading Colour</Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="color"
+                            value={item.heading_color || content.heading_color || '#1e293b'}
+                            onChange={(e) => updateItem(index, 'heading_color', e.target.value)}
+                            className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <Input
+                            value={item.heading_color || ''}
+                            onChange={(e) => updateItem(index, 'heading_color', e.target.value)}
+                            placeholder="Default"
+                            className="flex-1"
+                            data-testid={`input-heading-color-${index}`}
+                          />
+                          {item.heading_color && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'heading_color', '')} data-testid={`button-clear-heading-color-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-slate-600">Body Size <span className="text-slate-400">(px)</span></Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Input
+                            type="number"
+                            min={10}
+                            max={32}
+                            step={1}
+                            value={item.body_size || ''}
+                            placeholder={String(content.body_size || 16)}
+                            onChange={(e) => updateItem(index, 'body_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                            className="flex-1"
+                            data-testid={`input-body-size-${index}`}
+                          />
+                          {item.body_size && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'body_size', undefined)} data-testid={`button-clear-body-size-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-slate-600">Body Colour</Label>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="color"
+                            value={item.body_color || content.body_color || '#374151'}
+                            onChange={(e) => updateItem(index, 'body_color', e.target.value)}
+                            className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
+                          />
+                          <Input
+                            value={item.body_color || ''}
+                            onChange={(e) => updateItem(index, 'body_color', e.target.value)}
+                            placeholder="Default"
+                            className="flex-1"
+                            data-testid={`input-body-color-${index}`}
+                          />
+                          {item.body_color && (
+                            <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'body_color', '')} data-testid={`button-clear-body-color-${index}`}>
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
 
                     <div>
                       <Label className="text-xs text-slate-600">Body Content</Label>
@@ -2828,19 +3001,97 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     />
                                   </div>
                                 </div>
-                                <div>
-                                  <Label className="text-[10px] text-slate-500">Label Size (px)</Label>
-                                  <input
-                                    type="number"
-                                    min={8}
-                                    max={32}
-                                    step={1}
-                                    value={sub.label_size || ''}
-                                    placeholder={String(Math.round((content.label_size || 14) * 0.85))}
-                                    onChange={(e) => updateSubItem(index, sIdx, 'label_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
-                                    className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
-                                    data-testid={`input-sub-label-size-${index}-${sIdx}`}
-                                  />
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Label Size</Label>
+                                    <input
+                                      type="number"
+                                      min={8}
+                                      max={32}
+                                      step={1}
+                                      value={sub.label_size || ''}
+                                      placeholder={String(Math.round((content.label_size || 14) * 0.85))}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'label_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                      className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                      data-testid={`input-sub-label-size-${index}-${sIdx}`}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Heading Size</Label>
+                                    <input
+                                      type="number"
+                                      min={10}
+                                      max={48}
+                                      step={1}
+                                      value={sub.heading_size || ''}
+                                      placeholder={String(content.heading_size || 20)}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'heading_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                      className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                      data-testid={`input-sub-heading-size-${index}-${sIdx}`}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Body Size</Label>
+                                    <input
+                                      type="number"
+                                      min={10}
+                                      max={32}
+                                      step={1}
+                                      value={sub.body_size || ''}
+                                      placeholder={String(content.body_size || 16)}
+                                      onChange={(e) => updateSubItem(index, sIdx, 'body_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                      className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                      data-testid={`input-sub-body-size-${index}-${sIdx}`}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Heading Colour</Label>
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <input
+                                        type="color"
+                                        value={sub.heading_color || content.heading_color || '#1e293b'}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'heading_color', e.target.value)}
+                                        className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                      />
+                                      <input
+                                        value={sub.heading_color || ''}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'heading_color', e.target.value)}
+                                        placeholder="Default"
+                                        className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                        data-testid={`input-sub-heading-color-${index}-${sIdx}`}
+                                      />
+                                      {sub.heading_color && (
+                                        <button type="button" onClick={() => updateSubItem(index, sIdx, 'heading_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-[10px] text-slate-500">Body Colour</Label>
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <input
+                                        type="color"
+                                        value={sub.body_color || content.body_color || '#374151'}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'body_color', e.target.value)}
+                                        className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                      />
+                                      <input
+                                        value={sub.body_color || ''}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'body_color', e.target.value)}
+                                        placeholder="Default"
+                                        className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                        data-testid={`input-sub-body-color-${index}-${sIdx}`}
+                                      />
+                                      {sub.body_color && (
+                                        <button type="button" onClick={() => updateSubItem(index, sIdx, 'body_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                                 <div>
                                   <Label className="text-[10px] text-slate-500">Body</Label>
