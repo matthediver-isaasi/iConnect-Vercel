@@ -434,7 +434,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Prefill: Fetch member custom field values
-  const { data: prefillMemberCustomValues = [] } = useQuery({
+  const { data: prefillMemberCustomValues = [], isLoading: memberCustomValuesLoading } = useQuery({
     queryKey: ['prefill-member-custom-values-embed', prefillMemberId],
     queryFn: async () => {
       const values = await base44.entities.MemberPreferenceValue.list({
@@ -554,6 +554,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
     
+    if (form.prefill_source === 'member' && memberCustomValuesLoading) {
+      return;
+    }
+    
     const memberEntity = prefillMember;
     const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
@@ -632,7 +636,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       });
       setPrefillApplied(true);
     }
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, memberCustomValuesLoading]);
 
   // Helper to evaluate a rule condition
   const evaluateCondition = (triggerValue, operator, value) => {

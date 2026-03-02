@@ -400,7 +400,7 @@ export default function FormViewPage() {
     return selectedOrg || prefillOrg || organizationInfo;
   }, [selectedOrg, prefillOrg, organizationInfo]);
 
-  const { data: prefillMemberCustomValues = [] } = useQuery({
+  const { data: prefillMemberCustomValues = [], isLoading: memberCustomValuesLoading } = useQuery({
     queryKey: ['prefill-member-custom-values', prefillMemberId, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
@@ -562,6 +562,11 @@ export default function FormViewPage() {
       return;
     }
     
+    if (form.prefill_source === 'member' && memberCustomValuesLoading) {
+      console.log('[FormView Prefill] Waiting for member custom values to load...');
+      return;
+    }
+    
     // Primary entity based on prefill source
     const memberEntity = prefillMember;
     const orgEntity = effectiveOrgEntity;
@@ -675,7 +680,7 @@ export default function FormViewPage() {
     } else {
       console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
-  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, draftToken, draftLoaded]);
+  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
