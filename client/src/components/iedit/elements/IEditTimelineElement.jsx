@@ -1157,6 +1157,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           style={inOverlay ? {
             position: 'sticky',
             top: 0,
+            maxHeight: maxH,
+            overflowY: 'auto',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
             zIndex: 1,
           } : {
             position: 'sticky',
