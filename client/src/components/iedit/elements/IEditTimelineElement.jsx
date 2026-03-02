@@ -274,6 +274,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     sub_offset_x = 0,
     sub_offset_y = 0,
     line_style = 'straight',
+    line_weight = 2,
+    line_dash = 'solid',
+    marker_color: timeline_marker_color,
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -655,11 +658,11 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const hl = item.highlight;
     const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
     const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
-    const customColor = hl?.enabled && hl.marker_color ? hl.marker_color : null;
+    const customColor = item.marker_color || (hl?.enabled && hl.marker_color ? hl.marker_color : null);
     const markerBg = hl?.enabled && hl.marker_bg ? hl.marker_bg : null;
     const markerBorderColor = hl?.enabled && hl.marker_border_color ? hl.marker_border_color : null;
     const mSize = size_override || marker_size;
-    const defaultColor = isActive ? active_color : line_color;
+    const defaultColor = isActive ? active_color : (timeline_marker_color || line_color);
     const fillColor = customColor || defaultColor;
 
     const wrapperStyle = {};
@@ -924,10 +927,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             const hl = item.highlight;
             const shape = hl?.enabled ? (hl.marker_shape || 'circle') : 'circle';
             const ShapeIcon = shape !== 'circle' ? getMarkerShapeIcon(shape) : null;
-            const customColor = hl?.enabled && hl.marker_color ? hl.marker_color : null;
+            const customColor = item.marker_color || (hl?.enabled && hl.marker_color ? hl.marker_color : null);
             const markerBg = hl?.enabled && hl.marker_bg ? hl.marker_bg : null;
             const markerBorderColor = hl?.enabled && hl.marker_border_color ? hl.marker_border_color : null;
-            const defaultColor = activeYear === item.year ? active_color : line_color;
+            const defaultColor = activeYear === item.year ? active_color : (timeline_marker_color || line_color);
             const fillColor = customColor || defaultColor;
             const hasWrapper = markerBg || markerBorderColor;
 
@@ -1181,7 +1184,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   d={navLinePath}
                   fill="none"
                   stroke={line_color}
-                  strokeWidth={2}
+                  strokeWidth={line_weight}
+                  {...(line_dash === 'dashed' ? { strokeDasharray: '8 4' } : line_dash === 'dotted' ? { strokeDasharray: '2 4', strokeLinecap: 'round' } : {})}
                 />
               </svg>
             )}
@@ -2000,6 +2004,42 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           </div>
         </div>
         <div>
+          <Label className="text-sm font-medium text-slate-700">Line Weight</Label>
+          <Input
+            type="number"
+            min={1}
+            max={6}
+            step={0.5}
+            value={content.line_weight ?? 2}
+            onChange={(e) => updateContent('line_weight', parseFloat(e.target.value) || 2)}
+            className="mt-1"
+            data-testid="input-line-weight"
+          />
+        </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Line Dash</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Button
+              size="sm"
+              variant={(!content.line_dash || content.line_dash === 'solid') ? 'default' : 'outline'}
+              onClick={() => updateContent('line_dash', 'solid')}
+              data-testid="button-line-dash-solid"
+            >Solid</Button>
+            <Button
+              size="sm"
+              variant={content.line_dash === 'dashed' ? 'default' : 'outline'}
+              onClick={() => updateContent('line_dash', 'dashed')}
+              data-testid="button-line-dash-dashed"
+            >Dashed</Button>
+            <Button
+              size="sm"
+              variant={content.line_dash === 'dotted' ? 'default' : 'outline'}
+              onClick={() => updateContent('line_dash', 'dotted')}
+              data-testid="button-line-dash-dotted"
+            >Dotted</Button>
+          </div>
+        </div>
+        <div>
           <Label className="text-sm font-medium text-slate-700">Line Colour</Label>
           <div className="flex items-center gap-2 mt-1">
             <input
@@ -2030,6 +2070,29 @@ export function IEditTimelineElementEditor({ element, onChange }) {
               className="flex-1"
             />
           </div>
+        </div>
+        <div>
+          <Label className="text-sm font-medium text-slate-700">Marker Colour</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="color"
+              value={content.marker_color || content.line_color || '#d1d5db'}
+              onChange={(e) => updateContent('marker_color', e.target.value)}
+              className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+            />
+            <Input
+              value={content.marker_color || ''}
+              onChange={(e) => updateContent('marker_color', e.target.value)}
+              placeholder="Uses line colour"
+              className="flex-1"
+            />
+            {content.marker_color && (
+              <Button size="sm" variant="ghost" onClick={() => updateContent('marker_color', '')} data-testid="button-clear-marker-color">
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Default dot colour (uses line colour if empty)</p>
         </div>
       </div>
 
@@ -2421,6 +2484,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           className="mt-1"
                           data-testid={`input-heading-${index}`}
                         />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-600">Marker Colour <span className="text-slate-400">(overrides default)</span></Label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <input
+                          type="color"
+                          value={item.marker_color || content.marker_color || content.line_color || '#d1d5db'}
+                          onChange={(e) => updateItem(index, 'marker_color', e.target.value)}
+                          className="w-6 h-6 rounded border border-slate-200 cursor-pointer"
+                          data-testid={`input-marker-color-picker-${index}`}
+                        />
+                        <Input
+                          value={item.marker_color || ''}
+                          onChange={(e) => updateItem(index, 'marker_color', e.target.value)}
+                          placeholder="Default"
+                          className="flex-1"
+                          data-testid={`input-marker-color-${index}`}
+                        />
+                        {item.marker_color && (
+                          <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'marker_color', '')} data-testid={`button-clear-marker-color-${index}`}>
+                            <X className="w-3 h-3" />
+                          </Button>
+                        )}
                       </div>
                     </div>
 
