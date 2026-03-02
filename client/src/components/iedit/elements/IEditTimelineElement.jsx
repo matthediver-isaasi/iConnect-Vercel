@@ -2618,7 +2618,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                         type="button"
                                         onClick={() => updateSubItem(index, sIdx, 'label_side', opt.value)}
                                         className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
-                                          (sub.label_side || (isLeftLabel ? 'left' : 'below')) === opt.value
+                                          (sub.label_side || (content.label_position === 'left' ? 'left' : 'below')) === opt.value
                                             ? 'bg-slate-700 text-white border-slate-700'
                                             : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
                                         }`}
