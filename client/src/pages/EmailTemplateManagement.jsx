@@ -290,6 +290,9 @@ export default function EmailTemplateManagement() {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [formData, setFormData] = useState(emptyTemplate);
   const [activeTab, setActiveTab] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
   const [isCodeView, setIsCodeView] = useState(false);
   const [newPlaceholder, setNewPlaceholder] = useState('');
   const quillRef = useRef(null);
@@ -610,9 +613,23 @@ export default function EmailTemplateManagement() {
     }));
   };
 
-  const filteredTemplates = activeTab === 'all' 
-    ? templates 
-    : templates.filter(t => t.category === activeTab);
+  const filteredTemplates = templates.filter(t => {
+    if (activeTab !== 'all' && t.category !== activeTab) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const nameMatch = (t.name || '').toLowerCase().includes(q);
+      const descMatch = (t.description || '').toLowerCase().includes(q);
+      const subjectMatch = (t.subject || '').toLowerCase().includes(q);
+      if (!nameMatch && !descMatch && !subjectMatch) return false;
+    }
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredTemplates.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedTemplates = filteredTemplates.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, activeTab, pageSize]);
 
   if (!accessChecked || isLoading) {
     return (
@@ -772,8 +789,28 @@ export default function EmailTemplateManagement() {
           </Card>
         </Collapsible>
 
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search templates by name, description or subject..."
+            className="pl-9"
+            data-testid="input-search-templates"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              data-testid="button-clear-search"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
             {TEMPLATE_CATEGORIES.map(cat => (
               <TabsTrigger key={cat.value} value={cat.value} data-testid={`tab-${cat.value}`}>
@@ -787,96 +824,157 @@ export default function EmailTemplateManagement() {
           <Card>
             <CardContent className="p-12 text-center">
               <Mail className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-xl font-semibold mb-2">No email templates yet</h3>
-              <p className="text-muted-foreground mb-6">
-                Create your first email template to use in workflows and form submissions
-              </p>
-              <Button onClick={() => handleOpenEditor()} data-testid="button-create-first-template">
-                <Plus className="w-4 h-4 mr-2" />
-                Create Template
-              </Button>
+              {templates.length === 0 ? (
+                <>
+                  <h3 className="text-xl font-semibold mb-2">No email templates yet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Create your first email template to use in workflows and form submissions
+                  </p>
+                  <Button onClick={() => handleOpenEditor()} data-testid="button-create-first-template">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Template
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-semibold mb-2">No matching templates</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Try adjusting your search or category filter
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => { setSearchQuery(''); setActiveTab('all'); }}
+                    data-testid="button-clear-filters"
+                  >
+                    Clear Filters
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {filteredTemplates.map((template) => (
-              <Card key={template.id} className="hover-elevate" data-testid={`card-template-${template.id}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <CardTitle className="text-lg truncate">{template.name}</CardTitle>
-                      {template.description && (
-                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {template.description}
-                        </p>
-                      )}
-                    </div>
-                    <Badge variant={template.is_active ? "default" : "secondary"}>
-                      {template.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Subject</p>
-                      <p className="text-sm font-medium truncate">{template.subject}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">
-                        {TEMPLATE_CATEGORIES.find(c => c.value === template.category)?.label || template.category}
+          <>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {paginatedTemplates.map((template) => (
+                <Card key={template.id} className="hover-elevate" data-testid={`card-template-${template.id}`}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-lg truncate">{template.name}</CardTitle>
+                        {template.description && (
+                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                            {template.description}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant={template.is_active ? "default" : "secondary"}>
+                        {template.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                     </div>
-                    <div className="flex items-center justify-end gap-1 pt-2 border-t">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handlePreview(template)}
-                        data-testid={`button-preview-${template.id}`}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openTestSendDialog(template)}
-                        data-testid={`button-test-send-${template.id}`}
-                      >
-                        <Send className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => duplicateMutation.mutate(template)}
-                        data-testid={`button-duplicate-${template.id}`}
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEditor(template)}
-                        data-testid={`button-edit-${template.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setSelectedTemplate(template);
-                          setDeleteDialogOpen(true);
-                        }}
-                        data-testid={`button-delete-${template.id}`}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Subject</p>
+                        <p className="text-sm font-medium truncate">{template.subject}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">
+                          {TEMPLATE_CATEGORIES.find(c => c.value === template.category)?.label || template.category}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-end gap-1 pt-2 border-t">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handlePreview(template)}
+                          data-testid={`button-preview-${template.id}`}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openTestSendDialog(template)}
+                          data-testid={`button-test-send-${template.id}`}
+                        >
+                          <Send className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => duplicateMutation.mutate(template)}
+                          data-testid={`button-duplicate-${template.id}`}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEditor(template)}
+                          data-testid={`button-edit-${template.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setSelectedTemplate(template);
+                            setDeleteDialogOpen(true);
+                          }}
+                          data-testid={`button-delete-${template.id}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {filteredTemplates.length > pageSize && (
+              <div className="flex items-center justify-between mt-6 flex-wrap gap-4">
+                <p className="text-sm text-muted-foreground" data-testid="text-pagination-info">
+                  Showing {(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filteredTemplates.length)} of {filteredTemplates.length} templates
+                </p>
+                <div className="flex items-center gap-2">
+                  <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                    <SelectTrigger className="w-[100px]" data-testid="select-page-size">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="12">12 / page</SelectItem>
+                      <SelectItem value="24">24 / page</SelectItem>
+                      <SelectItem value="48">48 / page</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage <= 1}
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    data-testid="button-prev-page"
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-muted-foreground px-2" data-testid="text-page-number">
+                    {safePage} / {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
