@@ -652,7 +652,16 @@ export default function PreferencesPage() {
     if (!allPreferenceFields.length) return [];
     
     // First filter out hidden fields
-    const visibleFields = allPreferenceFields.filter(field => !hiddenFieldIds.includes(field.id));
+    const roleFiltered = allPreferenceFields.filter(field => {
+      let roleIds = field.my_preferences_role_ids;
+      if (typeof roleIds === 'string') {
+        try { roleIds = JSON.parse(roleIds); } catch { roleIds = null; }
+      }
+      if (!roleIds || !Array.isArray(roleIds) || roleIds.length === 0) return true;
+      if (!memberRoleIds || memberRoleIds.length === 0) return true;
+      return memberRoleIds.some(rid => roleIds.includes(rid));
+    });
+    const visibleFields = roleFiltered.filter(field => !hiddenFieldIds.includes(field.id));
     
     // Then sort by custom order if defined
     if (customFieldOrder.length > 0) {
@@ -675,7 +684,7 @@ export default function PreferencesPage() {
     }
     
     return visibleFields;
-  }, [allPreferenceFields, hiddenFieldIds, customFieldOrder]);
+  }, [allPreferenceFields, hiddenFieldIds, customFieldOrder, memberRoleIds]);
 
   // --- Fetch hidden resource category IDs for Preferences page ---
   const { data: hiddenResourceCategoryIds = [] } = useQuery({
