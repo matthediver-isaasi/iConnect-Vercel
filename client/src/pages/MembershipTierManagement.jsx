@@ -145,12 +145,22 @@ function CountryMultiSelect({ value, onChange, countries, disabled, testId }) {
     }).join(', ');
   }, [selected]);
 
+  const allSelected = selected.length === countries.length && countries.length > 0;
+
   const toggleCountry = useCallback((code) => {
     const next = selected.includes(code)
       ? selected.filter(c => c !== code)
       : [...selected, code];
     onChange(next.length > 0 ? JSON.stringify(next) : '');
   }, [selected, onChange]);
+
+  const selectAll = useCallback(() => {
+    onChange(JSON.stringify(countries.map(c => c.code)));
+  }, [countries, onChange]);
+
+  const deselectAll = useCallback(() => {
+    onChange('');
+  }, [onChange]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -172,6 +182,19 @@ function CountryMultiSelect({ value, onChange, countries, disabled, testId }) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[280px] p-0" align="start">
+        <div className="flex items-center justify-between gap-2 flex-wrap border-b px-3 py-2">
+          <span className="text-xs text-muted-foreground">
+            {selected.length} / {countries.length} selected
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={allSelected ? deselectAll : selectAll}
+            data-testid={`${testId}-toggle-all`}
+          >
+            {allSelected ? 'Deselect All' : 'Select All'}
+          </Button>
+        </div>
         <Command>
           <CommandInput placeholder="Search countries..." />
           <CommandList>
