@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,16 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
-  CheckCircle2
+  CheckCircle2, Check, ChevronsUpDown
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
+import { COUNTRIES } from "@/data/countries";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -107,6 +111,92 @@ function StepIndicator({ currentStep, onStepClick }) {
         );
       })}
     </div>
+  );
+}
+
+function getCountryOptionsForField(field) {
+  if (!field || (field.field_type !== 'country' && field.field_type !== 'countries')) return null;
+  if (field.all_countries !== false) return COUNTRIES;
+  let selected = field.selected_countries || [];
+  if (typeof selected === 'string') {
+    try { selected = JSON.parse(selected); } catch { selected = []; }
+  }
+  if (!Array.isArray(selected) || selected.length === 0) return COUNTRIES;
+  return COUNTRIES.filter(c => selected.includes(c.code));
+}
+
+function parseMatchValueArray(matchValue) {
+  if (!matchValue) return [];
+  try {
+    const parsed = JSON.parse(matchValue);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {}
+  return matchValue ? [matchValue] : [];
+}
+
+function CountryMultiSelect({ value, onChange, countries, disabled, testId }) {
+  const [open, setOpen] = useState(false);
+  const selected = useMemo(() => parseMatchValueArray(value), [value]);
+  const selectedLabels = useMemo(() => {
+    if (selected.length === 0) return '';
+    return selected.map(code => {
+      const c = COUNTRIES.find(ct => ct.code === code);
+      return c ? c.name : code;
+    }).join(', ');
+  }, [selected]);
+
+  const toggleCountry = useCallback((code) => {
+    const next = selected.includes(code)
+      ? selected.filter(c => c !== code)
+      : [...selected, code];
+    onChange(next.length > 0 ? JSON.stringify(next) : '');
+  }, [selected, onChange]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="justify-between font-normal w-full min-h-9"
+          data-testid={testId}
+        >
+          <span className="truncate text-left flex-1">
+            {selected.length > 0
+              ? `${selected.length} ${selected.length === 1 ? 'country' : 'countries'} selected`
+              : 'Select countries...'}
+          </span>
+          <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[280px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search countries..." />
+          <CommandList>
+            <CommandEmpty>No country found.</CommandEmpty>
+            <CommandGroup className="max-h-[200px] overflow-auto">
+              {countries.map(c => (
+                <CommandItem
+                  key={c.code}
+                  value={c.name}
+                  onSelect={() => toggleCountry(c.code)}
+                >
+                  <Check className={`mr-2 h-4 w-4 ${selected.includes(c.code) ? 'opacity-100' : 'opacity-0'}`} />
+                  {c.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {selected.length > 0 && (
+          <div className="border-t p-2">
+            <p className="text-xs text-muted-foreground">{selectedLabels}</p>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1349,6 +1439,8 @@ export default function MembershipTierManagement() {
                     : (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })())
                   : [];
                 const isDropdown = ['select', 'dropdown', 'radio', 'checkbox', 'picklist', 'multiselect'].includes(selectedField?.field_type?.toLowerCase()) && fieldOptions.length > 0;
+                const countryOptions = getCountryOptionsForField(selectedField);
+                const isCountryField = countryOptions !== null;
                 return (
                   <div
                     key={discount.id || index}
@@ -1386,7 +1478,15 @@ export default function MembershipTierManagement() {
                         )}
                       </SelectContent>
                     </Select>
-                    {isDropdown ? (
+                    {isCountryField ? (
+                      <CountryMultiSelect
+                        value={discount.match_value}
+                        onChange={(val) => updateDiscount(index, 'match_value', val)}
+                        countries={countryOptions}
+                        disabled={!isEditable}
+                        testId={`select-discount-match-countries-${index}`}
+                      />
+                    ) : isDropdown ? (
                       <Select
                         value={discount.match_value || ''}
                         onValueChange={(value) => updateDiscount(index, 'match_value', value)}
@@ -1498,6 +1598,8 @@ export default function MembershipTierManagement() {
                     : (() => { try { return JSON.parse(selectedField.options); } catch { return []; } })())
                   : [];
                 const isDropdown = ['select', 'dropdown', 'radio', 'checkbox', 'picklist', 'multiselect'].includes(selectedField?.field_type?.toLowerCase()) && fieldOptions.length > 0;
+                const countryOptions = getCountryOptionsForField(selectedField);
+                const isCountryField = countryOptions !== null;
                 const parsedVat = override.vat_rate ? (() => { try { return JSON.parse(override.vat_rate); } catch { return null; } })() : null;
                 const vatSelectValue = parsedVat?.taxType || '';
                 return (
@@ -1537,7 +1639,15 @@ export default function MembershipTierManagement() {
                         )}
                       </SelectContent>
                     </Select>
-                    {isDropdown ? (
+                    {isCountryField ? (
+                      <CountryMultiSelect
+                        value={override.match_value}
+                        onChange={(val) => updateVatOverride(index, 'match_value', val)}
+                        countries={countryOptions}
+                        disabled={!isEditable}
+                        testId={`select-vat-override-match-countries-${index}`}
+                      />
+                    ) : isDropdown ? (
                       <Select
                         value={override.match_value || ''}
                         onValueChange={(value) => updateVatOverride(index, 'match_value', value)}

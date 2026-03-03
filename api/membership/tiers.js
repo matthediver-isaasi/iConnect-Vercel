@@ -1005,7 +1005,7 @@ async function getDiscountFields(req, res, tenantId) {
   const scopeType = req.query.scope_type === 'member' ? 'member' : 'organization';
   const { data: fields, error } = await supabase
     .from('preference_field')
-    .select('id, name, label, field_type, entity_scope, options')
+    .select('id, name, label, field_type, entity_scope, options, all_countries, selected_countries')
     .eq('tenant_id', tenantId)
     .eq('entity_scope', scopeType)
     .eq('is_active', true)
