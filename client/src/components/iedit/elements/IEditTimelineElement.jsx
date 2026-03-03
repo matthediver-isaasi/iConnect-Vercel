@@ -34,7 +34,9 @@ import {
   Zap,
   Flame,
   Award,
-  Bookmark
+  Bookmark,
+  ExternalLink,
+  Link2
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -149,7 +151,96 @@ function getMediaItems(item) {
   return [];
 }
 
-function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-80', maxWidthClass = 'max-w-2xl' }) {
+function ImagePopupModal({ embedCode, onClose }) {
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  const isUrl = typeof embedCode === 'string' && /^https?:\/\//i.test(embedCode.trim());
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+      onClick={onClose}
+      data-testid="image-popup-overlay"
+    >
+      <div
+        className="relative w-full max-w-4xl mx-4 bg-white rounded-lg overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 z-10 p-1.5 rounded-full bg-black/50 hover:bg-black/70 text-white transition-colors"
+          aria-label="Close popup"
+          data-testid="button-close-popup"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <div className="w-full aspect-video">
+          {isUrl ? (
+            <iframe
+              src={embedCode.trim()}
+              className="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              title="Embedded content"
+            />
+          ) : (
+            <div
+              className="w-full h-full [&>iframe]:w-full [&>iframe]:h-full [&>iframe]:border-0"
+              dangerouslySetInnerHTML={{ __html: embedCode }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageLinkWrapper({ img, onPopupClick, children }) {
+  if (!img.link_type) return children;
+
+  const indicator = (
+    <div className="absolute top-2 right-2 z-10 p-1 rounded-full bg-black/50 text-white pointer-events-none">
+      {img.link_type === 'url' ? <ExternalLink className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+    </div>
+  );
+
+  if (img.link_type === 'url' && img.link_url) {
+    return (
+      <a
+        href={img.link_url}
+        target={img.link_target || '_blank'}
+        rel={img.link_target === '_blank' ? 'noopener noreferrer' : undefined}
+        className="relative block cursor-pointer"
+        data-testid="image-link-url"
+      >
+        {indicator}
+        {children}
+      </a>
+    );
+  }
+
+  if (img.link_type === 'popup' && img.link_embed) {
+    return (
+      <button
+        type="button"
+        onClick={() => onPopupClick(img)}
+        className="relative block cursor-pointer text-left w-full"
+        data-testid="image-link-popup"
+      >
+        {indicator}
+        {children}
+      </button>
+    );
+  }
+
+  return children;
+}
+
+function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-80', maxWidthClass = 'max-w-2xl', onPopupClick }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [api, setApi] = useState(null);
 
@@ -173,7 +264,7 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
   if (images.length === 1) {
     const cls = getImageClasses(images[0]);
     const isShaped = images[0].display === 'circle' || images[0].display === 'square';
-    const img = (
+    const imgEl = (
       <img
         src={images[0].src}
         alt={images[0].alt || heading || year}
@@ -182,7 +273,12 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
         data-testid={`timeline-image-${year}`}
       />
     );
-    return isShaped ? <div className="flex justify-center">{img}</div> : img;
+    const wrapped = (
+      <ImageLinkWrapper img={images[0]} onPopupClick={onPopupClick}>
+        {imgEl}
+      </ImageLinkWrapper>
+    );
+    return isShaped ? <div className="flex justify-center">{wrapped}</div> : wrapped;
   }
 
   return (
@@ -194,13 +290,15 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
             const isShaped = img.display === 'circle' || img.display === 'square';
             return (
             <CarouselItem key={idx} className={isShaped ? 'flex justify-center' : ''}>
-              <img
-                src={img.src}
-                alt={img.alt || heading || `${year} image ${idx + 1}`}
-                className={`${isShaped ? 'h-64' : 'w-full'} ${cls}`}
-                loading="lazy"
-                data-testid={`timeline-image-${year}-${idx}`}
-              />
+              <ImageLinkWrapper img={img} onPopupClick={onPopupClick}>
+                <img
+                  src={img.src}
+                  alt={img.alt || heading || `${year} image ${idx + 1}`}
+                  className={`${isShaped ? 'h-64' : 'w-full'} ${cls}`}
+                  loading="lazy"
+                  data-testid={`timeline-image-${year}-${idx}`}
+                />
+              </ImageLinkWrapper>
             </CarouselItem>
             );
           })}
@@ -244,6 +342,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [activeYear, setActiveYear] = useState(null);
   const [isExpanded, setIsExpanded] = useState(!!(content || {}).auto_expand);
   const [expandedTexts, setExpandedTexts] = useState({});
+  const [popupImage, setPopupImage] = useState(null);
   const sectionRefs = useRef({});
   const railRef = useRef(null);
   const navRef = useRef(null);
@@ -865,7 +964,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const mediaImages = getMediaItems(item);
       return mediaImages.length > 0 ? (
         <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
-          <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} />
+          <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} />
         </div>
       ) : null;
     })();
@@ -1074,7 +1173,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           const mediaImages = getMediaItems(item);
           return mediaImages.length > 0 ? (
             <div className="mb-3 rounded-lg overflow-visible">
-              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-64" maxWidthClass="w-full" />
+              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-64" maxWidthClass="w-full" onPopupClick={setPopupImage} />
             </div>
           ) : null;
         })()}
@@ -1478,10 +1577,15 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   }
 
+  const popupModal = popupImage ? (
+    <ImagePopupModal embedCode={popupImage.link_embed} onClose={() => setPopupImage(null)} />
+  ) : null;
+
   /* ── Mobile layout (inline) ── */
   if (isMobile) {
     return (
       <div id={anchor || undefined} className="relative" data-testid="timeline-mobile">
+        {popupModal}
         {expandButton}
         {title && (
           <h2 className="text-2xl font-bold text-slate-900 mb-6" data-testid="timeline-title">{title}</h2>
@@ -1529,6 +1633,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   /* ── Desktop layout (inline) ── */
   return (
     <div id={anchor || undefined} className="relative" data-testid="timeline-desktop">
+      {popupModal}
       {expandButton}
       {title && (
         <h2 className="text-3xl font-bold text-slate-900 mb-10" data-testid="timeline-title">{title}</h2>
@@ -3084,6 +3189,93 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       {opt.label}
                                     </button>
                                   ))}
+                                </div>
+                                <div className="border-t border-slate-200 bg-white px-1.5 py-1 space-y-1">
+                                  <div className="flex items-center gap-1">
+                                    <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <div className="flex gap-0.5 flex-1">
+                                      {[
+                                        { value: '', label: 'None' },
+                                        { value: 'url', label: 'URL' },
+                                        { value: 'popup', label: 'Popup' },
+                                      ].map(opt => (
+                                        <button
+                                          key={opt.value}
+                                          type="button"
+                                          onClick={() => {
+                                            const current = getItemMediaItems(items[index]);
+                                            const updated = [...current];
+                                            updated[mIdx] = { ...updated[mIdx], link_type: opt.value || undefined };
+                                            updateItemMediaItems(index, updated);
+                                          }}
+                                          className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${
+                                            (mediaImg.link_type || '') === opt.value
+                                              ? 'bg-slate-700 text-white'
+                                              : 'text-slate-500 hover:bg-slate-100'
+                                          }`}
+                                          data-testid={`button-media-link-type-${index}-${mIdx}-${opt.value || 'none'}`}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {mediaImg.link_type === 'url' && (
+                                    <div className="space-y-1">
+                                      <input
+                                        value={mediaImg.link_url || ''}
+                                        onChange={(e) => {
+                                          const current = getItemMediaItems(items[index]);
+                                          const updated = [...current];
+                                          updated[mIdx] = { ...updated[mIdx], link_url: e.target.value };
+                                          updateItemMediaItems(index, updated);
+                                        }}
+                                        placeholder="https://..."
+                                        className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded"
+                                        data-testid={`input-media-link-url-${index}-${mIdx}`}
+                                      />
+                                      <div className="flex gap-0.5">
+                                        {[
+                                          { value: '_blank', label: 'New Tab' },
+                                          { value: '_self', label: 'Same Tab' },
+                                        ].map(opt => (
+                                          <button
+                                            key={opt.value}
+                                            type="button"
+                                            onClick={() => {
+                                              const current = getItemMediaItems(items[index]);
+                                              const updated = [...current];
+                                              updated[mIdx] = { ...updated[mIdx], link_target: opt.value };
+                                              updateItemMediaItems(index, updated);
+                                            }}
+                                            className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${
+                                              (mediaImg.link_target || '_blank') === opt.value
+                                                ? 'bg-slate-700 text-white'
+                                                : 'text-slate-500 hover:bg-slate-100'
+                                            }`}
+                                            data-testid={`button-media-link-target-${index}-${mIdx}-${opt.value}`}
+                                          >
+                                            {opt.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {mediaImg.link_type === 'popup' && (
+                                    <textarea
+                                      value={mediaImg.link_embed || ''}
+                                      onChange={(e) => {
+                                        const current = getItemMediaItems(items[index]);
+                                        const updated = [...current];
+                                        updated[mIdx] = { ...updated[mIdx], link_embed: e.target.value };
+                                        updateItemMediaItems(index, updated);
+                                      }}
+                                      placeholder="Paste iframe embed code or URL"
+                                      rows={2}
+                                      className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded resize-none"
+                                      data-testid={`input-media-link-embed-${index}-${mIdx}`}
+                                    />
+                                  )}
                                 </div>
                               </div>
                               );
