@@ -1478,11 +1478,16 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
+  const popupModal = popupImage ? (
+    <ImagePopupModal embedCode={popupImage.link_embed} onClose={() => setPopupImage(null)} />
+  ) : null;
+
   /* ── Expanded overlay ── */
   const hasBg = hasContentBg || hasRailBg;
   if (isExpanded) {
     return (
       <>
+        {popupModal}
         <div id={anchor || undefined} className="relative" data-testid="timeline-desktop">
           {expandButton}
         </div>
@@ -1577,10 +1582,6 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       </>
     );
   }
-
-  const popupModal = popupImage ? (
-    <ImagePopupModal embedCode={popupImage.link_embed} onClose={() => setPopupImage(null)} />
-  ) : null;
 
   /* ── Mobile layout (inline) ── */
   if (isMobile) {
