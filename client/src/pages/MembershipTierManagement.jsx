@@ -186,9 +186,10 @@ export default function MembershipTierManagement() {
   });
 
   const { data: discountFields = [] } = useQuery({
-    queryKey: ['membership-discount-fields'],
+    queryKey: ['membership-discount-fields', config.structure_scope_type],
     queryFn: async () => {
-      const response = await fetch('/api/membership/tiers?action=discount_fields', { credentials: 'include' });
+      const scopeType = config.structure_scope_type || 'organization';
+      const response = await fetch(`/api/membership/tiers?action=discount_fields&scope_type=${scopeType}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch discount fields');
       return response.json();
     },
@@ -1315,7 +1316,7 @@ export default function MembershipTierManagement() {
           <div className="flex items-center justify-between gap-2 mb-4">
             <div>
               <h3 className="text-sm font-medium">Discount Rules</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">Apply discounts based on organisation custom field values</p>
+              <p className="text-sm text-muted-foreground mt-0.5">Apply discounts based on {config.structure_scope_type === 'member' ? 'member' : 'organisation'} custom field values</p>
             </div>
             {isEditable && (
               <Button size="sm" onClick={addDiscount} data-testid="button-add-discount">
@@ -1465,7 +1466,7 @@ export default function MembershipTierManagement() {
           <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
             <div>
               <h3 className="text-sm font-medium">VAT Override Rules</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">Override the default tier VAT rate based on organisation custom field values (e.g. country)</p>
+              <p className="text-sm text-muted-foreground mt-0.5">Override the default tier VAT rate based on {config.structure_scope_type === 'member' ? 'member' : 'organisation'} custom field values (e.g. country)</p>
             </div>
             {isEditable && (
               <Button size="sm" onClick={addVatOverride} data-testid="button-add-vat-override">

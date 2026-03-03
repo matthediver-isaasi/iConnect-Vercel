@@ -1002,11 +1002,12 @@ async function getStructureFields(req, res, tenantId) {
 }
 
 async function getDiscountFields(req, res, tenantId) {
+  const scopeType = req.query.scope_type === 'member' ? 'member' : 'organization';
   const { data: fields, error } = await supabase
     .from('preference_field')
     .select('id, name, label, field_type, entity_scope, options')
     .eq('tenant_id', tenantId)
-    .eq('entity_scope', 'organization')
+    .eq('entity_scope', scopeType)
     .eq('is_active', true)
     .order('display_order', { ascending: true });
 
