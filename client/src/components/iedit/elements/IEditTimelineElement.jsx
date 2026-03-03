@@ -151,6 +151,14 @@ function getMediaItems(item) {
   return [];
 }
 
+function parseEmbedDimensions(html) {
+  if (!html || typeof html !== 'string') return null;
+  const wMatch = html.match(/width\s*=\s*["']?(\d+)/i);
+  const hMatch = html.match(/height\s*=\s*["']?(\d+)/i);
+  if (wMatch && hMatch) return { width: parseInt(wMatch[1], 10), height: parseInt(hMatch[1], 10) };
+  return null;
+}
+
 function ImagePopupModal({ embedCode, onClose }) {
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -159,6 +167,20 @@ function ImagePopupModal({ embedCode, onClose }) {
   }, [onClose]);
 
   const isUrl = typeof embedCode === 'string' && /^https?:\/\//i.test(embedCode.trim());
+  const parsed = !isUrl ? parseEmbedDimensions(embedCode) : null;
+
+  const containerStyle = {};
+  if (parsed) {
+    containerStyle.width = `${parsed.width}px`;
+    containerStyle.height = `${parsed.height}px`;
+    containerStyle.maxWidth = '90vw';
+    containerStyle.maxHeight = '90vh';
+  } else {
+    containerStyle.width = '80vw';
+    containerStyle.maxWidth = '90vw';
+    containerStyle.maxHeight = '90vh';
+    containerStyle.aspectRatio = '16 / 9';
+  }
 
   return (
     <div
@@ -168,7 +190,7 @@ function ImagePopupModal({ embedCode, onClose }) {
     >
       <div
         className="relative bg-white rounded-lg overflow-hidden shadow-2xl"
-        style={{ width: '75vw', height: '75vh' }}
+        style={containerStyle}
         onClick={(e) => e.stopPropagation()}
       >
         <button
