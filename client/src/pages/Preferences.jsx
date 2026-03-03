@@ -647,6 +647,15 @@ export default function PreferencesPage() {
     },
   });
 
+  // --- Get member's role IDs ---
+  const memberRoleIds = useMemo(() => {
+    if (!memberRecord?.role_id) return [];
+    if (Array.isArray(memberRecord.role_id)) {
+      return memberRecord.role_id;
+    }
+    return [memberRecord.role_id];
+  }, [memberRecord?.role_id]);
+
   // Filter out hidden fields and sort by custom order
   const preferenceFields = useMemo(() => {
     if (!allPreferenceFields.length) return [];
@@ -728,16 +737,6 @@ export default function PreferencesPage() {
     },
   });
 
-
-  // --- Get member's role IDs ---
-  const memberRoleIds = useMemo(() => {
-    if (!memberRecord?.role_id) return [];
-    // role_id can be a single ID or an array
-    if (Array.isArray(memberRecord.role_id)) {
-      return memberRecord.role_id;
-    }
-    return [memberRecord.role_id];
-  }, [memberRecord?.role_id]);
 
   // --- Fetch roles with badge info for the member ---
   const { data: memberRoles = [], isLoading: rolesLoading } = useQuery({
