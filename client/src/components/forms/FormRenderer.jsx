@@ -462,6 +462,12 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   }, []);
 
+  useEffect(() => {
+    if (field.type === 'custom_field' && customFieldDef?.field_type === 'boolean' && value === undefined) {
+      onChange(false);
+    }
+  }, [field.type, customFieldDef?.field_type]);
+
   // Revalidate email domain when dependencies change
   useEffect(() => {
     if (field.type === 'email') {
@@ -1158,6 +1164,29 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           );
         }
         
+        if (customFieldDef.field_type === 'boolean') {
+          const boolVal = value !== undefined && value !== null
+            ? (value === true || value === 'true')
+            : false;
+          return (
+            <div className="flex items-center space-x-3">
+              <Switch
+                id={field.id}
+                checked={boolVal}
+                onCheckedChange={(checked) => !isFieldDisabled && onChange(checked)}
+                disabled={isFieldDisabled}
+                data-testid={`switch-custom-boolean-${field.id}`}
+              />
+              <Label
+                htmlFor={field.id}
+                className={`font-normal cursor-pointer ${isFieldDisabled ? 'text-slate-400' : ''}`}
+              >
+                {boolVal ? 'Yes' : 'No'}
+              </Label>
+            </div>
+          );
+        }
+
         // For option-based types (checkbox, radio, picklist, dropdown), require options
         if (customFieldOptions.length === 0) {
           return (

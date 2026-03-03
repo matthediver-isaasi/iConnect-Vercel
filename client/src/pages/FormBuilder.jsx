@@ -374,7 +374,18 @@ function FieldMappingSection({
                   ) : (
                     <div className="space-y-1 min-w-[160px] flex-1">
                       <Label className="text-xs">Fixed Value</Label>
-                      {hasOptions ? (
+                      {targetCustomField?.field_type === 'boolean' ? (
+                        <div className="flex items-center h-9 gap-3">
+                          <Switch
+                            checked={mapping.static_value === 'true' || mapping.static_value === true}
+                            onCheckedChange={(checked) => updateMapping(mapping.id, { static_value: checked ? 'true' : 'false' })}
+                            data-testid={`switch-static-value-${index}`}
+                          />
+                          <span className="text-sm text-slate-600">
+                            {mapping.static_value === 'true' || mapping.static_value === true ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                      ) : hasOptions ? (
                         <Select
                           value={mapping.static_value || ''}
                           onValueChange={(value) => updateMapping(mapping.id, { static_value: value })}
