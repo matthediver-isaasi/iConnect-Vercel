@@ -6,7 +6,8 @@ const WHITELISTED_MEMBER_FIELDS = [
   'job_title', 'organization_id', 'status', 'address_line_1',
   'address_line_2', 'city', 'county', 'postcode', 'country',
   'date_of_birth', 'gender', 'title', 'middle_name', 'suffix',
-  'preferred_name', 'company_name', 'department', 'website'
+  'preferred_name', 'company_name', 'department', 'website',
+  'role_id'
 ];
 
 export default async function handler(req, res) {

@@ -209,7 +209,7 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   );
 }
 
-function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo }) {
+function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId }) {
   const { data: allCategories = [], isLoading } = useQuery({
     queryKey: ['public-communication-categories'],
     queryFn: async () => await publicClient.listCommunicationCategories() || [],
@@ -217,13 +217,13 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   });
 
   const categories = useMemo(() => {
-    const memberRoleId = memberInfo?.role_id;
+    const effectiveRoleId = formMemberRoleId || memberInfo?.role_id;
     return allCategories.filter(cat => {
       if (!cat.role_ids || cat.role_ids.length === 0) return true;
-      if (!memberRoleId) return false;
-      return cat.role_ids.includes(memberRoleId);
+      if (!effectiveRoleId) return false;
+      return cat.role_ids.includes(effectiveRoleId);
     });
-  }, [allCategories, memberInfo?.role_id]);
+  }, [allCategories, formMemberRoleId, memberInfo?.role_id]);
 
   useEffect(() => {
     if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
@@ -297,7 +297,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -1320,6 +1320,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={onChange}
             disabled={isFieldDisabled}
             memberInfo={memberInfo}
+            formMemberRoleId={formMemberRoleId}
           />
         );
 

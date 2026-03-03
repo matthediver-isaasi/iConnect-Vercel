@@ -2112,6 +2112,7 @@ export default function FormViewPage() {
                 onValidityChange={handleValidityChange}
                 autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
                 formId={form?.id}
+                formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
               />
             )}
           </CardContent>
@@ -2358,6 +2359,7 @@ export default function FormViewPage() {
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
                     formId={form?.id}
+                    formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                   />
                 ));
               }
@@ -2383,6 +2385,7 @@ export default function FormViewPage() {
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
                           formId={form?.id}
+                          formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                         />
                       ))}
                     </div>
@@ -2407,6 +2410,7 @@ export default function FormViewPage() {
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
                               formId={form?.id}
+                              formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                             />
                           ))}
                         </div>
