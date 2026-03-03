@@ -52,6 +52,10 @@ import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 import OutlookConnection from "@/components/OutlookConnection";
 import BookingAvailabilitySettings from "@/components/BookingAvailabilitySettings";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { COUNTRIES } from "@/data/countries";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { ChevronsUpDown } from "lucide-react";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -125,6 +129,87 @@ function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled
           >
             Add
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function resolveCountryName(value) {
+  if (!value) return value;
+  const byCode = COUNTRIES.find(c => c.code === value);
+  if (byCode) return byCode.name;
+  return value;
+}
+
+function CountryMultiSelectField({ fieldId, selectedValues, availableCountries, onChange, label }) {
+  const [open, setOpen] = useState(false);
+
+  const normalizedValues = selectedValues.map(v => resolveCountryName(v));
+
+  const toggleCountry = (countryName) => {
+    if (normalizedValues.includes(countryName)) {
+      onChange(normalizedValues.filter(v => v !== countryName));
+    } else {
+      onChange([...normalizedValues, countryName]);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="justify-between font-normal w-full min-h-9"
+            data-testid={`select-countries-${fieldId}`}
+          >
+            <span className="truncate text-left flex-1 text-sm">
+              {normalizedValues.length === 0
+                ? `Select ${label.toLowerCase()}`
+                : `${normalizedValues.length} countr${normalizedValues.length === 1 ? 'y' : 'ies'} selected`}
+            </span>
+            <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[300px] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search countries..." />
+            <CommandList>
+              <CommandEmpty>No countries found.</CommandEmpty>
+              <CommandGroup className="max-h-[250px] overflow-auto">
+                {availableCountries.map(country => (
+                  <CommandItem
+                    key={country.code}
+                    value={country.name}
+                    onSelect={() => toggleCountry(country.name)}
+                  >
+                    <Check className={`mr-2 h-4 w-4 ${normalizedValues.includes(country.name) ? 'opacity-100' : 'opacity-0'}`} />
+                    {country.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {normalizedValues.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {normalizedValues.map(name => (
+            <Badge key={name} variant="secondary" className="text-xs">
+              {name}
+              <button
+                type="button"
+                onClick={() => toggleCountry(name)}
+                className="ml-1"
+                data-testid={`button-remove-country-${name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
         </div>
       )}
     </div>
@@ -963,7 +1048,7 @@ export default function PreferencesPage() {
         const field = preferenceFields.find(f => f.id === pv.field_id);
         if (field) {
           // For picklist and list, parse as array with defensive handling
-          if ((field.field_type === 'picklist' || field.field_type === 'list') && pv.value) {
+          if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && pv.value) {
             try {
               const parsed = JSON.parse(pv.value);
               // Ensure it's an array, normalize values
@@ -1080,7 +1165,7 @@ export default function PreferencesPage() {
         const field = preferenceFields.find(f => f.id === fieldId);
         
         let storedValue = value;
-        if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && Array.isArray(value)) {
           storedValue = JSON.stringify(value);
         }
         const newStored = Array.isArray(storedValue) ? JSON.stringify(storedValue) : String(storedValue ?? '');
@@ -2902,8 +2987,121 @@ export default function PreferencesPage() {
                           )
                         )}
 
+                        {field.field_type === 'textarea' && (
+                          canEdit ? (
+                            <Textarea
+                              id={`field-${field.id}`}
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              rows={4}
+                              data-testid={`textarea-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2 whitespace-pre-wrap">{fieldValue || '-'}</p>
+                          )
+                        )}
+
+                        {field.field_type === 'email' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="email"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder="name@example.com"
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
+                        )}
+
+                        {field.field_type === 'date' && (
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="date"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">
+                              {(() => {
+                                if (!fieldValue) return '-';
+                                try {
+                                  const d = new Date(fieldValue);
+                                  return isNaN(d.getTime()) ? fieldValue : format(d, 'dd MMM yyyy');
+                                } catch { return fieldValue; }
+                              })()}
+                            </p>
+                          )
+                        )}
+
+                        {field.field_type === 'country' && (() => {
+                          const availableCountries = field.all_countries !== false
+                            ? COUNTRIES
+                            : COUNTRIES.filter(c => {
+                                const selected = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+                                return selected.includes(c.code) || selected.includes(c.name);
+                              });
+
+                          if (!canEdit) {
+                            return <p className="text-sm text-slate-700 py-2">{resolveCountryName(fieldValue) || '-'}</p>;
+                          }
+
+                          const normalizedValue = resolveCountryName(fieldValue);
+
+                          return (
+                            <Select
+                              value={normalizedValue}
+                              onValueChange={(value) => handleAdditionalInfoChange(field.id, value)}
+                            >
+                              <SelectTrigger data-testid={`select-field-${field.id}`}>
+                                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableCountries.map((country) => (
+                                  <SelectItem key={country.code} value={country.name}>
+                                    {country.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          );
+                        })()}
+
+                        {field.field_type === 'countries' && (() => {
+                          const selectedValues = Array.isArray(fieldValue) ? fieldValue : [];
+                          const availableCountries = field.all_countries !== false
+                            ? COUNTRIES
+                            : COUNTRIES.filter(c => {
+                                const selected = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+                                return selected.includes(c.code) || selected.includes(c.name);
+                              });
+
+                          if (!canEdit) {
+                            return (
+                              <p className="text-sm text-slate-700 py-2">
+                                {selectedValues.length > 0 ? selectedValues.map(v => resolveCountryName(v)).join(', ') : '-'}
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <CountryMultiSelectField
+                              fieldId={field.id}
+                              selectedValues={selectedValues}
+                              availableCountries={availableCountries}
+                              onChange={(newValues) => handleAdditionalInfoChange(field.id, newValues)}
+                              label={field.label}
+                            />
+                          );
+                        })()}
+
                         {/* Fallback for unrecognized field types - render as text input */}
-                        {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list', 'file'].includes(field.field_type) && (
+                        {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list', 'file', 'textarea', 'email', 'date', 'country', 'countries'].includes(field.field_type) && (
                           canEdit ? (
                             <Input
                               id={`field-${field.id}`}
