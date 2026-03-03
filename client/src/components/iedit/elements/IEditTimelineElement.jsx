@@ -162,12 +162,13 @@ function ImagePopupModal({ embedCode, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/60"
       onClick={onClose}
       data-testid="image-popup-overlay"
     >
       <div
-        className="relative w-full max-w-4xl mx-4 bg-white rounded-lg overflow-hidden shadow-2xl"
+        className="relative bg-white rounded-lg overflow-hidden shadow-2xl"
+        style={{ width: '75vw', height: '75vh' }}
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -178,7 +179,7 @@ function ImagePopupModal({ embedCode, onClose }) {
         >
           <X className="w-4 h-4" />
         </button>
-        <div className="w-full aspect-video">
+        <div className="w-full h-full">
           {isUrl ? (
             <iframe
               src={embedCode.trim()}
