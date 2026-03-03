@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -209,15 +209,22 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   );
 }
 
-function CommunicationPreferencesField({ field, value, onChange, disabled }) {
-  const { data: categories = [], isLoading } = useQuery({
+function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo }) {
+  const { data: allCategories = [], isLoading } = useQuery({
     queryKey: ['public-communication-categories'],
     queryFn: async () => await publicClient.listCommunicationCategories() || [],
     staleTime: 5 * 60 * 1000
   });
 
-  // Initialize all categories to unsubscribed (false) when categories load
-  // Members must explicitly opt-in to each communication category
+  const categories = useMemo(() => {
+    const memberRoleId = memberInfo?.role_id;
+    return allCategories.filter(cat => {
+      if (!cat.role_ids || cat.role_ids.length === 0) return true;
+      if (!memberRoleId) return false;
+      return cat.role_ids.includes(memberRoleId);
+    });
+  }, [allCategories, memberInfo?.role_id]);
+
   useEffect(() => {
     if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
       const initialPrefs = {};
@@ -1312,6 +1319,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             value={value}
             onChange={onChange}
             disabled={isFieldDisabled}
+            memberInfo={memberInfo}
           />
         );
 
