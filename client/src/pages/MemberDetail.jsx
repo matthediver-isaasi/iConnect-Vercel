@@ -47,6 +47,82 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { COUNTRIES } from "@/data/countries";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { ChevronsUpDown } from "lucide-react";
+
+function MemberDetailCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label }) {
+  const [open, setOpen] = useState(false);
+
+  const toggleCountry = (countryName) => {
+    if (selectedValues.includes(countryName)) {
+      onChange(selectedValues.filter(v => v !== countryName));
+    } else {
+      onChange([...selectedValues, countryName]);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="justify-between font-normal w-full min-h-9"
+            data-testid={`select-countries-${fieldId}`}
+          >
+            <span className="truncate text-left flex-1 text-sm">
+              {selectedValues.length === 0
+                ? `Select ${label.toLowerCase()}`
+                : `${selectedValues.length} countr${selectedValues.length === 1 ? 'y' : 'ies'} selected`}
+            </span>
+            <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[300px] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search countries..." />
+            <CommandList>
+              <CommandEmpty>No countries found.</CommandEmpty>
+              <CommandGroup className="max-h-[250px] overflow-auto">
+                {availableCountries.map(country => (
+                  <CommandItem
+                    key={country.code}
+                    value={country.name}
+                    onSelect={() => toggleCountry(country.name)}
+                  >
+                    <Check className={`mr-2 h-4 w-4 ${selectedValues.includes(country.name) ? 'opacity-100' : 'opacity-0'}`} />
+                    {country.name}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selectedValues.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selectedValues.map(name => (
+            <Badge key={name} variant="secondary" className="text-xs">
+              {name}
+              <button
+                type="button"
+                onClick={() => toggleCountry(name)}
+                className="ml-1"
+                data-testid={`button-remove-country-${name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function MemberDetail() {
   const { id } = useParams();
@@ -555,7 +631,7 @@ export default function MemberDetail() {
       memberPrefValues.forEach(pv => {
         const field = memberCustomFields.find(f => f.id === pv.field_id);
         if (field) {
-          if ((field.field_type === 'picklist' || field.field_type === 'list') && typeof pv.value === 'string') {
+          if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && typeof pv.value === 'string') {
             try { vals[field.id] = JSON.parse(pv.value); } catch { vals[field.id] = pv.value; }
           } else {
             vals[field.id] = pv.value;
@@ -682,7 +758,7 @@ export default function MemberDetail() {
       const existingValue = memberPrefValues.find(pv => pv.field_id === fieldId);
       const field = memberCustomFields.find(f => f.id === fieldId);
       let storedValue = value;
-      if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
+      if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && Array.isArray(value)) {
         storedValue = JSON.stringify(value);
       }
       const existingStored = existingValue?.value || '';
@@ -853,6 +929,68 @@ export default function MemberDetail() {
           </div>
         ) : (
           <p className="text-sm whitespace-pre-wrap">{value || '-'}</p>
+        );
+      }
+      case 'boolean':
+        return (
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={value === 'true' || value === true}
+              onCheckedChange={(checked) => setCustomFieldValues(prev => ({ ...prev, [field.id]: checked ? 'true' : 'false' }))}
+              disabled={!isEditing}
+              data-testid={`switch-member-custom-${field.id}`}
+            />
+            <span className="text-sm">{value === 'true' || value === true ? 'Yes' : 'No'}</span>
+          </div>
+        );
+      case 'country': {
+        const availableCountries = field.all_countries !== false
+          ? COUNTRIES
+          : COUNTRIES.filter(c => {
+              const sel = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+              return sel.includes(c.code) || sel.includes(c.name);
+            });
+        const resolvedValue = (() => {
+          if (!value) return '';
+          const byCode = COUNTRIES.find(c => c.code === value);
+          return byCode ? byCode.name : value;
+        })();
+        return isEditing ? (
+          <Select value={resolvedValue} onValueChange={(v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }))}>
+            <SelectTrigger data-testid={`select-member-custom-${field.id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+            <SelectContent>
+              {availableCountries.map((country) => (
+                <SelectItem key={country.code} value={country.name}>{country.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <p className="text-sm">{resolvedValue || '-'}</p>
+        );
+      }
+      case 'countries': {
+        const selectedCountries = Array.isArray(value) ? value : [];
+        const normalizedSelected = selectedCountries.map(v => {
+          const byCode = COUNTRIES.find(c => c.code === v);
+          return byCode ? byCode.name : v;
+        });
+        const availableCountriesList = field.all_countries !== false
+          ? COUNTRIES
+          : COUNTRIES.filter(c => {
+              const sel = Array.isArray(field.selected_countries) ? field.selected_countries : [];
+              return sel.includes(c.code) || sel.includes(c.name);
+            });
+        if (!isEditing) {
+          return <p className="text-sm">{normalizedSelected.length > 0 ? normalizedSelected.join(', ') : '-'}</p>;
+        }
+        return (
+          <MemberDetailCountryMultiSelect
+            fieldId={field.id}
+            selectedValues={normalizedSelected}
+            availableCountries={availableCountriesList}
+            onChange={(newValues) => setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }))}
+            label={field.label}
+          />
         );
       }
       default:
