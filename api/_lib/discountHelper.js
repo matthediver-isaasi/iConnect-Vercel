@@ -49,9 +49,10 @@ export async function evaluateDiscountsForOrg(configId, tenantId, organizationId
 
       let matchValues;
       try { matchValues = JSON.parse(rule.match_value); } catch { matchValues = null; }
-      const isMatch = Array.isArray(matchValues)
+      let isMatch = Array.isArray(matchValues)
         ? matchValues.some(v => String(v).trim().toLowerCase() === normalizedOrgValue)
         : normalizedOrgValue === String(rule.match_value).trim().toLowerCase();
+      if (rule.match_condition === 'not_equals') isMatch = !isMatch;
 
       if (isMatch) {
         result.discountDetails.push({

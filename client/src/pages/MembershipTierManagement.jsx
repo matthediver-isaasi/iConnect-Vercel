@@ -559,6 +559,7 @@ export default function MembershipTierManagement() {
       id: `new-${Date.now()}`,
       field_id: '',
       field_label: '',
+      match_condition: 'equals',
       match_value: '',
       discount_type: 'percentage',
       discount_value: '0',
@@ -582,6 +583,7 @@ export default function MembershipTierManagement() {
       id: `new-${Date.now()}`,
       field_id: '',
       field_label: '',
+      match_condition: 'equals',
       match_value: '',
       vat_rate: null,
       label: '',
@@ -690,6 +692,7 @@ export default function MembershipTierManagement() {
       discounts: discounts.map(d => ({
         field_id: d.field_id,
         field_label: d.field_label || null,
+        match_condition: d.match_condition || 'equals',
         match_value: d.match_value || '',
         discount_type: d.discount_type || 'percentage',
         discount_value: parseFloat(d.discount_value) || 0,
@@ -698,6 +701,7 @@ export default function MembershipTierManagement() {
       vatOverrides: vatOverrides.map(v => ({
         field_id: v.field_id,
         field_label: v.field_label || null,
+        match_condition: v.match_condition || 'equals',
         match_value: v.match_value || '',
         vat_rate: v.vat_rate || null,
         label: v.label || null,
@@ -1446,9 +1450,10 @@ export default function MembershipTierManagement() {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="hidden md:grid md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+              <div className="hidden md:grid md:grid-cols-[1fr_1fr_110px_1fr_120px_120px_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
                 <span>Label</span>
                 <span>Custom Field</span>
+                <span>Condition</span>
                 <span>Match Value</span>
                 <span>Type</span>
                 <span>Value</span>
@@ -1467,7 +1472,7 @@ export default function MembershipTierManagement() {
                 return (
                   <div
                     key={discount.id || index}
-                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_120px_120px_40px] gap-2 items-center p-2 rounded-md border"
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_110px_1fr_120px_120px_40px] gap-2 items-center p-2 rounded-md border"
                     data-testid={`row-discount-${index}`}
                   >
                     <Input
@@ -1499,6 +1504,19 @@ export default function MembershipTierManagement() {
                         {discountFields.length === 0 && (
                           <SelectItem value="__none" disabled>No custom fields found</SelectItem>
                         )}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={discount.match_condition || 'equals'}
+                      onValueChange={(value) => updateDiscount(index, 'match_condition', value)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-discount-condition-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals">equals</SelectItem>
+                        <SelectItem value="not_equals">not equal</SelectItem>
                       </SelectContent>
                     </Select>
                     {isCountryField ? (
@@ -1606,9 +1624,10 @@ export default function MembershipTierManagement() {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="hidden md:grid md:grid-cols-[1fr_1fr_1fr_1fr_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
+              <div className="hidden md:grid md:grid-cols-[1fr_1fr_110px_1fr_1fr_40px] gap-2 text-sm font-medium text-muted-foreground px-2">
                 <span>Label</span>
                 <span>Custom Field</span>
+                <span>Condition</span>
                 <span>Match Value</span>
                 <span>VAT Rate</span>
                 <span></span>
@@ -1628,7 +1647,7 @@ export default function MembershipTierManagement() {
                 return (
                   <div
                     key={override.id || index}
-                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_40px] gap-2 items-center p-2 rounded-md border"
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_110px_1fr_1fr_40px] gap-2 items-center p-2 rounded-md border"
                     data-testid={`row-vat-override-${index}`}
                   >
                     <Input
@@ -1660,6 +1679,19 @@ export default function MembershipTierManagement() {
                         {discountFields.length === 0 && (
                           <SelectItem value="__none" disabled>No custom fields found</SelectItem>
                         )}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={override.match_condition || 'equals'}
+                      onValueChange={(value) => updateVatOverride(index, 'match_condition', value)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid={`select-vat-override-condition-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals">equals</SelectItem>
+                        <SelectItem value="not_equals">not equal</SelectItem>
                       </SelectContent>
                     </Select>
                     {isCountryField ? (
