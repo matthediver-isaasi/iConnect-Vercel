@@ -318,6 +318,16 @@ export default function MembershipTierManagement() {
     },
   });
 
+  const { data: invoiceAddressFields = [] } = useQuery({
+    queryKey: ['membership-invoice-address-fields', config.structure_scope_type],
+    queryFn: async () => {
+      const scopeType = config.structure_scope_type || 'organization';
+      const response = await fetch(`/api/membership/tiers?action=invoice_address_fields&scope_type=${scopeType}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch invoice address fields');
+      return response.json();
+    },
+  });
+
   const { data: historicalData, isLoading: loadingHistorical } = useQuery({
     queryKey: ['membership-tier-historical', viewingHistorical],
     queryFn: async () => {
@@ -391,6 +401,7 @@ export default function MembershipTierManagement() {
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
+        invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -441,6 +452,7 @@ export default function MembershipTierManagement() {
       invoice_description: c.invoice_description || null,
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
+      invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
     });
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
@@ -741,6 +753,7 @@ export default function MembershipTierManagement() {
       invoice_description: currentConfig?.invoice_description || null,
       auto_approve_fees: false,
       online_card_payment: false,
+      invoice_address_field: null,
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -943,6 +956,7 @@ export default function MembershipTierManagement() {
                   handleConfigChange('structure_scope_type', v);
                   handleConfigChange('structure_field_id', null);
                   handleConfigChange('structure_match_value', null);
+                  handleConfigChange('invoice_address_field', null);
                 }}
                 disabled={!isEditable}
               >
@@ -1018,6 +1032,36 @@ export default function MembershipTierManagement() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+
+        <div className="border-t pt-4 mt-2 space-y-4">
+          <h3 className="text-sm font-medium mb-3">Invoice Address</h3>
+          <p className="text-sm text-muted-foreground">
+            Select which field to use as the invoice address when generating Xero invoices for this tier structure.
+          </p>
+          <div className="space-y-2">
+            <Label>Invoice Address Field</Label>
+            <Select
+              value={config.invoice_address_field || '__default'}
+              onValueChange={(v) => handleConfigChange('invoice_address_field', v === '__default' ? null : v)}
+              disabled={!isEditable}
+            >
+              <SelectTrigger data-testid="select-invoice-address-field">
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default">
+                  {config.structure_scope_type === 'member' ? 'None (no address)' : 'Default (Organisation Invoicing Address)'}
+                </SelectItem>
+                {invoiceAddressFields.map(field => (
+                  <SelectItem key={field.id} value={field.id} data-testid={`option-invoice-address-${field.name || field.id}`}>
+                    {field.label || field.name}
+                    {field.is_core && <span className="text-muted-foreground ml-1">(Core)</span>}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

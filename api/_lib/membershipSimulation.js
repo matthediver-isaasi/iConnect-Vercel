@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
 import { evaluateVatOverrideForOrg } from './vatOverrideHelper.js';
 import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs } from './membershipConfigResolver.js';
+import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
   const {
@@ -577,12 +578,13 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     lineItem.taxLabel = taxLabel;
   }
 
+  const resolvedAddress = await resolveInvoiceAddress(supabase, config, organizationId, 'organization');
   const invoicePreview = {
     contact: org.name,
     reference: invoiceReference,
     status: xeroInvoiceStatus,
     dueDate: invoiceDueDate,
-    invoicingAddress: org.invoicing_address || null,
+    invoicingAddress: resolvedAddress,
     lineItems: [lineItem],
   };
 
@@ -590,7 +592,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     log('Would Create History', `Membership history record for ${membershipYear.label}: tier "${tierLabel}", final cost ${computedFinalCost.toFixed(2)} ${currency}${overrideApplied ? ' (with override)' : ''}`);
     log('Would Create Note', `Organisation note documenting the ${effectiveMode} renewal with invoice details`);
     log('Invoice Preview - Contact', `${org.name}`);
-    log('Invoice Preview - Address', org.invoicing_address ? `${org.invoicing_address}` : 'Not set (no address will be sent to Xero)');
+    log('Invoice Preview - Address', resolvedAddress ? `${resolvedAddress}` : 'Not set (no address will be sent to Xero)');
     log('Invoice Preview - Reference', invoiceReference);
     log('Invoice Preview - Status', xeroInvoiceStatus);
     log('Invoice Preview - Due Date', `${invoiceDueDate} (30 days from invoice creation date)`);

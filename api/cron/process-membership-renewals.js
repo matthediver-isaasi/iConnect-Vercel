@@ -3,6 +3,7 @@ import { createXeroMembershipInvoice } from '../_lib/xero.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
+import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -301,10 +302,11 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     const xeroReference = poNumber
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
+    const resolvedAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
-      invoicingAddress: org.invoicing_address,
+      invoicingAddress: resolvedAddr,
       membershipYear: record.membership_year,
       tierLabel: record.tier_label,
       finalCost: parseFloat(record.final_cost),
@@ -491,10 +493,11 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       const xeroReference = poNumber
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
+      const resolvedOrgAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
       xeroInvoice = await createXeroMembershipInvoice({
         appTenantId: tenantId,
         organizationName: org.name,
-        invoicingAddress: org.invoicing_address,
+        invoicingAddress: resolvedOrgAddr,
         membershipYear: membershipYear.label,
         tierLabel,
         finalCost,
@@ -849,10 +852,11 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       const xeroReference = poNumber
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
+      const resolvedMemberAddr = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
       xeroInvoice = await createXeroMembershipInvoice({
         appTenantId: tenantId,
         organizationName: memberName,
-        invoicingAddress: null,
+        invoicingAddress: resolvedMemberAddr,
         membershipYear: membershipYear.label,
         tierLabel,
         finalCost,
@@ -990,10 +994,11 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     const xeroReference = poNumber
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
+    const resolvedMemberAddr2 = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
-      invoicingAddress: null,
+      invoicingAddress: resolvedMemberAddr2,
       membershipYear: record.membership_year,
       tierLabel: record.tier_label,
       finalCost: parseFloat(record.final_cost),

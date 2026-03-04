@@ -3,6 +3,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { createXeroMembershipInvoice } from '../_lib/xero.js';
 import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
+import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -299,7 +300,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     xeroInvoice = await createXeroMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,
-      invoicingAddress: null,
+      invoicingAddress: await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member'),
       membershipYear: membershipYear.label,
       tierLabel,
       finalCost,

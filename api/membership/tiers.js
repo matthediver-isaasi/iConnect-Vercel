@@ -46,6 +46,10 @@ async function handleGet(req, res, tenantId) {
     return getStructureFields(req, res, tenantId);
   }
 
+  if (action === 'invoice_address_fields') {
+    return getInvoiceAddressFields(req, res, tenantId);
+  }
+
   if (action === 'preview') {
     return getPreview(req, res, tenantId, configId);
   }
@@ -602,6 +606,8 @@ async function handlePost(req, res, tenantId) {
         invoice_description: config.invoice_description || null,
         auto_approve_fees: (config.structure_scope_type === 'member') ? (config.auto_approve_fees ?? false) : false,
         online_card_payment: (config.structure_scope_type === 'member') ? (config.online_card_payment ?? false) : false,
+        invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
+        invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -709,6 +715,8 @@ async function handlePost(req, res, tenantId) {
       invoice_description: config.invoice_description || null,
       auto_approve_fees: ((config.structure_scope_type || 'organization') === 'member') ? (config.auto_approve_fees ?? false) : false,
       online_card_payment: ((config.structure_scope_type || 'organization') === 'member') ? (config.online_card_payment ?? false) : false,
+      invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
+      invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
     })
     .select()
     .single();
@@ -1078,4 +1086,49 @@ async function deleteVatOverridesForConfig(configId, tenantId) {
       .eq('config_id', configId)
       .eq('tenant_id', tenantId);
   } catch {}
+}
+
+function parseInvoiceAddressFieldId(value) {
+  if (!value || value === '__default') return null;
+  if (typeof value === 'string' && value.startsWith('core:')) return null;
+  return value;
+}
+
+function parseInvoiceAddressFieldName(value) {
+  if (!value || value === '__default') return null;
+  if (typeof value === 'string' && value.startsWith('core:')) return value.replace('core:', '');
+  return null;
+}
+
+async function getInvoiceAddressFields(req, res, tenantId) {
+  const scopeType = req.query.scope_type || 'organization';
+  const textTypes = ['text', 'textarea', 'long_text'];
+
+  const coreFields = [];
+  if (scopeType === 'organization') {
+    coreFields.push({
+      id: 'core:invoicing_address',
+      name: 'invoicing_address',
+      label: 'Invoicing Address',
+      field_type: 'text',
+      entity_scope: 'organization',
+      is_core: true,
+    });
+  }
+
+  const { data: customFields, error } = await supabase
+    .from('preference_field')
+    .select('id, name, label, field_type, entity_scope')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', scopeType === 'member' ? 'member' : 'organization')
+    .eq('is_active', true)
+    .in('field_type', textTypes)
+    .order('display_order', { ascending: true });
+
+  if (error) {
+    console.error('[Membership Tiers] Error fetching invoice address fields:', error);
+    return res.status(500).json({ error: 'Failed to fetch fields' });
+  }
+
+  return res.json([...coreFields, ...(customFields || [])]);
 }

@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -476,10 +477,11 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
           ? `Membership ${targetYear} - PO: ${poNum}`
           : `Membership ${targetYear}`;
 
+        const resolvedAddress = await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
         xeroInvoice = await createXeroMembershipInvoice({
           appTenantId: tenantId,
           organizationName: org?.name || 'Organisation',
-          invoicingAddress: org?.invoicing_address,
+          invoicingAddress: resolvedAddress,
           membershipYear: targetYear,
           tierLabel: simResult.tierLabel,
           finalCost: simResult.finalCost,
@@ -804,9 +806,11 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
           ? `Membership ${targetYear} - PO: ${poNum}`
           : `Membership ${targetYear}`;
 
+        const resolvedMemberAddress = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
         xeroInvoice = await createXeroMembershipInvoice({
           appTenantId: tenantId,
           organizationName: memberName,
+          invoicingAddress: resolvedMemberAddress,
           membershipYear: targetYear,
           tierLabel: simResult.tierLabel,
           finalCost: simResult.finalCost,
