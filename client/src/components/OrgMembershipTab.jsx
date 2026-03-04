@@ -539,10 +539,10 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const { data: emailFeesRoles = [] } = useQuery({
     queryKey: ['roles-for-email-fees'],
     queryFn: async () => {
-      const response = await fetch('/api/admin/roles', { credentials: 'include' });
+      const response = await fetch('/api/membership/roles', { credentials: 'include' });
       if (!response.ok) return [];
       const result = await response.json();
-      return result.roles || result || [];
+      return result.data || result.roles || [];
     },
     enabled: emailFeesDialogOpen,
     staleTime: 60000,
