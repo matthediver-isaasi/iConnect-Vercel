@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -490,6 +491,7 @@ async function handlePost(req, res, resolvedTenantId) {
         let invoiceOrgName, invoicingAddress;
         if (isMemberScoped) {
           invoiceOrgName = memberName;
+          invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, member.id, 'member');
         } else {
           const { data: org } = await supabase
             .from('organization')
@@ -497,7 +499,7 @@ async function handlePost(req, res, resolvedTenantId) {
             .eq('id', organizationId)
             .single();
           invoiceOrgName = org?.name || 'Organisation';
-          invoicingAddress = org?.invoicing_address;
+          invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
         }
 
         const reference = `Membership ${targetYear}`;
