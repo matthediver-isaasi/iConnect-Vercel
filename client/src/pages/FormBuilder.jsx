@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -1823,7 +1823,8 @@ function EmailCard({
   emailTemplates,
   formFields,
   onUpdate,
-  onRemove
+  onRemove,
+  hasMembershipPaymentField
 }) {
   const selectedTemplate = emailTemplates.find(t => t.id === email.template_id);
   
@@ -2200,6 +2201,29 @@ function EmailCard({
                 </div>
               )}
             </div>
+
+            {hasMembershipPaymentField && (
+              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <Label className="text-xs font-medium flex items-center gap-1">
+                      <Paperclip className="w-3 h-3" />
+                      Attach Invoice
+                    </Label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Attach the Xero invoice PDF to this email
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!email.attach_invoice}
+                    onCheckedChange={(checked) => {
+                      onUpdate({ attach_invoice: checked });
+                    }}
+                    data-testid={`switch-email-attach-invoice-${email.id}`}
+                  />
+                </div>
+              </div>
+            )}
           </>
         )}
       </CardContent>
@@ -5465,6 +5489,7 @@ export default function FormBuilderPage() {
                         index={idx}
                         emailTemplates={emailTemplates}
                         formFields={formData.fields}
+                        hasMembershipPaymentField={formData.fields.some(f => f.type === 'membership_payment')}
                         onUpdate={(updates) => {
                           const updatedEmails = [...formData.submission_emails];
                           updatedEmails[idx] = { ...updatedEmails[idx], ...updates };
@@ -5490,7 +5515,8 @@ export default function FormBuilderPage() {
                       cc: '',
                       bcc: '',
                       field_mapping: {},
-                      condition: null
+                      condition: null,
+                      attach_invoice: false
                     };
                     setFormData({ 
                       ...formData, 

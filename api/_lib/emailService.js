@@ -205,7 +205,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -290,6 +290,15 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       const mailtoAddress = `unsubscribe@${domain}`;
       messageData['h:List-Unsubscribe'] = `<mailto:${mailtoAddress}>, <${unsubscribeUrl}>`;
       messageData['h:List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+    }
+
+    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+      messageData.attachment = attachments.map(att => ({
+        filename: att.filename,
+        data: att.data,
+        contentType: att.contentType || 'application/octet-stream',
+      }));
+      console.log(`[Email Service] Adding ${attachments.length} attachment(s)`);
     }
 
     // Try sending with the tenant domain first

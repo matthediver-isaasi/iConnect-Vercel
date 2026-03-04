@@ -516,6 +516,21 @@ async function handlePost(req, res, resolvedTenantId) {
           stripePaymentIntentId: paymentIntentId,
           invoiceDescription: simResult.config?.invoice_description || null,
         });
+        if (xeroInvoice && xeroInvoice.invoice_id) {
+          try {
+            await supabase
+              .from(historyTable)
+              .update({
+                xero_invoice_id: xeroInvoice.invoice_id,
+                xero_invoice_number: xeroInvoice.invoice_number,
+              })
+              .eq('stripe_payment_intent_id', paymentIntentId)
+              .eq('tenant_id', tenantId);
+            console.log(`[FormPayment] Updated history record with Xero invoice ${xeroInvoice.invoice_number}`);
+          } catch (updateErr) {
+            console.error('[FormPayment] Failed to update history with Xero invoice (non-fatal):', updateErr.message);
+          }
+        }
       } catch (xeroErr) {
         console.error('[FormPayment] Xero invoice failed (non-fatal):', xeroErr.message);
       }

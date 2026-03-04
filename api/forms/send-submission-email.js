@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '../_lib/emailService.js';
+import { fetchXeroInvoicePdf } from '../_lib/xero.js';
 import crypto from 'crypto';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -493,6 +494,78 @@ export default async function handler(req, res) {
       console.log('[FormSubmissionEmail] Sending email...');
       console.log('[FormSubmissionEmail] Subject:', emailSubject);
 
+      let emailAttachments = null;
+      if (emailConfig.attach_invoice && supabase) {
+        try {
+          const paymentField = (fields || form.fields || []).find(f => f.type === 'membership_payment');
+          const paymentValue = paymentField ? form_values?.[paymentField.id] : null;
+          const paymentIntentId = paymentValue?.paymentIntentId;
+
+          let invoiceRecord = null;
+          if (paymentIntentId) {
+            const { data: memberHistory } = await supabase
+              .from('member_membership_history')
+              .select('xero_invoice_id, xero_invoice_number')
+              .eq('stripe_payment_intent_id', paymentIntentId)
+              .eq('tenant_id', tenantId)
+              .not('xero_invoice_id', 'is', null)
+              .maybeSingle();
+            if (memberHistory) invoiceRecord = memberHistory;
+
+            if (!invoiceRecord) {
+              const { data: orgHistory } = await supabase
+                .from('organisation_membership_history')
+                .select('xero_invoice_id, xero_invoice_number')
+                .eq('stripe_payment_intent_id', paymentIntentId)
+                .eq('tenant_id', tenantId)
+                .not('xero_invoice_id', 'is', null)
+                .maybeSingle();
+              if (orgHistory) invoiceRecord = orgHistory;
+            }
+          } else {
+            if (memberIdToUse) {
+              const { data: memberHistory } = await supabase
+                .from('member_membership_history')
+                .select('xero_invoice_id, xero_invoice_number')
+                .eq('member_id', memberIdToUse)
+                .eq('tenant_id', tenantId)
+                .not('xero_invoice_id', 'is', null)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (memberHistory) invoiceRecord = memberHistory;
+            }
+            if (!invoiceRecord && organizationIdToUse) {
+              const { data: orgHistory } = await supabase
+                .from('organisation_membership_history')
+                .select('xero_invoice_id, xero_invoice_number')
+                .eq('organization_id', organizationIdToUse)
+                .eq('tenant_id', tenantId)
+                .not('xero_invoice_id', 'is', null)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (orgHistory) invoiceRecord = orgHistory;
+            }
+          }
+
+          if (invoiceRecord?.xero_invoice_id) {
+            console.log('[FormSubmissionEmail] Fetching Xero invoice PDF:', invoiceRecord.xero_invoice_number);
+            const pdfBuffer = await fetchXeroInvoicePdf(invoiceRecord.xero_invoice_id, tenantId);
+            emailAttachments = [{
+              filename: `Invoice-${invoiceRecord.xero_invoice_number || 'document'}.pdf`,
+              data: pdfBuffer,
+              contentType: 'application/pdf'
+            }];
+            console.log('[FormSubmissionEmail] Invoice PDF attached successfully');
+          } else {
+            console.log('[FormSubmissionEmail] No Xero invoice found for attachment');
+          }
+        } catch (attachErr) {
+          console.warn('[FormSubmissionEmail] Failed to attach invoice PDF (non-fatal):', attachErr.message);
+        }
+      }
+
       // Send the email with tenant context for proper email domain
       const emailResult = await sendEmail({
         to: toEmail,
@@ -500,7 +573,8 @@ export default async function handler(req, res) {
         html: emailBody,
         cc: ccEmail || undefined,
         bcc: bccEmail || undefined,
-        tenantId
+        tenantId,
+        attachments: emailAttachments
       });
 
       console.log('[FormSubmissionEmail] Email result:', emailResult);
