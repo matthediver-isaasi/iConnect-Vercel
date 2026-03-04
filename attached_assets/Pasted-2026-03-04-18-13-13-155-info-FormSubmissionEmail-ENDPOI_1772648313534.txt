@@ -1,0 +1,48 @@
+2026-03-04 18:13:13.155 [info] [FormSubmissionEmail] === ENDPOINT CALLED ===
+2026-03-04 18:13:13.156 [info] [FormSubmissionEmail] Request received for form: 568c559b-90fa-49b9-b7cb-016a75a31660 submission: 2d3e7a9e-20bd-4932-ad3b-e2decdb32964
+2026-03-04 18:13:13.156 [info] [FormSubmissionEmail] Created member_id: null org_id: null
+2026-03-04 18:13:13.156 [info] [FormSubmissionEmail] form_values keys: [
+  'field_1772547208778', 'field_1772571171482',
+  'field_1772544901876', 'field_1772114985826',
+  'field_1772115071352', 'field_1772115090617',
+  'field_1772115176082', 'field_1772115231971',
+  'field_1772115301426', 'field_1772115346095',
+  'field_1772116895448', 'field_1772117007780',
+  'field_1772117228292', 'field_1772117658665',
+  'field_1772440125908', 'field_1772545139956',
+  'field_1772570705281', 'field_1772546978121',
+  'field_1772109394213'
+]
+2026-03-04 18:13:13.157 [info] [FormSubmissionEmail] CLIENT-SIDE form email config: {"hasSubmissionEmails":false,"submissionEmailsCount":0,"submissionEmailsValue":null,"legacyTemplateId":null,"legacyRecipient":null}
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Form loaded: Freelancer membership tenant_id: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Form email config - submission_emails: [{"cc":"","id":"email_1772145636487","bcc":"","condition":null,"recipient":"{{field_1772115090617}}","template_id":"44a31707-b4b9-49cb-a744-59c0324d217d","field_mapping":{"firstName":"field_1772114985826"},"attach_invoice":true}]
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Form email config - legacy template_id: null
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Form email config - legacy recipient:
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Using new multi-email format, count: 1
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Filtered emails to send: 1
+2026-03-04 18:13:13.361 [info] [FormSubmissionEmail] Derived baseUrl: https://gfi.dev.iconn.app
+2026-03-04 18:13:13.502 [info] [FormSubmissionEmail] Using member_id: null organization_id: null
+2026-03-04 18:13:13.502 [info] [FormSubmissionEmail] Processing email: email_1772145636487 template: 44a31707-b4b9-49cb-a744-59c0324d217d
+2026-03-04 18:13:13.647 [info] [FormSubmissionEmail] Template loaded: Freelance welcome
+2026-03-04 18:13:13.648 [info] [FormSubmissionEmail] Resolved field reference field_1772115090617 to: mat.the.diver@googlemail.com
+2026-03-04 18:13:13.648 [info] [FormSubmissionEmail] Resolved emails - to: mat.the.diver@googlemail.com cc:  bcc:
+2026-03-04 18:13:13.675 [warning] [FormSubmissionEmail] {{set_password_url}} placeholder found but missing member data or baseUrl
+2026-03-04 18:13:13.675 [info] [FormSubmissionEmail] memberData: undefined email: undefined baseUrl: https://gfi.dev.iconn.app
+2026-03-04 18:13:13.675 [info] [FormSubmissionEmail] Sending email...
+2026-03-04 18:13:13.675 [info] [FormSubmissionEmail] Subject: Welcome to the Graduate Futures Institute as a freelance partner
+2026-03-04 18:13:13.840 [info] [FormSubmissionEmail] Fetching Xero invoice PDF: SI-43813
+2026-03-04 18:13:14.491 [info] [FormSubmissionEmail] Invoice PDF attached successfully
+2026-03-04 18:13:14.493 [info] [Email Service] tenantId provided: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-03-04 18:13:14.627 [info] [Email Service] Using tenant domain: mail.graduatefutures.org (tenantId: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-03-04 18:13:14.765 [info] [Email Service] Email footer loaded for tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-03-04 18:13:14.894 [info] [Email Service] Email footer appended for tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-03-04 18:13:14.894 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com, domain: mail.graduatefutures.org
+2026-03-04 18:13:14.894 [info] [Email Service] Subject: Welcome to the Graduate Futures Institute as a freelance partner
+2026-03-04 18:13:14.894 [info] [Email Service] Adding 1 attachment(s)
+2026-03-04 18:13:15.262 [info] [Email Service] Email sent successfully. Message ID: <20260304181315.6d65b2e3236a7534@mail.graduatefutures.org>
+2026-03-04 18:13:15.262 [info] [FormSubmissionEmail] Email result: {
+  success: true,
+  messageId: '<20260304181315.6d65b2e3236a7534@mail.graduatefutures.org>',
+  domain: 'mail.graduatefutures.org'
+}
+2026-03-04 18:13:15.263 [info] [FormSubmissionEmail] All emails processed, results: 1
