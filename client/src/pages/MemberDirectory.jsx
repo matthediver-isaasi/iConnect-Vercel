@@ -247,7 +247,10 @@ export default function MemberDirectoryPage() {
           }
         }
       }
-      map[pv.member_id][pv.preference_field_id] = normalizedValue;
+      const fieldId = pv.field_id || pv.preference_field_id;
+      if (fieldId) {
+        map[pv.member_id][fieldId] = normalizedValue;
+      }
     });
     return map;
   }, [memberPreferenceValues]);
