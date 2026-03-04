@@ -283,6 +283,33 @@ export default function DynamicDirectoryView() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: directoryCustomFields = [] } = useQuery({
+    queryKey: ['member-directory-custom-fields'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'member' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_directory !== false);
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f =>
+            (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_directory !== false
+          );
+        } catch {
+          return [];
+        }
+      }
+    },
+    enabled: !!directory && directory.entity_type === 'member',
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: selectedOrgValues = [], isLoading: isLoadingOrgValues } = useQuery({
     queryKey: ['/api/entities/OrganizationPreferenceValue', selectedOrg?.id],
     enabled: !!selectedOrg?.id,
@@ -1252,6 +1279,51 @@ export default function DynamicDirectoryView() {
                             </div>
                           </div>
                         )}
+                        {(() => {
+                          const enabledFields = directoryCustomFields.filter(f =>
+                            memberDisplaySettings?.custom_fields?.[f.id] !== false
+                          );
+                          if (enabledFields.length === 0) return null;
+                          const memberValues = memberPreferenceMap[member.id] || {};
+                          const fieldsWithValues = enabledFields.filter(f => {
+                            const val = memberValues[f.id];
+                            return val !== undefined && val !== null && val !== '';
+                          });
+                          if (fieldsWithValues.length === 0) return null;
+                          const displayFields = fieldsWithValues.slice(0, 3);
+                          const remaining = fieldsWithValues.length - 3;
+                          return (
+                            <div className="pt-3 border-t border-slate-200 space-y-1.5">
+                              {displayFields.map(field => {
+                                let displayValue = memberValues[field.id];
+                                if (field.field_type === 'picklist' && displayValue) {
+                                  const arr = Array.isArray(displayValue) ? displayValue : (() => {
+                                    try { return JSON.parse(displayValue); } catch { return [displayValue]; }
+                                  })();
+                                  if (Array.isArray(arr) && field.options) {
+                                    displayValue = arr.map(v => field.options.find(o => o.value === v)?.label || v).join(', ');
+                                  }
+                                } else if (field.field_type === 'dropdown' && displayValue && field.options) {
+                                  const option = field.options.find(o => o.value === displayValue);
+                                  if (option) displayValue = option.label;
+                                } else if (field.field_type === 'boolean') {
+                                  displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
+                                } else if (field.field_type === 'date' && displayValue) {
+                                  try { displayValue = new Date(displayValue).toLocaleDateString(); } catch {}
+                                }
+                                return (
+                                  <div key={field.id} className="flex items-center justify-between gap-2" data-testid={`card-custom-field-${field.id}`}>
+                                    <span className="text-xs text-slate-500 truncate">{field.label}</span>
+                                    <span className="text-xs font-medium text-slate-700 text-right truncate max-w-[50%]">{String(displayValue)}</span>
+                                  </div>
+                                );
+                              })}
+                              {remaining > 0 && (
+                                <span className="text-xs text-slate-400">+{remaining} more</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </CardContent>
                     </Card>
                   );
@@ -1430,6 +1502,52 @@ export default function DynamicDirectoryView() {
                   </div>
                 )}
               </div>
+
+              {(() => {
+                const enabledFields = directoryCustomFields.filter(f =>
+                  memberDisplaySettings?.custom_fields?.[f.id] !== false
+                );
+                if (enabledFields.length === 0) return null;
+                const memberValues = memberPreferenceMap[viewingMember.id] || {};
+                const fieldsWithValues = enabledFields.filter(f => {
+                  const val = memberValues[f.id];
+                  return val !== undefined && val !== null && val !== '';
+                });
+                if (fieldsWithValues.length === 0) return null;
+                return (
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
+                    {fieldsWithValues.map(field => {
+                      let displayValue = memberValues[field.id];
+                      if (field.field_type === 'picklist' && displayValue) {
+                        const arr = Array.isArray(displayValue) ? displayValue : (() => {
+                          try { return JSON.parse(displayValue); } catch { return [displayValue]; }
+                        })();
+                        if (Array.isArray(arr) && field.options) {
+                          displayValue = arr
+                            .map(v => field.options.find(o => o.value === v)?.label || v)
+                            .join(', ');
+                        }
+                      } else if (field.field_type === 'dropdown' && displayValue && field.options) {
+                        const option = field.options.find(o => o.value === displayValue);
+                        if (option) displayValue = option.label;
+                      } else if (field.field_type === 'boolean') {
+                        displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
+                      } else if (field.field_type === 'date' && displayValue) {
+                        try {
+                          displayValue = new Date(displayValue).toLocaleDateString();
+                        } catch {}
+                      }
+                      return (
+                        <div key={field.id} className="flex justify-between items-start gap-4" data-testid={`popup-custom-field-${field.id}`}>
+                          <span className="text-sm text-slate-600">{field.label}</span>
+                          <span className="text-sm font-medium text-slate-900 text-right">{String(displayValue)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {memberDisplaySettings?.show_awards && memberStats[viewingMember.id]?.totalAwards > 0 && (
                 <div className="space-y-3">
