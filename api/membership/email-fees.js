@@ -70,7 +70,7 @@ export default async function handler(req, res) {
     }
 
     const { tenantId } = tenantContext;
-    const { organizationId, membershipYear, recipientEmail } = req.body;
+    const { organizationId, membershipYear, recipientEmail, recipientEmails } = req.body;
 
     if (!organizationId) {
       return res.status(400).json({ error: 'organizationId is required' });
@@ -110,17 +110,26 @@ export default async function handler(req, res) {
     } catch {}
 
 
-    let toEmail = recipientEmail;
-    if (!toEmail) {
+    let toEmails = [];
+
+    if (recipientEmails && Array.isArray(recipientEmails) && recipientEmails.length > 0) {
+      toEmails = [...new Set(recipientEmails.map(e => e.trim().toLowerCase()).filter(Boolean))];
+    } else if (recipientEmail) {
+      toEmails = [recipientEmail.trim().toLowerCase()];
+    }
+
+    if (toEmails.length === 0) {
       const { data: orgData } = await supabase
         .from('organization')
         .select('invoicing_email')
         .eq('id', organizationId)
         .single();
 
-      toEmail = orgData?.invoicing_email;
+      if (orgData?.invoicing_email) {
+        toEmails.push(orgData.invoicing_email.trim().toLowerCase());
+      }
     }
-    if (!toEmail) {
+    if (toEmails.length === 0) {
       const { data: primaryContact } = await supabase
         .from('member')
         .select('email')
@@ -129,10 +138,12 @@ export default async function handler(req, res) {
         .limit(1)
         .maybeSingle();
 
-      toEmail = primaryContact?.email;
+      if (primaryContact?.email) {
+        toEmails.push(primaryContact.email.trim().toLowerCase());
+      }
     }
 
-    if (!toEmail) {
+    if (toEmails.length === 0) {
       return res.status(400).json({ error: 'No recipient email provided and no invoicing email or primary contact found for this organisation' });
     }
 
@@ -190,7 +201,7 @@ export default async function handler(req, res) {
         tier_label: tierLabel,
         cost_breakdown: costBreakdown,
         po_number: poNumber,
-        recipient_email: toEmail,
+        recipient_email: toEmails.join(', '),
         expires_at: expiresAt.toISOString(),
       });
 
@@ -315,36 +326,48 @@ export default async function handler(req, res) {
       </div>
     `;
 
-    const emailResult = await sendTenantEmail({
-      tenantId,
-      to: toEmail,
-      subject: `Membership Fee for ${yearLabel} - ${tenantName}`,
-      html: emailHtml,
-    });
+    const sentTo = [];
+    const failed = [];
 
-    if (!emailResult.success) {
-      console.error('[Email Fees] Email send failed:', emailResult.error);
-      return res.status(500).json({ error: `Failed to send email: ${emailResult.error}` });
+    for (const email of toEmails) {
+      const emailResult = await sendTenantEmail({
+        tenantId,
+        to: email,
+        subject: `Membership Fee for ${yearLabel} - ${tenantName}`,
+        html: emailHtml,
+      });
+
+      if (emailResult.success) {
+        sentTo.push(email);
+      } else {
+        console.error(`[Email Fees] Email send failed for ${email}:`, emailResult.error);
+        failed.push(email);
+      }
+    }
+
+    if (sentTo.length === 0) {
+      return res.status(500).json({ error: 'Failed to send email to any recipient' });
     }
 
     try {
       const noteCreatorId = tenantContext.memberId || tenantContext.tenantUserId || null;
+      const recipientList = sentTo.join(', ');
       await supabase.from('organization_note').insert({
         organization_id: organizationId,
         member_id: noteCreatorId,
-        content: `[Membership Fee Email] Fee notification sent to ${toEmail} for ${yearLabel}. Amount: ${currencySymbol}${finalCost.toFixed(2)}.`,
+        content: `[Membership Fee Email] Fee notification sent to ${recipientList} for ${yearLabel}. Amount: ${currencySymbol}${finalCost.toFixed(2)}.`,
         attachments: [],
       });
     } catch {}
 
     return res.json({
       success: true,
-      sentTo: toEmail,
+      sentTo,
       membershipYear: yearLabel,
       finalCost,
       token,
       paymentUrl,
-      message: `Fee notification sent to ${toEmail}`,
+      message: `Fee notification sent to ${sentTo.join(', ')}${failed.length > 0 ? `. Failed: ${failed.join(', ')}` : ''}`,
     });
   } catch (error) {
     console.error('[Email Fees] Error:', error);

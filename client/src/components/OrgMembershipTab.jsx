@@ -27,8 +27,9 @@ import {
   Layers, Save, Loader2, CalendarDays, TrendingUp,
   History, AlertCircle, Wallet, ArrowRight, Pencil, X, ShieldAlert,
   FileText, Send, PlayCircle, CheckCircle2, XCircle, Info, AlertTriangle, Mail,
-  Lock, LockOpen, ShieldCheck
+  Lock, LockOpen, ShieldCheck, Users, Plus, ArrowLeft
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 
 function getCurrencySymbol(code) {
@@ -508,7 +509,11 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   const [simulatingYear, setSimulatingYear] = useState(null);
   const [emailFeesDialogOpen, setEmailFeesDialogOpen] = useState(false);
   const [emailFeesYear, setEmailFeesYear] = useState(null);
-  const [emailFeesRecipient, setEmailFeesRecipient] = useState('');
+  const [emailFeesIncludeFinance, setEmailFeesIncludeFinance] = useState(true);
+  const [emailFeesSelectedRoles, setEmailFeesSelectedRoles] = useState([]);
+  const [emailFeesManualInput, setEmailFeesManualInput] = useState('');
+  const [emailFeesManualEmails, setEmailFeesManualEmails] = useState([]);
+  const [emailFeesConfirmStep, setEmailFeesConfirmStep] = useState(false);
   const [feesApprovedMap, setFeesApprovedMap] = useState({});
 
   const { data, isLoading, error } = useQuery({
@@ -529,6 +534,38 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
       return response.json();
     },
     enabled: overrideModalOpen && !!organizationId,
+  });
+
+  const { data: emailFeesRoles = [] } = useQuery({
+    queryKey: ['roles-for-email-fees'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/roles', { credentials: 'include' });
+      if (!response.ok) return [];
+      const result = await response.json();
+      return result.roles || result || [];
+    },
+    enabled: emailFeesDialogOpen,
+    staleTime: 60000,
+  });
+
+  const { data: emailFeesRoleMembers = {}, isLoading: roleMembersLoading } = useQuery({
+    queryKey: ['role-members-for-email-fees', organizationId, emailFeesSelectedRoles],
+    queryFn: async () => {
+      if (emailFeesSelectedRoles.length === 0) return {};
+      const membersByRole = {};
+      for (const roleId of emailFeesSelectedRoles) {
+        const response = await fetch(`/api/admin/members/paginated?organizationId=${organizationId}&roleId=${roleId}&limit=100`, { credentials: 'include' });
+        if (response.ok) {
+          const result = await response.json();
+          const members = result.members || result.data || [];
+          membersByRole[roleId] = members.filter(m => m.email && !m.email.startsWith('deleted_')).map(m => m.email);
+        } else {
+          membersByRole[roleId] = [];
+        }
+      }
+      return membersByRole;
+    },
+    enabled: emailFeesDialogOpen && emailFeesSelectedRoles.length > 0,
   });
 
   const updateFieldMutation = useMutation({
@@ -772,12 +809,12 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
   });
 
   const emailFeesMutation = useMutation({
-    mutationFn: async ({ membershipYear, recipientEmail }) => {
+    mutationFn: async ({ membershipYear, recipientEmails }) => {
       const response = await fetch('/api/membership/email-fees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ organizationId, membershipYear, recipientEmail: recipientEmail || undefined }),
+        body: JSON.stringify({ organizationId, membershipYear, recipientEmails }),
       });
       if (!response.ok) {
         const err = await response.json();
@@ -788,7 +825,9 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['org-notes'] });
       setEmailFeesDialogOpen(false);
-      toast.success(data.message || `Fee email sent to ${data.sentTo}`);
+      setEmailFeesConfirmStep(false);
+      const sentList = Array.isArray(data.sentTo) ? data.sentTo.join(', ') : data.sentTo;
+      toast.success(data.message || `Fee email sent to ${sentList}`);
     },
     onError: (error) => {
       toast.error(error.message);
@@ -1142,7 +1181,11 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 poSuppliedByMember={!!poSuppliedByMemberMap[currentYearCost?.membershipYear]}
                 onEmailFees={() => {
                   setEmailFeesYear(currentYearCost.membershipYear);
-                  setEmailFeesRecipient(invoicingEmail || '');
+                  setEmailFeesIncludeFinance(!!invoicingEmail);
+                  setEmailFeesSelectedRoles([]);
+                  setEmailFeesManualInput('');
+                  setEmailFeesManualEmails([]);
+                  setEmailFeesConfirmStep(false);
                   setEmailFeesDialogOpen(true);
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
@@ -1219,7 +1262,11 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                 poSuppliedByMember={!!poSuppliedByMemberMap[nextYearPreview?.membershipYear]}
                 onEmailFees={() => {
                   setEmailFeesYear(nextYearPreview.membershipYear);
-                  setEmailFeesRecipient(invoicingEmail || '');
+                  setEmailFeesIncludeFinance(!!invoicingEmail);
+                  setEmailFeesSelectedRoles([]);
+                  setEmailFeesManualInput('');
+                  setEmailFeesManualEmails([]);
+                  setEmailFeesConfirmStep(false);
                   setEmailFeesDialogOpen(true);
                 }}
                 emailFeesPending={emailFeesMutation.isPending}
@@ -1600,49 +1647,246 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={emailFeesDialogOpen} onOpenChange={setEmailFeesDialogOpen}>
-        <DialogContent>
+      <Dialog open={emailFeesDialogOpen} onOpenChange={(open) => {
+        setEmailFeesDialogOpen(open);
+        if (!open) setEmailFeesConfirmStep(false);
+      }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="w-4 h-4" />
               Email Membership Fees
             </DialogTitle>
             <DialogDescription>
-              Send the fee breakdown and payment link to the organisation's finance contact for {emailFeesYear}.
+              {emailFeesConfirmStep
+                ? 'Please confirm the recipients before sending.'
+                : `Send the fee breakdown and payment link for ${emailFeesYear}.`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label className="text-sm">Recipient Email</Label>
-              <Input
-                value={emailFeesRecipient}
-                onChange={(e) => setEmailFeesRecipient(e.target.value)}
-                placeholder="Enter recipient email address"
-                className="mt-1"
-                data-testid="input-email-fees-recipient"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {invoicingEmail ? 'Pre-filled from the organisation\'s invoicing email. You can change it if needed.' : 'Enter the email address to send the fee breakdown to.'}
-              </p>
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setEmailFeesDialogOpen(false)}
-              data-testid="button-cancel-email-fees"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => emailFeesMutation.mutate({ membershipYear: emailFeesYear, recipientEmail: emailFeesRecipient })}
-              disabled={emailFeesMutation.isPending}
-              data-testid="button-send-email-fees"
-            >
-              {emailFeesMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
-              Send
-            </Button>
-          </DialogFooter>
+
+          {!emailFeesConfirmStep ? (
+            <>
+              <div className="space-y-4">
+                {invoicingEmail && (
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">Finance Email</Label>
+                    <div className="flex items-center gap-2 p-2 rounded-md border">
+                      <Checkbox
+                        id="include-finance-email"
+                        checked={emailFeesIncludeFinance}
+                        onCheckedChange={setEmailFeesIncludeFinance}
+                        data-testid="checkbox-include-finance"
+                      />
+                      <label htmlFor="include-finance-email" className="text-sm cursor-pointer flex-1">
+                        {invoicingEmail}
+                      </label>
+                      <Badge variant="secondary" className="text-xs">Finance</Badge>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5" />
+                    Add by Role
+                  </Label>
+                  <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
+                    {emailFeesRoles.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-1">Loading roles...</p>
+                    ) : (
+                      emailFeesRoles.map(role => {
+                        const isSelected = emailFeesSelectedRoles.includes(role.id);
+                        const roleEmails = emailFeesRoleMembers[role.id] || [];
+                        return (
+                          <div key={role.id}>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`role-${role.id}`}
+                                checked={isSelected}
+                                onCheckedChange={(checked) => {
+                                  setEmailFeesSelectedRoles(prev =>
+                                    checked ? [...prev, role.id] : prev.filter(id => id !== role.id)
+                                  );
+                                }}
+                                data-testid={`checkbox-role-${role.id}`}
+                              />
+                              <label htmlFor={`role-${role.id}`} className="text-sm cursor-pointer flex-1">
+                                {role.name}
+                              </label>
+                            </div>
+                            {isSelected && roleEmails.length > 0 && (
+                              <div className="ml-6 mt-1 mb-1 flex flex-wrap gap-1">
+                                {roleEmails.map(email => (
+                                  <Badge key={email} variant="outline" className="text-xs">{email}</Badge>
+                                ))}
+                              </div>
+                            )}
+                            {isSelected && roleEmails.length === 0 && (
+                              <p className="ml-6 text-xs text-muted-foreground mt-1 mb-1">
+                                {roleMembersLoading ? 'Loading members...' : 'No members with this role in this organisation'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Additional Emails</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={emailFeesManualInput}
+                      onChange={(e) => setEmailFeesManualInput(e.target.value)}
+                      placeholder="Enter email address"
+                      className="flex-1"
+                      data-testid="input-manual-email"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ',') {
+                          e.preventDefault();
+                          const raw = emailFeesManualInput.trim().replace(/,+$/, '');
+                          if (raw && raw.includes('@')) {
+                            setEmailFeesManualEmails(prev => [...new Set([...prev, raw.toLowerCase()])]);
+                            setEmailFeesManualInput('');
+                          }
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        const raw = emailFeesManualInput.trim().replace(/,+$/, '');
+                        if (raw && raw.includes('@')) {
+                          setEmailFeesManualEmails(prev => [...new Set([...prev, raw.toLowerCase()])]);
+                          setEmailFeesManualInput('');
+                        }
+                      }}
+                      data-testid="button-add-manual-email"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {emailFeesManualEmails.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {emailFeesManualEmails.map(email => (
+                        <Badge key={email} variant="secondary" className="text-xs gap-1">
+                          {email}
+                          <button
+                            onClick={() => setEmailFeesManualEmails(prev => prev.filter(e => e !== email))}
+                            className="ml-0.5"
+                            data-testid={`button-remove-email-${email}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {(() => {
+                  const allEmails = [
+                    ...(emailFeesIncludeFinance && invoicingEmail ? [invoicingEmail.toLowerCase()] : []),
+                    ...Object.values(emailFeesRoleMembers).flat().map(e => e.toLowerCase()),
+                    ...emailFeesManualEmails,
+                  ];
+                  const uniqueEmails = [...new Set(allEmails)];
+                  return uniqueEmails.length > 0 ? (
+                    <div className="bg-muted/50 rounded-md p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">
+                        {uniqueEmails.length} recipient{uniqueEmails.length !== 1 ? 's' : ''} selected
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {uniqueEmails.map(email => (
+                          <Badge key={email} variant="outline" className="text-xs">{email}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No recipients selected. Select at least one recipient to continue.</p>
+                  );
+                })()}
+              </div>
+
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setEmailFeesDialogOpen(false)}
+                  data-testid="button-cancel-email-fees"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => setEmailFeesConfirmStep(true)}
+                  disabled={(() => {
+                    const allEmails = [
+                      ...(emailFeesIncludeFinance && invoicingEmail ? [invoicingEmail.toLowerCase()] : []),
+                      ...Object.values(emailFeesRoleMembers).flat().map(e => e.toLowerCase()),
+                      ...emailFeesManualEmails,
+                    ];
+                    return [...new Set(allEmails)].length === 0;
+                  })()}
+                  data-testid="button-review-email-fees"
+                >
+                  <Send className="w-3 h-3 mr-1" />
+                  Review & Send
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              {(() => {
+                const allEmails = [
+                  ...(emailFeesIncludeFinance && invoicingEmail ? [invoicingEmail.toLowerCase()] : []),
+                  ...Object.values(emailFeesRoleMembers).flat().map(e => e.toLowerCase()),
+                  ...emailFeesManualEmails,
+                ];
+                const uniqueEmails = [...new Set(allEmails)];
+                return (
+                  <div className="space-y-4">
+                    <div className="bg-amber-50 border border-amber-200 rounded-md p-4 text-sm">
+                      <div className="flex items-center gap-2 font-medium text-amber-800 mb-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        Confirm Send
+                      </div>
+                      <p className="text-amber-700 mb-3">
+                        You are about to send the membership fee notification for <strong>{emailFeesYear}</strong> to {uniqueEmails.length} recipient{uniqueEmails.length !== 1 ? 's' : ''}:
+                      </p>
+                      <div className="space-y-1">
+                        {uniqueEmails.map(email => (
+                          <div key={email} className="flex items-center gap-2 text-amber-900">
+                            <Mail className="w-3 h-3 shrink-0" />
+                            <span>{email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <DialogFooter className="gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setEmailFeesConfirmStep(false)}
+                        data-testid="button-back-email-fees"
+                      >
+                        <ArrowLeft className="w-3 h-3 mr-1" />
+                        Back
+                      </Button>
+                      <Button
+                        onClick={() => emailFeesMutation.mutate({ membershipYear: emailFeesYear, recipientEmails: uniqueEmails })}
+                        disabled={emailFeesMutation.isPending}
+                        data-testid="button-confirm-send-email-fees"
+                      >
+                        {emailFeesMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                        Confirm & Send
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                );
+              })()}
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
