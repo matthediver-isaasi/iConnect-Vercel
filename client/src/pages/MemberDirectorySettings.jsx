@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Save, Users } from "lucide-react";
+import { Loader2, Save, Users, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -21,7 +21,8 @@ export default function MemberDirectorySettingsPage() {
     show_job_title: true,
     show_linkedin: true,
     show_awards: true,
-    show_bio_in_popup: true
+    show_bio_in_popup: true,
+    custom_fields: {}
   });
 
   const queryClient = useQueryClient();
@@ -35,7 +36,7 @@ export default function MemberDirectorySettingsPage() {
       if (setting?.setting_value) {
         try {
           const parsed = JSON.parse(setting.setting_value);
-          return { id: setting.id, ...parsed };
+          return { id: setting.id, custom_fields: {}, ...parsed };
         } catch (e) {
           console.error('Failed to parse member directory settings:', e);
           return {
@@ -47,7 +48,8 @@ export default function MemberDirectorySettingsPage() {
             show_job_title: true,
             show_linkedin: true,
             show_awards: true,
-            show_bio_in_popup: true
+            show_bio_in_popup: true,
+            custom_fields: {}
           };
         }
       }
@@ -60,11 +62,38 @@ export default function MemberDirectorySettingsPage() {
         show_job_title: true,
         show_linkedin: true,
         show_awards: true,
-        show_bio_in_popup: true
+        show_bio_in_popup: true,
+        custom_fields: {}
       };
     },
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: directoryFields = [], isLoading: isLoadingFields } = useQuery({
+    queryKey: ['member-directory-fields'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'member' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_directory !== false);
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f =>
+            (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_directory !== false
+          );
+        } catch {
+          return [];
+        }
+      }
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -79,7 +108,11 @@ export default function MemberDirectorySettingsPage() {
 
   useEffect(() => {
     if (displaySettings) {
-      setSettings(displaySettings);
+      setSettings(prev => ({
+        ...prev,
+        ...displaySettings,
+        custom_fields: displaySettings.custom_fields || {}
+      }));
     }
   }, [displaySettings]);
 
@@ -114,6 +147,16 @@ export default function MemberDirectorySettingsPage() {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const handleCustomFieldToggle = (fieldId) => {
+    setSettings(prev => ({
+      ...prev,
+      custom_fields: {
+        ...prev.custom_fields,
+        [fieldId]: !(prev.custom_fields[fieldId] !== false)
+      }
+    }));
+  };
+
   const handleSave = () => {
     saveSettingsMutation.mutate(settings);
   };
@@ -125,6 +168,17 @@ export default function MemberDirectorySettingsPage() {
       </div>
     );
   }
+
+  const CORE_FIELDS = [
+    { key: 'show_profile_photo', label: 'Profile Photos', description: 'Display member profile photos on cards' },
+    { key: 'show_organization', label: 'Organization', description: "Display the member's organization name" },
+    { key: 'show_job_title', label: 'Job Title', description: "Display the member's job title" },
+    { key: 'show_linkedin', label: 'LinkedIn Profile', description: 'Display LinkedIn profile link if available' },
+    { key: 'show_events', label: 'Events Attended', description: 'Display count of events attended' },
+    { key: 'show_articles', label: 'Articles Published', description: 'Display count of published articles' },
+    { key: 'show_awards', label: 'Awards', description: "Display member's earned awards" },
+    { key: 'show_bio_in_popup', label: 'Biography in Detail View', description: 'Display member biography in the popup detail view' },
+  ];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
@@ -141,161 +195,98 @@ export default function MemberDirectorySettingsPage() {
 
         <Card className="border-slate-200">
           <CardHeader>
-            <CardTitle>Display Options</CardTitle>
+            <CardTitle>Core Fields</CardTitle>
             <CardDescription>
-              Toggle which fields appear on member cards in the directory
+              Toggle which standard fields appear on member cards in the directory
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-profile-photo" className="cursor-pointer font-medium">
-                  Profile Photos
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display member profile photos on cards
-                </p>
+            {CORE_FIELDS.map(field => (
+              <div key={field.key} className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <Label htmlFor={field.key} className="cursor-pointer font-medium">
+                    {field.label}
+                  </Label>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {field.description}
+                  </p>
+                </div>
+                <Switch
+                  id={field.key}
+                  checked={settings[field.key]}
+                  onCheckedChange={() => handleToggle(field.key)}
+                  data-testid={`switch-${field.key}`}
+                />
               </div>
-              <Switch
-                id="show-profile-photo"
-                checked={settings.show_profile_photo}
-                onCheckedChange={() => handleToggle('show_profile_photo')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-organization" className="cursor-pointer font-medium">
-                  Organization
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display the member's organization name
-                </p>
-              </div>
-              <Switch
-                id="show-organization"
-                checked={settings.show_organization}
-                onCheckedChange={() => handleToggle('show_organization')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-job-title" className="cursor-pointer font-medium">
-                  Job Title
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display the member's job title
-                </p>
-              </div>
-              <Switch
-                id="show-job-title"
-                checked={settings.show_job_title}
-                onCheckedChange={() => handleToggle('show_job_title')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-linkedin" className="cursor-pointer font-medium">
-                  LinkedIn Profile
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display LinkedIn profile link if available
-                </p>
-              </div>
-              <Switch
-                id="show-linkedin"
-                checked={settings.show_linkedin}
-                onCheckedChange={() => handleToggle('show_linkedin')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-events" className="cursor-pointer font-medium">
-                  Events Attended
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display count of events attended
-                </p>
-              </div>
-              <Switch
-                id="show-events"
-                checked={settings.show_events}
-                onCheckedChange={() => handleToggle('show_events')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-articles" className="cursor-pointer font-medium">
-                  Articles Published
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display count of published articles
-                </p>
-              </div>
-              <Switch
-                id="show-articles"
-                checked={settings.show_articles}
-                onCheckedChange={() => handleToggle('show_articles')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-awards" className="cursor-pointer font-medium">
-                  Awards
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display member's earned awards
-                </p>
-              </div>
-              <Switch
-                id="show-awards"
-                checked={settings.show_awards}
-                onCheckedChange={() => handleToggle('show_awards')}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div>
-                <Label htmlFor="show-bio-in-popup" className="cursor-pointer font-medium">
-                  Biography in Detail View
-                </Label>
-                <p className="text-xs text-slate-500 mt-1">
-                  Display member biography in the popup detail view
-                </p>
-              </div>
-              <Switch
-                id="show-bio-in-popup"
-                checked={settings.show_bio_in_popup}
-                onCheckedChange={() => handleToggle('show_bio_in_popup')}
-              />
-            </div>
-
-            <div className="flex justify-end pt-4 border-t border-slate-200">
-              <Button
-                onClick={handleSave}
-                disabled={saveSettingsMutation.isPending}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {saveSettingsMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" />
-                    Save Settings
-                  </>
-                )}
-              </Button>
-            </div>
+            ))}
           </CardContent>
         </Card>
+
+        {directoryFields.length > 0 && (
+          <Card className="border-slate-200 mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <SlidersHorizontal className="w-5 h-5" />
+                Custom Fields
+              </CardTitle>
+              <CardDescription>
+                These fields have the "Directory" visibility enabled in Custom Fields settings. Toggle which ones appear in the member detail popup.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoadingFields ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                </div>
+              ) : (
+                directoryFields.map(field => (
+                  <div key={field.id} className="flex items-center justify-between gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div>
+                      <Label htmlFor={`custom-${field.id}`} className="cursor-pointer font-medium">
+                        {field.label}
+                      </Label>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {field.field_type === 'dropdown' ? 'Dropdown' :
+                         field.field_type === 'picklist' ? 'Picklist' :
+                         field.field_type === 'number' ? 'Number' :
+                         field.field_type === 'date' ? 'Date' :
+                         field.field_type === 'boolean' ? 'Yes/No' :
+                         'Text'} field
+                      </p>
+                    </div>
+                    <Switch
+                      id={`custom-${field.id}`}
+                      checked={settings.custom_fields[field.id] !== false}
+                      onCheckedChange={() => handleCustomFieldToggle(field.id)}
+                      data-testid={`switch-custom-${field.id}`}
+                    />
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="flex justify-end pt-6">
+          <Button
+            onClick={handleSave}
+            disabled={saveSettingsMutation.isPending}
+            className="bg-blue-600 hover:bg-blue-700"
+            data-testid="button-save-settings"
+          >
+            {saveSettingsMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save Settings
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

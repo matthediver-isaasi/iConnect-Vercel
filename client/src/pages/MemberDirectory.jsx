@@ -186,10 +186,36 @@ export default function MemberDirectoryPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: directoryCustomFields = [] } = useQuery({
+    queryKey: ['member-directory-custom-fields'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'member' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'member' && f.show_in_member_directory !== false);
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f =>
+            (!f.entity_scope || f.entity_scope === 'member') && f.show_in_member_directory !== false
+          );
+        } catch {
+          return [];
+        }
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Fetch all member preference values for filtering
   const { data: memberPreferenceValues = [] } = useQuery({
     queryKey: ['all-member-preference-values'],
-    enabled: filterableFields.length > 0,
+    enabled: filterableFields.length > 0 || directoryCustomFields.length > 0,
     queryFn: async () => {
       try {
         const values = await base44.entities.MemberPreferenceValue.list();
@@ -924,6 +950,51 @@ export default function MemberDirectoryPage() {
                   </div>
                 </div>
               )}
+
+              {(() => {
+                const enabledFields = directoryCustomFields.filter(f =>
+                  displaySettings?.custom_fields?.[f.id] !== false
+                );
+                if (enabledFields.length === 0) return null;
+                const memberValues = memberPreferenceMap[viewingMember.id] || {};
+                const fieldsWithValues = enabledFields.filter(f => {
+                  const val = memberValues[f.id];
+                  return val !== undefined && val !== null && val !== '';
+                });
+                if (fieldsWithValues.length === 0) return null;
+                return (
+                  <div className="space-y-3 pt-4 border-t border-slate-200">
+                    {fieldsWithValues.map(field => {
+                      let displayValue = memberValues[field.id];
+                      if (field.field_type === 'picklist' && displayValue) {
+                        const arr = Array.isArray(displayValue) ? displayValue : (() => {
+                          try { return JSON.parse(displayValue); } catch { return [displayValue]; }
+                        })();
+                        if (Array.isArray(arr) && field.options) {
+                          displayValue = arr
+                            .map(v => field.options.find(o => o.value === v)?.label || v)
+                            .join(', ');
+                        }
+                      } else if (field.field_type === 'dropdown' && displayValue && field.options) {
+                        const option = field.options.find(o => o.value === displayValue);
+                        if (option) displayValue = option.label;
+                      } else if (field.field_type === 'boolean') {
+                        displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
+                      } else if (field.field_type === 'date' && displayValue) {
+                        try {
+                          displayValue = new Date(displayValue).toLocaleDateString();
+                        } catch { /* keep as-is */ }
+                      }
+                      return (
+                        <div key={field.id} className="flex justify-between items-start gap-4" data-testid={`custom-field-${field.id}`}>
+                          <span className="text-sm text-slate-600">{field.label}</span>
+                          <span className="text-sm font-medium text-slate-900 text-right">{String(displayValue)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               <div className="pt-4 border-t border-slate-200 space-y-3">
                 {viewingMember.email && (

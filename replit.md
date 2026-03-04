@@ -37,7 +37,7 @@ The application is deployed on Vercel, utilizing `iconn.app` for tenant owner ma
 -   **Resource View Tracking:** Tracks unique views per user per resource.
 -   **Organisation Membership Tab:** Displays a rolling two-year cost preview with detailed breakdown, integrating with Xero for invoice generation.
 -   **Fundraising Module:** Supports tenant-scoped campaigns with team members, unique donation pages, Stripe payment processing, UK Gift Aid, and AI-suggested content.
--   **Dynamic Directory:** Configurable member/organisation directories with slug-based URLs and server-side filtering.
+-   **Dynamic Directory:** Configurable member/organisation directories with slug-based URLs and server-side filtering. Member Directory Settings (`MemberDirectorySettings.jsx`) supports toggling both core fields and custom fields (preference fields with `show_in_member_directory` flag). Custom field toggle state stored in `custom_fields` object within the `member_directory_display` system setting. Member Directory detail popup (`MemberDirectory.jsx`) renders enabled custom field values with type-aware formatting (picklist, dropdown, boolean, date).
 -   **Bookmarking System:** Allows members to bookmark content with drag-and-drop reordering.
 -   **Forum Module:** Provides tenant-scoped discussion forums with role-managed access, threaded discussions, and moderation.
 
