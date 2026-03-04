@@ -272,17 +272,27 @@ export default async function handler(req, res) {
               // If the pipeline resolved an organization (created or existing) and we don't already have an org ID,
               // update the submission record with the organization_id
               const resolvedOrgId = result.organization_id || result.created_organization_id;
+              const resolvedMemberId = result.created_member_id || result.member_id;
+              
+              const submissionUpdates = {};
               if (resolvedOrgId && !submissionRecord.organization_id) {
-                console.log('[Public Form Submission] Updating submission with organization_id:', resolvedOrgId);
+                submissionUpdates.organization_id = resolvedOrgId;
+              }
+              if (resolvedMemberId) {
+                submissionUpdates.created_member_id = resolvedMemberId;
+              }
+              
+              if (Object.keys(submissionUpdates).length > 0) {
+                console.log('[Public Form Submission] Updating submission with:', JSON.stringify(submissionUpdates));
                 const { error: updateError } = await supabase
                   .from('form_submission')
-                  .update({ organization_id: resolvedOrgId })
+                  .update(submissionUpdates)
                   .eq('id', submission.id);
                 
                 if (updateError) {
-                  console.error('[Public Form Submission] Failed to update submission with organization_id:', updateError);
+                  console.error('[Public Form Submission] Failed to update submission:', updateError);
                 } else {
-                  console.log('[Public Form Submission] Submission updated with organization_id');
+                  console.log('[Public Form Submission] Submission updated successfully');
                 }
               }
             } catch (parseErr) {
