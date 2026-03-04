@@ -319,12 +319,31 @@ export default function HistoryPage({ hasBanner }) {
 
   const isLoading = transactionsLoading || bookingsLoading || trainingFundLoading || voucherTransactionsLoading || membershipHistoryLoading;
 
-  if (!memberInfo || !organizationInfo) {
+  if (!memberInfo) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
-      </div>);
+      </div>
+    );
+  }
 
+  if (!organizationInfo) {
+    if (memberInfo.organization_id) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+          <div className="animate-pulse text-slate-600">Loading...</div>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <Building2 className="w-10 h-10 mx-auto text-slate-300" />
+          <p className="text-slate-600">You are not currently associated with an organisation.</p>
+          <p className="text-sm text-slate-400">Transaction history is not available.</p>
+        </div>
+      </div>
+    );
   }
 
   

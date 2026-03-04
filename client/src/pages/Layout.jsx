@@ -1327,6 +1327,9 @@ useEffect(() => {
             // Fetch organization info for regular members
             if (member.organization_id && !member.is_team_member) {
               fetchOrganizationInfo(member.organization_id);
+            } else {
+              localStorage.removeItem('agcas_organization');
+              setOrganizationInfo(null);
             }
             return { valid: true, serverResponded: true }; // Session is valid
           } else {
@@ -1435,6 +1438,9 @@ useEffect(() => {
         // Only fetch organization info for regular members (not team members)
         if (member.organization_id && !member.is_team_member) {
           fetchOrganizationInfo(member.organization_id);
+        } else {
+          localStorage.removeItem('agcas_organization');
+          setOrganizationInfo(null);
         }
         
         // SECURITY: Mark auth as resolved even in fallback mode
