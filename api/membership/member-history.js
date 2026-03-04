@@ -17,18 +17,30 @@ export default async function handler(req, res) {
 
   const tenantId = sessionMember.tenant_id;
   const organizationId = sessionMember.organization_id;
-
-  if (!organizationId) {
-    return res.status(400).json({ error: 'No organisation associated with this account' });
-  }
+  const memberId = sessionMember.id;
 
   try {
-    const { data, error } = await supabase
-      .from('organisation_membership_history')
-      .select('id, tenant_id, organization_id, membership_year, tier_label, band_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, final_cost, vat_rate, currency, xero_invoice_id, xero_invoice_number, purchase_order_number, payment_method, stripe_payment_intent_id, status, created_at')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .order('membership_year', { ascending: false });
+    let data, error;
+
+    if (organizationId) {
+      const result = await supabase
+        .from('organisation_membership_history')
+        .select('id, tenant_id, organization_id, membership_year, tier_label, band_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, final_cost, vat_rate, currency, xero_invoice_id, xero_invoice_number, purchase_order_number, payment_method, stripe_payment_intent_id, status, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .order('membership_year', { ascending: false });
+      data = result.data;
+      error = result.error;
+    } else {
+      const result = await supabase
+        .from('member_membership_history')
+        .select('id, tenant_id, member_id, membership_year, tier_label, band_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, final_cost, currency, xero_invoice_id, xero_invoice_number, purchase_order_number, payment_method, stripe_payment_intent_id, status, created_at, vat_rate_percent, vat_amount, total_with_vat')
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberId)
+        .order('membership_year', { ascending: false });
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
       console.error('[member-history] Error fetching membership history:', error);

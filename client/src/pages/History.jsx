@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2, Wallet, Gift, Search, ChevronLeft, ChevronRight, ArrowUpDown, X, Crown } from "lucide-react";
+import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Wallet, Gift, Search, ChevronLeft, ChevronRight, ArrowUpDown, X, Crown } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -69,19 +69,19 @@ export default function HistoryPage({ hasBanner }) {
     refetchOnMount: true,
   });
 
-  // Fetch one-off event bookings for the organization
+  const hasOrg = !!organizationInfo?.id;
+
+  // Fetch one-off event bookings for the organization or member
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ['org-bookings', organizationInfo?.id],
+    queryKey: ['event-bookings', hasOrg ? organizationInfo.id : memberInfo?.id],
     queryFn: async () => {
-      if (!organizationInfo?.id) return [];
-      // Filter bookings by organization_id and is_one_off_event
-      const allBookings = await base44.entities.Booking.filter({ organization_id: organizationInfo.id });
-      // Return only one-off event bookings sorted by date
+      const filterKey = hasOrg ? { organization_id: organizationInfo.id } : { member_id: memberInfo.id };
+      const allBookings = await base44.entities.Booking.filter(filterKey);
       return allBookings
         .filter(b => b.is_one_off_event === true)
         .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     },
-    enabled: !!organizationInfo?.id,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -122,9 +122,8 @@ export default function HistoryPage({ hasBanner }) {
   });
 
   const { data: membershipHistory = [], isLoading: membershipHistoryLoading } = useQuery({
-    queryKey: ['membership-history', organizationInfo?.id],
+    queryKey: ['membership-history', hasOrg ? organizationInfo.id : memberInfo?.id],
     queryFn: async () => {
-      if (!organizationInfo?.id) return [];
       const response = await fetch('/api/membership/member-history', { credentials: 'include' });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -132,7 +131,7 @@ export default function HistoryPage({ hasBanner }) {
       }
       return response.json();
     },
-    enabled: !!organizationInfo?.id,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
     retry: false,
@@ -317,7 +316,7 @@ export default function HistoryPage({ hasBanner }) {
     }
   };
 
-  const isLoading = transactionsLoading || bookingsLoading || trainingFundLoading || voucherTransactionsLoading || membershipHistoryLoading;
+  const isLoading = bookingsLoading || membershipHistoryLoading || (hasOrg && (transactionsLoading || trainingFundLoading || voucherTransactionsLoading));
 
   if (!memberInfo) {
     return (
@@ -327,21 +326,10 @@ export default function HistoryPage({ hasBanner }) {
     );
   }
 
-  if (!organizationInfo) {
-    if (memberInfo.organization_id) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-          <div className="animate-pulse text-slate-600">Loading...</div>
-        </div>
-      );
-    }
+  if (memberInfo.organization_id && !organizationInfo) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="text-center space-y-2">
-          <Building2 className="w-10 h-10 mx-auto text-slate-300" />
-          <p className="text-slate-600">You are not currently associated with an organisation.</p>
-          <p className="text-sm text-slate-400">Transaction history is not available.</p>
-        </div>
+        <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
@@ -1053,9 +1041,9 @@ export default function HistoryPage({ hasBanner }) {
     const hasInvoice = !!(record.xero_invoice_number || record.xero_invoice_id);
     const transactionDate = record.created_at ? new Date(record.created_at) : null;
     const finalCost = parseFloat(record.final_cost || 0);
-    const vatRate = record.vat_rate != null ? parseFloat(record.vat_rate) : 0;
-    const vatAmount = vatRate > 0 ? finalCost * (vatRate / 100) : 0;
-    const totalAmount = finalCost + vatAmount;
+    const vatRate = record.vat_rate != null ? parseFloat(record.vat_rate) : (record.vat_rate_percent != null ? parseFloat(record.vat_rate_percent) : 0);
+    const vatAmount = record.vat_amount != null ? parseFloat(record.vat_amount) : (vatRate > 0 ? finalCost * (vatRate / 100) : 0);
+    const totalAmount = record.total_with_vat != null ? parseFloat(record.total_with_vat) : (finalCost + vatAmount);
 
     return (
       <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -1257,7 +1245,7 @@ export default function HistoryPage({ hasBanner }) {
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading transactions...</div>
-            ) : (transactions.length === 0 && bookingGroups.length === 0 && trainingFundTransactions.length === 0 && voucherTransactions.length === 0 && membershipHistory.length === 0) ? (
+            ) : (bookingGroups.length === 0 && membershipHistory.length === 0 && (!hasOrg || (transactions.length === 0 && trainingFundTransactions.length === 0 && voucherTransactions.length === 0))) ? (
               <div className="text-center py-8">
                 <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600">No transactions yet</p>
@@ -1269,15 +1257,21 @@ export default function HistoryPage({ hasBanner }) {
                   <TabsTrigger value="tickets" data-testid="tab-tickets">
                     Standard Tickets ({bookingGroups.length})
                   </TabsTrigger>
-                  <TabsTrigger value="program" data-testid="tab-program">
-                    Program Tickets ({transactions.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="training-fund" data-testid="tab-training-fund">
-                    Training Fund ({trainingFundTransactions.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="vouchers" data-testid="tab-vouchers">
-                    Vouchers ({voucherTransactions.length})
-                  </TabsTrigger>
+                  {hasOrg && (
+                    <TabsTrigger value="program" data-testid="tab-program">
+                      Program Tickets ({transactions.length})
+                    </TabsTrigger>
+                  )}
+                  {hasOrg && (
+                    <TabsTrigger value="training-fund" data-testid="tab-training-fund">
+                      Training Fund ({trainingFundTransactions.length})
+                    </TabsTrigger>
+                  )}
+                  {hasOrg && (
+                    <TabsTrigger value="vouchers" data-testid="tab-vouchers">
+                      Vouchers ({voucherTransactions.length})
+                    </TabsTrigger>
+                  )}
                   <TabsTrigger value="membership" data-testid="tab-membership">
                     Membership ({membershipHistory.length})
                   </TabsTrigger>
@@ -1317,8 +1311,8 @@ export default function HistoryPage({ hasBanner }) {
                     </div>
                   )}
 
-                  {/* Program Ticket Transactions Section */}
-                  {filteredTransactions.length > 0 && (
+                  {/* Program Ticket Transactions Section (org-only) */}
+                  {hasOrg && filteredTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Ticket className="w-4 h-4" />
@@ -1345,8 +1339,8 @@ export default function HistoryPage({ hasBanner }) {
                     </div>
                   )}
 
-                  {/* Training Fund Transactions Section */}
-                  {filteredTrainingFundTransactions.length > 0 && (
+                  {/* Training Fund Transactions Section (org-only) */}
+                  {hasOrg && filteredTrainingFundTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Wallet className="w-4 h-4" />
@@ -1370,8 +1364,8 @@ export default function HistoryPage({ hasBanner }) {
                     </div>
                   )}
 
-                  {/* Voucher Transactions Section */}
-                  {filteredVoucherTransactions.length > 0 && (
+                  {/* Voucher Transactions Section (org-only) */}
+                  {hasOrg && filteredVoucherTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Gift className="w-4 h-4" />
@@ -1422,10 +1416,8 @@ export default function HistoryPage({ hasBanner }) {
 
                   {/* No results message */}
                   {filteredBookingGroups.length === 0 && 
-                   filteredTransactions.length === 0 && 
-                   filteredTrainingFundTransactions.length === 0 && 
-                   filteredVoucherTransactions.length === 0 && 
                    filteredMembershipHistory.length === 0 &&
+                   (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredVoucherTransactions.length === 0)) &&
                    searchQuery.trim() && (
                     <div className="text-center py-8">
                       <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
