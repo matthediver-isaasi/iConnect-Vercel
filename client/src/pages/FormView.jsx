@@ -824,6 +824,13 @@ export default function FormViewPage() {
         }
       }
       
+      if (!createdMemberId && submissionResult?.created_member_id) {
+        createdMemberId = submissionResult.created_member_id;
+      }
+      if (!createdOrganizationId && submissionResult?.created_organization_id) {
+        createdOrganizationId = submissionResult.created_organization_id;
+      }
+
       // Send submission email if configured
       // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
       try {

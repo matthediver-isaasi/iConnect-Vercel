@@ -197,6 +197,8 @@ export default async function handler(req, res) {
     const baseUrl = `${req.headers['x-forwarded-proto'] || 'https'}://${host}`;
 
     // Process entity pipelines if configured (members/organisations creation)
+    let pipelineCreatedMemberId = null;
+    let pipelineCreatedOrgId = null;
     const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
     if (hasEntityPipelines) {
       try {
@@ -273,6 +275,8 @@ export default async function handler(req, res) {
               // update the submission record with the organization_id
               const resolvedOrgId = result.organization_id || result.created_organization_id;
               const resolvedMemberId = result.created_member_id || result.member_id;
+              pipelineCreatedMemberId = resolvedMemberId || null;
+              pipelineCreatedOrgId = resolvedOrgId || null;
               
               const submissionUpdates = {};
               if (resolvedOrgId && !submissionRecord.organization_id) {
@@ -605,7 +609,9 @@ export default async function handler(req, res) {
     return res.status(201).json({
       success: true,
       id: submission.id,
-      message: 'Form submitted successfully'
+      message: 'Form submitted successfully',
+      created_member_id: pipelineCreatedMemberId || null,
+      created_organization_id: pipelineCreatedOrgId || null
     });
   } catch (error) {
     console.error('[Public Form Submission] Error:', error);
