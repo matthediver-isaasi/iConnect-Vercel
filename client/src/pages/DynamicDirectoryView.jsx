@@ -1411,7 +1411,7 @@ export default function DynamicDirectoryView() {
       </div>
 
       <Dialog open={!!viewingMember} onOpenChange={(open) => !open && setViewingMember(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="sr-only">Member Information</DialogTitle>
           </DialogHeader>
@@ -1468,9 +1468,9 @@ export default function DynamicDirectoryView() {
               })()}
 
               {isVisibleOnBack(memberDisplaySettings, 'show_bio_in_popup') && viewingMember.biography && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">About</h3>
-                  <p className={`text-slate-700 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
+                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-2">
+                  <p className="text-xs font-medium text-slate-500">About</p>
+                  <p className={`text-sm text-slate-900 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
                     {viewingMember.biography}
                   </p>
                   {viewingMember.biography.length > 300 && (
@@ -1530,34 +1530,36 @@ export default function DynamicDirectoryView() {
                 return (
                   <div className="space-y-3 pt-4 border-t border-slate-200">
                     <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
-                    {fieldsWithValues.map(field => {
-                      let displayValue = memberValues[field.id];
-                      if (field.field_type === 'picklist' && displayValue) {
-                        const arr = Array.isArray(displayValue) ? displayValue : (() => {
-                          try { return JSON.parse(displayValue); } catch { return [displayValue]; }
-                        })();
-                        if (Array.isArray(arr) && field.options) {
-                          displayValue = arr
-                            .map(v => field.options.find(o => o.value === v)?.label || v)
-                            .join(', ');
+                    <div className="grid grid-cols-2 gap-3">
+                      {fieldsWithValues.map(field => {
+                        let displayValue = memberValues[field.id];
+                        if (field.field_type === 'picklist' && displayValue) {
+                          const arr = Array.isArray(displayValue) ? displayValue : (() => {
+                            try { return JSON.parse(displayValue); } catch { return [displayValue]; }
+                          })();
+                          if (Array.isArray(arr) && field.options) {
+                            displayValue = arr
+                              .map(v => field.options.find(o => o.value === v)?.label || v)
+                              .join(', ');
+                          }
+                        } else if (field.field_type === 'dropdown' && displayValue && field.options) {
+                          const option = field.options.find(o => o.value === displayValue);
+                          if (option) displayValue = option.label;
+                        } else if (field.field_type === 'boolean') {
+                          displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
+                        } else if (field.field_type === 'date' && displayValue) {
+                          try {
+                            displayValue = new Date(displayValue).toLocaleDateString();
+                          } catch {}
                         }
-                      } else if (field.field_type === 'dropdown' && displayValue && field.options) {
-                        const option = field.options.find(o => o.value === displayValue);
-                        if (option) displayValue = option.label;
-                      } else if (field.field_type === 'boolean') {
-                        displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
-                      } else if (field.field_type === 'date' && displayValue) {
-                        try {
-                          displayValue = new Date(displayValue).toLocaleDateString();
-                        } catch {}
-                      }
-                      return (
-                        <div key={field.id} className="flex justify-between items-start gap-4" data-testid={`popup-custom-field-${field.id}`}>
-                          <span className="text-sm text-slate-600">{field.label}</span>
-                          <span className="text-sm font-medium text-slate-900 text-right">{String(displayValue)}</span>
-                        </div>
-                      );
-                    })}
+                        return (
+                          <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`popup-custom-field-${field.id}`}>
+                            <p className="text-xs font-medium text-slate-500 mb-1">{field.label}</p>
+                            <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })()}
