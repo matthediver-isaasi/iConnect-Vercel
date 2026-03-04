@@ -29,6 +29,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
 
+  const cardRef = useRef(null);
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
   const redirectHandled = useRef(false);
@@ -137,6 +138,14 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
     completePayment();
   }, [memberId]);
+
+  useEffect(() => {
+    if (paymentComplete && cardRef.current) {
+      setTimeout(() => {
+        cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+  }, [paymentComplete]);
 
   const initStripe = async () => {
     if (!data?.stripePublishableKey) return;
@@ -300,7 +309,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   if (paymentComplete) {
     return (
-      <Card data-testid={`membership-payment-complete-${field.id}`}>
+      <Card ref={cardRef} data-testid={`membership-payment-complete-${field.id}`}>
         <CardContent className="pt-6">
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="h-10 w-10 text-green-500" />
