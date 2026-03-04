@@ -1651,6 +1651,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   disabled={disabledFieldIds.has(currentField.id)}
                   onValidityChange={handleValidityChange}
                   autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
+                  allFormValues={formValues}
                 />
               )}
               {!canProceed && !isFormatValid && (
@@ -1788,6 +1789,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
+                    allFormValues={formValues}
                   />
                 ));
               }
@@ -1810,6 +1812,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
+                          allFormValues={formValues}
                         />
                       ))}
                     </div>
@@ -1832,6 +1835,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
+                              allFormValues={formValues}
                             />
                           ))}
                         </div>

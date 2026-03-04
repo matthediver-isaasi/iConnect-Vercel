@@ -297,7 +297,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {} }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -1586,6 +1586,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={onChange}
             disabled={isFieldDisabled}
             field={field}
+            allFormValues={allFormValues}
           />
         );
 

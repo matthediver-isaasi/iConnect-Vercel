@@ -347,7 +347,7 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   if (action === 'confirm_payment') {
-    const { paymentIntentId, membershipYear: confirmYear } = req.body;
+    const { paymentIntentId, membershipYear: confirmYear, invoice_address: formInvoiceAddress } = req.body;
     if (!paymentIntentId) {
       return res.status(400).json({ error: 'paymentIntentId is required' });
     }
@@ -491,7 +491,7 @@ async function handlePost(req, res, resolvedTenantId) {
         let invoiceOrgName, invoicingAddress;
         if (isMemberScoped) {
           invoiceOrgName = memberName;
-          invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, member.id, 'member');
+          invoicingAddress = formInvoiceAddress || await resolveInvoiceAddress(supabase, simResult.config, member.id, 'member');
         } else {
           const { data: org } = await supabase
             .from('organization')
@@ -499,7 +499,7 @@ async function handlePost(req, res, resolvedTenantId) {
             .eq('id', organizationId)
             .single();
           invoiceOrgName = org?.name || 'Organisation';
-          invoicingAddress = await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
+          invoicingAddress = formInvoiceAddress || await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
         }
 
         const reference = `Membership ${targetYear}`;

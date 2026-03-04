@@ -17,7 +17,16 @@ function isBelowStripeMinimum(amount, currency) {
   return parseFloat(amount || 0) < min;
 }
 
-export default function MembershipPaymentField({ value, onChange, disabled, field }) {
+function normalizeAddress(val) {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    return [val.line1, val.line2, val.city, val.state, val.postcode, val.country].filter(Boolean).join(', ');
+  }
+  return String(val);
+}
+
+export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {} }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -102,6 +111,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
 
     const savedYear = sessionStorage.getItem('pending_form_membership_payment_year');
+    let savedInvoiceAddress = sessionStorage.getItem('pending_form_membership_invoice_address');
+    if (savedInvoiceAddress) {
+      try {
+        savedInvoiceAddress = normalizeAddress(JSON.parse(savedInvoiceAddress));
+      } catch (e) {}
+    }
     const completePayment = async () => {
       setProcessingPayment(true);
       try {
@@ -114,6 +129,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             memberId,
             paymentIntentId: paymentIntentFromUrl,
             membershipYear: savedYear,
+            ...(savedInvoiceAddress ? { invoice_address: savedInvoiceAddress } : {}),
           }),
         });
         if (!confirmRes.ok) {
@@ -121,6 +137,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           throw new Error(err.error || 'Failed to confirm payment');
         }
         sessionStorage.removeItem('pending_form_membership_payment_year');
+        sessionStorage.removeItem('pending_form_membership_invoice_address');
         setPaymentComplete(true);
         if (onChange) {
           onChange({
@@ -171,6 +188,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       setPaymentYear(yr);
       if (yr) {
         sessionStorage.setItem('pending_form_membership_payment_year', yr);
+      }
+      const formInvoiceAddr = field.invoice_address_field_id && allFormValues[field.invoice_address_field_id];
+      if (formInvoiceAddr) {
+        sessionStorage.setItem('pending_form_membership_invoice_address',
+          typeof formInvoiceAddr === 'object' ? JSON.stringify(formInvoiceAddr) : formInvoiceAddr
+        );
       }
 
       if (!window.Stripe) {
@@ -242,6 +265,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             memberId,
             paymentIntentId: paymentIntent.id,
             membershipYear: paymentYear || data?.membershipYear,
+            ...(field.invoice_address_field_id && allFormValues[field.invoice_address_field_id]
+              ? { invoice_address: normalizeAddress(allFormValues[field.invoice_address_field_id]) }
+              : {}),
           }),
         });
 

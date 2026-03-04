@@ -2247,7 +2247,8 @@ function FieldCard({
   isDrawerOpen = false,
   onOpenDrawer,
   onCloseDrawer,
-  contractForms = []
+  contractForms = [],
+  allFields = []
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isUrlType = field.type === 'url';
@@ -3238,6 +3239,35 @@ function FieldCard({
                         </>
                       );
                     })()}
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'membership_payment' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Membership Payment Settings</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor={`invoice-address-field-${field.id}`} className="text-xs">Invoice Address Field</Label>
+                    <p className="text-xs text-slate-500">
+                      Select a form field to use as the invoice address. This is needed when the address is collected on the same form as the payment, since the form hasn't been submitted yet when the invoice is created.
+                    </p>
+                    <Select
+                      value={field.invoice_address_field_id || '_none'}
+                      onValueChange={(val) => updateField(originalIndex, { invoice_address_field_id: val === '_none' ? null : val })}
+                    >
+                      <SelectTrigger id={`invoice-address-field-${field.id}`} data-testid={`select-invoice-address-field-${field.id}`}>
+                        <SelectValue placeholder="None (use membership schedule setting)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">None (use membership schedule setting)</SelectItem>
+                        {allFields
+                          .filter(f => f.id !== field.id && ['text', 'textarea', 'address'].includes(f.type))
+                          .map(f => (
+                            <SelectItem key={f.id} value={f.id}>{f.label || 'Untitled Field'}</SelectItem>
+                          ))
+                        }
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
@@ -5749,6 +5779,7 @@ export default function FormBuilderPage() {
                                       onOpenDrawer={() => setEditingFieldId(field.id)}
                                       onCloseDrawer={() => setEditingFieldId(null)}
                                       contractForms={contractForms}
+                                      allFields={formData.fields}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -5889,6 +5920,7 @@ export default function FormBuilderPage() {
                                                   onOpenDrawer={() => setEditingFieldId(field.id)}
                                                   onCloseDrawer={() => setEditingFieldId(null)}
                                                   contractForms={contractForms}
+                                                  allFields={formData.fields}
                                                 />
                                               ))
                                             )}
@@ -5946,6 +5978,7 @@ export default function FormBuilderPage() {
                               onOpenDrawer={() => setEditingFieldId(field.id)}
                               onCloseDrawer={() => setEditingFieldId(null)}
                               contractForms={contractForms}
+                              allFields={formData.fields}
                             />
                           ))}
                           {provided.placeholder}
