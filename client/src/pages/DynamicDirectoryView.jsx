@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
+import { isVisibleOnFront, isVisibleOnBack, isCustomFieldVisibleOnFront, isCustomFieldVisibleOnBack, getOrderedCustomFields } from "@/utils/directorySettings";
 
 export default function DynamicDirectoryView() {
   const { slug } = useParams();
@@ -1063,7 +1064,7 @@ export default function DynamicDirectoryView() {
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center gap-4">
-                  {memberDisplaySettings?.show_organization && directory?.entity_type === 'organization' && (
+                  {(isVisibleOnFront(memberDisplaySettings, 'show_organization') || isVisibleOnBack(memberDisplaySettings, 'show_organization')) && directory?.entity_type === 'organization' && (
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-slate-500" />
                       <Label className="text-sm text-slate-700">Organisation:</Label>
@@ -1166,7 +1167,7 @@ export default function DynamicDirectoryView() {
                       <CardHeader className="pb-3">
                         <div className="flex items-start gap-3">
                           <div className="flex-shrink-0">
-                            {memberDisplaySettings?.show_profile_photo && member.profile_photo_url ? (
+                            {isVisibleOnFront(memberDisplaySettings, 'show_profile_photo') && member.profile_photo_url ? (
                               <img 
                                 src={member.profile_photo_url} 
                                 alt={`${member.first_name} ${member.last_name}`}
@@ -1192,20 +1193,20 @@ export default function DynamicDirectoryView() {
                                 </Badge>
                               </div>
                             )}
-                            {memberDisplaySettings?.show_job_title && member.job_title && (
+                            {isVisibleOnFront(memberDisplaySettings, 'show_job_title') && member.job_title && (
                               <p className="text-xs text-slate-600 line-clamp-1">{member.job_title}</p>
                             )}
                           </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {memberDisplaySettings?.show_organization && organization && (
+                        {isVisibleOnFront(memberDisplaySettings, 'show_organization') && organization && (
                           <div className="flex items-start gap-2">
                             <Building2 className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
                             <span className="text-sm text-slate-700">{organization.name}</span>
                           </div>
                         )}
-                        {memberDisplaySettings?.show_linkedin && member.linkedin_url && (
+                        {isVisibleOnFront(memberDisplaySettings, 'show_linkedin') && member.linkedin_url && (
                           <div className="flex items-center gap-2">
                             <a
                               href={member.linkedin_url}
@@ -1219,7 +1220,7 @@ export default function DynamicDirectoryView() {
                             </a>
                           </div>
                         )}
-                        {memberDisplaySettings?.show_events && (
+                        {isVisibleOnFront(memberDisplaySettings, 'show_events') && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4 text-green-600" />
@@ -1228,7 +1229,7 @@ export default function DynamicDirectoryView() {
                             <Badge variant="secondary">{stats.eventsAttended || 0}</Badge>
                           </div>
                         )}
-                        {memberDisplaySettings?.show_articles && (
+                        {isVisibleOnFront(memberDisplaySettings, 'show_articles') && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <FileText className="w-4 h-4 text-purple-600" />
@@ -1237,7 +1238,7 @@ export default function DynamicDirectoryView() {
                             <Badge variant="secondary">{stats.publishedArticles || 0}</Badge>
                           </div>
                         )}
-                        {memberDisplaySettings?.show_awards && stats.totalAwards > 0 && (
+                        {isVisibleOnFront(memberDisplaySettings, 'show_awards') && stats.totalAwards > 0 && (
                           <div className="pt-3 border-t border-slate-200">
                             <div className="flex items-center gap-2 mb-2">
                               <Trophy className="w-4 h-4 text-amber-600" />
@@ -1290,8 +1291,9 @@ export default function DynamicDirectoryView() {
                           </div>
                         )}
                         {(() => {
-                          const enabledFields = directoryCustomFields.filter(f =>
-                            memberDisplaySettings?.custom_fields?.[f.id] !== false
+                          const orderedFields = getOrderedCustomFields(directoryCustomFields, memberDisplaySettings);
+                          const enabledFields = orderedFields.filter(f =>
+                            isCustomFieldVisibleOnFront(memberDisplaySettings, f.id)
                           );
                           if (enabledFields.length === 0) return null;
                           const memberValues = memberPreferenceMap[member.id] || {};
@@ -1417,7 +1419,7 @@ export default function DynamicDirectoryView() {
             <div className="space-y-6">
               <div className="flex items-start gap-6">
                 <div className="flex-shrink-0">
-                  {memberDisplaySettings?.show_profile_photo && viewingMember.profile_photo_url ? (
+                  {isVisibleOnBack(memberDisplaySettings, 'show_profile_photo') && viewingMember.profile_photo_url ? (
                     <img 
                       src={viewingMember.profile_photo_url} 
                       alt={`${viewingMember.first_name} ${viewingMember.last_name}`}
@@ -1433,7 +1435,7 @@ export default function DynamicDirectoryView() {
                   <h2 className="text-2xl font-bold text-slate-900 mb-2">
                     {viewingMember.first_name} {viewingMember.last_name}
                   </h2>
-                  {memberDisplaySettings?.show_job_title && viewingMember.job_title && (
+                  {isVisibleOnBack(memberDisplaySettings, 'show_job_title') && viewingMember.job_title && (
                     <div className="flex items-center gap-2 text-slate-600 mb-3">
                       <Briefcase className="w-4 h-4" />
                       <span>{viewingMember.job_title}</span>
@@ -1453,7 +1455,7 @@ export default function DynamicDirectoryView() {
                 </div>
               </div>
 
-              {memberDisplaySettings?.show_organization && (() => {
+              {isVisibleOnBack(memberDisplaySettings, 'show_organization') && (() => {
                 const organization = allOrganizations.find(o => o.id === viewingMember.organization_id);
                 return organization ? (
                   <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
@@ -1465,7 +1467,7 @@ export default function DynamicDirectoryView() {
                 ) : null;
               })()}
 
-              {memberDisplaySettings?.show_bio_in_popup && viewingMember.biography && (
+              {isVisibleOnBack(memberDisplaySettings, 'show_bio_in_popup') && viewingMember.biography && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">About</h3>
                   <p className={`text-slate-700 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
@@ -1489,7 +1491,7 @@ export default function DynamicDirectoryView() {
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                {memberDisplaySettings?.show_events && (
+                {isVisibleOnBack(memberDisplaySettings, 'show_events') && (
                   <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="w-5 h-5 text-green-600" />
@@ -1500,7 +1502,7 @@ export default function DynamicDirectoryView() {
                     </p>
                   </div>
                 )}
-                {memberDisplaySettings?.show_articles && (
+                {isVisibleOnBack(memberDisplaySettings, 'show_articles') && (
                   <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
                     <div className="flex items-center gap-2 mb-1">
                       <FileText className="w-5 h-5 text-purple-600" />
@@ -1514,8 +1516,9 @@ export default function DynamicDirectoryView() {
               </div>
 
               {(() => {
-                const enabledFields = directoryCustomFields.filter(f =>
-                  memberDisplaySettings?.custom_fields?.[f.id] !== false
+                const orderedFields = getOrderedCustomFields(directoryCustomFields, memberDisplaySettings);
+                const enabledFields = orderedFields.filter(f =>
+                  isCustomFieldVisibleOnBack(memberDisplaySettings, f.id)
                 );
                 if (enabledFields.length === 0) return null;
                 const memberValues = memberPreferenceMap[viewingMember.id] || {};
@@ -1559,7 +1562,7 @@ export default function DynamicDirectoryView() {
                 );
               })()}
 
-              {memberDisplaySettings?.show_awards && memberStats[viewingMember.id]?.totalAwards > 0 && (
+              {isVisibleOnBack(memberDisplaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                     <Trophy className="w-4 h-4 text-amber-600" />
@@ -1643,7 +1646,7 @@ export default function DynamicDirectoryView() {
                       <Mail className="w-5 h-5 mr-2" />
                       Send Email to {viewingMember.first_name}
                     </Button>
-                    {memberDisplaySettings?.show_linkedin && viewingMember.linkedin_url && (
+                    {isVisibleOnBack(memberDisplaySettings, 'show_linkedin') && viewingMember.linkedin_url && (
                       <Button
                         onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
                         variant="outline"

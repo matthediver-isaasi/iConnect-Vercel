@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isDeletedMember } from "@/utils";
+import { isVisibleOnFront, isVisibleOnBack, isCustomFieldVisibleOnBack, getOrderedCustomFields } from "@/utils/directorySettings";
 
 export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -333,8 +334,8 @@ export default function MemberDirectoryPage() {
           return (
             fullName.includes(searchLower) ||
             member.email?.toLowerCase().includes(searchLower) ||
-            (displaySettings?.show_job_title && member.job_title?.toLowerCase().includes(searchLower)) ||
-            (displaySettings?.show_organization && organization?.name?.toLowerCase().includes(searchLower))
+            ((isVisibleOnFront(displaySettings, 'show_job_title') || isVisibleOnBack(displaySettings, 'show_job_title')) && member.job_title?.toLowerCase().includes(searchLower)) ||
+            ((isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) && organization?.name?.toLowerCase().includes(searchLower))
           );
         });
       }
@@ -366,23 +367,23 @@ export default function MemberDirectoryPage() {
         case "name-desc":
           return `${b.first_name} ${b.last_name}`.localeCompare(`${a.first_name} ${a.last_name}`);
         case "org-asc": {
-          const orgA = displaySettings?.show_organization ? (organizations.find(o => o.id === a.organization_id)?.name || "") : "";
-          const orgB = displaySettings?.show_organization ? (organizations.find(o => o.id === b.organization_id)?.name || "") : "";
+          const orgA = (isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) ? (organizations.find(o => o.id === a.organization_id)?.name || "") : "";
+          const orgB = (isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) ? (organizations.find(o => o.id === b.organization_id)?.name || "") : "";
           return orgA.localeCompare(orgB);
         }
         case "org-desc": {
-          const orgA = displaySettings?.show_organization ? (organizations.find(o => o.id === a.organization_id)?.name || "") : "";
-          const orgB = displaySettings?.show_organization ? (organizations.find(o => o.id === b.organization_id)?.name || "") : "";
+          const orgA = (isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) ? (organizations.find(o => o.id === a.organization_id)?.name || "") : "";
+          const orgB = (isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) ? (organizations.find(o => o.id === b.organization_id)?.name || "") : "";
           return orgB.localeCompare(orgA);
         }
         case "events-desc": {
-          const statsA = displaySettings?.show_events ? (memberStats[a.id]?.eventsAttended || 0) : 0;
-          const statsB = displaySettings?.show_events ? (memberStats[b.id]?.eventsAttended || 0) : 0;
+          const statsA = (isVisibleOnFront(displaySettings, 'show_events') || isVisibleOnBack(displaySettings, 'show_events')) ? (memberStats[a.id]?.eventsAttended || 0) : 0;
+          const statsB = (isVisibleOnFront(displaySettings, 'show_events') || isVisibleOnBack(displaySettings, 'show_events')) ? (memberStats[b.id]?.eventsAttended || 0) : 0;
           return statsB - statsA;
         }
         case "articles-desc": {
-          const statsA = displaySettings?.show_articles ? (memberStats[a.id]?.publishedArticles || 0) : 0;
-          const statsB = displaySettings?.show_articles ? (memberStats[b.id]?.publishedArticles || 0) : 0;
+          const statsA = (isVisibleOnFront(displaySettings, 'show_articles') || isVisibleOnBack(displaySettings, 'show_articles')) ? (memberStats[a.id]?.publishedArticles || 0) : 0;
+          const statsB = (isVisibleOnFront(displaySettings, 'show_articles') || isVisibleOnBack(displaySettings, 'show_articles')) ? (memberStats[b.id]?.publishedArticles || 0) : 0;
           return statsB - statsA;
         }
         default:
@@ -482,7 +483,7 @@ export default function MemberDirectoryPage() {
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center gap-4">
-                  {displaySettings?.show_organization && (
+                  {(isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) && (
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-slate-500" />
                       <Label className="text-sm text-slate-700">Organisation:</Label>
@@ -522,10 +523,10 @@ export default function MemberDirectoryPage() {
                       <SelectContent>
                         <SelectItem value="name-asc">Name (A-Z)</SelectItem>
                         <SelectItem value="name-desc">Name (Z-A)</SelectItem>
-                        {displaySettings?.show_organization && <SelectItem value="org-asc">Organisation (A-Z)</SelectItem>}
-                        {displaySettings?.show_organization && <SelectItem value="org-desc">Organisation (Z-A)</SelectItem>}
-                        {displaySettings?.show_events && <SelectItem value="events-desc">Most Events</SelectItem>}
-                        {displaySettings?.show_articles && <SelectItem value="articles-desc">Most Articles</SelectItem>}
+                        {(isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) && <SelectItem value="org-asc">Organisation (A-Z)</SelectItem>}
+                        {(isVisibleOnFront(displaySettings, 'show_organization') || isVisibleOnBack(displaySettings, 'show_organization')) && <SelectItem value="org-desc">Organisation (Z-A)</SelectItem>}
+                        {(isVisibleOnFront(displaySettings, 'show_events') || isVisibleOnBack(displaySettings, 'show_events')) && <SelectItem value="events-desc">Most Events</SelectItem>}
+                        {(isVisibleOnFront(displaySettings, 'show_articles') || isVisibleOnBack(displaySettings, 'show_articles')) && <SelectItem value="articles-desc">Most Articles</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
@@ -592,7 +593,7 @@ export default function MemberDirectoryPage() {
                       <CardHeader className="pb-3">
                         <div className="flex items-start gap-3">
                           <div className="flex-shrink-0">
-                            {displaySettings?.show_profile_photo && member.profile_photo_url ? (
+                            {isVisibleOnFront(displaySettings, 'show_profile_photo') && member.profile_photo_url ? (
                               <img 
                                 src={member.profile_photo_url} 
                                 alt={`${member.first_name} ${member.last_name}`}
@@ -619,7 +620,7 @@ export default function MemberDirectoryPage() {
                                 </Badge>
                               </div>
                             )}
-                            {displaySettings?.show_job_title && member.job_title && (
+                            {isVisibleOnFront(displaySettings, 'show_job_title') && member.job_title && (
                               <p className="text-xs text-slate-600 line-clamp-1">{member.job_title}</p>
                             )}
                           </div>
@@ -627,14 +628,14 @@ export default function MemberDirectoryPage() {
                       </CardHeader>
 
                       <CardContent className="space-y-3">
-                        {displaySettings?.show_organization && organization && (
+                        {isVisibleOnFront(displaySettings, 'show_organization') && organization && (
                           <div className="flex items-start gap-2">
                             <Building2 className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
                             <span className="text-sm text-slate-700">{organization.name}</span>
                           </div>
                         )}
 
-                        {displaySettings?.show_linkedin && member.linkedin_url && (
+                        {isVisibleOnFront(displaySettings, 'show_linkedin') && member.linkedin_url && (
                           <div className="flex items-center gap-2">
                             <a
                               href={member.linkedin_url}
@@ -649,7 +650,7 @@ export default function MemberDirectoryPage() {
                           </div>
                         )}
 
-                        {displaySettings?.show_events && (
+                        {isVisibleOnFront(displaySettings, 'show_events') && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Calendar className="w-4 h-4 text-green-600" />
@@ -659,7 +660,7 @@ export default function MemberDirectoryPage() {
                           </div>
                         )}
 
-                        {displaySettings?.show_articles && (
+                        {isVisibleOnFront(displaySettings, 'show_articles') && (
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <FileText className="w-4 h-4 text-purple-600" />
@@ -669,7 +670,7 @@ export default function MemberDirectoryPage() {
                           </div>
                         )}
 
-                        {displaySettings?.show_awards && stats.totalAwards > 0 && (
+                        {isVisibleOnFront(displaySettings, 'show_awards') && stats.totalAwards > 0 && (
                           <div className="pt-3 border-t border-slate-200">
                             <div className="flex items-center gap-2 mb-2">
                               <Trophy className="w-4 h-4 text-amber-600" />
@@ -809,7 +810,7 @@ export default function MemberDirectoryPage() {
             <div className="space-y-6">
               <div className="flex items-start gap-6">
                 <div className="flex-shrink-0">
-                  {displaySettings?.show_profile_photo && viewingMember.profile_photo_url ? (
+                  {isVisibleOnBack(displaySettings, 'show_profile_photo') && viewingMember.profile_photo_url ? (
                     <img 
                       src={viewingMember.profile_photo_url} 
                       alt={`${viewingMember.first_name} ${viewingMember.last_name}`}
@@ -826,7 +827,7 @@ export default function MemberDirectoryPage() {
                   <h2 className="text-2xl font-bold text-slate-900 mb-2">
                     {viewingMember.first_name} {viewingMember.last_name}
                   </h2>
-                  {displaySettings?.show_job_title && viewingMember.job_title && (
+                  {isVisibleOnBack(displaySettings, 'show_job_title') && viewingMember.job_title && (
                     <div className="flex items-center gap-2 text-slate-600 mb-3">
                       <Briefcase className="w-4 h-4" />
                       <span>{viewingMember.job_title}</span>
@@ -846,7 +847,7 @@ export default function MemberDirectoryPage() {
                 </div>
               </div>
 
-              {displaySettings?.show_organization && (() => {
+              {isVisibleOnBack(displaySettings, 'show_organization') && (() => {
                 const organization = organizations.find(o => o.id === viewingMember.organization_id);
                 return organization ? (
                   <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
@@ -858,7 +859,7 @@ export default function MemberDirectoryPage() {
                 ) : null;
               })()}
 
-              {displaySettings?.show_bio_in_popup && viewingMember.biography && canViewMemberBiography && (
+              {isVisibleOnBack(displaySettings, 'show_bio_in_popup') && viewingMember.biography && canViewMemberBiography && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">About</h3>
                   <p className={`text-slate-700 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
@@ -888,7 +889,7 @@ export default function MemberDirectoryPage() {
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                {displaySettings?.show_events && (
+                {isVisibleOnBack(displaySettings, 'show_events') && (
                   <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="w-5 h-5 text-green-600" />
@@ -900,7 +901,7 @@ export default function MemberDirectoryPage() {
                   </div>
                 )}
 
-                {displaySettings?.show_articles && (
+                {isVisibleOnBack(displaySettings, 'show_articles') && (
                   <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
                     <div className="flex items-center gap-2 mb-1">
                       <FileText className="w-5 h-5 text-purple-600" />
@@ -913,7 +914,7 @@ export default function MemberDirectoryPage() {
                 )}
               </div>
 
-              {displaySettings?.show_awards && memberStats[viewingMember.id]?.totalAwards > 0 && (
+              {isVisibleOnBack(displaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                     <Trophy className="w-4 h-4 text-amber-600" />
@@ -955,8 +956,9 @@ export default function MemberDirectoryPage() {
               )}
 
               {(() => {
-                const enabledFields = directoryCustomFields.filter(f =>
-                  displaySettings?.custom_fields?.[f.id] !== false
+                const orderedFields = getOrderedCustomFields(directoryCustomFields, displaySettings);
+                const enabledFields = orderedFields.filter(f =>
+                  isCustomFieldVisibleOnBack(displaySettings, f.id)
                 );
                 if (enabledFields.length === 0) return null;
                 const memberValues = memberPreferenceMap[viewingMember.id] || {};
@@ -1040,7 +1042,7 @@ export default function MemberDirectoryPage() {
                   Send Email to {viewingMember.first_name}
                 </Button>
 
-                {displaySettings?.show_linkedin && viewingMember.linkedin_url && (
+                {isVisibleOnBack(displaySettings, 'show_linkedin') && viewingMember.linkedin_url && (
                   <Button
                     onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
                     variant="outline"
