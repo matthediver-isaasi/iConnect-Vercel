@@ -608,6 +608,8 @@ async function handlePost(req, res, tenantId) {
         online_card_payment: (config.structure_scope_type === 'member') ? (config.online_card_payment ?? false) : false,
         invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
         invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
+        invoice_email_field_name: config.invoice_email_field_name || null,
+        invoice_recipient_role_ids: Array.isArray(config.invoice_recipient_role_ids) && config.invoice_recipient_role_ids.length > 0 ? config.invoice_recipient_role_ids : null,
         updated_at: new Date().toISOString()
       })
       .eq('id', configId)
@@ -717,6 +719,8 @@ async function handlePost(req, res, tenantId) {
       online_card_payment: ((config.structure_scope_type || 'organization') === 'member') ? (config.online_card_payment ?? false) : false,
       invoice_address_field_id: parseInvoiceAddressFieldId(config.invoice_address_field),
       invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
+      invoice_email_field_name: config.invoice_email_field_name || null,
+      invoice_recipient_role_ids: Array.isArray(config.invoice_recipient_role_ids) && config.invoice_recipient_role_ids.length > 0 ? config.invoice_recipient_role_ids : null,
     })
     .select()
     .single();

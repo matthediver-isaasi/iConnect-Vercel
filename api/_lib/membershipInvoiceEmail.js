@@ -15,6 +15,7 @@ export async function sendMembershipInvoiceEmail({
   vatAmount,
   totalWithVat,
   onlineInvoiceUrl,
+  tierConfig,
 }) {
   if (!supabase) {
     console.error('[Invoice Email] Supabase not configured');
@@ -27,29 +28,58 @@ export async function sendMembershipInvoiceEmail({
   }
 
   try {
-    let toEmail = null;
+    const recipientEmails = new Set();
+
     const { data: orgData } = await supabase
       .from('organization')
       .select('invoicing_email')
       .eq('id', organizationId)
       .single();
 
-    toEmail = orgData?.invoicing_email;
+    const invoicingEmail = orgData?.invoicing_email;
+    const emailFieldName = tierConfig?.invoice_email_field_name;
 
-    if (!toEmail) {
-      const { data: primaryContact } = await supabase
+    if (emailFieldName === 'invoicing_email') {
+      if (invoicingEmail) recipientEmails.add(invoicingEmail.toLowerCase());
+    } else {
+      if (invoicingEmail) {
+        recipientEmails.add(invoicingEmail.toLowerCase());
+      } else {
+        const { data: primaryContact } = await supabase
+          .from('member')
+          .select('email')
+          .eq('organization_id', organizationId)
+          .eq('is_primary_contact', true)
+          .not('email', 'like', 'deleted_%@deleted.local')
+          .limit(1)
+          .maybeSingle();
+
+        if (primaryContact?.email) {
+          recipientEmails.add(primaryContact.email.toLowerCase());
+        }
+      }
+    }
+
+    const roleIds = tierConfig?.invoice_recipient_role_ids;
+    if (Array.isArray(roleIds) && roleIds.length > 0) {
+      const { data: roleMembers } = await supabase
         .from('member')
         .select('email')
         .eq('organization_id', organizationId)
-        .eq('is_primary_contact', true)
-        .limit(1)
-        .maybeSingle();
+        .in('role_id', roleIds)
+        .not('email', 'like', 'deleted_%@deleted.local');
 
-      toEmail = primaryContact?.email;
+      if (roleMembers) {
+        for (const m of roleMembers) {
+          if (m.email) recipientEmails.add(m.email.toLowerCase());
+        }
+      }
     }
 
-    if (!toEmail) {
-      console.log(`[Invoice Email] No invoicing email or primary contact for org ${organizationId} - skipping`);
+    const allRecipients = [...recipientEmails];
+
+    if (allRecipients.length === 0) {
+      console.log(`[Invoice Email] No recipient emails found for org ${organizationId} - skipping`);
       return { success: false, error: 'No recipient email found' };
     }
 
@@ -118,30 +148,48 @@ export async function sendMembershipInvoiceEmail({
       </div>
     `;
 
-    const emailResult = await sendTenantEmail({
-      tenantId,
-      to: toEmail,
-      subject: `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear} - ${tenantName}`,
-      html: emailHtml,
-    });
+    const subject = `Membership Invoice ${xeroInvoiceNumber} - ${membershipYear} - ${tenantName}`;
+    const sendResults = [];
 
-    if (!emailResult.success) {
-      console.error('[Invoice Email] Email send failed:', emailResult.error);
-      return { success: false, error: emailResult.error, sentTo: toEmail };
+    for (const toEmail of allRecipients) {
+      try {
+        const emailResult = await sendTenantEmail({
+          tenantId,
+          to: toEmail,
+          subject,
+          html: emailHtml,
+        });
+        sendResults.push({ email: toEmail, success: emailResult.success, error: emailResult.error });
+      } catch (err) {
+        sendResults.push({ email: toEmail, success: false, error: err.message });
+      }
     }
 
-    console.log(`[Invoice Email] Invoice email sent to ${toEmail} for ${organizationName} (${xeroInvoiceNumber})`);
+    const successfulSends = sendResults.filter(r => r.success);
+    const failedSends = sendResults.filter(r => !r.success);
+
+    if (successfulSends.length === 0) {
+      console.error('[Invoice Email] All sends failed:', failedSends);
+      return { success: false, error: 'All email sends failed', sentTo: allRecipients };
+    }
+
+    const recipientList = allRecipients.join(', ');
+    console.log(`[Invoice Email] Invoice email sent to ${recipientList} for ${organizationName} (${xeroInvoiceNumber})`);
 
     try {
       await supabase.from('organization_note').insert({
         organization_id: organizationId,
         member_id: null,
-        content: `[Membership Invoice Email] Invoice ${xeroInvoiceNumber} notification sent to ${toEmail} for ${membershipYear}.`,
+        content: `[Membership Invoice Email] Invoice ${xeroInvoiceNumber} notification sent to ${recipientList} for ${membershipYear}.`,
         attachments: [],
       });
     } catch {}
 
-    return { success: true, sentTo: toEmail };
+    return {
+      success: true,
+      sentTo: allRecipients,
+      failed: failedSends.length > 0 ? failedSends : undefined,
+    };
   } catch (error) {
     console.error('[Invoice Email] Error:', error);
     return { success: false, error: error.message };

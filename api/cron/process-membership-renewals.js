@@ -343,6 +343,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
         xeroInvoiceId: xeroInvoice.invoice_id,
         historyRecordId: existingRecord.id,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+        tierConfig: simResult.config,
       });
     } catch (emailErr) {
       console.error(`[cron/process-membership-renewals] Invoice email failed for org ${orgId} (non-fatal):`, emailErr.message);
@@ -539,6 +540,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
         xeroInvoiceId: xeroInvoice.invoice_id,
         historyRecordId: record.id,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+        tierConfig: simResult.config,
       });
     } catch (emailErr) {
       console.error(`[cron/process-membership-renewals] Invoice email failed for org ${orgId} (non-fatal):`, emailErr.message);

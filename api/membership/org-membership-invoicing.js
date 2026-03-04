@@ -367,6 +367,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
         vatAmount: simResult.vatAmount || 0,
         totalWithVat: simResult.totalWithVat || finalCost,
         onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+        tierConfig: simResult.config,
       });
     } catch (emailErr) {
       console.error('[Invoicing] Invoice email failed (non-fatal):', emailErr.message);

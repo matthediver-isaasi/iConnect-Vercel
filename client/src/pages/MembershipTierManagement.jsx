@@ -318,6 +318,16 @@ export default function MembershipTierManagement() {
     },
   });
 
+  const { data: invoiceRecipientRoles = [] } = useQuery({
+    queryKey: ['membership-invoice-recipient-roles'],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/roles', { credentials: 'include' });
+      if (!response.ok) return [];
+      const result = await response.json();
+      return result.data || [];
+    },
+  });
+
   const { data: invoiceAddressFields = [] } = useQuery({
     queryKey: ['membership-invoice-address-fields', config.structure_scope_type],
     queryFn: async () => {
@@ -402,6 +412,8 @@ export default function MembershipTierManagement() {
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
+        invoice_email_field_name: c.invoice_email_field_name || null,
+        invoice_recipient_role_ids: c.invoice_recipient_role_ids || [],
       });
       setBands((historicalData.bands || []).map(b => ({
         ...b,
@@ -453,6 +465,8 @@ export default function MembershipTierManagement() {
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
       invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
+      invoice_email_field_name: c.invoice_email_field_name || null,
+      invoice_recipient_role_ids: c.invoice_recipient_role_ids || [],
     });
     if (configBands?.length > 0) {
       setBands(configBands.map(b => ({
@@ -754,6 +768,8 @@ export default function MembershipTierManagement() {
       auto_approve_fees: false,
       online_card_payment: false,
       invoice_address_field: null,
+      invoice_email_field_name: null,
+      invoice_recipient_role_ids: [],
     });
     if (tierData?.bands?.length > 0) {
       setBands(tierData.bands.map(b => ({
@@ -1064,6 +1080,69 @@ export default function MembershipTierManagement() {
             </Select>
           </div>
         </div>
+
+        {config.structure_scope_type !== 'member' && (
+          <div className="border-t pt-4 mt-2 space-y-4">
+            <h3 className="text-sm font-medium mb-3">Invoice Recipients</h3>
+            <p className="text-sm text-muted-foreground">
+              Configure which email address and roles should receive invoice notifications when invoices are generated.
+            </p>
+            <div className="space-y-2">
+              <Label>Invoice Email Field</Label>
+              <Select
+                value={config.invoice_email_field_name || '__default'}
+                onValueChange={(v) => handleConfigChange('invoice_email_field_name', v === '__default' ? null : v)}
+                disabled={!isEditable}
+              >
+                <SelectTrigger data-testid="select-invoice-email-field">
+                  <SelectValue placeholder="Default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default">Default (Invoicing Email, then Primary Contact)</SelectItem>
+                  <SelectItem value="invoicing_email">Invoicing Email only</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                "Default" sends to the organisation's invoicing email, falling back to the primary contact if not set. "Invoicing Email only" skips the primary contact fallback.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Also send to members with these roles</Label>
+              <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
+                {invoiceRecipientRoles.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No roles available</p>
+                ) : (
+                  invoiceRecipientRoles.map(role => {
+                    const isChecked = (config.invoice_recipient_role_ids || []).includes(role.id);
+                    return (
+                      <div key={role.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`invoice-role-${role.id}`}
+                          checked={isChecked}
+                          onCheckedChange={(checked) => {
+                            const current = config.invoice_recipient_role_ids || [];
+                            const updated = checked
+                              ? [...current, role.id]
+                              : current.filter(id => id !== role.id);
+                            handleConfigChange('invoice_recipient_role_ids', updated);
+                          }}
+                          disabled={!isEditable}
+                          data-testid={`checkbox-invoice-role-${role.id}`}
+                        />
+                        <label htmlFor={`invoice-role-${role.id}`} className="text-sm cursor-pointer">
+                          {role.name}
+                        </label>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Members with selected roles within each organisation will also receive the invoice email. Only members belonging to the specific organisation being invoiced will be contacted.
+              </p>
+            </div>
+          </div>
+        )}
 
         {config.structure_scope_type === 'member' && (
           <div className="border-t pt-4 mt-2 space-y-4">
@@ -2125,6 +2204,27 @@ export default function MembershipTierManagement() {
                 {config.invoice_description || 'Default (Membership subscription for {year})'}
               </span>
             </div>
+            {config.structure_scope_type !== 'member' && (
+              <>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Invoice Email</span>
+                  <span className="font-medium">
+                    {config.invoice_email_field_name === 'invoicing_email' ? 'Invoicing Email only' : 'Default (Invoicing Email → Primary Contact)'}
+                  </span>
+                </div>
+                {(config.invoice_recipient_role_ids || []).length > 0 && (
+                  <div className="flex justify-between gap-2 flex-wrap">
+                    <span className="text-muted-foreground">Invoice Roles</span>
+                    <div className="flex flex-wrap gap-1 justify-end">
+                      {(config.invoice_recipient_role_ids || []).map(roleId => {
+                        const role = invoiceRecipientRoles.find(r => r.id === roleId);
+                        return <Badge key={roleId} variant="secondary" className="text-xs">{role?.name || roleId}</Badge>;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
             {config.structure_scope_type === 'member' && (
               <>
                 <div className="flex justify-between gap-2">

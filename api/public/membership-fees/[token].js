@@ -556,6 +556,7 @@ export default async function handler(req, res) {
                 vatAmount: tokenBreakdownForEmail.vatAmount || 0,
                 totalWithVat: tokenBreakdownForEmail.totalWithVat || parseFloat(feeToken.final_cost),
                 onlineInvoiceUrl: xeroInvoice.online_invoice_url || null,
+                tierConfig: simResult?.config,
               });
             } catch (emailErr) {
               console.error('[Public Fee] Invoice email failed (non-fatal):', emailErr.message);
