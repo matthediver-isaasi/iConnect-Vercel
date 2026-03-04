@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2, Filter, Shield } from "lucide-react";
+import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2, Filter, Shield, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -46,6 +46,8 @@ export default function DynamicDirectoryManagementPage() {
   // null = use all filterable fields (backward compat), [] = explicitly none, [...ids] = specific selection
   const [selectedFilterFields, setSelectedFilterFields] = useState(null);
   const [allowedRoleIds, setAllowedRoleIds] = useState([]);
+  const [emailSourceType, setEmailSourceType] = useState('');
+  const [emailSourceField, setEmailSourceField] = useState('');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -125,6 +127,25 @@ export default function DynamicDirectoryManagementPage() {
     enabled: isDialogOpen
   });
 
+  const { data: emailCustomFields = [] } = useQuery({
+    queryKey: ['/api/entities/PreferenceField/email-sources', entityType],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { entity_scope: 'member', is_active: true },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f =>
+          f.entity_scope === 'member' &&
+          (f.field_type === 'text' || f.field_type === 'email')
+        );
+      } catch {
+        return [];
+      }
+    },
+    enabled: isDialogOpen && entityType === 'member'
+  });
+
   const availableFilterFields = allFilterableFields.filter(f => f.id !== filterFieldId);
 
   const selectedField = preferenceFields.find(f => f.id === filterFieldId);
@@ -181,6 +202,8 @@ export default function DynamicDirectoryManagementPage() {
     setIsActive(true);
     setSelectedFilterFields([]);  // Default to empty array for new directories (no filters)
     setAllowedRoleIds([]);
+    setEmailSourceType('');
+    setEmailSourceField('');
   };
 
   const handleOpenCreateDialog = () => {
@@ -199,6 +222,8 @@ export default function DynamicDirectoryManagementPage() {
     // Preserve null/undefined to distinguish between "not configured" and "explicitly empty"
     setSelectedFilterFields(directory.selected_filter_fields ?? null);
     setAllowedRoleIds(directory.allowed_role_ids || []);
+    setEmailSourceType(directory.email_source_type || '');
+    setEmailSourceField(directory.email_source_field || '');
     setIsDialogOpen(true);
   };
 
@@ -271,7 +296,9 @@ export default function DynamicDirectoryManagementPage() {
       filter_value: filterValue,
       is_active: isActive,
       selected_filter_fields: selectedFilterFields || [],  // Always include, defaults to empty array
-      allowed_role_ids: allowedRoleIds
+      allowed_role_ids: allowedRoleIds,
+      email_source_type: emailSourceType || null,
+      email_source_field: emailSourceField || null
     };
 
     if (editingDirectory) {
@@ -576,6 +603,44 @@ export default function DynamicDirectoryManagementPage() {
                 </>
               )}
             </div>
+
+            {entityType === 'member' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-blue-600" />
+                  <Label className="font-medium">Email Field for Directory</Label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Choose which email field to display on member cards and the contact button. Defaults to the member's primary email.
+                </p>
+                <Select
+                  value={emailSourceType && emailSourceField ? `${emailSourceType}:${emailSourceField}` : 'default'}
+                  onValueChange={(val) => {
+                    if (val === 'default') {
+                      setEmailSourceType('');
+                      setEmailSourceField('');
+                    } else {
+                      const [type, ...rest] = val.split(':');
+                      setEmailSourceType(type);
+                      setEmailSourceField(rest.join(':'));
+                    }
+                  }}
+                  data-testid="select-email-source"
+                >
+                  <SelectTrigger data-testid="select-email-source-trigger">
+                    <SelectValue placeholder="Member Email (Default)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Member Email (Default)</SelectItem>
+                    {emailCustomFields.map(field => (
+                      <SelectItem key={field.id} value={`custom:${field.id}`}>
+                        {field.label} (Custom Field)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
               <div>

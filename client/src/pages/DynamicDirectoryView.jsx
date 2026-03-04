@@ -603,6 +603,16 @@ export default function DynamicDirectoryView() {
     setEmailCopied(false);
   };
 
+  const getDisplayEmail = (member) => {
+    if (directory?.email_source_type === 'custom' && directory?.email_source_field) {
+      const customEmail = memberPreferenceMap[member.id]?.[directory.email_source_field];
+      if (customEmail && typeof customEmail === 'string' && customEmail.includes('@')) {
+        return customEmail;
+      }
+    }
+    return member.email;
+  };
+
   const handleEmailMember = (email) => {
     window.location.href = `mailto:${email}`;
   };
@@ -1590,57 +1600,63 @@ export default function DynamicDirectoryView() {
                 </div>
               )}
 
-              <div className="pt-4 border-t border-slate-200 space-y-3">
-                {viewingMember.email && (
-                  <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Mail className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                      <span className="text-sm text-slate-700 truncate" data-testid="text-member-email">
-                        {viewingMember.email}
-                      </span>
-                    </div>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 flex-shrink-0"
-                          onClick={() => handleCopyEmail(viewingMember.email)}
-                          data-testid="button-copy-email"
-                        >
-                          {emailCopied ? (
-                            <Check className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <Copy className="w-4 h-4 text-slate-500" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{emailCopied ? "Copied!" : "Copy"}</p>
-                      </TooltipContent>
-                    </Tooltip>
+              {(() => {
+                const displayEmail = getDisplayEmail(viewingMember);
+                return (
+                  <div className="pt-4 border-t border-slate-200 space-y-3">
+                    {displayEmail && (
+                      <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Mail className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                          <span className="text-sm text-slate-700 truncate" data-testid="text-member-email">
+                            {displayEmail}
+                          </span>
+                        </div>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0"
+                              onClick={() => handleCopyEmail(displayEmail)}
+                              data-testid="button-copy-email"
+                            >
+                              {emailCopied ? (
+                                <Check className="w-4 h-4 text-green-600" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-slate-500" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{emailCopied ? "Copied!" : "Copy"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    )}
+                    <Button
+                      onClick={() => handleEmailMember(displayEmail)}
+                      className="w-full bg-blue-600 hover:bg-blue-700"
+                      size="lg"
+                      disabled={!displayEmail}
+                    >
+                      <Mail className="w-5 h-5 mr-2" />
+                      Send Email to {viewingMember.first_name}
+                    </Button>
+                    {memberDisplaySettings?.show_linkedin && viewingMember.linkedin_url && (
+                      <Button
+                        onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
+                        variant="outline"
+                        className="w-full"
+                        size="lg"
+                      >
+                        <Linkedin className="w-5 h-5 mr-2" />
+                        View LinkedIn Profile
+                      </Button>
+                    )}
                   </div>
-                )}
-                <Button
-                  onClick={() => handleEmailMember(viewingMember.email)}
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                  size="lg"
-                >
-                  <Mail className="w-5 h-5 mr-2" />
-                  Send Email to {viewingMember.first_name}
-                </Button>
-                {memberDisplaySettings?.show_linkedin && viewingMember.linkedin_url && (
-                  <Button
-                    onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
-                    variant="outline"
-                    className="w-full"
-                    size="lg"
-                  >
-                    <Linkedin className="w-5 h-5 mr-2" />
-                    View LinkedIn Profile
-                  </Button>
-                )}
-              </div>
+                );
+              })()}
             </div>
           )}
         </DialogContent>
