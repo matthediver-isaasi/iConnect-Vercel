@@ -1338,8 +1338,23 @@ export default async function handler(req, res) {
     // Runs AFTER custom fields and category selections are saved so getConfigForMember() can match correctly
     if (createdMemberId) {
       try {
+        let effectiveTenantId = tenant_id;
+        if (!effectiveTenantId) {
+          const { data: memberForTenant } = await supabase
+            .from('member')
+            .select('tenant_id')
+            .eq('id', createdMemberId)
+            .maybeSingle();
+          effectiveTenantId = memberForTenant?.tenant_id;
+          if (effectiveTenantId) {
+            console.log('[AppProcessor] Resolved tenant_id from member record for auto-approve:', effectiveTenantId);
+          }
+        }
+        if (!effectiveTenantId) {
+          console.warn('[AppProcessor] Cannot auto-approve fees: tenant_id could not be resolved for member:', createdMemberId);
+        }
         const { getConfigForMember } = await import('../_lib/membershipConfigResolver.js');
-        const matchedConfig = await getConfigForMember(tenant_id, createdMemberId);
+        const matchedConfig = effectiveTenantId ? await getConfigForMember(effectiveTenantId, createdMemberId) : null;
         if (matchedConfig && matchedConfig.structure_scope_type === 'member' && matchedConfig.auto_approve_fees) {
           const startMonth = matchedConfig.membership_start_month || 1;
           const startDay = matchedConfig.membership_start_day || 1;
@@ -1353,7 +1368,7 @@ export default async function handler(req, res) {
           const { data: existingInvoicing } = await supabase
             .from('member_membership_invoicing')
             .select('id')
-            .eq('tenant_id', tenant_id)
+            .eq('tenant_id', effectiveTenantId)
             .eq('member_id', createdMemberId)
             .eq('membership_year', membershipYearLabel)
             .maybeSingle();
@@ -1369,7 +1384,7 @@ export default async function handler(req, res) {
             const { error } = await supabase
               .from('member_membership_invoicing')
               .insert({
-                tenant_id: tenant_id,
+                tenant_id: effectiveTenantId,
                 member_id: createdMemberId,
                 membership_year: membershipYearLabel,
                 fees_approved: true,
