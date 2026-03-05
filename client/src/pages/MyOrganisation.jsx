@@ -207,6 +207,20 @@ export default function MyOrganisationPage() {
     }
   });
 
+  const visibleOrgCustomFields = useMemo(() => {
+    if (!orgCustomFields || orgCustomFields.length === 0) return [];
+    const memberRoleId = memberInfo?.role_id;
+    return orgCustomFields.filter(field => {
+      let roleIds = field.my_organisation_role_ids;
+      if (!roleIds || (Array.isArray(roleIds) && roleIds.length === 0)) return true;
+      if (typeof roleIds === 'string') {
+        try { roleIds = JSON.parse(roleIds); } catch { return true; }
+      }
+      if (!Array.isArray(roleIds) || roleIds.length === 0) return true;
+      return memberRoleId && roleIds.includes(memberRoleId);
+    });
+  }, [orgCustomFields, memberInfo?.role_id]);
+
   const { data: orgValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['organizationPreferenceValues', memberInfo?.organization_id],
     enabled: !!memberInfo?.organization_id && accessChecked,
@@ -301,19 +315,19 @@ export default function MyOrganisationPage() {
   });
 
   const orderedCustomFields = useMemo(() => {
-    if (!orgCustomFields.length) return [];
+    if (!visibleOrgCustomFields.length) return [];
     
     if (fieldOrderSettings?.customFieldOrder) {
       const orderedIds = fieldOrderSettings.customFieldOrder;
       const reordered = orderedIds
-        .map(id => orgCustomFields.find(f => f.id === id))
+        .map(id => visibleOrgCustomFields.find(f => f.id === id))
         .filter(Boolean);
-      const remaining = orgCustomFields.filter(f => !orderedIds.includes(f.id));
+      const remaining = visibleOrgCustomFields.filter(f => !orderedIds.includes(f.id));
       return [...reordered, ...remaining];
     }
     
-    return [...orgCustomFields].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-  }, [orgCustomFields, fieldOrderSettings]);
+    return [...visibleOrgCustomFields].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+  }, [visibleOrgCustomFields, fieldOrderSettings]);
 
   const orderedContactFieldKeys = useMemo(() => {
     const defaultOrder = ['phone', 'website_url', 'invoicing_email', 'invoicing_address'];
@@ -505,10 +519,10 @@ export default function MyOrganisationPage() {
   }, [organization]);
 
   useEffect(() => {
-    if (orgCustomFields.length > 0) {
+    if (visibleOrgCustomFields.length > 0) {
       const valuesMap = {};
       orgValues.forEach(pv => {
-        const field = orgCustomFields.find(f => f.id === pv.field_id);
+        const field = visibleOrgCustomFields.find(f => f.id === pv.field_id);
         if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
           try {
             valuesMap[pv.field_id] = JSON.parse(pv.value);
@@ -525,7 +539,7 @@ export default function MyOrganisationPage() {
       setCustomFieldValues({});
       setOriginalCustomFieldValues({});
     }
-  }, [orgValues, orgCustomFields, valuesLoading]);
+  }, [orgValues, visibleOrgCustomFields, valuesLoading]);
 
   const hasChanges = useMemo(() => {
     if (!dataReady) return false;
@@ -583,7 +597,7 @@ export default function MyOrganisationPage() {
   const updateCustomFieldMutation = useMutation({
     mutationFn: async ({ fieldId, value }) => {
       const existingValue = orgValues.find(v => v.field_id === fieldId);
-      const field = orgCustomFields.find(f => f.id === fieldId);
+      const field = visibleOrgCustomFields.find(f => f.id === fieldId);
       
       let storedValue = value;
       if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
@@ -687,7 +701,7 @@ export default function MyOrganisationPage() {
       if (!canEditField(fieldId)) continue;
       
       const originalValue = originalCustomFieldValues[fieldId];
-      const field = orgCustomFields.find(f => f.id === fieldId);
+      const field = visibleOrgCustomFields.find(f => f.id === fieldId);
       
       let currentVal = value;
       let origVal = originalValue;
