@@ -28,11 +28,11 @@ export default function NewsSettingsPage() {
 
   const [tickerCount, setTickerCount] = useState(3);
   const [cycleSeconds, setCycleSeconds] = useState(5);
-  const [tickerEnabled, setTickerEnabled] = useState(true);
+  const [tickerEnabled, setTickerEnabled] = useState(false);
   const [tickerBottomMargin, setTickerBottomMargin] = useState(0);
-  const [showAuthor, setShowAuthor] = useState(true);
+  const [showAuthor, setShowAuthor] = useState(false);
   const [cardsPerRow, setCardsPerRow] = useState("3");
-  const [showImage, setShowImage] = useState(true);
+  const [showImage, setShowImage] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -204,8 +204,9 @@ export default function NewsSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['news-display-settings'] });
       toast.success('News settings saved successfully');
     },
-    onError: () => {
-      toast.error('Failed to save settings');
+    onError: (error) => {
+      console.error('[NewsSettings] Save failed:', error);
+      toast.error('Failed to save settings: ' + (error?.message || 'Unknown error'));
     }
   });
 
@@ -391,8 +392,8 @@ export default function NewsSettingsPage() {
           <div className="flex justify-end">
             <Button 
               onClick={handleSave}
-              disabled={saveMutation.isPending}
-              className="bg-blue-600 hover:bg-blue-700 gap-2"
+              disabled={saveMutation.isPending || isLoading}
+              className="bg-blue-600 gap-2"
               data-testid="button-save-settings"
             >
               <Save className="w-4 h-4" />
