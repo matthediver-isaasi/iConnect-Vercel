@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/api/supabaseClient"; // or your actual client path
 import { base44 } from "@/api/base44Client";
@@ -971,8 +971,11 @@ export default function PreferencesPage() {
   }, [engagementAssignments, engagementAwards, awardSublevels]);
 
   // --- Load profile state from memberRecord ---
+  const profileInitializedRef = useRef(false);
   useEffect(() => {
     if (!memberRecord) return;
+    if (profileInitializedRef.current && hasUnsavedProfile) return;
+    profileInitializedRef.current = true;
 
     setFirstName(memberRecord.first_name || "");
     setLastName(memberRecord.last_name || "");
