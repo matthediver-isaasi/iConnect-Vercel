@@ -1,15 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Loader2, User, Shield, Save, Eye, EyeOff, Pencil, GripVertical } from "lucide-react";
+import { Loader2, User, Shield, Save, Pencil, Eye, EyeOff, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import PermissionMatrix from "@/components/PermissionMatrix";
 
 const HEADER_FIELDS = [
   { key: 'first_name', label: 'First Name', description: 'Member first name (shown in header)' },
@@ -25,20 +25,12 @@ const PROFILE_FIELDS = [
   { key: 'show_in_directory', label: 'Show in Directory', description: 'Whether member appears in the member directory' },
 ];
 
-const ALL_CORE_FIELDS = [...HEADER_FIELDS, ...PROFILE_FIELDS];
-
-const PERMISSION_OPTIONS = [
-  { value: 'read_write', label: 'Read & Write', icon: Pencil, color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' },
-  { value: 'read', label: 'Read Only', icon: Eye, color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' },
-  { value: 'hidden', label: 'Hidden', icon: EyeOff, color: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' },
-];
-
 export default function MemberPreferencesPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
-  const [selectedRoleId, setSelectedRoleId] = useState(null);
-  const [permissions, setPermissions] = useState({});
+  const [permissionsByRole, setPermissionsByRole] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [changedRoleIds, setChangedRoleIds] = useState(new Set());
   const [orderedProfileFields, setOrderedProfileFields] = useState(PROFILE_FIELDS);
   const [orderedCustomFields, setOrderedCustomFields] = useState([]);
   const queryClient = useQueryClient();
@@ -89,6 +81,26 @@ export default function MemberPreferencesPage() {
     enabled: accessChecked,
   });
 
+  const { data: bulkPermissions, isLoading: permissionsLoading } = useQuery({
+    queryKey: ['bulk-member-field-permissions'],
+    queryFn: async () => {
+      const response = await fetch('/api/roles/bulk-field-permissions?type=member', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch permissions');
+      return response.json();
+    },
+    enabled: accessChecked,
+  });
+
+  useEffect(() => {
+    if (bulkPermissions) {
+      setPermissionsByRole(bulkPermissions);
+      setHasChanges(false);
+      setChangedRoleIds(new Set());
+    }
+  }, [bulkPermissions]);
+
   useEffect(() => {
     if (fieldOrderSettings?.profileFieldOrder) {
       const orderedKeys = fieldOrderSettings.profileFieldOrder;
@@ -119,42 +131,12 @@ export default function MemberPreferencesPage() {
     }
   }, [memberCustomFields, fieldOrderSettings]);
 
-  const { data: rolePermissions = {}, isLoading: permissionsLoading } = useQuery({
-    queryKey: ['role-member-field-permissions', selectedRoleId],
-    queryFn: async () => {
-      if (!selectedRoleId) return {};
-      const response = await fetch(`/api/roles/${selectedRoleId}/member-field-permissions`, {
-        credentials: 'include'
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch permissions');
-      }
-      const data = await response.json();
-      return data;
-    },
-    enabled: !!selectedRoleId && accessChecked,
-  });
-
-  useEffect(() => {
-    if (selectedRoleId && rolePermissions) {
-      const allFields = [...ALL_CORE_FIELDS.map(f => f.key), ...orderedCustomFields.map(f => f.id)];
-      const initialPermissions = {};
-      allFields.forEach(fieldKey => {
-        initialPermissions[fieldKey] = rolePermissions[fieldKey] || 'read_write';
-      });
-      setPermissions(initialPermissions);
-      setHasChanges(false);
-    }
-  }, [selectedRoleId, rolePermissions, orderedCustomFields]);
-
   const saveOrderMutation = useMutation({
     mutationFn: async ({ profileFieldOrder, customFieldOrder }) => {
       const settings = await base44.entities.SystemSettings.list({
         filter: { setting_key: 'member_field_order' }
       });
-      
       const orderData = JSON.stringify({ profileFieldOrder, customFieldOrder });
-      
       if (settings && settings.length > 0) {
         await base44.entities.SystemSettings.update(settings[0].id, { setting_value: orderData });
       } else {
@@ -171,17 +153,12 @@ export default function MemberPreferencesPage() {
   });
 
   const updatePermissionsMutation = useMutation({
-    mutationFn: async (permissionsData) => {
-      const permissionsArray = Object.entries(permissionsData).map(([field_key, permission]) => ({
-        field_key,
-        permission
-      }));
-      
-      const response = await fetch(`/api/roles/${selectedRoleId}/member-field-permissions`, {
+    mutationFn: async (permsToSave) => {
+      const response = await fetch('/api/roles/bulk-field-permissions?type=member', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(permissionsArray)
+        body: JSON.stringify({ permissions: permsToSave })
       });
       if (!response.ok) {
         const error = await response.json();
@@ -192,37 +169,67 @@ export default function MemberPreferencesPage() {
     onSuccess: () => {
       toast.success('Permissions saved successfully');
       setHasChanges(false);
-      queryClient.invalidateQueries({ queryKey: ['role-member-field-permissions', selectedRoleId] });
+      setChangedRoleIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['bulk-member-field-permissions'] });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save permissions');
     }
   });
 
-  const handlePermissionChange = (fieldKey, newPermission) => {
-    setPermissions(prev => ({
+  const handlePermissionChange = useCallback((roleId, fieldKey, newPerm) => {
+    setPermissionsByRole(prev => ({
       ...prev,
-      [fieldKey]: newPermission
+      [roleId]: {
+        ...(prev[roleId] || {}),
+        [fieldKey]: newPerm
+      }
     }));
+    setChangedRoleIds(prev => new Set(prev).add(roleId));
     setHasChanges(true);
-  };
+  }, []);
+
+  const handleBulkFieldChange = useCallback((fieldKey, newPerm) => {
+    setPermissionsByRole(prev => {
+      const next = { ...prev };
+      roles.forEach(role => {
+        next[role.id] = { ...(next[role.id] || {}), [fieldKey]: newPerm };
+      });
+      return next;
+    });
+    setChangedRoleIds(prev => {
+      const next = new Set(prev);
+      roles.forEach(r => next.add(r.id));
+      return next;
+    });
+    setHasChanges(true);
+  }, [roles]);
+
+  const handleBulkRoleChange = useCallback((roleId, newPerm) => {
+    const allFieldKeys = [
+      ...HEADER_FIELDS.map(f => f.key),
+      ...PROFILE_FIELDS.map(f => f.key),
+      ...memberCustomFields.map(f => f.id)
+    ];
+    setPermissionsByRole(prev => {
+      const rolePerms = {};
+      allFieldKeys.forEach(k => { rolePerms[k] = newPerm; });
+      return { ...prev, [roleId]: rolePerms };
+    });
+    setChangedRoleIds(prev => new Set(prev).add(roleId));
+    setHasChanges(true);
+  }, [memberCustomFields]);
 
   const handleSave = () => {
-    updatePermissionsMutation.mutate(permissions);
-  };
-
-  const handleRoleChange = (roleId) => {
-    if (hasChanges) {
-      if (!confirm('You have unsaved changes. Are you sure you want to switch roles?')) {
-        return;
-      }
-    }
-    setSelectedRoleId(roleId);
+    const permsToSave = {};
+    changedRoleIds.forEach(roleId => {
+      permsToSave[roleId] = permissionsByRole[roleId] || {};
+    });
+    updatePermissionsMutation.mutate(permsToSave);
   };
 
   const handleDragEnd = (result) => {
     const { source, destination, type } = result;
-    
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
@@ -231,7 +238,6 @@ export default function MemberPreferencesPage() {
       const [removed] = newFields.splice(source.index, 1);
       newFields.splice(destination.index, 0, removed);
       setOrderedProfileFields(newFields);
-      
       saveOrderMutation.mutate({
         profileFieldOrder: newFields.map(f => f.key),
         customFieldOrder: orderedCustomFields.map(f => f.id)
@@ -242,7 +248,6 @@ export default function MemberPreferencesPage() {
       const [removed] = newFields.splice(source.index, 1);
       newFields.splice(destination.index, 0, removed);
       setOrderedCustomFields(newFields);
-      
       saveOrderMutation.mutate({
         profileFieldOrder: orderedProfileFields.map(f => f.key),
         customFieldOrder: newFields.map(f => f.id)
@@ -251,16 +256,13 @@ export default function MemberPreferencesPage() {
     }
   };
 
-  const getPermissionBadge = (permission) => {
-    const option = PERMISSION_OPTIONS.find(o => o.value === permission) || PERMISSION_OPTIONS[0];
-    const Icon = option.icon;
-    return (
-      <Badge className={`${option.color} flex items-center gap-1`}>
-        <Icon className="w-3 h-3" />
-        {option.label}
-      </Badge>
-    );
-  };
+  const fieldGroups = [
+    { label: 'Header Fields', fields: HEADER_FIELDS },
+    { label: 'Profile Fields', fields: orderedProfileFields },
+    ...(orderedCustomFields.length > 0
+      ? [{ label: 'Custom Member Fields', fields: orderedCustomFields.map(f => ({ key: f.id, label: f.label, description: `${f.field_type} field` })) }]
+      : [])
+  ];
 
   if (!accessChecked) {
     return (
@@ -272,177 +274,161 @@ export default function MemberPreferencesPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-8">
+      <div className="max-w-[90rem] mx-auto">
+        <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
             <User className="w-8 h-8 text-blue-600" />
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900" data-testid="text-page-title">
               Member Preferences
             </h1>
           </div>
           <p className="text-slate-600">
-            Configure field order and permissions for each role on the About Me page. Drag fields to reorder them.
+            Configure field permissions across all roles and manage field display order for the About Me page.
           </p>
         </div>
 
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="w-5 h-5" />
-              Select Role
-            </CardTitle>
-            <CardDescription>
-              Choose a role to configure its member field permissions
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <Select
-                value={selectedRoleId || ''}
-                onValueChange={handleRoleChange}
-                disabled={rolesLoading}
-              >
-                <SelectTrigger className="w-[300px]" data-testid="select-role">
-                  <SelectValue placeholder="Select a role..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              
-              {hasChanges && (
-                <Button
-                  onClick={handleSave}
-                  disabled={updatePermissionsMutation.isPending}
-                  data-testid="button-save-permissions"
-                >
-                  {updatePermissionsMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4 mr-2" />
+        <Tabs defaultValue="permissions" className="space-y-4">
+          <TabsList data-testid="tabs-preferences">
+            <TabsTrigger value="permissions" data-testid="tab-permissions">
+              <Shield className="w-4 h-4 mr-1.5" />
+              Permissions
+            </TabsTrigger>
+            <TabsTrigger value="field-order" data-testid="tab-field-order">
+              <GripVertical className="w-4 h-4 mr-1.5" />
+              Field Order
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="permissions">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Shield className="w-5 h-5" />
+                      Role Permissions Matrix
+                    </CardTitle>
+                    <CardDescription>
+                      Click any cell to cycle through permissions. Use the dropdown arrows for bulk changes.
+                    </CardDescription>
+                  </div>
+                  {hasChanges && (
+                    <Button
+                      onClick={handleSave}
+                      disabled={updatePermissionsMutation.isPending}
+                      data-testid="button-save-permissions"
+                    >
+                      {updatePermissionsMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      Save Changes
+                    </Button>
                   )}
-                  Save Changes
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <DragDropContext onDragEnd={handleDragEnd}>
-          {selectedRoleId && (
-            <>
-              {permissionsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
                 </div>
-              ) : (
-                <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Header Fields</CardTitle>
-                      <CardDescription>
-                        Fields shown in the member profile header (fixed position)
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        {HEADER_FIELDS.map((field) => (
-                          <div
-                            key={field.key}
-                            className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg"
-                          >
-                            <div>
-                              <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
-                              <p className="text-sm text-slate-500 dark:text-slate-400">{field.description}</p>
-                            </div>
-                            <Select
-                              value={permissions[field.key] || 'read_write'}
-                              onValueChange={(value) => handlePermissionChange(field.key, value)}
-                            >
-                              <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.key}`}>
-                                <SelectValue>
-                                  {getPermissionBadge(permissions[field.key] || 'read_write')}
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {PERMISSION_OPTIONS.map((option) => (
-                                  <SelectItem key={option.value} value={option.value}>
-                                    <div className="flex items-center gap-2">
-                                      <option.icon className="w-4 h-4" />
-                                      {option.label}
-                                    </div>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
+              </CardHeader>
+              <CardContent>
+                <PermissionMatrix
+                  fieldGroups={fieldGroups}
+                  roles={roles}
+                  permissionsByRole={permissionsByRole}
+                  onPermissionChange={handlePermissionChange}
+                  onBulkFieldChange={handleBulkFieldChange}
+                  onBulkRoleChange={handleBulkRoleChange}
+                  isLoading={permissionsLoading || rolesLoading || !memberCustomFields}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
 
+          <TabsContent value="field-order">
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Profile Fields</CardTitle>
+                    <CardDescription>
+                      Drag to reorder these fields in the profile details section. Header fields (First Name, Last Name, Profile Photo) are fixed.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Droppable droppableId="profile-fields" type="PROFILE_FIELDS">
+                      {(provided) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.droppableProps}
+                          className="space-y-2"
+                        >
+                          {orderedProfileFields.map((field, index) => (
+                            <Draggable key={field.key} draggableId={field.key} index={index}>
+                              {(provided, snapshot) => (
+                                <div
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  className={`flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg ${
+                                    snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
+                                  }`}
+                                >
+                                  <div
+                                    {...provided.dragHandleProps}
+                                    className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    data-testid={`drag-handle-${field.key}`}
+                                  >
+                                    <GripVertical className="w-4 h-4 text-slate-400" />
+                                  </div>
+                                  <div>
+                                    <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">{field.description}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </Draggable>
+                          ))}
+                          {provided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  </CardContent>
+                </Card>
+
+                {orderedCustomFields.length > 0 && (
                   <Card>
                     <CardHeader>
-                      <CardTitle>Profile Fields</CardTitle>
+                      <CardTitle>Custom Member Fields</CardTitle>
                       <CardDescription>
-                        Drag to reorder these fields in the profile details section
+                        Drag to reorder custom fields.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <Droppable droppableId="profile-fields" type="PROFILE_FIELDS">
+                      <Droppable droppableId="custom-fields" type="CUSTOM_FIELDS">
                         {(provided) => (
                           <div
                             ref={provided.innerRef}
                             {...provided.droppableProps}
                             className="space-y-2"
                           >
-                            {orderedProfileFields.map((field, index) => (
-                              <Draggable key={field.key} draggableId={field.key} index={index}>
+                            {orderedCustomFields.map((field, index) => (
+                              <Draggable key={field.id} draggableId={field.id} index={index}>
                                 {(provided, snapshot) => (
                                   <div
                                     ref={provided.innerRef}
                                     {...provided.draggableProps}
-                                    className={`flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg ${
+                                    className={`flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg ${
                                       snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
                                     }`}
                                   >
-                                    <div className="flex items-center gap-3">
-                                      <div
-                                        {...provided.dragHandleProps}
-                                        className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                        data-testid={`drag-handle-${field.key}`}
-                                      >
-                                        <GripVertical className="w-4 h-4 text-slate-400" />
-                                      </div>
-                                      <div>
-                                        <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
-                                        <p className="text-sm text-slate-500 dark:text-slate-400">{field.description}</p>
-                                      </div>
-                                    </div>
-                                    <Select
-                                      value={permissions[field.key] || 'read_write'}
-                                      onValueChange={(value) => handlePermissionChange(field.key, value)}
+                                    <div
+                                      {...provided.dragHandleProps}
+                                      className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                      data-testid={`drag-handle-custom-${field.id}`}
                                     >
-                                      <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.key}`}>
-                                        <SelectValue>
-                                          {getPermissionBadge(permissions[field.key] || 'read_write')}
-                                        </SelectValue>
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {PERMISSION_OPTIONS.map((option) => (
-                                          <SelectItem key={option.value} value={option.value}>
-                                            <div className="flex items-center gap-2">
-                                              <option.icon className="w-4 h-4" />
-                                              {option.label}
-                                            </div>
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                                      <GripVertical className="w-4 h-4 text-slate-400" />
+                                    </div>
+                                    <div>
+                                      <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
+                                      <p className="text-sm text-slate-500 dark:text-slate-400">{field.field_type} field</p>
+                                    </div>
                                   </div>
                                 )}
                               </Draggable>
@@ -453,117 +439,11 @@ export default function MemberPreferencesPage() {
                       </Droppable>
                     </CardContent>
                   </Card>
-
-                  {orderedCustomFields.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Custom Member Fields</CardTitle>
-                        <CardDescription>
-                          Drag to reorder. Custom fields defined for members.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <Droppable droppableId="custom-fields" type="CUSTOM_FIELDS">
-                          {(provided) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.droppableProps}
-                              className="space-y-2"
-                            >
-                              {orderedCustomFields.map((field, index) => (
-                                <Draggable key={field.id} draggableId={field.id} index={index}>
-                                  {(provided, snapshot) => (
-                                    <div
-                                      ref={provided.innerRef}
-                                      {...provided.draggableProps}
-                                      className={`flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg ${
-                                        snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-3">
-                                        <div
-                                          {...provided.dragHandleProps}
-                                          className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                          data-testid={`drag-handle-custom-${field.id}`}
-                                        >
-                                          <GripVertical className="w-4 h-4 text-slate-400" />
-                                        </div>
-                                        <div>
-                                          <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
-                                          <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1 flex-wrap">
-                                            {field.field_type} field
-                                            {field.is_required && <Badge variant="outline" className="ml-1">Required</Badge>}
-                                          </p>
-                                        </div>
-                                      </div>
-                                      <Select
-                                        value={permissions[field.id] || 'read_write'}
-                                        onValueChange={(value) => handlePermissionChange(field.id, value)}
-                                      >
-                                        <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.id}`}>
-                                          <SelectValue>
-                                            {getPermissionBadge(permissions[field.id] || 'read_write')}
-                                          </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {PERMISSION_OPTIONS.map((option) => (
-                                            <SelectItem key={option.value} value={option.value}>
-                                              <div className="flex items-center gap-2">
-                                                <option.icon className="w-4 h-4" />
-                                                {option.label}
-                                              </div>
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-                                </Draggable>
-                              ))}
-                              {provided.placeholder}
-                            </div>
-                          )}
-                        </Droppable>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Permission Levels</h4>
-                    <ul className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
-                      <li className="flex items-center gap-2">
-                        <Pencil className="w-4 h-4" />
-                        <strong>Read & Write:</strong> Members can view and edit this field
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Eye className="w-4 h-4" />
-                        <strong>Read Only:</strong> Members can view but not edit this field
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <EyeOff className="w-4 h-4" />
-                        <strong>Hidden:</strong> This field is not shown to members with this role
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </DragDropContext>
-
-        {!selectedRoleId && (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Shield className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                Select a Role
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400">
-                Choose a role from the dropdown above to configure its member field permissions.
-              </p>
-            </CardContent>
-          </Card>
-        )}
+                )}
+              </div>
+            </DragDropContext>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
