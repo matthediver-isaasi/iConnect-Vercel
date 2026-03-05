@@ -516,7 +516,7 @@ export default async function handler(req, res) {
               finalCost: parseFloat(feeToken.final_cost),
               currency: feeToken.currency || 'GBP',
               reference,
-              vatRate: simResult.matchedBand?.vat_rate || null,
+              vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
               markAsPaid: true,
               stripePaymentIntentId: paymentIntentId,
               invoiceDescription: simResult.config?.invoice_description || null,

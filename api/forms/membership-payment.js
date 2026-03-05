@@ -523,7 +523,7 @@ async function handlePost(req, res, resolvedTenantId) {
           finalCost: simResult.finalCost,
           currency: simResult.currency || 'GBP',
           reference,
-          vatRate: simResult.matchedBand?.vat_rate || null,
+          vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
           markAsPaid: true,
           stripePaymentIntentId: paymentIntentId,
           invoiceDescription: simResult.config?.invoice_description || null,
