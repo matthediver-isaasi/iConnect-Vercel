@@ -111,18 +111,18 @@ export default function PermissionMatrix({
   return (
     <div className="border rounded-lg overflow-hidden">
       <div ref={scrollRef} className="overflow-x-auto">
-        <table className="w-full border-collapse" style={{ minWidth: `${200 + roles.length * 72}px` }}>
+        <table className="w-full border-collapse" style={{ minWidth: `${160 + roles.length * 72}px` }}>
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="sticky left-0 z-20 bg-muted/90 backdrop-blur-sm text-left p-2 min-w-[200px] border-r">
+              <th className="sticky left-0 z-20 bg-muted/90 backdrop-blur-sm text-left p-2 min-w-[160px] border-r">
                 <span className="text-sm font-medium text-muted-foreground">Field</span>
               </th>
               {roles.map(role => (
-                <th key={role.id} className="p-1 min-w-[68px] max-w-[80px] text-center border-r last:border-r-0">
+                <th key={role.id} className="p-1 min-w-[68px] text-center border-r last:border-r-0 align-bottom">
                   <div className="flex flex-col items-center gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="text-xs font-medium text-foreground truncate max-w-[64px] block cursor-default" data-testid={`role-header-${role.id}`}>
+                        <span className="text-xs font-medium text-foreground leading-tight text-center break-words line-clamp-3 cursor-default" data-testid={`role-header-${role.id}`}>
                           {role.name}
                         </span>
                       </TooltipTrigger>
@@ -188,7 +188,7 @@ function GroupRows({ group, roles, getPermission, onPermissionChange, onBulkFiel
         const fieldKey = field.key || field.id;
         return (
           <tr key={fieldKey} className="border-b last:border-b-0 hover:bg-muted/20 transition-colors">
-            <td className="sticky left-0 z-10 bg-background border-r p-2 min-w-[200px]">
+            <td className="sticky left-0 z-10 bg-background border-r p-2 min-w-[160px]">
               <div className="flex items-center gap-1">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{field.label}</div>
