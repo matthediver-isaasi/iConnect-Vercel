@@ -1,6 +1,6 @@
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
-import { evaluateVatOverrideForOrg } from './vatOverrideHelper.js';
+import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOverrideHelper.js';
 import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 
@@ -1399,27 +1399,38 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
 
   let taxType = null;
   let taxLabel = null;
+  let vatOverrideApplied = false;
+  let vatOverrideDetail = null;
 
-  const bandVatRate = matchedBand?.vat_rate || null;
-  if (bandVatRate) {
-    try {
-      const parsed = JSON.parse(bandVatRate);
-      taxType = parsed.taxType || null;
-      taxLabel = parsed.name || null;
-    } catch {
-      taxType = bandVatRate;
-      taxLabel = bandVatRate;
+  const vatOverride = await evaluateVatOverrideForMember(config.id, tenantId, memberId, fieldOverrides);
+  if (vatOverride && vatOverride.taxType) {
+    taxType = vatOverride.taxType;
+    taxLabel = vatOverride.taxLabel;
+    vatOverrideApplied = true;
+    vatOverrideDetail = vatOverride;
+    log('VAT Override', `Overriding VAT with "${vatOverride.taxLabel}" (${vatOverride.taxType}) based on ${vatOverride.fieldLabel} = "${vatOverride.matchValue}"${vatOverride.ruleLabel ? ` [${vatOverride.ruleLabel}]` : ''}`);
+  } else {
+    const bandVatRate = matchedBand?.vat_rate || null;
+    if (bandVatRate) {
+      try {
+        const parsed = JSON.parse(bandVatRate);
+        taxType = parsed.taxType || null;
+        taxLabel = parsed.name || null;
+      } catch {
+        taxType = bandVatRate;
+        taxLabel = bandVatRate;
+      }
+    } else if (isFlat && config.flat_vat_rate) {
+      try {
+        const parsed = JSON.parse(config.flat_vat_rate);
+        taxType = parsed.taxType || null;
+        taxLabel = parsed.name || null;
+      } catch {
+        taxType = config.flat_vat_rate;
+        taxLabel = config.flat_vat_rate;
+      }
+      log('Flat Rate VAT', `Using flat rate VAT: "${taxLabel}" (${taxType})`);
     }
-  } else if (isFlat && config.flat_vat_rate) {
-    try {
-      const parsed = JSON.parse(config.flat_vat_rate);
-      taxType = parsed.taxType || null;
-      taxLabel = parsed.name || null;
-    } catch {
-      taxType = config.flat_vat_rate;
-      taxLabel = config.flat_vat_rate;
-    }
-    log('Flat Rate VAT', `Using flat rate VAT: "${taxLabel}" (${taxType})`);
   }
 
   let vatRatePercent = null;
@@ -1570,6 +1581,8 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     totalWithVat,
     taxType,
     taxLabel,
+    vatOverrideApplied,
+    vatOverrideDetail,
     steps,
   };
 }
