@@ -81,6 +81,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     return body;
   };
 
+  const pendingRefetchRef = useRef(false);
+  const fetchInProgressRef = useRef(false);
+
   useEffect(() => {
     if (!memberId) {
       setLoading(false);
@@ -90,20 +93,26 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   }, [memberId]);
 
   useEffect(() => {
-    if (!memberId || loading || paymentComplete || paymentMode) return;
+    if (!memberId || paymentComplete || paymentMode) return;
     const mappings = field.field_mappings;
     if (!mappings || Object.keys(mappings).length === 0) return;
     const overrides = buildFieldOverrides();
     const overridesKey = JSON.stringify(overrides);
     if (overridesKey === prevOverridesRef.current) return;
     prevOverridesRef.current = overridesKey;
+    if (fetchInProgressRef.current) {
+      pendingRefetchRef.current = true;
+      return;
+    }
     const timer = setTimeout(() => fetchFees(), 500);
     return () => clearTimeout(timer);
-  }, [allFormValues, field.field_mappings, memberId, loading, paymentComplete, paymentMode]);
+  }, [allFormValues, field.field_mappings, memberId, paymentComplete, paymentMode]);
 
   const fetchFees = () => {
     setLoading(true);
     setError(null);
+    fetchInProgressRef.current = true;
+    pendingRefetchRef.current = false;
     const overrideStr = buildOverrideParams();
     prevOverridesRef.current = JSON.stringify(buildFieldOverrides());
     fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}`, { credentials: 'include' })
@@ -128,7 +137,14 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         }
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        fetchInProgressRef.current = false;
+        setLoading(false);
+        if (pendingRefetchRef.current) {
+          pendingRefetchRef.current = false;
+          fetchFees();
+        }
+      });
   };
 
   useEffect(() => {
