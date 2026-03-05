@@ -1222,8 +1222,26 @@ export default function PreferencesPage() {
         folder
       );
       setProfilePhotoUrl(publicUrl);
-      setHasUnsavedProfile(true);
-      toast.success("Photo uploaded successfully");
+
+      if (memberRecord?.id) {
+        const { error } = await supabase
+          .from("member")
+          .update({ profile_photo_url: publicUrl })
+          .eq("id", memberRecord.id);
+        if (error) throw error;
+
+        const storedMember = localStorage.getItem('agcas_member');
+        if (storedMember) {
+          try {
+            const parsed = JSON.parse(storedMember);
+            localStorage.setItem('agcas_member', JSON.stringify({ ...parsed, profile_photo_url: publicUrl }));
+            setSessionMember(prev => prev ? { ...prev, profile_photo_url: publicUrl } : prev);
+          } catch {}
+        }
+        queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
+      }
+
+      toast.success("Photo saved");
     } catch (err) {
       console.error(err);
       toast.error("Failed to upload photo");
