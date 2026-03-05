@@ -369,7 +369,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     const isPercentIncentive = config.free_period_unit === 'percent';
 
-    if (isNewOrg && config.free_period_amount && config.free_period_unit) {
+    if (isNewOrg && config.free_period_amount && config.free_period_unit && config.rollover_enabled) {
       if (isPercentIncentive) {
         const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
 
@@ -434,6 +434,8 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
           log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
         }
       }
+    } else if (isNewOrg && config.free_period_amount && config.free_period_unit && !config.rollover_enabled) {
+      log('Year 2 Rollover Skipped', `Free period rollover is disabled for this schedule. Full annual cost applies: ${finalCost.toFixed(2)}`);
     } else {
       log('Year 2', `Full annual cost applies. Final cost: ${finalCost.toFixed(2)}`);
     }
@@ -1295,7 +1297,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     dailyCost = parseFloat((annualCost / totalDaysInYear).toFixed(4));
     const isPercentIncentive = config.free_period_unit === 'percent';
 
-    if (isNewMember && config.free_period_amount && config.free_period_unit) {
+    if (isNewMember && config.free_period_amount && config.free_period_unit && config.rollover_enabled) {
       if (isPercentIncentive) {
         const fullDiscountAmount = parseFloat((annualCost * config.free_period_amount / 100).toFixed(2));
         const startMonth = config.membership_start_month || 1;
@@ -1359,6 +1361,8 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
           log('Free Period Spillover', 'No spillover - free period was fully used in year 1');
         }
       }
+    } else if (isNewMember && config.free_period_amount && config.free_period_unit && !config.rollover_enabled) {
+      log('Year 2 Rollover Skipped', `Free period rollover is disabled for this schedule. Full annual cost applies: ${finalCost.toFixed(2)}`);
     } else {
       log('Year 2', `Full annual cost applies. Final cost: ${finalCost.toFixed(2)}`);
     }
