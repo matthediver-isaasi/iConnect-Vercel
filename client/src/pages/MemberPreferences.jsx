@@ -71,16 +71,6 @@ export default function MemberPreferencesPage() {
     enabled: accessChecked,
   });
 
-  const filteredMemberCustomFields = memberCustomFields.filter(field => {
-    let roleIds = field.my_preferences_role_ids;
-    if (typeof roleIds === 'string') {
-      try { roleIds = JSON.parse(roleIds); } catch { roleIds = null; }
-    }
-    if (!roleIds || !Array.isArray(roleIds) || roleIds.length === 0) return true;
-    if (!selectedRoleId) return true;
-    return roleIds.includes(selectedRoleId);
-  });
-
   const { data: fieldOrderSettings } = useQuery({
     queryKey: ['member-field-order-settings'],
     queryFn: async () => {
@@ -503,20 +493,6 @@ export default function MemberPreferencesPage() {
                                           <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1 flex-wrap">
                                             {field.field_type} field
                                             {field.is_required && <Badge variant="outline" className="ml-1">Required</Badge>}
-                                            {(() => {
-                                              let rIds = field.my_preferences_role_ids;
-                                              if (typeof rIds === 'string') { try { rIds = JSON.parse(rIds); } catch { rIds = null; } }
-                                              if (rIds && Array.isArray(rIds) && rIds.length > 0) {
-                                                const isHiddenForRole = selectedRoleId && !rIds.includes(selectedRoleId);
-                                                return (
-                                                  <Badge variant="outline" className={`ml-1 ${isHiddenForRole ? 'opacity-50' : ''}`}>
-                                                    <Shield className="w-3 h-3 mr-1" />
-                                                    {isHiddenForRole ? 'Hidden for this role' : `${rIds.length} role${rIds.length === 1 ? '' : 's'}`}
-                                                  </Badge>
-                                                );
-                                              }
-                                              return null;
-                                            })()}
                                           </p>
                                         </div>
                                       </div>

@@ -9,9 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GripVertical, Loader2, ClipboardList, Plus, Pencil, Trash2, X, User, Building2, Filter, Upload, FileText, FileImage, FileSpreadsheet, File, Check, ChevronsUpDown } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { GripVertical, Loader2, ClipboardList, Plus, Pencil, Trash2, X, User, Building2, Filter, Upload, FileText, FileImage, FileSpreadsheet, File } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -177,21 +175,12 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [defaultCountries, setDefaultCountries] = useState([]);
   // Visibility toggles for organization fields
   const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
-  const [myOrganisationRoleIds, setMyOrganisationRoleIds] = useState([]);
   const [showInDirectoryCard, setShowInDirectoryCard] = useState(true);
   const [showInAdminList, setShowInAdminList] = useState(true);
   // Visibility toggles for member fields
   const [showInMyPreferences, setShowInMyPreferences] = useState(true);
-  const [myPreferencesRoleIds, setMyPreferencesRoleIds] = useState([]);
   const [showInMemberDirectory, setShowInMemberDirectory] = useState(true);
   const [showInMemberAdminList, setShowInMemberAdminList] = useState(true);
-  const [rolePickerOpen, setRolePickerOpen] = useState(false);
-  const [rolePickerOrgOpen, setRolePickerOrgOpen] = useState(false);
-
-  const { data: roles = [] } = useQuery({
-    queryKey: ['roles-for-field-admin'],
-    queryFn: () => base44.entities.Role.list(),
-  });
 
   const { data: preferenceFields = [], isLoading } = useQuery({
     queryKey: ['/api/entities/PreferenceField', entityScope],
@@ -310,11 +299,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setDefaultCountries([]);
     // Reset visibility toggles to default (all visible)
     setShowInMyOrganisation(true);
-    setMyOrganisationRoleIds([]);
     setShowInDirectoryCard(true);
     setShowInAdminList(true);
     setShowInMyPreferences(true);
-    setMyPreferencesRoleIds([]);
     setShowInMemberDirectory(true);
     setShowInMemberAdminList(true);
   };
@@ -367,19 +354,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setDefaultCountries(Array.isArray(parsedDefaultCountries) ? parsedDefaultCountries : []);
     // Load visibility settings (default to true for backward compatibility)
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
-    let parsedOrgRoleIds = field.my_organisation_role_ids || [];
-    if (typeof parsedOrgRoleIds === 'string') {
-      try { parsedOrgRoleIds = JSON.parse(parsedOrgRoleIds); } catch { parsedOrgRoleIds = []; }
-    }
-    setMyOrganisationRoleIds(Array.isArray(parsedOrgRoleIds) ? parsedOrgRoleIds : []);
     setShowInDirectoryCard(field.show_in_directory_card !== false);
     setShowInAdminList(field.show_in_admin_list !== false);
     setShowInMyPreferences(field.show_in_my_preferences !== false);
-    let parsedRoleIds = field.my_preferences_role_ids || [];
-    if (typeof parsedRoleIds === 'string') {
-      try { parsedRoleIds = JSON.parse(parsedRoleIds); } catch { parsedRoleIds = []; }
-    }
-    setMyPreferencesRoleIds(Array.isArray(parsedRoleIds) ? parsedRoleIds : []);
     setShowInMemberDirectory(field.show_in_member_directory !== false);
     setShowInMemberAdminList(field.show_in_member_admin_list !== false);
     setIsDialogOpen(true);
@@ -460,12 +437,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       default_countries: validDefaultCountries,
       // Visibility settings for organization fields
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
-      my_organisation_role_ids: entityScope === 'organization' && showInMyOrganisation && myOrganisationRoleIds.length > 0 ? myOrganisationRoleIds : null,
       show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
       show_in_admin_list: entityScope === 'organization' ? showInAdminList : true,
       // Visibility settings for member fields
       show_in_my_preferences: entityScope === 'member' ? showInMyPreferences : true,
-      my_preferences_role_ids: entityScope === 'member' && showInMyPreferences && myPreferencesRoleIds.length > 0 ? myPreferencesRoleIds : null,
       show_in_member_directory: entityScope === 'member' ? showInMemberDirectory : true,
       show_in_member_admin_list: entityScope === 'member' ? showInMemberAdminList : true
     };
@@ -569,11 +544,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                               <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 <span className="text-xs text-slate-400">Visible in:</span>
                                 {field.show_in_my_organisation !== false && (
-                                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
-                                    My Org{field.my_organisation_role_ids && field.my_organisation_role_ids.length > 0
-                                      ? ` (${field.my_organisation_role_ids.length} role${field.my_organisation_role_ids.length === 1 ? '' : 's'})`
-                                      : ''}
-                                  </span>
+                                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Org</span>
                                 )}
                                 {field.show_in_directory_card !== false && (
                                   <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Directory</span>
@@ -1136,91 +1107,17 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   Choose where this field should be displayed
                 </p>
                 <div className="space-y-2">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label htmlFor="showInMyOrg" className="cursor-pointer text-sm">My Organisation</Label>
-                        <p className="text-xs text-slate-400">Member's own organisation page</p>
-                      </div>
-                      <Switch
-                        id="showInMyOrg"
-                        checked={showInMyOrganisation}
-                        onCheckedChange={(checked) => {
-                          setShowInMyOrganisation(checked);
-                          if (!checked) setMyOrganisationRoleIds([]);
-                        }}
-                        data-testid="switch-show-my-org"
-                      />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMyOrg" className="cursor-pointer text-sm">My Organisation</Label>
+                      <p className="text-xs text-slate-400">Member's own organisation page</p>
                     </div>
-                    {showInMyOrganisation && (
-                      <div className="mt-2 ml-1 pl-3 border-l-2 border-slate-200 space-y-1.5">
-                        <Label className="text-xs text-slate-500">Visible to roles</Label>
-                        <Popover open={rolePickerOrgOpen} onOpenChange={setRolePickerOrgOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={rolePickerOrgOpen}
-                              className="justify-between font-normal w-full min-h-9"
-                              data-testid="select-my-org-roles"
-                            >
-                              <span className="truncate text-left flex-1 text-sm">
-                                {myOrganisationRoleIds.length === 0
-                                  ? 'All roles'
-                                  : `${myOrganisationRoleIds.length} role${myOrganisationRoleIds.length === 1 ? '' : 's'} selected`}
-                              </span>
-                              <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[250px] p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Search roles..." />
-                              <CommandList>
-                                <CommandEmpty>No roles found.</CommandEmpty>
-                                <CommandGroup className="max-h-[200px] overflow-auto">
-                                  {roles.map(role => (
-                                    <CommandItem
-                                      key={role.id}
-                                      value={role.name}
-                                      onSelect={() => {
-                                        setMyOrganisationRoleIds(prev =>
-                                          prev.includes(role.id)
-                                            ? prev.filter(id => id !== role.id)
-                                            : [...prev, role.id]
-                                        );
-                                      }}
-                                    >
-                                      <Check className={`mr-2 h-4 w-4 ${myOrganisationRoleIds.includes(role.id) ? 'opacity-100' : 'opacity-0'}`} />
-                                      {role.name}
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                            {myOrganisationRoleIds.length > 0 && (
-                              <div className="border-t p-2 flex items-center justify-between gap-2 flex-wrap">
-                                <p className="text-xs text-muted-foreground">
-                                  {myOrganisationRoleIds.map(id => roles.find(r => r.id === id)?.name).filter(Boolean).join(', ')}
-                                </p>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setMyOrganisationRoleIds([])}
-                                  data-testid="button-clear-org-roles"
-                                >
-                                  Clear
-                                </Button>
-                              </div>
-                            )}
-                          </PopoverContent>
-                        </Popover>
-                        <p className="text-xs text-slate-400">
-                          {myOrganisationRoleIds.length === 0
-                            ? 'Visible to all member roles'
-                            : 'Only members with selected roles will see this field'}
-                        </p>
-                      </div>
-                    )}
+                    <Switch
+                      id="showInMyOrg"
+                      checked={showInMyOrganisation}
+                      onCheckedChange={setShowInMyOrganisation}
+                      data-testid="switch-show-my-org"
+                    />
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
@@ -1257,91 +1154,17 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   Choose where this field should be displayed
                 </p>
                 <div className="space-y-2">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label htmlFor="showInMyPrefs" className="cursor-pointer text-sm">My Preferences</Label>
-                        <p className="text-xs text-slate-400">Member's own preferences page</p>
-                      </div>
-                      <Switch
-                        id="showInMyPrefs"
-                        checked={showInMyPreferences}
-                        onCheckedChange={(checked) => {
-                          setShowInMyPreferences(checked);
-                          if (!checked) setMyPreferencesRoleIds([]);
-                        }}
-                        data-testid="switch-show-my-prefs"
-                      />
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMyPrefs" className="cursor-pointer text-sm">My Preferences</Label>
+                      <p className="text-xs text-slate-400">Member's own preferences page</p>
                     </div>
-                    {showInMyPreferences && (
-                      <div className="mt-2 ml-1 pl-3 border-l-2 border-slate-200 space-y-1.5">
-                        <Label className="text-xs text-slate-500">Visible to roles</Label>
-                        <Popover open={rolePickerOpen} onOpenChange={setRolePickerOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={rolePickerOpen}
-                              className="justify-between font-normal w-full min-h-9"
-                              data-testid="select-my-prefs-roles"
-                            >
-                              <span className="truncate text-left flex-1 text-sm">
-                                {myPreferencesRoleIds.length === 0
-                                  ? 'All roles'
-                                  : `${myPreferencesRoleIds.length} role${myPreferencesRoleIds.length === 1 ? '' : 's'} selected`}
-                              </span>
-                              <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[250px] p-0" align="start">
-                            <Command>
-                              <CommandInput placeholder="Search roles..." />
-                              <CommandList>
-                                <CommandEmpty>No roles found.</CommandEmpty>
-                                <CommandGroup className="max-h-[200px] overflow-auto">
-                                  {roles.map(role => (
-                                    <CommandItem
-                                      key={role.id}
-                                      value={role.name}
-                                      onSelect={() => {
-                                        setMyPreferencesRoleIds(prev =>
-                                          prev.includes(role.id)
-                                            ? prev.filter(id => id !== role.id)
-                                            : [...prev, role.id]
-                                        );
-                                      }}
-                                    >
-                                      <Check className={`mr-2 h-4 w-4 ${myPreferencesRoleIds.includes(role.id) ? 'opacity-100' : 'opacity-0'}`} />
-                                      {role.name}
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                            {myPreferencesRoleIds.length > 0 && (
-                              <div className="border-t p-2 flex items-center justify-between gap-2 flex-wrap">
-                                <p className="text-xs text-muted-foreground">
-                                  {myPreferencesRoleIds.map(id => roles.find(r => r.id === id)?.name).filter(Boolean).join(', ')}
-                                </p>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setMyPreferencesRoleIds([])}
-                                  data-testid="button-clear-prefs-roles"
-                                >
-                                  Clear
-                                </Button>
-                              </div>
-                            )}
-                          </PopoverContent>
-                        </Popover>
-                        <p className="text-xs text-slate-400">
-                          {myPreferencesRoleIds.length === 0
-                            ? 'Visible to all member roles'
-                            : 'Only members with selected roles will see this field'}
-                        </p>
-                      </div>
-                    )}
+                    <Switch
+                      id="showInMyPrefs"
+                      checked={showInMyPreferences}
+                      onCheckedChange={setShowInMyPreferences}
+                      data-testid="switch-show-my-prefs"
+                    />
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
