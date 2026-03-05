@@ -81,7 +81,7 @@ Members are soft-deleted by changing their email to `deleted_<uuid>@deleted.loca
 
 # External Dependencies
 -   **Supabase:** PostgreSQL database and file storage.
--   **Stripe:** Payment processing, supporting per-feature test/live mode switching.
+-   **Stripe:** Payment processing, supporting per-feature test/live mode switching. Membership online card payment is controlled per-tier via `online_card_payment` on `membership_tier_config` (no global toggle).
 -   **Xero:** Invoice generation.
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).

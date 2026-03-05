@@ -67,16 +67,9 @@ export default async function handler(req, res) {
 
       let stripePublishableKey = null;
       try {
-        const { data: stripeSetting } = await supabase
-          .from('system_settings')
-          .select('setting_value')
-          .eq('setting_key', 'membership_stripe_enabled')
-          .eq('tenant_id', feeToken.tenant_id)
-          .maybeSingle();
-
-        const stripeSettingEnabled = stripeSetting?.setting_value === 'true';
-
-        if (stripeSettingEnabled) {
+        const { getConfigForOrganisation } = await import('../../_lib/membershipConfigResolver.js');
+        const tierConfig = await getConfigForOrganisation(feeToken.tenant_id, feeToken.organization_id);
+        if (tierConfig?.online_card_payment) {
           const { getStripeCredentials } = await import('../../_lib/stripeCredentials.js');
           const creds = await getStripeCredentials(feeToken.tenant_id, 'membership');
           if (creds?.is_enabled && creds?.publishable_key) {

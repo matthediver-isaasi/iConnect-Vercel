@@ -39,21 +39,8 @@ async function getMemberById(memberId) {
   return member;
 }
 
-async function getStripePublishableKey(tenantId, skipGlobalCheck = false) {
+async function getStripePublishableKey(tenantId) {
   try {
-    if (!skipGlobalCheck) {
-      const { data: stripeSetting } = await supabase
-        .from('system_settings')
-        .select('setting_value')
-        .eq('setting_key', 'membership_stripe_enabled')
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-
-      if (stripeSetting?.setting_value === 'false') {
-        return null;
-      }
-    }
-
     const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
     const creds = await getStripeCredentials(tenantId, 'membership');
     if (creds?.is_enabled && creds?.publishable_key) {
@@ -208,7 +195,7 @@ async function handleGet(req, res, resolvedTenantId) {
     .maybeSingle();
 
   const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
-  const stripePublishableKey = await getStripePublishableKey(tenantId, tierHasOnlineCardPayment);
+  const stripePublishableKey = tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
   const approvalInfo = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
   const { finalCost, currency, tierLabel, costBreakdown, vatRatePercent, vatAmount, totalWithVat } = buildCostResponse(existingRecord, simResult);
 

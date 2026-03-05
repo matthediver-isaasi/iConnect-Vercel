@@ -98,16 +98,7 @@ export default async function handler(req, res) {
       .eq('id', tenantId)
       .single();
 
-    let stripeEnabled = false;
-    try {
-      const { data: stripeSetting } = await supabase
-        .from('system_settings')
-        .select('setting_value')
-        .eq('setting_key', 'membership_stripe_enabled')
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-      stripeEnabled = stripeSetting?.setting_value === 'true';
-    } catch {}
+    const stripeEnabled = !!simResult.config?.online_card_payment;
 
 
     let toEmails = [];

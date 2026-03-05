@@ -3,7 +3,6 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 
 const SETTING_KEYS = [
   'membership_require_approval',
-  'membership_stripe_enabled',
   'membership_custom_message',
   'membership_cron_time',
   'membership_nominal_ledger',
@@ -41,7 +40,6 @@ export default async function handler(req, res) {
 
       return res.json({
         require_approval: settings.membership_require_approval === 'true',
-        stripe_enabled: settings.membership_stripe_enabled !== 'false',
         custom_message: settings.membership_custom_message && settings.membership_custom_message !== 'none' ? settings.membership_custom_message : '',
         cron_time: settings.membership_cron_time || '06:00',
         nominal_ledger: settings.membership_nominal_ledger || '',
@@ -49,7 +47,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT') {
-      const { require_approval, stripe_enabled, custom_message, cron_time, nominal_ledger } = req.body;
+      const { require_approval, custom_message, cron_time, nominal_ledger } = req.body;
 
       const validCronTime = /^\d{2}:00$/.test(cron_time) && parseInt(cron_time, 10) >= 0 && parseInt(cron_time, 10) <= 23
         ? cron_time
@@ -57,7 +55,6 @@ export default async function handler(req, res) {
 
       const updates = [
         { key: 'membership_require_approval', value: String(!!require_approval) },
-        { key: 'membership_stripe_enabled', value: String(stripe_enabled !== false) },
         { key: 'membership_custom_message', value: custom_message || 'none' },
         { key: 'membership_cron_time', value: validCronTime },
         { key: 'membership_nominal_ledger', value: nominal_ledger || '' },
@@ -84,7 +81,6 @@ export default async function handler(req, res) {
       return res.json({
         success: true,
         require_approval: require_approval === true,
-        stripe_enabled: stripe_enabled !== false,
         custom_message: custom_message || '',
         cron_time: validCronTime,
         nominal_ledger: nominal_ledger || '',

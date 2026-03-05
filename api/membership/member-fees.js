@@ -67,7 +67,8 @@ async function handleGetOrgScoped(req, res, member, tenantId, organizationId, se
     .single();
 
   const tenantBranding = await getTenantBranding(tenantId);
-  const stripePublishableKey = await getStripePublishableKey(tenantId);
+  const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
+  const stripePublishableKey = tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
 
   const { data: invoicingSetting } = await supabase
     .from('organisation_membership_invoicing')
@@ -131,7 +132,8 @@ async function handleGetMemberScoped(req, res, member, tenantId, sessionMember) 
 
   const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'Member';
   const tenantBranding = await getTenantBranding(tenantId);
-  const stripePublishableKey = await getStripePublishableKey(tenantId);
+  const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
+  const stripePublishableKey = tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
 
   const { data: invoicingSetting } = await supabase
     .from('member_membership_invoicing')
@@ -937,21 +939,10 @@ async function getTenantBranding(tenantId) {
 
 async function getStripePublishableKey(tenantId) {
   try {
-    const { data: stripeSetting } = await supabase
-      .from('system_settings')
-      .select('setting_value')
-      .eq('setting_key', 'membership_stripe_enabled')
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    const stripeSettingEnabled = stripeSetting?.setting_value !== 'false';
-
-    if (stripeSettingEnabled) {
-      const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
-      const creds = await getStripeCredentials(tenantId, 'membership');
-      if (creds?.is_enabled && creds?.publishable_key) {
-        return creds.publishable_key;
-      }
+    const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
+    const creds = await getStripeCredentials(tenantId, 'membership');
+    if (creds?.is_enabled && creds?.publishable_key) {
+      return creds.publishable_key;
     }
   } catch {}
   return null;

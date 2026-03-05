@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings, Save, Loader2, ShieldCheck, CreditCard, MessageSquare, Clock, BookOpen } from "lucide-react";
+import { Settings, Save, Loader2, ShieldCheck, MessageSquare, Clock, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -17,7 +17,6 @@ export default function MembershipSettings() {
   const [accessChecked, setAccessChecked] = useState(false);
 
   const [requireApproval, setRequireApproval] = useState(false);
-  const [stripeEnabled, setStripeEnabled] = useState(true);
   const [customMessage, setCustomMessage] = useState('');
   const [cronTime, setCronTime] = useState('06:00');
   const [nominalLedger, setNominalLedger] = useState('');
@@ -36,7 +35,6 @@ export default function MembershipSettings() {
       .then(res => res.json())
       .then(data => {
         setRequireApproval(data.require_approval || false);
-        setStripeEnabled(data.stripe_enabled !== false);
         setCustomMessage(data.custom_message || '');
         setCronTime(data.cron_time || '06:00');
         setNominalLedger(data.nominal_ledger || '');
@@ -56,7 +54,6 @@ export default function MembershipSettings() {
         credentials: 'include',
         body: JSON.stringify({
           require_approval: requireApproval,
-          stripe_enabled: stripeEnabled,
           custom_message: customMessage,
           cron_time: cronTime,
           nominal_ledger: nominalLedger,
@@ -124,31 +121,6 @@ export default function MembershipSettings() {
               Approval workflow active
             </Badge>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <CreditCard className="w-4 h-4" />
-            Online Payments
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <Label className="text-sm font-medium">Enable Stripe payments for membership fees</Label>
-              <p className="text-xs text-muted-foreground">
-                When enabled, members and external contacts can pay membership fees online via card payment.
-                Stripe must be configured separately in your account.
-              </p>
-            </div>
-            <Switch
-              checked={stripeEnabled}
-              onCheckedChange={setStripeEnabled}
-              data-testid="switch-stripe-enabled"
-            />
-          </div>
         </CardContent>
       </Card>
 

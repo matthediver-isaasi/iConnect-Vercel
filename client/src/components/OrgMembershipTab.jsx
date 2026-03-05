@@ -706,7 +706,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
     queryKey: ['membership-settings'],
     queryFn: async () => {
       const response = await fetch('/api/membership/membership-settings', { credentials: 'include' });
-      if (!response.ok) return { require_approval: false, stripe_enabled: true, custom_message: '' };
+      if (!response.ok) return { require_approval: false, custom_message: '' };
       return response.json();
     },
   });
