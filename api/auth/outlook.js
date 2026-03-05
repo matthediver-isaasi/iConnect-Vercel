@@ -107,7 +107,7 @@ export default async function handler(req, res) {
     authUrl.searchParams.set('scope', MICROSOFT_SCOPES);
     authUrl.searchParams.set('response_mode', 'query');
     authUrl.searchParams.set('state', signedState);
-    authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('prompt', 'select_account');
 
     console.log('[Outlook OAuth] Initiating auth for identity:', identityId);
     res.redirect(authUrl.toString());
