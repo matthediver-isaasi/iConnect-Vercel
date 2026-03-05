@@ -1,7 +1,7 @@
 import { supabase } from './database.js';
 import { evaluateDiscountsForOrg, applyDiscountsToAnnualCost } from './discountHelper.js';
 import { evaluateVatOverrideForOrg } from './vatOverrideHelper.js';
-import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs } from './membershipConfigResolver.js';
+import { getConfigForOrganisation, getConfigForMember, getAllActiveConfigs, getConfigByIdDirect } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 
 export async function simulateMembershipForOrg(tenantId, organizationId, options = {}) {
@@ -11,6 +11,8 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     workflowName = null,
     verbose = false,
     targetYear = null,
+    fieldOverrides = {},
+    configId: explicitConfigId = null,
   } = options;
 
   const steps = [];
@@ -52,7 +54,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   const currentMode = invoicingSettings?.invoicing_mode || 'manual';
   log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}${invoicingSettings?.membership_year ? ` (for ${invoicingSettings.membership_year})` : ''}`);
 
-  const config = await getConfigForOrganisation(tenantId, organizationId);
+  const config = explicitConfigId
+    ? await getConfigByIdDirect(tenantId, explicitConfigId)
+    : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides);
   if (!config) {
     const allActive = await getAllActiveConfigs(tenantId);
     const scopedCount = allActive.filter(c => c.structure_field_id && c.structure_match_value).length;
@@ -65,7 +69,9 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   }
   log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'}`);
 
-  if (config.structure_field_id && config.structure_match_value) {
+  if (explicitConfigId) {
+    log('Config Resolution', `Using explicitly selected config ID: ${explicitConfigId} (name: "${config.name || 'Default'}")`);
+  } else if (config.structure_field_id && config.structure_match_value) {
     let structureFieldLabel = config.structure_field_id;
     try {
       const { data: fieldDef } = await supabase
@@ -76,18 +82,21 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
       if (fieldDef) structureFieldLabel = fieldDef.label || fieldDef.name || config.structure_field_id;
     } catch {}
 
-    let orgFieldValueRaw = null;
-    try {
-      const { data: pv } = await supabase
-        .from('organization_preference_value')
-        .select('value')
-        .eq('organization_id', organizationId)
-        .eq('field_id', config.structure_field_id)
-        .maybeSingle();
-      orgFieldValueRaw = pv?.value || null;
-    } catch {}
+    const hasOverride = config.structure_field_id in fieldOverrides;
+    let orgFieldValueRaw = hasOverride ? fieldOverrides[config.structure_field_id] : null;
+    if (!hasOverride) {
+      try {
+        const { data: pv } = await supabase
+          .from('organization_preference_value')
+          .select('value')
+          .eq('organization_id', organizationId)
+          .eq('field_id', config.structure_field_id)
+          .maybeSingle();
+        orgFieldValueRaw = pv?.value || null;
+      } catch {}
+    }
 
-    log('Config Resolution', `Scoped config matched — field "${structureFieldLabel}" = "${config.structure_match_value}" (organisation value: "${orgFieldValueRaw || 'N/A'}")`);
+    log('Config Resolution', `Scoped config matched — field "${structureFieldLabel}" = "${config.structure_match_value}" (organisation value: "${orgFieldValueRaw || 'N/A'}"${hasOverride ? ' [from form override]' : ''})`);
   } else {
     log('Config Resolution', 'Using default (unscoped) tier configuration — no structure scope defined');
   }
@@ -159,7 +168,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     const bands = await getBandsForConfig(config.id, tenantId);
     log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
 
-    fieldValue = await getOrgFieldValue(organizationId, tenantId, config);
+    fieldValue = await getOrgFieldValue(organizationId, tenantId, config, fieldOverrides);
     const fieldLabel = config.field_source === 'core' && config.field_name === 'member_count'
       ? 'Member Count' : (config.field_name || 'Value');
     log('Get Organisation Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
@@ -177,7 +186,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
     usedBandId = matchedBand.id;
   }
 
-  const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId);
+  const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId, fieldOverrides);
   if (discountResult.discountDetails.length > 0) {
     const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
     customDiscountTotal = applied.totalDiscount;
@@ -249,7 +258,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
           usedConfigId = overrideConfig.id;
           usedBandId = overrideBand.id;
 
-          const overrideDiscountResult = await evaluateDiscountsForOrg(overrideConfig.id, tenantId, organizationId);
+          const overrideDiscountResult = await evaluateDiscountsForOrg(overrideConfig.id, tenantId, organizationId, fieldOverrides);
           if (overrideDiscountResult.discountDetails.length > 0) {
             const overrideApplied2 = applyDiscountsToAnnualCost(annualCost, overrideDiscountResult.discountDetails);
             customDiscountTotal = overrideApplied2.totalDiscount;
@@ -849,10 +858,15 @@ async function getOrgGoLiveDate(orgId, goLiveFieldId) {
   }
 }
 
-async function getOrgFieldValue(orgId, tenantId, config) {
+async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}) {
   if (!config) return null;
 
   if (config.field_source === 'core' && config.field_name === 'member_count') {
+    const coreKey = `core:${config.field_name}`;
+    if (coreKey in fieldOverrides) {
+      const num = parseFloat(fieldOverrides[coreKey]);
+      return isNaN(num) ? null : num;
+    }
     const { data: members } = await supabase
       .from('member')
       .select('id')
@@ -862,6 +876,10 @@ async function getOrgFieldValue(orgId, tenantId, config) {
   }
 
   if (config.field_id) {
+    if (config.field_id in fieldOverrides) {
+      const num = parseFloat(fieldOverrides[config.field_id]);
+      return isNaN(num) ? null : num;
+    }
     const { data: pv } = await supabase
       .from('organization_preference_value')
       .select('value')
@@ -905,10 +923,15 @@ async function getMemberGoLiveDate(memberId, tenantId) {
   }
 }
 
-async function getMemberFieldValue(memberId, tenantId, config) {
+async function getMemberFieldValue(memberId, tenantId, config, fieldOverrides = {}) {
   if (!config) return null;
 
   if (config.field_source === 'core' && config.field_name) {
+    const coreKey = `core:${config.field_name}`;
+    if (coreKey in fieldOverrides) {
+      const num = parseFloat(fieldOverrides[coreKey]);
+      return isNaN(num) ? null : num;
+    }
     const coreFieldName = config.field_name;
     const { data: member } = await supabase
       .from('member')
@@ -924,6 +947,10 @@ async function getMemberFieldValue(memberId, tenantId, config) {
   }
 
   if (config.field_id) {
+    if (config.field_id in fieldOverrides) {
+      const num = parseFloat(fieldOverrides[config.field_id]);
+      return isNaN(num) ? null : num;
+    }
     const { data: pv } = await supabase
       .from('member_preference_value')
       .select('value')
@@ -946,6 +973,8 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     workflowName = null,
     verbose = false,
     targetYear = null,
+    fieldOverrides = {},
+    configId: explicitConfigId = null,
   } = options;
 
   const steps = [];
@@ -988,7 +1017,9 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   const currentMode = invoicingSettings?.invoicing_mode || 'manual';
   log('Check Invoicing Settings', `Saved mode: "${currentMode}"${invoicingSettings?.invoice_date ? `, scheduled date: ${invoicingSettings.invoice_date}` : ''}${invoicingSettings?.membership_year ? ` (for ${invoicingSettings.membership_year})` : ''}`);
 
-  const config = await getConfigForMember(tenantId, memberId);
+  const config = explicitConfigId
+    ? await getConfigByIdDirect(tenantId, explicitConfigId)
+    : await getConfigForMember(tenantId, memberId, fieldOverrides);
   if (!config) {
     const allActive = await getAllActiveConfigs(tenantId);
     const memberConfigs = allActive.filter(c => c.structure_scope_type === 'member');
@@ -1001,7 +1032,9 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
   }
   log('Fetch Tier Config', `Active config: "${config.name || 'Default'}", pricing: ${config.pricing_model || 'banded'}, currency: ${config.currency || 'GBP'}, start: month ${config.membership_start_month || 1} day ${config.membership_start_day || 1}, incentive: ${config.free_period_amount ? `${config.free_period_amount} ${config.free_period_unit}` : 'none'}, rollover: ${config.rollover_enabled ? 'yes' : 'no'}`);
 
-  if (config.structure_field_id && config.structure_match_value) {
+  if (explicitConfigId) {
+    log('Config Resolution', `Using explicitly selected config ID: ${explicitConfigId} (name: "${config.name || 'Default'}")`);
+  } else if (config.structure_field_id && config.structure_match_value) {
     let structureFieldLabel = config.structure_field_id;
     try {
       if (config.structure_field_id.startsWith('core:')) {
@@ -1015,7 +1048,8 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
         if (fieldDef) structureFieldLabel = fieldDef.label || fieldDef.name || config.structure_field_id;
       }
     } catch {}
-    log('Config Resolution', `Scoped config matched — field "${structureFieldLabel}" = "${config.structure_match_value}"`);
+    const hasOverride = config.structure_field_id in fieldOverrides;
+    log('Config Resolution', `Scoped config matched — field "${structureFieldLabel}" = "${config.structure_match_value}"${hasOverride ? ' [from form override]' : ''}`);
   } else {
     log('Config Resolution', 'Using default (unscoped) member tier configuration — no structure scope defined');
   }
@@ -1079,7 +1113,7 @@ export async function simulateMembershipForMember(tenantId, memberId, options = 
     const bands = await getBandsForConfig(config.id, tenantId);
     log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
 
-    fieldValue = await getMemberFieldValue(memberId, tenantId, config);
+    fieldValue = await getMemberFieldValue(memberId, tenantId, config, fieldOverrides);
     const fieldLabel = config.field_name || 'Value';
     log('Get Member Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
 

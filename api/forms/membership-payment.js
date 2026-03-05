@@ -174,9 +174,19 @@ async function handleGet(req, res, resolvedTenantId) {
   const organizationId = member.organization_id;
   const isMemberScoped = !organizationId;
 
+  let fieldOverrides = {};
+  let explicitConfigId = null;
+  try {
+    if (req.query.fieldOverrides) fieldOverrides = JSON.parse(req.query.fieldOverrides);
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid fieldOverrides parameter' });
+  }
+  if (req.query.configId) explicitConfigId = req.query.configId;
+
+  const simOptions = { source: 'form-payment', mode: 'manual', fieldOverrides, configId: explicitConfigId };
   const simResult = isMemberScoped
-    ? await simulateMembershipForMember(tenantId, member.id, { source: 'form-payment', mode: 'manual' })
-    : await simulateMembershipForOrg(tenantId, organizationId, { source: 'form-payment', mode: 'manual' });
+    ? await simulateMembershipForMember(tenantId, member.id, simOptions)
+    : await simulateMembershipForOrg(tenantId, organizationId, simOptions);
 
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
@@ -256,10 +266,22 @@ async function handlePost(req, res, resolvedTenantId) {
   const organizationId = member.organization_id;
   const isMemberScoped = !organizationId;
 
+  let fieldOverrides = {};
+  let explicitConfigId = null;
+  try {
+    if (req.body.fieldOverrides) {
+      fieldOverrides = typeof req.body.fieldOverrides === 'string' ? JSON.parse(req.body.fieldOverrides) : req.body.fieldOverrides;
+    }
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid fieldOverrides parameter' });
+  }
+  if (req.body.configId) explicitConfigId = req.body.configId;
+
   if (action === 'create_payment') {
+    const simOptions = { source: 'form-payment-create', mode: 'manual', fieldOverrides, configId: explicitConfigId };
     const simResult = isMemberScoped
-      ? await simulateMembershipForMember(tenantId, member.id, { source: 'form-payment-create', mode: 'manual' })
-      : await simulateMembershipForOrg(tenantId, organizationId, { source: 'form-payment-create', mode: 'manual' });
+      ? await simulateMembershipForMember(tenantId, member.id, simOptions)
+      : await simulateMembershipForOrg(tenantId, organizationId, simOptions);
 
     if (!simResult.success) {
       return res.status(400).json({ error: simResult.error || 'Could not calculate fees' });
@@ -384,9 +406,10 @@ async function handlePost(req, res, resolvedTenantId) {
 
     const targetYear = confirmYear || paymentIntent.metadata?.membership_year;
 
+    const confirmSimOptions = { source: 'form-payment-confirm', mode: 'manual', targetYear, fieldOverrides, configId: explicitConfigId };
     const simResult = isMemberScoped
-      ? await simulateMembershipForMember(tenantId, member.id, { source: 'form-payment-confirm', mode: 'manual', targetYear })
-      : await simulateMembershipForOrg(tenantId, organizationId, { source: 'form-payment-confirm', mode: 'manual', targetYear });
+      ? await simulateMembershipForMember(tenantId, member.id, confirmSimOptions)
+      : await simulateMembershipForOrg(tenantId, organizationId, confirmSimOptions);
 
     if (!simResult.success) {
       console.error('[FormPayment] Simulation failed during confirm:', simResult.error);

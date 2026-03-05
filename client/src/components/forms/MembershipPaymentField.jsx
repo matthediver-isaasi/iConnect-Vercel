@@ -42,11 +42,44 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
   const redirectHandled = useRef(false);
+  const prevOverridesRef = useRef('');
 
   const memberId = useMemo(() => {
     if (typeof window === 'undefined') return null;
     return new URLSearchParams(window.location.search).get('member_id');
   }, []);
+
+  const buildFieldOverrides = () => {
+    const mappings = field.field_mappings;
+    if (!mappings || typeof mappings !== 'object') return {};
+    const overrides = {};
+    for (const [dbFieldId, formFieldId] of Object.entries(mappings)) {
+      if (formFieldId && allFormValues[formFieldId] !== undefined && allFormValues[formFieldId] !== null && allFormValues[formFieldId] !== '') {
+        overrides[dbFieldId] = allFormValues[formFieldId];
+      }
+    }
+    return overrides;
+  };
+
+  const buildOverrideParams = () => {
+    const overrides = buildFieldOverrides();
+    const params = [];
+    if (Object.keys(overrides).length > 0) {
+      params.push(`fieldOverrides=${encodeURIComponent(JSON.stringify(overrides))}`);
+    }
+    if (field.membership_config_id) {
+      params.push(`configId=${encodeURIComponent(field.membership_config_id)}`);
+    }
+    return params.length > 0 ? '&' + params.join('&') : '';
+  };
+
+  const getOverrideBody = () => {
+    const overrides = buildFieldOverrides();
+    const body = {};
+    if (Object.keys(overrides).length > 0) body.fieldOverrides = overrides;
+    if (field.membership_config_id) body.configId = field.membership_config_id;
+    return body;
+  };
 
   useEffect(() => {
     if (!memberId) {
@@ -56,10 +89,24 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     fetchFees();
   }, [memberId]);
 
+  useEffect(() => {
+    if (!memberId || loading || paymentComplete || paymentMode) return;
+    const mappings = field.field_mappings;
+    if (!mappings || Object.keys(mappings).length === 0) return;
+    const overrides = buildFieldOverrides();
+    const overridesKey = JSON.stringify(overrides);
+    if (overridesKey === prevOverridesRef.current) return;
+    prevOverridesRef.current = overridesKey;
+    const timer = setTimeout(() => fetchFees(), 500);
+    return () => clearTimeout(timer);
+  }, [allFormValues, field.field_mappings, memberId, loading, paymentComplete, paymentMode]);
+
   const fetchFees = () => {
     setLoading(true);
     setError(null);
-    fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}`, { credentials: 'include' })
+    const overrideStr = buildOverrideParams();
+    prevOverridesRef.current = JSON.stringify(buildFieldOverrides());
+    fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}`, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -117,6 +164,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         savedInvoiceAddress = normalizeAddress(JSON.parse(savedInvoiceAddress));
       } catch (e) {}
     }
+    let savedOverrides = {};
+    try {
+      const raw = sessionStorage.getItem('pending_form_membership_field_overrides');
+      if (raw) savedOverrides = JSON.parse(raw);
+    } catch {}
     const completePayment = async () => {
       setProcessingPayment(true);
       try {
@@ -130,6 +182,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             paymentIntentId: paymentIntentFromUrl,
             membershipYear: savedYear,
             ...(savedInvoiceAddress ? { invoice_address: savedInvoiceAddress } : {}),
+            ...savedOverrides,
           }),
         });
         if (!confirmRes.ok) {
@@ -138,6 +191,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         }
         sessionStorage.removeItem('pending_form_membership_payment_year');
         sessionStorage.removeItem('pending_form_membership_invoice_address');
+        sessionStorage.removeItem('pending_form_membership_field_overrides');
         setPaymentComplete(true);
         if (onChange) {
           onChange({
@@ -171,6 +225,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     setPaymentError(null);
 
     try {
+      const overrideBody = getOverrideBody();
       const res = await fetch('/api/forms/membership-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -178,6 +233,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         body: JSON.stringify({
           action: 'create_payment',
           memberId,
+          ...overrideBody,
         }),
       });
       if (!res.ok) {
@@ -194,6 +250,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         sessionStorage.setItem('pending_form_membership_invoice_address',
           typeof formInvoiceAddr === 'object' ? JSON.stringify(formInvoiceAddr) : formInvoiceAddr
         );
+      }
+      if (Object.keys(overrideBody).length > 0) {
+        sessionStorage.setItem('pending_form_membership_field_overrides', JSON.stringify(overrideBody));
       }
 
       if (!window.Stripe) {
@@ -255,7 +314,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
       if (paymentIntent?.status === 'succeeded') {
         sessionStorage.removeItem('pending_form_membership_payment_year');
+        sessionStorage.removeItem('pending_form_membership_field_overrides');
 
+        const confirmOverrides = getOverrideBody();
         const confirmRes = await fetch('/api/forms/membership-payment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -268,6 +329,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             ...(field.invoice_address_field_id && allFormValues[field.invoice_address_field_id]
               ? { invoice_address: normalizeAddress(allFormValues[field.invoice_address_field_id]) }
               : {}),
+            ...confirmOverrides,
           }),
         });
 

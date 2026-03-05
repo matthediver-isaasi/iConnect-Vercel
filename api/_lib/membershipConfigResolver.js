@@ -15,7 +15,7 @@ export async function getAllActiveConfigs(tenantId) {
   return data || [];
 }
 
-export async function getConfigForOrganisation(tenantId, organisationId) {
+export async function getConfigForOrganisation(tenantId, organisationId, fieldOverrides = {}) {
   const allConfigs = await getAllActiveConfigs(tenantId);
   if (!allConfigs || allConfigs.length === 0) return null;
 
@@ -31,16 +31,25 @@ export async function getConfigForOrganisation(tenantId, organisationId) {
 
   const fieldIds = [...new Set(scoped.map(c => c.structure_field_id))];
 
-  const { data: prefValues } = await supabase
-    .from('organization_preference_value')
-    .select('field_id, value')
-    .eq('organization_id', organisationId)
-    .in('field_id', fieldIds);
-
   const orgFieldMap = {};
-  (prefValues || []).forEach(pv => {
-    orgFieldMap[pv.field_id] = (pv.value || '').toString().toLowerCase().trim();
+  Object.entries(fieldOverrides).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) {
+      orgFieldMap[k] = String(v).toLowerCase().trim();
+    }
   });
+
+  const dbFieldIds = fieldIds.filter(id => !(id in fieldOverrides));
+  if (dbFieldIds.length > 0) {
+    const { data: prefValues } = await supabase
+      .from('organization_preference_value')
+      .select('field_id, value')
+      .eq('organization_id', organisationId)
+      .in('field_id', dbFieldIds);
+
+    (prefValues || []).forEach(pv => {
+      orgFieldMap[pv.field_id] = (pv.value || '').toString().toLowerCase().trim();
+    });
+  }
 
   for (const cfg of scoped) {
     const orgVal = orgFieldMap[cfg.structure_field_id] || '';
@@ -53,7 +62,17 @@ export async function getConfigForOrganisation(tenantId, organisationId) {
   return unscoped[0] || null;
 }
 
-export async function getConfigForMember(tenantId, memberId) {
+export async function getConfigByIdDirect(tenantId, configId) {
+  const { data } = await supabase
+    .from('membership_tier_config')
+    .select('*')
+    .eq('id', configId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  return data;
+}
+
+export async function getConfigForMember(tenantId, memberId, fieldOverrides = {}) {
   const allConfigs = await getAllActiveConfigs(tenantId);
   if (!allConfigs || allConfigs.length === 0) return null;
 
@@ -76,9 +95,15 @@ export async function getConfigForMember(tenantId, memberId) {
     .map(c => c.structure_field_id);
 
   const memberFieldMap = {};
+  Object.entries(fieldOverrides).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) {
+      memberFieldMap[k] = String(v).toLowerCase().trim();
+    }
+  });
 
-  if (coreFieldIds.length > 0) {
-    const selectCols = ['id', ...coreFieldIds].join(', ');
+  const unresolvedCoreFields = coreFieldIds.filter(col => !(`core:${col}` in fieldOverrides));
+  if (unresolvedCoreFields.length > 0) {
+    const selectCols = ['id', ...unresolvedCoreFields].join(', ');
     const { data: member } = await supabase
       .from('member')
       .select(selectCols)
@@ -87,18 +112,19 @@ export async function getConfigForMember(tenantId, memberId) {
       .maybeSingle();
 
     if (member) {
-      for (const col of coreFieldIds) {
+      for (const col of unresolvedCoreFields) {
         memberFieldMap[`core:${col}`] = (member[col] || '').toString().toLowerCase().trim();
       }
     }
   }
 
-  if (customFieldIds.length > 0) {
+  const unresolvedCustomIds = customFieldIds.filter(id => !(id in fieldOverrides));
+  if (unresolvedCustomIds.length > 0) {
     const { data: prefValues } = await supabase
       .from('member_preference_value')
       .select('field_id, value')
       .eq('member_id', memberId)
-      .in('field_id', customFieldIds);
+      .in('field_id', unresolvedCustomIds);
 
     (prefValues || []).forEach(pv => {
       memberFieldMap[pv.field_id] = (pv.value || '').toString().toLowerCase().trim();

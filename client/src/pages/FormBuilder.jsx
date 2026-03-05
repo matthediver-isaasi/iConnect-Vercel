@@ -2231,6 +2231,161 @@ function EmailCard({
   );
 }
 
+function MembershipPaymentSettings({ field, originalIndex, allFields, updateField }) {
+  const [tierConfigs, setTierConfigs] = useState([]);
+  const [requiredFields, setRequiredFields] = useState([]);
+  const [loadingFields, setLoadingFields] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/membership/tiers', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.activeConfigs) {
+          setTierConfigs(data.activeConfigs);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const configId = field.membership_config_id;
+    if (!configId) {
+      setRequiredFields([]);
+      return;
+    }
+    setLoadingFields(true);
+    fetch(`/api/membership/tier-required-fields?configId=${encodeURIComponent(configId)}`, { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.requiredFields) {
+          setRequiredFields(data.requiredFields);
+        } else {
+          setRequiredFields([]);
+        }
+      })
+      .catch(() => setRequiredFields([]))
+      .finally(() => setLoadingFields(false));
+  }, [field.membership_config_id]);
+
+  const fieldMappings = field.field_mappings || {};
+
+  const updateMapping = (dbFieldId, formFieldId) => {
+    const newMappings = { ...fieldMappings };
+    if (formFieldId === '_none') {
+      delete newMappings[dbFieldId];
+    } else {
+      newMappings[dbFieldId] = formFieldId;
+    }
+    updateField(originalIndex, { field_mappings: newMappings });
+  };
+
+  const mappableFormFields = allFields.filter(f => f.id !== field.id && f.type !== 'membership_payment' && f.type !== 'instructions');
+
+  return (
+    <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+      <Label className="text-xs font-medium">Membership Payment Settings</Label>
+
+      <div className="space-y-2">
+        <Label htmlFor={`membership-schedule-${field.id}`} className="text-xs">Membership Schedule</Label>
+        <p className="text-xs text-slate-500">
+          Select which membership schedule to use for fee calculation. Required to enable field mapping.
+        </p>
+        <Select
+          value={field.membership_config_id || '_auto'}
+          onValueChange={(val) => {
+            const newConfigId = val === '_auto' ? null : val;
+            const updates = { membership_config_id: newConfigId };
+            if (!newConfigId) updates.field_mappings = {};
+            updateField(originalIndex, updates);
+          }}
+        >
+          <SelectTrigger id={`membership-schedule-${field.id}`} data-testid={`select-membership-schedule-${field.id}`}>
+            <SelectValue placeholder="Auto-detect" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_auto">Auto-detect (from member/org data)</SelectItem>
+            {tierConfigs.map(cfg => (
+              <SelectItem key={cfg.id} value={cfg.id}>
+                {cfg.name || 'Unnamed'} ({cfg.structure_scope_type || 'organization'})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {field.membership_config_id && requiredFields.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">Field Mappings</Label>
+          <p className="text-xs text-slate-500">
+            Map database fields used in fee calculation to form fields. This ensures the fee is calculated correctly using values from this form before they are saved to the database.
+          </p>
+          {loadingFields ? (
+            <p className="text-xs text-slate-400">Loading required fields...</p>
+          ) : (
+            <div className="space-y-2">
+              {requiredFields.map(rf => (
+                <div key={`${rf.field_id}-${rf.usage}`} className="space-y-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Label className="text-xs">{rf.field_label}</Label>
+                    <span className="text-xs text-slate-400">
+                      ({rf.usage === 'structure' ? 'tier selection' : rf.usage === 'band' ? 'pricing band' : 'discount'})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">{rf.usage_detail}</p>
+                  <Select
+                    value={fieldMappings[rf.field_id] || '_none'}
+                    onValueChange={(val) => updateMapping(rf.field_id, val)}
+                  >
+                    <SelectTrigger data-testid={`select-field-mapping-${rf.field_id}-${field.id}`}>
+                      <SelectValue placeholder="Not mapped (use database value)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Not mapped (use database value)</SelectItem>
+                      {mappableFormFields.map(f => (
+                        <SelectItem key={f.id} value={f.id}>{f.label || 'Untitled Field'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {field.membership_config_id && !loadingFields && requiredFields.length === 0 && (
+        <p className="text-xs text-slate-400">
+          This schedule uses flat-rate pricing with no field-driven configuration. No mappings needed.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor={`invoice-address-field-${field.id}`} className="text-xs">Invoice Address Field</Label>
+        <p className="text-xs text-slate-500">
+          Select a form field to use as the invoice address. This is needed when the address is collected on the same form as the payment, since the form hasn't been submitted yet when the invoice is created.
+        </p>
+        <Select
+          value={field.invoice_address_field_id || '_none'}
+          onValueChange={(val) => updateField(originalIndex, { invoice_address_field_id: val === '_none' ? null : val })}
+        >
+          <SelectTrigger id={`invoice-address-field-${field.id}`} data-testid={`select-invoice-address-field-${field.id}`}>
+            <SelectValue placeholder="None (use membership schedule setting)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_none">None (use membership schedule setting)</SelectItem>
+            {allFields
+              .filter(f => f.id !== field.id && ['text', 'textarea', 'address'].includes(f.type))
+              .map(f => (
+                <SelectItem key={f.id} value={f.id}>{f.label || 'Untitled Field'}</SelectItem>
+              ))
+            }
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -3244,32 +3399,12 @@ function FieldCard({
               )}
 
               {field.type === 'membership_payment' && (
-                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                  <Label className="text-xs font-medium">Membership Payment Settings</Label>
-                  <div className="space-y-2">
-                    <Label htmlFor={`invoice-address-field-${field.id}`} className="text-xs">Invoice Address Field</Label>
-                    <p className="text-xs text-slate-500">
-                      Select a form field to use as the invoice address. This is needed when the address is collected on the same form as the payment, since the form hasn't been submitted yet when the invoice is created.
-                    </p>
-                    <Select
-                      value={field.invoice_address_field_id || '_none'}
-                      onValueChange={(val) => updateField(originalIndex, { invoice_address_field_id: val === '_none' ? null : val })}
-                    >
-                      <SelectTrigger id={`invoice-address-field-${field.id}`} data-testid={`select-invoice-address-field-${field.id}`}>
-                        <SelectValue placeholder="None (use membership schedule setting)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">None (use membership schedule setting)</SelectItem>
-                        {allFields
-                          .filter(f => f.id !== field.id && ['text', 'textarea', 'address'].includes(f.type))
-                          .map(f => (
-                            <SelectItem key={f.id} value={f.id}>{f.label || 'Untitled Field'}</SelectItem>
-                          ))
-                        }
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <MembershipPaymentSettings
+                  field={field}
+                  originalIndex={originalIndex}
+                  allFields={allFields}
+                  updateField={updateField}
+                />
               )}
 
               {/* Instructions Content - Rich text editor for display-only content */}

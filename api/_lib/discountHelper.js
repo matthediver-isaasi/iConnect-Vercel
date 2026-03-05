@@ -1,6 +1,6 @@
 import { supabase } from './database.js';
 
-export async function evaluateDiscountsForOrg(configId, tenantId, organizationId) {
+export async function evaluateDiscountsForOrg(configId, tenantId, organizationId, fieldOverrides = {}) {
   const result = {
     totalDiscount: 0,
     discountDetails: [],
@@ -25,21 +25,30 @@ export async function evaluateDiscountsForOrg(configId, tenantId, organizationId
     const fieldIds = [...new Set(discountRules.map(d => d.field_id).filter(Boolean))];
     if (fieldIds.length === 0) return result;
 
-    const { data: orgValues, error: valuesError } = await supabase
-      .from('organization_preference_value')
-      .select('field_id, value')
-      .eq('organization_id', organizationId)
-      .in('field_id', fieldIds);
-
-    if (valuesError) {
-      console.error('[DiscountHelper] Error fetching org field values:', valuesError);
-      return result;
-    }
-
     const valueMap = {};
-    (orgValues || []).forEach(v => {
-      valueMap[v.field_id] = v.value;
+    Object.entries(fieldOverrides).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && fieldIds.includes(k)) {
+        valueMap[k] = v;
+      }
     });
+
+    const dbFieldIds = fieldIds.filter(id => !(id in valueMap));
+    if (dbFieldIds.length > 0) {
+      const { data: orgValues, error: valuesError } = await supabase
+        .from('organization_preference_value')
+        .select('field_id, value')
+        .eq('organization_id', organizationId)
+        .in('field_id', dbFieldIds);
+
+      if (valuesError) {
+        console.error('[DiscountHelper] Error fetching org field values:', valuesError);
+        return result;
+      }
+
+      (orgValues || []).forEach(v => {
+        valueMap[v.field_id] = v.value;
+      });
+    }
 
     for (const rule of discountRules) {
       const orgFieldValue = valueMap[rule.field_id];
