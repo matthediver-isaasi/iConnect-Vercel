@@ -1144,14 +1144,13 @@ export default function MembershipTierManagement() {
           </div>
         )}
 
-        {config.structure_scope_type === 'member' && (
-          <div className="border-t pt-4 mt-2 space-y-4">
-            <h3 className="text-sm font-medium mb-3">Member Payment Settings</h3>
+        <div className="border-t pt-4 mt-2 space-y-4">
+            <h3 className="text-sm font-medium mb-3">Payment Settings</h3>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <Label>Auto-approve fees</Label>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Automatically approve membership fees when a member matching this scope is created, allowing immediate payment without admin review.
+                  Automatically approve membership fees when {config.structure_scope_type === 'member' ? 'a member' : 'an organisation'} matching this scope is created, allowing immediate payment without admin review.
                 </p>
               </div>
               <Switch
@@ -1165,7 +1164,7 @@ export default function MembershipTierManagement() {
               <div>
                 <Label>Online card payment</Label>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Members pay by card online. Hides renewal scheduling and purchase order controls in the admin view.
+                  {config.structure_scope_type === 'member' ? 'Members pay' : 'Organisations pay'} by card online. Hides renewal scheduling and purchase order controls in the admin view.
                 </p>
               </div>
               <Switch
@@ -1176,7 +1175,6 @@ export default function MembershipTierManagement() {
               />
             </div>
           </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -2225,9 +2223,7 @@ export default function MembershipTierManagement() {
                 )}
               </>
             )}
-            {config.structure_scope_type === 'member' && (
-              <>
-                <div className="flex justify-between gap-2">
+            <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground">Auto-approve fees</span>
                   <span className="font-medium" data-testid="text-summary-auto-approve">{config.auto_approve_fees ? 'Enabled' : 'Disabled'}</span>
                 </div>
@@ -2235,8 +2231,6 @@ export default function MembershipTierManagement() {
                   <span className="text-muted-foreground">Online card payment</span>
                   <span className="font-medium" data-testid="text-summary-online-card-payment">{config.online_card_payment ? 'Enabled' : 'Disabled'}</span>
                 </div>
-              </>
-            )}
           </>
         ))}
 

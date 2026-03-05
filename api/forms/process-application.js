@@ -1334,8 +1334,8 @@ export default async function handler(req, res) {
       }
     }
     
-    // Auto-approve membership fees for member-scoped tier configs
-    // Runs AFTER custom fields and category selections are saved so getConfigForMember() can match correctly
+    // Auto-approve membership fees for tier configs with auto_approve_fees enabled
+    // Runs AFTER custom fields and category selections are saved so config resolution can match correctly
     if (createdMemberId) {
       try {
         let effectiveTenantId = tenant_id;
@@ -1353,50 +1353,103 @@ export default async function handler(req, res) {
         if (!effectiveTenantId) {
           console.warn('[AppProcessor] Cannot auto-approve fees: tenant_id could not be resolved for member:', createdMemberId);
         }
-        const { getConfigForMember } = await import('../_lib/membershipConfigResolver.js');
-        const matchedConfig = effectiveTenantId ? await getConfigForMember(effectiveTenantId, createdMemberId) : null;
-        if (matchedConfig && matchedConfig.structure_scope_type === 'member' && matchedConfig.auto_approve_fees) {
-          const startMonth = matchedConfig.membership_start_month || 1;
-          const startDay = matchedConfig.membership_start_day || 1;
-          const now = new Date();
-          const currentYear = now.getFullYear();
-          const yearStart = new Date(currentYear, startMonth - 1, startDay);
-          const membershipYearLabel = now < yearStart
-            ? `${currentYear - 1}/${currentYear}`
-            : `${currentYear}/${currentYear + 1}`;
 
-          const { data: existingInvoicing } = await supabase
-            .from('member_membership_invoicing')
-            .select('id')
-            .eq('tenant_id', effectiveTenantId)
-            .eq('member_id', createdMemberId)
-            .eq('membership_year', membershipYearLabel)
-            .maybeSingle();
+        if (effectiveTenantId) {
+          const { getConfigForMember, getConfigForOrganisation } = await import('../_lib/membershipConfigResolver.js');
 
-          let invoicingErr;
-          if (existingInvoicing) {
-            const { error } = await supabase
+          const memberConfig = await getConfigForMember(effectiveTenantId, createdMemberId);
+          if (memberConfig && memberConfig.structure_scope_type === 'member' && memberConfig.auto_approve_fees) {
+            const startMonth = memberConfig.membership_start_month || 1;
+            const startDay = memberConfig.membership_start_day || 1;
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const yearStart = new Date(currentYear, startMonth - 1, startDay);
+            const membershipYearLabel = now < yearStart
+              ? `${currentYear - 1}/${currentYear}`
+              : `${currentYear}/${currentYear + 1}`;
+
+            const { data: existingInvoicing } = await supabase
               .from('member_membership_invoicing')
-              .update({ fees_approved: true })
-              .eq('id', existingInvoicing.id);
-            invoicingErr = error;
-          } else {
-            const { error } = await supabase
-              .from('member_membership_invoicing')
-              .insert({
-                tenant_id: effectiveTenantId,
-                member_id: createdMemberId,
-                membership_year: membershipYearLabel,
-                fees_approved: true,
-                invoicing_mode: 'manual',
-              });
-            invoicingErr = error;
+              .select('id')
+              .eq('tenant_id', effectiveTenantId)
+              .eq('member_id', createdMemberId)
+              .eq('membership_year', membershipYearLabel)
+              .maybeSingle();
+
+            let invoicingErr;
+            if (existingInvoicing) {
+              const { error } = await supabase
+                .from('member_membership_invoicing')
+                .update({ fees_approved: true })
+                .eq('id', existingInvoicing.id);
+              invoicingErr = error;
+            } else {
+              const { error } = await supabase
+                .from('member_membership_invoicing')
+                .insert({
+                  tenant_id: effectiveTenantId,
+                  member_id: createdMemberId,
+                  membership_year: membershipYearLabel,
+                  fees_approved: true,
+                  invoicing_mode: 'manual',
+                });
+              invoicingErr = error;
+            }
+
+            if (invoicingErr) {
+              console.error('[AppProcessor] Failed to auto-approve member fees:', invoicingErr);
+            } else {
+              console.log('[AppProcessor] Auto-approved membership fees for member:', createdMemberId, 'year:', membershipYearLabel);
+            }
           }
 
-          if (invoicingErr) {
-            console.error('[AppProcessor] Failed to auto-approve fees:', invoicingErr);
-          } else {
-            console.log('[AppProcessor] Auto-approved membership fees for member:', createdMemberId, 'year:', membershipYearLabel);
+          const resolvedOrgId = createdOrganizationId || prefill_organization_id;
+          if (resolvedOrgId) {
+            const orgConfig = await getConfigForOrganisation(effectiveTenantId, resolvedOrgId);
+            if (orgConfig && orgConfig.auto_approve_fees) {
+              const startMonth = orgConfig.membership_start_month || 1;
+              const startDay = orgConfig.membership_start_day || 1;
+              const now = new Date();
+              const currentYear = now.getFullYear();
+              const yearStart = new Date(currentYear, startMonth - 1, startDay);
+              const membershipYearLabel = now < yearStart
+                ? `${currentYear - 1}/${currentYear}`
+                : `${currentYear}/${currentYear + 1}`;
+
+              const { data: existingOrgInvoicing } = await supabase
+                .from('organisation_membership_invoicing')
+                .select('id')
+                .eq('tenant_id', effectiveTenantId)
+                .eq('organization_id', resolvedOrgId)
+                .eq('membership_year', membershipYearLabel)
+                .maybeSingle();
+
+              let orgInvoicingErr;
+              if (existingOrgInvoicing) {
+                const { error } = await supabase
+                  .from('organisation_membership_invoicing')
+                  .update({ fees_approved: true })
+                  .eq('id', existingOrgInvoicing.id);
+                orgInvoicingErr = error;
+              } else {
+                const { error } = await supabase
+                  .from('organisation_membership_invoicing')
+                  .insert({
+                    tenant_id: effectiveTenantId,
+                    organization_id: resolvedOrgId,
+                    membership_year: membershipYearLabel,
+                    fees_approved: true,
+                    invoicing_mode: 'manual',
+                  });
+                orgInvoicingErr = error;
+              }
+
+              if (orgInvoicingErr) {
+                console.error('[AppProcessor] Failed to auto-approve org fees:', orgInvoicingErr);
+              } else {
+                console.log('[AppProcessor] Auto-approved membership fees for organisation:', resolvedOrgId, 'year:', membershipYearLabel);
+              }
+            }
           }
         }
       } catch (autoApproveErr) {
