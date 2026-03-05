@@ -59,6 +59,20 @@ export default async function handler(req, res) {
     const discountFieldIds = (discountRules || []).map(d => d.field_id).filter(Boolean);
     fieldIdsToResolve.push(...discountFieldIds);
 
+    let vatOverrideRules = [];
+    try {
+      const { data, error } = await supabase
+        .from('membership_tier_vat_override')
+        .select('id, field_id, label, field_label')
+        .eq('config_id', config.id)
+        .eq('tenant_id', tenantId)
+        .order('sort_order', { ascending: true });
+      if (!error) vatOverrideRules = data || [];
+    } catch {}
+
+    const vatFieldIds = vatOverrideRules.map(v => v.field_id).filter(Boolean);
+    fieldIdsToResolve.push(...vatFieldIds);
+
     const uniqueFieldIds = [...new Set(fieldIdsToResolve.filter(Boolean))];
     let fieldLabelMap = {};
     if (uniqueFieldIds.length > 0) {
@@ -116,6 +130,18 @@ export default async function handler(req, res) {
         field_type: fieldLabelMap[rule.field_id]?.field_type || 'text',
         usage: 'discount',
         usage_detail: `Used for discount rule: ${rule.label || 'Unnamed discount'}`,
+      });
+    }
+
+    for (const rule of vatOverrideRules) {
+      if (!rule.field_id) continue;
+      requiredFields.push({
+        field_id: rule.field_id,
+        field_label: rule.field_label || fieldLabelMap[rule.field_id]?.label || rule.field_id,
+        field_source: 'custom',
+        field_type: fieldLabelMap[rule.field_id]?.field_type || 'text',
+        usage: 'vat_override',
+        usage_detail: `Used for VAT override rule: ${rule.label || 'Unnamed VAT rule'}`,
       });
     }
 

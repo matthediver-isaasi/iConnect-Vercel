@@ -477,7 +477,7 @@ export async function simulateMembershipForOrg(tenantId, organizationId, options
   let vatOverrideApplied = false;
   let vatOverrideDetail = null;
 
-  const vatOverride = await evaluateVatOverrideForOrg(config.id, tenantId, organizationId);
+  const vatOverride = await evaluateVatOverrideForOrg(config.id, tenantId, organizationId, fieldOverrides);
   if (vatOverride && vatOverride.taxType) {
     taxType = vatOverride.taxType;
     taxLabel = vatOverride.taxLabel;

@@ -1,6 +1,6 @@
 import { supabase } from './database.js';
 
-export async function evaluateVatOverrideForOrg(configId, tenantId, organizationId) {
+export async function evaluateVatOverrideForOrg(configId, tenantId, organizationId, fieldOverrides = {}) {
   try {
     const { data: overrideRules, error: overrideError } = await supabase
       .from('membership_tier_vat_override')
@@ -20,21 +20,30 @@ export async function evaluateVatOverrideForOrg(configId, tenantId, organization
     const fieldIds = [...new Set(overrideRules.map(d => d.field_id).filter(Boolean))];
     if (fieldIds.length === 0) return null;
 
-    const { data: orgValues, error: valuesError } = await supabase
-      .from('organization_preference_value')
-      .select('field_id, value')
-      .eq('organization_id', organizationId)
-      .in('field_id', fieldIds);
-
-    if (valuesError) {
-      console.error('[VatOverrideHelper] Error fetching org field values:', valuesError);
-      return null;
-    }
-
     const valueMap = {};
-    (orgValues || []).forEach(v => {
-      valueMap[v.field_id] = v.value;
+    fieldIds.forEach(id => {
+      if (id in fieldOverrides && fieldOverrides[id] !== undefined && fieldOverrides[id] !== null) {
+        valueMap[id] = fieldOverrides[id];
+      }
     });
+
+    const dbFieldIds = fieldIds.filter(id => !(id in valueMap));
+    if (dbFieldIds.length > 0) {
+      const { data: orgValues, error: valuesError } = await supabase
+        .from('organization_preference_value')
+        .select('field_id, value')
+        .eq('organization_id', organizationId)
+        .in('field_id', dbFieldIds);
+
+      if (valuesError) {
+        console.error('[VatOverrideHelper] Error fetching org field values:', valuesError);
+        return null;
+      }
+
+      (orgValues || []).forEach(v => {
+        valueMap[v.field_id] = v.value;
+      });
+    }
 
     for (const rule of overrideRules) {
       const orgFieldValue = valueMap[rule.field_id];
