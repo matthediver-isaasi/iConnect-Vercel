@@ -53,16 +53,6 @@ export default function TeamPage({ hasBanner }) {
     }
   });
 
-  // Generate the actual signup link by replacing placeholders with real values
-  const signupLink = useMemo(() => {
-    if (!signupLinkSetting?.setting_value || !memberInfo?.organization_id) return null;
-    // Get current tenant domain from browser location
-    const tenantDomain = window.location.origin;
-    return signupLinkSetting.setting_value
-      .replace(/\[\[organization_id\]\]/g, memberInfo.organization_id)
-      .replace(/\[\[tenant_domain\]\]/g, tenantDomain);
-  }, [signupLinkSetting?.setting_value, memberInfo?.organization_id]);
-
   const handleCopySignupLink = async () => {
     if (!signupLink) return;
     try {
@@ -74,52 +64,6 @@ export default function TeamPage({ hasBanner }) {
       toast.error('Failed to copy link');
     }
   };
-
-  const inviteTemplateId = useMemo(() => {
-    if (inviteTemplateSetting?.setting_value) {
-      try {
-        const parsed = JSON.parse(inviteTemplateSetting.setting_value);
-        return parsed.template_id || null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }, [inviteTemplateSetting]);
-
-  const { data: inviteTemplate } = useQuery({
-    queryKey: ['email-template', inviteTemplateId],
-    queryFn: async () => {
-      if (!inviteTemplateId) return null;
-      const templates = await base44.entities.EmailTemplate.list();
-      return templates.find(t => t.id === inviteTemplateId) || null;
-    },
-    enabled: !!inviteTemplateId
-  });
-
-  useEffect(() => {
-    if (showInviteDialog && inviteTemplate) {
-      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
-      const orgName = organizationInfo?.name || '';
-      
-      let subject = inviteTemplate.subject || 'You have been invited to join our team';
-      let body = inviteTemplate.body || '';
-      
-      subject = subject.replace(/\{\{inviter_name\}\}/gi, inviterName);
-      subject = subject.replace(/\{\{organization_name\}\}/gi, orgName);
-      
-      body = body.replace(/\{\{inviter_name\}\}/gi, inviterName);
-      body = body.replace(/\{\{organization_name\}\}/gi, orgName);
-      
-      setInviteSubject(subject);
-      setInviteBody(body);
-    } else if (showInviteDialog && !inviteTemplate) {
-      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
-      const orgName = organizationInfo?.name || '';
-      setInviteSubject(`You're invited to join ${orgName || 'our team'}`);
-      setInviteBody(`<p>Hi,</p><p>${inviterName} has invited you to join ${orgName || 'our team'}.</p><p>Click the link below to accept the invitation and set up your account.</p>`);
-    }
-  }, [showInviteDialog, inviteTemplate, memberInfo, organizationInfo]);
 
   // Fetch members from the same organization directly via server-side filter
   const { data: teamMembers = [], isLoading: membersLoading } = useQuery({
@@ -155,12 +99,78 @@ export default function TeamPage({ hasBanner }) {
     }
   });
 
+  const memberRole = useMemo(() => {
+    if (!memberInfo?.role_id || !roles.length) return null;
+    return roles.find(r => r.id === memberInfo.role_id) || null;
+  }, [memberInfo?.role_id, roles]);
+
+  const signupLink = useMemo(() => {
+    if (!memberInfo?.organization_id) return null;
+    const roleLink = memberRole?.signup_link_template;
+    const globalLink = signupLinkSetting?.setting_value;
+    const linkTemplate = roleLink || globalLink;
+    if (!linkTemplate) return null;
+    const tenantDomain = window.location.origin;
+    return linkTemplate
+      .replace(/\[\[organization_id\]\]/g, memberInfo.organization_id)
+      .replace(/\[\[tenant_domain\]\]/g, tenantDomain);
+  }, [memberRole?.signup_link_template, signupLinkSetting?.setting_value, memberInfo?.organization_id]);
+
   const rolesInUse = useMemo(() => {
     const roleIdsInTeam = new Set(teamMembers.map(m => m.role_id).filter(Boolean));
     return roles
       .filter(r => roleIdsInTeam.has(r.id))
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [teamMembers, roles]);
+
+  const inviteTemplateId = useMemo(() => {
+    if (memberRole?.invite_email_template_id) {
+      return memberRole.invite_email_template_id;
+    }
+    if (inviteTemplateSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(inviteTemplateSetting.setting_value);
+        return parsed.template_id || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [memberRole?.invite_email_template_id, inviteTemplateSetting]);
+
+  const { data: inviteTemplate } = useQuery({
+    queryKey: ['email-template', inviteTemplateId],
+    queryFn: async () => {
+      if (!inviteTemplateId) return null;
+      const templates = await base44.entities.EmailTemplate.list();
+      return templates.find(t => t.id === inviteTemplateId) || null;
+    },
+    enabled: !!inviteTemplateId
+  });
+
+  useEffect(() => {
+    if (showInviteDialog && inviteTemplate) {
+      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
+      const orgName = organizationInfo?.name || '';
+      
+      let subject = inviteTemplate.subject || 'You have been invited to join our team';
+      let body = inviteTemplate.body || '';
+      
+      subject = subject.replace(/\{\{inviter_name\}\}/gi, inviterName);
+      subject = subject.replace(/\{\{organization_name\}\}/gi, orgName);
+      
+      body = body.replace(/\{\{inviter_name\}\}/gi, inviterName);
+      body = body.replace(/\{\{organization_name\}\}/gi, orgName);
+      
+      setInviteSubject(subject);
+      setInviteBody(body);
+    } else if (showInviteDialog && !inviteTemplate) {
+      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
+      const orgName = organizationInfo?.name || '';
+      setInviteSubject(`You're invited to join ${orgName || 'our team'}`);
+      setInviteBody(`<p>Hi,</p><p>${inviterName} has invited you to join ${orgName || 'our team'}.</p><p>Click the link below to accept the invitation and set up your account.</p>`);
+    }
+  }, [showInviteDialog, inviteTemplate, memberInfo, organizationInfo]);
 
   // Fetch online awards
   const { data: awards = [] } = useQuery({

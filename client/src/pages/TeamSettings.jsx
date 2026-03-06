@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -32,11 +33,53 @@ export default function TeamSettingsPage() {
   const [signupLinkTemplate, setSignupLinkTemplate] = useState('');
   const queryClient = useQueryClient();
 
+  const [roleSignupLinks, setRoleSignupLinks] = useState({});
+
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['email-templates-list'],
     queryFn: async () => {
       const templates = await base44.entities.EmailTemplate.list();
       return templates.filter(t => t.is_active !== false);
+    }
+  });
+
+  const { data: roles = [], isLoading: rolesLoading } = useQuery({
+    queryKey: ['roles'],
+    queryFn: async () => {
+      const allRoles = await base44.entities.Role.list();
+      return allRoles.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+  });
+
+  useEffect(() => {
+    if (roles.length > 0) {
+      const links = {};
+      roles.forEach(r => {
+        if (r.signup_link_template) links[r.id] = r.signup_link_template;
+      });
+      setRoleSignupLinks(prev => {
+        const merged = { ...links };
+        Object.keys(prev).forEach(k => {
+          if (prev[k] !== undefined) merged[k] = prev[k];
+        });
+        return Object.keys(prev).length === 0 ? links : merged;
+      });
+    }
+  }, [roles]);
+
+  const updateRoleInviteMutation = useMutation({
+    mutationFn: async ({ roleId, invite_email_template_id, signup_link_template }) => {
+      const updateData = {};
+      if (invite_email_template_id !== undefined) updateData.invite_email_template_id = invite_email_template_id;
+      if (signup_link_template !== undefined) updateData.signup_link_template = signup_link_template;
+      return await base44.entities.Role.update(roleId, updateData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+      toast.success('Role invite settings updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update role settings: ' + error.message);
     }
   });
 
@@ -420,6 +463,110 @@ export default function TeamSettingsPage() {
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="w-5 h-5" />
+                  Role-Specific Invite Settings
+                </CardTitle>
+                <CardDescription>
+                  Override the default invite email template and sign-up link for specific roles. Roles without overrides will use the default settings above.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {rolesLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  </div>
+                ) : roles.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-4">No roles found.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {roles.map((role) => {
+                      const hasOverride = role.invite_email_template_id || role.signup_link_template;
+                      return (
+                        <div
+                          key={role.id}
+                          className="border border-slate-200 rounded-md p-4 space-y-3"
+                          data-testid={`role-invite-settings-${role.id}`}
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-slate-900">{role.name}</span>
+                            {hasOverride ? (
+                              <Badge variant="secondary" className="text-xs">
+                                <Check className="w-3 h-3 mr-1" />
+                                Custom
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs text-slate-500">
+                                Using Default
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-500">Invite Email Template</Label>
+                              <Select
+                                value={role.invite_email_template_id || "__default__"}
+                                onValueChange={(value) => {
+                                  const newId = value === "__default__" ? null : value;
+                                  updateRoleInviteMutation.mutate({
+                                    roleId: role.id,
+                                    invite_email_template_id: newId
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="w-full" data-testid={`select-role-template-${role.id}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__default__">Use Default</SelectItem>
+                                  {emailTemplates.map((template) => (
+                                    <SelectItem key={template.id} value={template.id}>
+                                      {template.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-500">Sign Up Link</Label>
+                              <div className="flex gap-2">
+                                <Input
+                                  type="text"
+                                  placeholder="Use default"
+                                  value={roleSignupLinks[role.id] || ''}
+                                  onChange={(e) => {
+                                    setRoleSignupLinks(prev => ({ ...prev, [role.id]: e.target.value }));
+                                  }}
+                                  data-testid={`input-role-signup-link-${role.id}`}
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    const val = roleSignupLinks[role.id] || '';
+                                    updateRoleInviteMutation.mutate({
+                                      roleId: role.id,
+                                      signup_link_template: val || null
+                                    });
+                                  }}
+                                  disabled={updateRoleInviteMutation.isPending}
+                                  data-testid={`button-save-role-link-${role.id}`}
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
