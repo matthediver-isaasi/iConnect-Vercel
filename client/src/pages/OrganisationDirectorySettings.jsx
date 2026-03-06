@@ -102,7 +102,7 @@ export default function OrganisationDirectorySettingsPage() {
 
   // Fetch current settings
   const { data: settings } = useQuery({
-    queryKey: ['organisation-directory-settings'],
+    queryKey: ['organisation-directory-settings-admin'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const headerSetting = allSettings.find((s) => s.setting_key === 'org_directory_header');
@@ -335,6 +335,7 @@ export default function OrganisationDirectorySettingsPage() {
       }
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
       toast.success('Settings saved successfully');
     },
