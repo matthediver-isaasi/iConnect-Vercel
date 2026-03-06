@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Check } from "lucide-react";
+import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -29,11 +28,9 @@ export default function TeamSettingsPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [inviteTemplateId, setInviteTemplateId] = useState(null);
-  const [signupLinkTemplate, setSignupLinkTemplate] = useState('');
-  const queryClient = useQueryClient();
-
   const [roleSignupLinks, setRoleSignupLinks] = useState({});
+  const [addingRoleId, setAddingRoleId] = useState('');
+  const queryClient = useQueryClient();
 
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['email-templates-list'],
@@ -51,6 +48,17 @@ export default function TeamSettingsPage() {
     }
   });
 
+  const [addedRoleIds, setAddedRoleIds] = useState(new Set());
+
+  const configuredRoles = useMemo(() => {
+    return roles.filter(r => r.invite_email_template_id || r.signup_link_template || addedRoleIds.has(r.id));
+  }, [roles, addedRoleIds]);
+
+  const availableRoles = useMemo(() => {
+    const configuredIds = new Set(configuredRoles.map(r => r.id));
+    return roles.filter(r => !configuredIds.has(r.id));
+  }, [roles, configuredRoles]);
+
   useEffect(() => {
     if (roles.length > 0) {
       const links = {};
@@ -58,11 +66,7 @@ export default function TeamSettingsPage() {
         if (r.signup_link_template) links[r.id] = r.signup_link_template;
       });
       setRoleSignupLinks(prev => {
-        const merged = { ...links };
-        Object.keys(prev).forEach(k => {
-          if (prev[k] !== undefined) merged[k] = prev[k];
-        });
-        return Object.keys(prev).length === 0 ? links : merged;
+        return Object.keys(prev).length === 0 ? links : prev;
       });
     }
   }, [roles]);
@@ -83,86 +87,37 @@ export default function TeamSettingsPage() {
     }
   });
 
-  const { data: inviteTemplateSetting } = useQuery({
-    queryKey: ['team-invite-template-setting'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'team_invite_email_template') || null;
-    }
-  });
-
-  useEffect(() => {
-    if (inviteTemplateSetting?.setting_value) {
-      try {
-        const parsed = JSON.parse(inviteTemplateSetting.setting_value);
-        setInviteTemplateId(parsed.template_id || null);
-      } catch {
-        setInviteTemplateId(null);
-      }
-    }
-  }, [inviteTemplateSetting]);
-
-  // Fetch signup link template setting
-  const { data: signupLinkSetting } = useQuery({
-    queryKey: ['team-signup-link-template-setting'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'team_signup_link_template') || null;
-    }
-  });
-
-  useEffect(() => {
-    if (signupLinkSetting?.setting_value) {
-      setSignupLinkTemplate(signupLinkSetting.setting_value);
-    }
-  }, [signupLinkSetting]);
-
-  const updateInviteTemplateMutation = useMutation({
-    mutationFn: async (templateId) => {
-      const settingValue = JSON.stringify({ template_id: templateId });
-      if (inviteTemplateSetting) {
-        return await base44.entities.SystemSettings.update(inviteTemplateSetting.id, {
-          setting_value: settingValue
-        });
-      } else {
-        return await base44.entities.SystemSettings.create({
-          setting_key: 'team_invite_email_template',
-          setting_value: settingValue,
-          description: 'Email template used for team member invitations'
-        });
-      }
+  const removeRoleInviteMutation = useMutation({
+    mutationFn: async (roleId) => {
+      return await base44.entities.Role.update(roleId, {
+        invite_email_template_id: null,
+        signup_link_template: null
+      });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['team-invite-template-setting'] });
-      toast.success('Invite email template updated');
+    onSuccess: (_, roleId) => {
+      setRoleSignupLinks(prev => {
+        const next = { ...prev };
+        delete next[roleId];
+        return next;
+      });
+      setAddedRoleIds(prev => {
+        const next = new Set(prev);
+        next.delete(roleId);
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+      toast.success('Role invite settings removed');
     },
     onError: (error) => {
-      toast.error('Failed to update invite template: ' + error.message);
+      toast.error('Failed to remove role settings: ' + error.message);
     }
   });
 
-  const updateSignupLinkMutation = useMutation({
-    mutationFn: async (linkTemplate) => {
-      if (signupLinkSetting) {
-        return await base44.entities.SystemSettings.update(signupLinkSetting.id, {
-          setting_value: linkTemplate
-        });
-      } else {
-        return await base44.entities.SystemSettings.create({
-          setting_key: 'team_signup_link_template',
-          setting_value: linkTemplate,
-          description: 'Sign up link template shown on Team page with [[organization_id]] placeholder'
-        });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['team-signup-link-template-setting'] });
-      toast.success('Sign up link template saved');
-    },
-    onError: (error) => {
-      toast.error('Failed to save sign up link: ' + error.message);
-    }
-  });
+  const handleAddRole = () => {
+    if (!addingRoleId) return;
+    setAddedRoleIds(prev => new Set([...prev, addingRoleId]));
+    setAddingRoleId('');
+  };
 
   useEffect(() => {
     if (isAccessReady) {
@@ -376,196 +331,150 @@ export default function TeamSettingsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <UserPlus className="w-5 h-5" />
-                  Invite Email Template
+                  Invite Settings by Role
                 </CardTitle>
                 <CardDescription>
-                  Select the email template to use when inviting new team members. The template can include placeholders like {"{{invitee_email}}"}, {"{{inviter_name}}"}, and {"{{invite_link}}"}.
+                  Configure the invite email template and sign-up link for each role that can invite team members.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="invite-template">Email Template</Label>
-                    <Select
-                      value={inviteTemplateId || "__none__"}
-                      onValueChange={(value) => {
-                        const newId = value === "__none__" ? null : value;
-                        setInviteTemplateId(newId);
-                        updateInviteTemplateMutation.mutate(newId);
-                      }}
-                    >
-                      <SelectTrigger id="invite-template" className="w-full" data-testid="select-invite-template">
-                        <SelectValue placeholder="Select an email template..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">None (use default)</SelectItem>
-                        {emailTemplates.map((template) => (
-                          <SelectItem key={template.id} value={template.id}>
-                            {template.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-slate-500">
-                      The selected template will be pre-loaded in the invite modal, allowing the sender to preview and customize before sending.
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-sm text-slate-600">
+                      <strong>Invite Email Template</strong> — the email template pre-loaded when this role invites a new team member. Templates can include placeholders like {"{{invitee_email}}"}, {"{{inviter_name}}"}, and {"{{invite_link}}"}. The selected template will be pre-loaded in the invite modal, allowing the sender to preview and customize before sending.
                     </p>
                   </div>
-                  {inviteTemplateId && (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <p className="text-sm text-green-700">
-                        Template selected: <strong>{emailTemplates.find(t => t.id === inviteTemplateId)?.name || 'Unknown'}</strong>
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Link className="w-5 h-5" />
-                  Team Sign Up Link
-                </CardTitle>
-                <CardDescription>
-                  Configure the sign up link that team members can share. Use <code className="bg-slate-100 px-1 rounded">[[tenant_domain]]</code> for the current portal URL and <code className="bg-slate-100 px-1 rounded">[[organization_id]]</code> for the organisation ID.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-link-template">Link Template</Label>
-                    <Input
-                      id="signup-link-template"
-                      type="text"
-                      placeholder="[[tenant_domain]]/FormView?slug=join&organization_id=[[organization_id]]"
-                      value={signupLinkTemplate}
-                      onChange={(e) => setSignupLinkTemplate(e.target.value)}
-                      data-testid="input-signup-link-template"
-                    />
-                    <p className="text-xs text-slate-500">
-                      Example: [[tenant_domain]]/FormView?slug=individual-join&organization_id=[[organization_id]]
+                  <div className="space-y-1">
+                    <p className="text-sm text-slate-600">
+                      <strong>Sign Up Link</strong> — the link shown to this role on the Team page for sharing. Use <code className="bg-slate-100 px-1 rounded text-xs">[[tenant_domain]]</code> for the portal URL and <code className="bg-slate-100 px-1 rounded text-xs">[[organization_id]]</code> for the organisation ID. Example: <code className="bg-slate-100 px-1 rounded text-xs break-all">[[tenant_domain]]/FormView?slug=join&organization_id=[[organization_id]]</code>
                     </p>
                   </div>
-                  <Button
-                    onClick={() => updateSignupLinkMutation.mutate(signupLinkTemplate)}
-                    disabled={updateSignupLinkMutation.isPending}
-                    size="sm"
-                    data-testid="button-save-signup-link"
-                  >
-                    {updateSignupLinkMutation.isPending ? 'Saving...' : 'Save Link Template'}
-                  </Button>
-                  {signupLinkSetting?.setting_value && (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <p className="text-sm text-green-700">
-                        Current template: <code className="bg-green-100 px-1 rounded break-all">{signupLinkSetting.setting_value}</code>
-                      </p>
-                    </div>
-                  )}
                 </div>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5" />
-                  Role-Specific Invite Settings
-                </CardTitle>
-                <CardDescription>
-                  Override the default invite email template and sign-up link for specific roles. Roles without overrides will use the default settings above.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
                 {rolesLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
                   </div>
-                ) : roles.length === 0 ? (
-                  <p className="text-sm text-slate-500 py-4">No roles found.</p>
                 ) : (
-                  <div className="space-y-4">
-                    {roles.map((role) => {
-                      const hasOverride = role.invite_email_template_id || role.signup_link_template;
-                      return (
-                        <div
-                          key={role.id}
-                          className="border border-slate-200 rounded-md p-4 space-y-3"
-                          data-testid={`role-invite-settings-${role.id}`}
-                        >
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-slate-900">{role.name}</span>
-                            {hasOverride ? (
-                              <Badge variant="secondary" className="text-xs">
-                                <Check className="w-3 h-3 mr-1" />
-                                Custom
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs text-slate-500">
-                                Using Default
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                              <Label className="text-xs text-slate-500">Invite Email Template</Label>
-                              <Select
-                                value={role.invite_email_template_id || "__default__"}
-                                onValueChange={(value) => {
-                                  const newId = value === "__default__" ? null : value;
-                                  updateRoleInviteMutation.mutate({
-                                    roleId: role.id,
-                                    invite_email_template_id: newId
-                                  });
-                                }}
+                  <>
+                    {configuredRoles.length > 0 && (
+                      <div className="space-y-3">
+                        {configuredRoles.map((role) => (
+                          <div
+                            key={role.id}
+                            className="border border-slate-200 rounded-md p-4 space-y-3"
+                            data-testid={`role-invite-settings-${role.id}`}
+                          >
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="font-medium text-slate-900">{role.name}</span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => removeRoleInviteMutation.mutate(role.id)}
+                                disabled={removeRoleInviteMutation.isPending}
+                                data-testid={`button-remove-role-${role.id}`}
                               >
-                                <SelectTrigger className="w-full" data-testid={`select-role-template-${role.id}`}>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="__default__">Use Default</SelectItem>
-                                  {emailTemplates.map((template) => (
-                                    <SelectItem key={template.id} value={template.id}>
-                                      {template.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                <Trash2 className="w-4 h-4 text-slate-400" />
+                              </Button>
                             </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-slate-500">Sign Up Link</Label>
-                              <div className="flex gap-2">
-                                <Input
-                                  type="text"
-                                  placeholder="Use default"
-                                  value={roleSignupLinks[role.id] || ''}
-                                  onChange={(e) => {
-                                    setRoleSignupLinks(prev => ({ ...prev, [role.id]: e.target.value }));
-                                  }}
-                                  data-testid={`input-role-signup-link-${role.id}`}
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    const val = roleSignupLinks[role.id] || '';
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs text-slate-500">Invite Email Template</Label>
+                                <Select
+                                  value={role.invite_email_template_id || "__none__"}
+                                  onValueChange={(value) => {
+                                    const newId = value === "__none__" ? null : value;
                                     updateRoleInviteMutation.mutate({
                                       roleId: role.id,
-                                      signup_link_template: val || null
+                                      invite_email_template_id: newId
                                     });
                                   }}
-                                  disabled={updateRoleInviteMutation.isPending}
-                                  data-testid={`button-save-role-link-${role.id}`}
                                 >
-                                  Save
-                                </Button>
+                                  <SelectTrigger className="w-full" data-testid={`select-role-template-${role.id}`}>
+                                    <SelectValue placeholder="Select a template..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__none__">None</SelectItem>
+                                    {emailTemplates.map((template) => (
+                                      <SelectItem key={template.id} value={template.id}>
+                                        {template.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs text-slate-500">Sign Up Link</Label>
+                                <div className="flex gap-2">
+                                  <Input
+                                    type="text"
+                                    placeholder="Enter link template..."
+                                    value={roleSignupLinks[role.id] || ''}
+                                    onChange={(e) => {
+                                      setRoleSignupLinks(prev => ({ ...prev, [role.id]: e.target.value }));
+                                    }}
+                                    data-testid={`input-role-signup-link-${role.id}`}
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      const val = roleSignupLinks[role.id] || '';
+                                      updateRoleInviteMutation.mutate({
+                                        roleId: role.id,
+                                        signup_link_template: val || null
+                                      });
+                                    }}
+                                    disabled={updateRoleInviteMutation.isPending}
+                                    data-testid={`button-save-role-link-${role.id}`}
+                                  >
+                                    Save
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                           </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {configuredRoles.length === 0 && (
+                      <p className="text-sm text-slate-500 py-2">No roles configured yet. Add a role below to set up its invite settings.</p>
+                    )}
+
+                    {availableRoles.length > 0 && (
+                      <div className="flex items-end gap-2 pt-2 border-t border-slate-100">
+                        <div className="flex-1 space-y-1">
+                          <Label className="text-xs text-slate-500">Add a role</Label>
+                          <Select
+                            value={addingRoleId || "__select__"}
+                            onValueChange={(value) => setAddingRoleId(value === "__select__" ? '' : value)}
+                          >
+                            <SelectTrigger className="w-full" data-testid="select-add-role">
+                              <SelectValue placeholder="Select a role..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__select__">Select a role...</SelectItem>
+                              {availableRoles.map((role) => (
+                                <SelectItem key={role.id} value={role.id}>
+                                  {role.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <Button
+                          onClick={handleAddRole}
+                          disabled={!addingRoleId}
+                          size="sm"
+                          data-testid="button-add-role"
+                        >
+                          <Plus className="w-4 h-4 mr-1" />
+                          Add
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>

@@ -36,22 +36,6 @@ export default function TeamPage({ hasBanner }) {
   const [signupLinkCopied, setSignupLinkCopied] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: inviteTemplateSetting } = useQuery({
-    queryKey: ['team-invite-template-setting'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'team_invite_email_template') || null;
-    }
-  });
-
-  // Fetch signup link template setting
-  const { data: signupLinkSetting } = useQuery({
-    queryKey: ['team-signup-link-template-setting'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'team_signup_link_template') || null;
-    }
-  });
 
   const handleCopySignupLink = async () => {
     if (!signupLink) return;
@@ -106,15 +90,13 @@ export default function TeamPage({ hasBanner }) {
 
   const signupLink = useMemo(() => {
     if (!memberInfo?.organization_id) return null;
-    const roleLink = memberRole?.signup_link_template;
-    const globalLink = signupLinkSetting?.setting_value;
-    const linkTemplate = roleLink || globalLink;
+    const linkTemplate = memberRole?.signup_link_template;
     if (!linkTemplate) return null;
     const tenantDomain = window.location.origin;
     return linkTemplate
       .replace(/\[\[organization_id\]\]/g, memberInfo.organization_id)
       .replace(/\[\[tenant_domain\]\]/g, tenantDomain);
-  }, [memberRole?.signup_link_template, signupLinkSetting?.setting_value, memberInfo?.organization_id]);
+  }, [memberRole?.signup_link_template, memberInfo?.organization_id]);
 
   const rolesInUse = useMemo(() => {
     const roleIdsInTeam = new Set(teamMembers.map(m => m.role_id).filter(Boolean));
@@ -124,19 +106,8 @@ export default function TeamPage({ hasBanner }) {
   }, [teamMembers, roles]);
 
   const inviteTemplateId = useMemo(() => {
-    if (memberRole?.invite_email_template_id) {
-      return memberRole.invite_email_template_id;
-    }
-    if (inviteTemplateSetting?.setting_value) {
-      try {
-        const parsed = JSON.parse(inviteTemplateSetting.setting_value);
-        return parsed.template_id || null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }, [memberRole?.invite_email_template_id, inviteTemplateSetting]);
+    return memberRole?.invite_email_template_id || null;
+  }, [memberRole?.invite_email_template_id]);
 
   const { data: inviteTemplate } = useQuery({
     queryKey: ['email-template', inviteTemplateId],
