@@ -42,7 +42,6 @@ export default function CommunicationsManagementPage() {
   const [showEditListDialog, setShowEditListDialog] = useState(false);
   const [editingList, setEditingList] = useState(null);
   const [editListName, setEditListName] = useState('');
-  const [editListCategoryId, setEditListCategoryId] = useState('');
   const [editListAudiences, setEditListAudiences] = useState([]);
   const [savingListEdit, setSavingListEdit] = useState(false);
   const [showDeleteListConfirm, setShowDeleteListConfirm] = useState(false);
@@ -239,10 +238,6 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
-  const getListsForCategory = (categoryId) => {
-    return audienceLists.filter(l => l.communication_category_id === categoryId);
-  };
-
   const getSegmentSummary = (segment) => {
     const typeLabels = {
       communication_category: 'Categories',
@@ -288,8 +283,17 @@ export default function CommunicationsManagementPage() {
   const openEditListDialog = (list) => {
     setEditingList(list);
     setEditListName(list.name);
-    setEditListCategoryId(list.communication_category_id || '');
     setEditListAudiences(Array.isArray(list.target_audiences) ? [...list.target_audiences] : []);
+    setShowAddListSegment(false);
+    setAddListSegmentType('');
+    setAddListSegmentIds([]);
+    setShowEditListDialog(true);
+  };
+
+  const openNewListDialog = () => {
+    setEditingList(null);
+    setEditListName('');
+    setEditListAudiences([]);
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
@@ -298,31 +302,34 @@ export default function CommunicationsManagementPage() {
 
   const handleSaveListEdit = async () => {
     if (!editListName.trim()) { toast.error('Please enter a list name'); return; }
-    if (!editListCategoryId) { toast.error('Please select a communication category'); return; }
     if (editListAudiences.length === 0) { toast.error('At least one audience segment is required'); return; }
     setSavingListEdit(true);
     try {
+      const isCreating = !editingList;
+      const payload = {
+        name: editListName.trim(),
+        target_audiences: editListAudiences
+      };
+      if (!isCreating) {
+        payload.id = editingList.id;
+      }
+
       const response = await fetch('/api/audience-lists', {
-        method: 'PATCH',
+        method: isCreating ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          id: editingList.id,
-          name: editListName.trim(),
-          communication_category_id: editListCategoryId,
-          target_audiences: editListAudiences
-        })
+        body: JSON.stringify(payload)
       });
       if (response.ok) {
-        toast.success('Audience list updated');
+        toast.success(isCreating ? 'Audience list created' : 'Audience list updated');
         setShowEditListDialog(false);
         queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
       } else {
         const err = await response.json();
-        toast.error(err.error || 'Failed to update list');
+        toast.error(err.error || `Failed to ${isCreating ? 'create' : 'update'} list`);
       }
     } catch (e) {
-      toast.error('Failed to update audience list');
+      toast.error('Failed to save audience list');
     } finally {
       setSavingListEdit(false);
     }
@@ -948,6 +955,10 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   <Send className="w-4 h-4 mr-2" />
                   Email Campaigns
                 </TabsTrigger>
+                <TabsTrigger value="lists" data-testid="tab-lists">
+                  <ListFilter className="w-4 h-4 mr-2" />
+                  Lists
+                </TabsTrigger>
                 <TabsTrigger value="categories" data-testid="tab-categories">
                   <Mail className="w-4 h-4 mr-2" />
                   Subscription Categories
@@ -956,6 +967,91 @@ CREATE POLICY "Service role has full access to member_communication_preference"
 
               <TabsContent value="campaigns">
                 <EmailCampaigns />
+              </TabsContent>
+
+              <TabsContent value="lists">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900" data-testid="text-lists-heading">Audience Lists</h3>
+                    <p className="text-sm text-slate-500">Create and manage reusable audience lists for your email campaigns.</p>
+                  </div>
+                  <Button
+                    onClick={openNewListDialog}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-create-list"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create List
+                  </Button>
+                </div>
+
+                {audienceLists.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ListFilter className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-slate-900 mb-2" data-testid="text-no-lists">No Audience Lists</h3>
+                    <p className="text-slate-600 mb-4">
+                      Create audience lists to define reusable recipient groups for your email campaigns.
+                    </p>
+                    <Button
+                      onClick={openNewListDialog}
+                      className="bg-blue-600 hover:bg-blue-700"
+                      data-testid="button-create-first-list"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create First List
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {audienceLists.map(list => (
+                      <Card
+                        key={list.id}
+                        className="border border-slate-200"
+                        data-testid={`card-list-${list.id}`}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-base font-semibold text-slate-900" data-testid={`text-list-name-${list.id}`}>
+                                {list.name}
+                              </h4>
+                              <div className="flex flex-wrap gap-1 mt-2" data-testid={`text-list-rules-${list.id}`}>
+                                {(list.target_audiences || []).length === 0 ? (
+                                  <span className="text-sm text-slate-400 italic">No audience rules defined</span>
+                                ) : (
+                                  (list.target_audiences || []).map((segment, idx) => (
+                                    <Badge key={idx} variant="outline" className="text-xs">
+                                      {getSegmentSummary(segment)}
+                                    </Badge>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditListDialog(list)}
+                                data-testid={`button-edit-list-${list.id}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600"
+                                onClick={() => { setListToDelete(list); setShowDeleteListConfirm(true); }}
+                                data-testid={`button-delete-list-${list.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="categories">
@@ -1199,50 +1295,6 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               </div>
                             )}
 
-                            {getListsForCategory(category.id).length > 0 && (
-                              <div className="mt-3 pt-3 border-t border-slate-100">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <ListFilter className="w-4 h-4 text-slate-400" />
-                                  <span className="text-sm font-medium text-slate-600">Saved Lists</span>
-                                </div>
-                                <div className="space-y-1">
-                                  {getListsForCategory(category.id).map(list => (
-                                    <div
-                                      key={list.id}
-                                      className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 group"
-                                      data-testid={`audience-list-${list.id}`}
-                                    >
-                                      <div className="flex-1 min-w-0">
-                                        <span className="text-sm font-medium text-slate-800">{list.name}</span>
-                                        <span className="text-xs text-muted-foreground ml-2">
-                                          {(list.target_audiences || []).map(s => getSegmentSummary(s)).join(' + ')}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center gap-1 invisible group-hover:visible">
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7"
-                                          onClick={() => openEditListDialog(list)}
-                                          data-testid={`button-edit-list-${list.id}`}
-                                        >
-                                          <Pencil className="w-3.5 h-3.5" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-7 w-7 text-red-600 hover:text-red-700"
-                                          onClick={() => { setListToDelete(list); setShowDeleteListConfirm(true); }}
-                                          data-testid={`button-delete-list-${list.id}`}
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
                             </>
                           )}
                           </div>
@@ -1708,9 +1760,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
         <Dialog open={showEditListDialog} onOpenChange={setShowEditListDialog}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Edit Saved List</DialogTitle>
+              <DialogTitle>{editingList ? 'Edit List' : 'Create List'}</DialogTitle>
               <DialogDescription>
-                Update the name, category, or audience segments for this list.
+                {editingList ? 'Update the name or audience segments for this list.' : 'Define a reusable audience list for your email campaigns.'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
@@ -1719,25 +1771,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 <Input
                   value={editListName}
                   onChange={(e) => setEditListName(e.target.value)}
-                  placeholder="e.g. AGM Event"
+                  placeholder="e.g. AGM Attendees, Newsletter Audience"
                   data-testid="input-edit-list-name"
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>Communication Category</Label>
-                <Select value={editListCategoryId} onValueChange={setEditListCategoryId}>
-                  <SelectTrigger data-testid="select-edit-list-category">
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.filter(c => c.is_active !== false).map(cat => (
-                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Recipients who opt out of this category will be excluded when this list is used.
-                </p>
               </div>
               <div className="space-y-2">
                 <Label>Audience Segments</Label>
@@ -1937,11 +1973,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
               </Button>
               <Button
                 onClick={handleSaveListEdit}
-                disabled={savingListEdit || !editListName.trim() || !editListCategoryId || editListAudiences.length === 0}
+                disabled={savingListEdit || !editListName.trim() || editListAudiences.length === 0}
                 data-testid="button-save-edit-list"
               >
                 {savingListEdit ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
-                Save Changes
+                {editingList ? 'Save Changes' : 'Create List'}
               </Button>
             </DialogFooter>
           </DialogContent>

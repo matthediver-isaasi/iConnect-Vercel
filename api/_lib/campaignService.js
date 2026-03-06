@@ -571,55 +571,20 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
   } else if (targetType === 'audience_list' && targetIds.length > 0) {
     const { data: lists } = await supabase
       .from('audience_list')
-      .select('id, target_audiences, communication_category_id')
+      .select('id, target_audiences')
       .eq('tenant_id', tenantId)
       .in('id', targetIds);
 
     if (lists && lists.length > 0) {
       for (const list of lists) {
-        let listRecipients = [];
         const savedAudiences = list.target_audiences;
         if (Array.isArray(savedAudiences) && savedAudiences.length > 0) {
           for (const segment of savedAudiences) {
             if (segment.type === 'audience_list') continue;
             const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId);
-            listRecipients.push(...segRecipients);
+            recipients.push(...segRecipients);
           }
         }
-
-        if (list.communication_category_id && listRecipients.length > 0) {
-          const memberRecipients = listRecipients.filter(r => r.member_id || r.id);
-          const memberIds = [...new Set(memberRecipients.map(r => r.member_id || r.id).filter(Boolean))];
-
-          if (memberIds.length > 0) {
-            const unsubscribedMemberIds = new Set();
-            const PAGE_SIZE = 1000;
-
-            for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
-              const batch = memberIds.slice(i, i + PAGE_SIZE);
-              const { data: prefs } = await supabase
-                .from('member_communication_preference')
-                .select('member_id, is_subscribed')
-                .eq('category_id', list.communication_category_id)
-                .eq('is_subscribed', false)
-                .in('member_id', batch);
-
-              if (prefs && prefs.length > 0) {
-                for (const p of prefs) {
-                  unsubscribedMemberIds.add(p.member_id);
-                }
-              }
-            }
-
-            listRecipients = listRecipients.filter(r => {
-              const memberId = r.member_id || r.id;
-              if (!memberId) return true;
-              return !unsubscribedMemberIds.has(memberId);
-            });
-          }
-        }
-
-        recipients.push(...listRecipients);
       }
     }
   }
@@ -646,6 +611,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
       allRecipients.push(...segRecipients);
     }
 
+    // Step 1: Remove members with global opt-out (communications_opted_out_all flag)
+    allRecipients = allRecipients.filter(r => r.communications_opted_out_all !== true);
+
+    // Step 1b: Remove emails with global unsubscribe record
     const { data: globalUnsubscribes } = await supabase
       .from('email_unsubscribe')
       .select('email')
@@ -655,6 +624,54 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
     const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
     allRecipients = allRecipients.filter(r => !globalUnsubSet.has(r.email.toLowerCase()));
 
+    // Step 2: Filter by campaign's communication category (subscription category funnel)
+    const communicationCategoryId = campaign.communication_category_id;
+    if (communicationCategoryId) {
+      const memberRecipients = allRecipients.filter(r => r.member_id || r.id);
+      const memberIds = [...new Set(memberRecipients.map(r => r.member_id || r.id).filter(Boolean))];
+
+      if (memberIds.length > 0) {
+        const unsubscribedMemberIds = new Set();
+        const PAGE_SIZE = 1000;
+
+        for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
+          const batch = memberIds.slice(i, i + PAGE_SIZE);
+          const { data: prefs } = await supabase
+            .from('member_communication_preference')
+            .select('member_id')
+            .eq('category_id', communicationCategoryId)
+            .eq('is_subscribed', false)
+            .in('member_id', batch);
+
+          if (prefs && prefs.length > 0) {
+            for (const p of prefs) {
+              unsubscribedMemberIds.add(p.member_id);
+            }
+          }
+        }
+
+        allRecipients = allRecipients.filter(r => {
+          const memberId = r.member_id || r.id;
+          if (!memberId) return true;
+          return !unsubscribedMemberIds.has(memberId);
+        });
+      }
+
+      // Also filter external subscribers who opted out of this category
+      const { data: categoryUnsubscribes } = await supabase
+        .from('email_unsubscribe')
+        .select('email')
+        .eq('tenant_id', tenantId)
+        .eq('unsubscribe_type', 'category')
+        .eq('communication_category_id', communicationCategoryId);
+
+      if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
+        const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));
+        allRecipients = allRecipients.filter(r => !categoryUnsubSet.has(r.email.toLowerCase()));
+      }
+    }
+
+    // Deduplicate by email
     const uniqueRecipients = [];
     const seenEmails = new Set();
     for (const r of allRecipients) {

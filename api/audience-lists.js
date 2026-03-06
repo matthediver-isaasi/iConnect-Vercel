@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     try {
       const { data, error } = await supabase
         .from('audience_list')
-        .select('*, communication_category:communication_category_id(id, name)')
+        .select('*')
         .eq('tenant_id', tenantId)
         .order('name');
 
@@ -31,29 +31,26 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const { name, communication_category_id, target_audiences } = req.body;
+      const { name, target_audiences } = req.body;
 
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Name is required' });
-      }
-
-      if (!communication_category_id) {
-        return res.status(400).json({ error: 'Communication category is required' });
       }
 
       if (!Array.isArray(target_audiences) || target_audiences.length === 0) {
         return res.status(400).json({ error: 'At least one audience segment is required' });
       }
 
+      const insertPayload = {
+        tenant_id: tenantId,
+        name: name.trim(),
+        target_audiences
+      };
+
       const { data, error } = await supabase
         .from('audience_list')
-        .insert({
-          tenant_id: tenantId,
-          name: name.trim(),
-          communication_category_id,
-          target_audiences
-        })
-        .select('*, communication_category:communication_category_id(id, name)')
+        .insert(insertPayload)
+        .select('*')
         .single();
 
       if (error) {
@@ -70,7 +67,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     try {
-      const { id, name, communication_category_id, target_audiences } = req.body;
+      const { id, name, target_audiences } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: 'ID is required' });
@@ -80,25 +77,22 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Name is required' });
       }
 
-      if (!communication_category_id) {
-        return res.status(400).json({ error: 'Communication category is required' });
-      }
-
       if (!Array.isArray(target_audiences) || target_audiences.length === 0) {
         return res.status(400).json({ error: 'At least one audience segment is required' });
       }
 
+      const updatePayload = {
+        name: name.trim(),
+        target_audiences,
+        updated_at: new Date().toISOString()
+      };
+
       const { data, error } = await supabase
         .from('audience_list')
-        .update({
-          name: name.trim(),
-          communication_category_id,
-          target_audiences,
-          updated_at: new Date().toISOString()
-        })
+        .update(updatePayload)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select('*, communication_category:communication_category_id(id, name)')
+        .select('*')
         .single();
 
       if (error) {

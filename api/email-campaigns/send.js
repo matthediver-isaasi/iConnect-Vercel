@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   }
 
   const { tenantId } = tenantContext;
-  const { campaignId, preview, scheduledAt, targetType, targetIds, targetAudiences, previewList } = req.body;
+  const { campaignId, preview, scheduledAt, targetType, targetIds, targetAudiences, previewList, communicationCategoryId } = req.body;
 
   if (preview === true && campaignId === 'preview') {
     const fakeCampaign = {};
@@ -22,6 +22,9 @@ export default async function handler(req, res) {
     } else {
       fakeCampaign.target_type = targetType || 'all_members';
       fakeCampaign.target_ids = targetIds || [];
+    }
+    if (communicationCategoryId) {
+      fakeCampaign.communication_category_id = communicationCategoryId;
     }
     
     const recipientsResult = await getTargetRecipients(fakeCampaign, tenantId);
