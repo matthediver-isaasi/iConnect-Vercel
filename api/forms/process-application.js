@@ -433,7 +433,7 @@ export default async function handler(req, res) {
     const pipelineOrgFields = new Set();
     
     if (memberPipelines.length > 0) {
-      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary);
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
       if (primaryMemberPipeline?.mappings && Array.isArray(primaryMemberPipeline.mappings)) {
         for (const m of primaryMemberPipeline.mappings) {
           if (m.target_type === 'core' && m.target_field) {
@@ -444,7 +444,7 @@ export default async function handler(req, res) {
     }
     
     if (orgPipelines.length > 0) {
-      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary);
+      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary || o.is_primary);
       if (primaryOrgPipeline?.mappings && Array.isArray(primaryOrgPipeline.mappings)) {
         for (const m of primaryOrgPipeline.mappings) {
           if (m.target_type === 'core' && m.target_field) {
@@ -834,13 +834,17 @@ export default async function handler(req, res) {
           console.log('[AppProcessor] Organization exists, skipping create (create mode):', existingOrg.id);
           createdOrganizationId = existingOrg.id;
         } else if (orgAction === 'update' || orgAction === 'upsert') {
-          // Update existing organization
+          // Update existing organization - dynamically include all orgData fields that were explicitly set
+          const allowedOrgColumns = ['name', 'invoicing_email', 'phone', 'website_url', 'invoicing_address', 'email', 'address'];
           const orgUpdateData = {};
-          if (orgData.name) orgUpdateData.name = orgData.name;
-          if (orgData.invoicing_email) orgUpdateData.invoicing_email = orgData.invoicing_email;
-          if (orgData.phone) orgUpdateData.phone = orgData.phone;
-          if (orgData.website_url) orgUpdateData.website_url = orgData.website_url;
-          if (orgData.invoicing_address) orgUpdateData.invoicing_address = orgData.invoicing_address;
+          for (const [key, value] of Object.entries(orgData)) {
+            if (!allowedOrgColumns.includes(key)) continue;
+            if (value === null) {
+              orgUpdateData[key] = null;
+            } else if (value !== undefined && value !== '') {
+              orgUpdateData[key] = value;
+            }
+          }
           
           // Set tenant_id if org has none and we have a valid tenant_id (from public form)
           if (tenant_id && !existingOrg.tenant_id) {
@@ -848,6 +852,7 @@ export default async function handler(req, res) {
           }
           
           if (Object.keys(orgUpdateData).length > 0) {
+            console.log('[AppProcessor] Org update data:', orgUpdateData);
             const { error: orgUpdateError } = await supabase
               .from('organization')
               .update(orgUpdateData)
@@ -858,6 +863,8 @@ export default async function handler(req, res) {
               return res.status(500).json({ error: `Failed to update organisation: ${orgUpdateError.message}` });
             }
             console.log('[AppProcessor] Updated organization:', existingOrg.id);
+          } else {
+            console.log('[AppProcessor] No org core fields to update (orgData was empty):', orgData);
           }
           createdOrganizationId = existingOrg.id;
         }
@@ -880,6 +887,7 @@ export default async function handler(req, res) {
           const orgInsertData = {
             name: orgData.name,
             invoicing_email: orgData.invoicing_email || null,
+            invoicing_address: orgData.invoicing_address || null,
             phone: orgData.phone || null,
             website_url: orgData.website_url || null,
             created_at: new Date().toISOString()

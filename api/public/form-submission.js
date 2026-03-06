@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId } = req.body;
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name);
 
   if (!form_id) {
@@ -214,9 +214,9 @@ export default async function handler(req, res) {
             application_level: form.application_level || 'member',
             submission_id: submission.id,
             prefill_organization_id: prefill_organization_id || null,
-            role_id: null,
-            entity_pipelines: form.entity_pipelines,  // Pass entity pipelines config
-            tenant_id: tenantData.id  // Pass tenant_id for multi-tenant isolation
+            role_id: clientRoleId || null,
+            entity_pipelines: form.entity_pipelines,
+            tenant_id: tenantData.id
           })
         });
         

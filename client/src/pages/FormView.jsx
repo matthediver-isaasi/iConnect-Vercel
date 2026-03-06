@@ -705,14 +705,10 @@ export default function FormViewPage() {
       return response.json();
     },
     onSuccess: async (submissionResult) => {
-      // Track created member/org IDs from process-application for email placeholders
-      let createdMemberId = null;
-      let createdOrganizationId = null;
+      let createdMemberId = submissionResult?.created_member_id || null;
+      let createdOrganizationId = submissionResult?.created_organization_id || null;
       
-      // For authenticated users only - update form count and process entity pipelines client-side
-      // For unauthenticated users, the public API endpoint handles entity pipelines server-side
       if (memberInfo) {
-        // Increment form submission count
         if (form) {
           try {
             await base44.entities.Form.update(form.id, {
@@ -723,84 +719,8 @@ export default function FormViewPage() {
           }
         }
         
-        // Process entity pipelines if configured (create/update member/org entities)
         const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
-        if (hasEntityPipelines) {
-          try {
-            console.log('[FormView] Processing application - roleActionTriggered:', roleActionTriggeredRef.current, 'triggeredRoleId:', triggeredRoleIdRef.current);
-            
-            // Determine organization ID to pass to backend for capacity validation
-            // Priority: 1) prefill org, 2) member's org, 3) org dropdown/pipeline source field value
-            let resolvedOrgIdForBackend = effectiveOrgIdForCapacity;
-            if (!resolvedOrgIdForBackend) {
-              // Check org pipeline config source field
-              if (orgCapacityConfig?.sourceFieldId) {
-                const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
-                if (sourceField?.type === 'organisation_dropdown') {
-                  // Org dropdown value IS the org UUID
-                  resolvedOrgIdForBackend = formValues[orgCapacityConfig.sourceFieldId] || null;
-                  console.log('[FormView] Using org pipeline dropdown value for backend:', resolvedOrgIdForBackend);
-                }
-              }
-              // Also check for standalone org dropdown (without org pipeline)
-              if (!resolvedOrgIdForBackend && orgDropdownField) {
-                resolvedOrgIdForBackend = formValues[orgDropdownField.id] || null;
-                console.log('[FormView] Using standalone org dropdown value for backend:', resolvedOrgIdForBackend);
-              }
-            }
-            
-            const response = await fetch('/api/forms/process-application', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                form_id: form.id,
-                form_values: formValues,
-                fields: form.fields,
-                field_mappings: form.field_mappings || [],
-                application_level: form.application_level || 'member',
-                submission_id: submissionResult?.id,
-                // Pass organization context from any source (URL prefill, member org, or form field dropdown)
-                // This is used for per-organization role capacity validation
-                prefill_organization_id: resolvedOrgIdForBackend || null,
-                // Pass role_id: use triggered role from visibility rules, or pipeline role, or form default
-                // Priority: 1) triggered role (from conditional logic) 2) pipeline role 3) form default
-                role_id: roleActionTriggeredRef.current 
-                  ? triggeredRoleIdRef.current 
-                  : (primaryMemberRoleId || form.default_member_role_id || null),
-                // Pass entity pipelines configuration (unified structure)
-                entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
-                // Legacy fallback fields for backward compatibility
-                member_entity_action: form.member_entity_action || 'none',
-                organization_entity_action: form.organization_entity_action || 'none',
-                additional_member_creations: form.additional_member_creations || []
-              })
-            });
-            if (response.ok) {
-              const result = await response.json();
-              console.log('[FormView] Application processed:', result);
-              createdMemberId = result.created_member_id || null;
-              createdOrganizationId = result.created_organization_id || null;
-            } else {
-              const errorData = await response.json();
-              console.error('[FormView] Application processing failed:', errorData);
-              if (response.status === 409 && (errorData.code === 'UNIQUENESS_CONFLICT' || errorData.conflicts)) {
-                const conflictMessages = (errorData.conflicts || []).map(c => c.message || `${c.field_label}: Duplicate value`);
-                const errorMsg = conflictMessages.length > 0 ? conflictMessages.join('. ') : (errorData.error || 'A record with this information already exists');
-                setSubmissionError(errorMsg);
-                toast.error(errorMsg);
-                return;
-              }
-              if (errorData.code === 'ROLE_CAPACITY_EXCEEDED' || errorData.code === 'ROLE_CAPACITY_MISSING_ORG') {
-                toast.error(errorData.error || 'This role has reached its maximum capacity.');
-                return;
-              }
-            }
-          } catch (error) {
-            console.error('[FormView] Error processing application:', error);
-          }
-        }
-        // For authenticated users with custom field mappings (non-application forms)
-        else {
+        if (!hasEntityPipelines) {
           const hasMappings = form?.fields?.some(f => f.custom_field_id);
           if (hasMappings) {
             try {
@@ -824,13 +744,6 @@ export default function FormViewPage() {
         }
       }
       
-      if (!createdMemberId && submissionResult?.created_member_id) {
-        createdMemberId = submissionResult.created_member_id;
-      }
-      if (!createdOrganizationId && submissionResult?.created_organization_id) {
-        createdOrganizationId = submissionResult.created_organization_id;
-      }
-
       // Send submission email if configured
       // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
       try {
@@ -2035,6 +1948,10 @@ export default function FormViewPage() {
       }
     }
 
+    const effectiveRoleId = roleActionTriggeredRef.current 
+      ? triggeredRoleIdRef.current 
+      : (primaryMemberRoleId || form.default_member_role_id || null);
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
@@ -2046,7 +1963,8 @@ export default function FormViewPage() {
       },
       created_date: new Date().toISOString(),
       ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
-      ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId })
+      ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId }),
+      ...(effectiveRoleId && { role_id: effectiveRoleId })
     };
 
     submitFormMutation.mutate(submissionData);
