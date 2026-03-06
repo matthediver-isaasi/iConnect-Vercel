@@ -1,0 +1,117 @@
+ [publicClient] Detected tenant from subdomain: gfi
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-03-06T17:15:55.947Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ON @ index-CH4CH75Y.js:1321
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] Pending PO bookings: 1
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1629 [Layout] Server session found: sharon@onlinem.co.uk
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectorySettings currentPortalPageId: null
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-CH4CH75Y.js:1629 [Layout] Server session found: sharon@onlinem.co.uk
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-CH4CH75Y.js:1629 [Layout] Matched banners for OrganisationDirectory : 1
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-CH4CH75Y.js:1591 [PortalHeroBanner] Rendering banner: University Directory type: hero hasHeroContent: true hasImageUrl: false
+index-CH4CH75Y.js:1591 [PortalHeroBanner] Rendering as hero element: University Directory
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CH4CH75Y.js:1625 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-CH4CH75Y.js:1629 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-CH4CH75Y.js:1591 [PortalHeroBanner] Rendering banner: University Directory type: hero hasHeroContent: true hasImageUrl: false
+index-CH4CH75Y.js:1591 [PortalHeroBanner] Rendering as hero element: University Directory
+index-CH4CH75Y.js:2592 [OrganisationDirectory] Loaded 5391 total members
+index-CH4CH75Y.js:40 Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Bid%2C%20setting_key%2C%20setting_value%2C%20description%2C%20setting_type%2C%20tenant_id%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at BS (index-CH4CH75Y.js:38:6349)
+    at g (index-CH4CH75Y.js:38:11408)
+    at nc (index-CH4CH75Y.js:40:1481)
+    at Mte (index-CH4CH75Y.js:40:45898)
+    at Tte (index-CH4CH75Y.js:40:39886)
+    at rwe (index-CH4CH75Y.js:40:39809)
+    at hk (index-CH4CH75Y.js:40:39658)
+    at mF (index-CH4CH75Y.js:40:36014)
+    at xU (index-CH4CH75Y.js:40:36819)
+    at Bf (index-CH4CH75Y.js:38:3292)
+eF @ index-CH4CH75Y.js:40
+index-CH4CH75Y.js:38 Uncaught Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Bid%2C%20setting_key%2C%20setting_value%2C%20description%2C%20setting_type%2C%20tenant_id%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at BS (index-CH4CH75Y.js:38:6349)
+    at g (index-CH4CH75Y.js:38:11408)
+    at nc (index-CH4CH75Y.js:40:1481)
+    at Mte (index-CH4CH75Y.js:40:45898)
+    at Tte (index-CH4CH75Y.js:40:39886)
+    at rwe (index-CH4CH75Y.js:40:39809)
+    at hk (index-CH4CH75Y.js:40:39658)
+    at mF (index-CH4CH75Y.js:40:36014)
+    at xU (index-CH4CH75Y.js:40:36819)
+    at Bf (index-CH4CH75Y.js:38:3292)
