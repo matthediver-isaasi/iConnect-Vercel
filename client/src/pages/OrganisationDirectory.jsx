@@ -65,6 +65,7 @@ export default function OrganisationDirectoryPage() {
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
       const allowedStatusesSetting = allSettings.find(s => s.setting_key === 'org_directory_allowed_application_statuses');
+      const visibleOrgTypesSetting = allSettings.find(s => s.setting_key === 'org_directory_visible_org_types');
       
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -83,6 +84,15 @@ export default function OrganisationDirectoryPage() {
           allowedApplicationStatuses = [];
         }
       }
+
+      let visibleOrgTypes = [];
+      if (visibleOrgTypesSetting) {
+        try {
+          visibleOrgTypes = JSON.parse(visibleOrgTypesSetting.setting_value);
+        } catch {
+          visibleOrgTypes = [];
+        }
+      }
       
       return {
         header: headerSetting?.setting_value || 'Organisation Directory',
@@ -93,7 +103,8 @@ export default function OrganisationDirectoryPage() {
         showNameTooltip: nameTooltipSetting?.setting_value === 'true',
         cardsPerRow: cardsPerRowSetting?.setting_value || '3',
         excludedOrgIds: excludedOrgIds,
-        allowedApplicationStatuses: allowedApplicationStatuses
+        allowedApplicationStatuses: allowedApplicationStatuses,
+        visibleOrgTypes: visibleOrgTypes
       };
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
@@ -189,11 +200,43 @@ export default function OrganisationDirectoryPage() {
     return orgCustomFields.filter(f => f.is_filterable);
   }, [orgCustomFields]);
 
+  const hasVisibleOrgTypes = (displaySettings?.visibleOrgTypes?.length ?? 0) > 0;
+
+  // Fetch all org-scoped fields to find the org_type field for type filtering
+  const { data: allOrgScopedFields = [] } = useQuery({
+    queryKey: ['/api/entities/PreferenceField', 'organization', 'all-for-type-filter'],
+    enabled: hasVisibleOrgTypes,
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'organization');
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
+          return (allFields || []).filter(f => f.entity_scope === 'organization');
+        } catch {
+          return [];
+        }
+      }
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  const orgTypeFieldId = useMemo(() => {
+    const fields = hasVisibleOrgTypes ? allOrgScopedFields : orgCustomFields;
+    const f = fields.find(f =>
+      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
+    );
+    return f?.id || null;
+  }, [allOrgScopedFields, orgCustomFields, hasVisibleOrgTypes]);
+
   // Fetch organization preference values for custom field filtering (UI dropdowns)
   // Note: application_status and excluded_orgs filtering is now done on the backend
   const { data: allOrgPreferenceValues = [] } = useQuery({
     queryKey: ['all-org-preference-values'],
-    enabled: filterableFields.length > 0,
+    enabled: filterableFields.length > 0 || (hasVisibleOrgTypes && !!orgTypeFieldId),
     queryFn: async () => {
       try {
         const values = await base44.entities.OrganizationPreferenceValue.list();
@@ -260,6 +303,20 @@ export default function OrganisationDirectoryPage() {
     // Note: application_status and excluded_orgs filtering is now done on the backend
     // The organizations list already comes pre-filtered from the API
     let filtered = [...organizations];
+
+    // Filter by visible organisation types
+    const visibleOrgTypes = displaySettings?.visibleOrgTypes || [];
+    if (visibleOrgTypes.length > 0 && orgTypeFieldId) {
+      filtered = filtered.filter(org => {
+        const orgValues = orgPreferenceMap[org.id] || {};
+        const orgTypeValue = orgValues[orgTypeFieldId];
+        if (!orgTypeValue) return false;
+        if (Array.isArray(orgTypeValue)) {
+          return orgTypeValue.some(v => visibleOrgTypes.includes(v));
+        }
+        return visibleOrgTypes.includes(orgTypeValue);
+      });
+    }
     
     // Apply search filter
     if (searchQuery) {
@@ -300,7 +357,7 @@ export default function OrganisationDirectoryPage() {
     });
     
     return filtered;
-  }, [organizations, searchQuery, sortOrder, customFieldFilters, orgPreferenceMap]);
+  }, [organizations, searchQuery, sortOrder, customFieldFilters, orgPreferenceMap, displaySettings?.visibleOrgTypes, orgTypeFieldId]);
 
   // Calculate itemsPerPage based on cardsPerRow and rowsPerPage
   const columnsNum = parseInt(displaySettings?.cardsPerRow) || 3;

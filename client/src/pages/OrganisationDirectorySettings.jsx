@@ -26,6 +26,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [excludedOrgIds, setExcludedOrgIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [allowedApplicationStatuses, setAllowedApplicationStatuses] = useState([]);
+  const [visibleOrgTypes, setVisibleOrgTypes] = useState([]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -70,6 +71,23 @@ export default function OrganisationDirectorySettingsPage() {
     return orgCustomFields.find(f => f.name === 'application_status');
   }, [orgCustomFields]);
 
+  // Find the org_type field
+  const orgTypeField = useMemo(() => {
+    return orgCustomFields.find(f =>
+      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
+    );
+  }, [orgCustomFields]);
+
+  const orgTypeOptions = useMemo(() => {
+    if (!orgTypeField?.options) return [];
+    return orgTypeField.options.map(opt => {
+      if (typeof opt === 'string') {
+        return { value: opt, label: opt };
+      }
+      return { value: opt.value || opt, label: opt.label || opt.value || opt };
+    });
+  }, [orgTypeField]);
+
   // Normalize application_status options to ensure we always have { value, label } pairs
   const applicationStatusOptions = useMemo(() => {
     if (!applicationStatusField?.options) return [];
@@ -96,6 +114,7 @@ export default function OrganisationDirectorySettingsPage() {
       const cardsPerRowSetting = allSettings.find((s) => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find((s) => s.setting_key === 'org_directory_excluded_orgs');
       const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
+      const visibleOrgTypesSetting = allSettings.find((s) => s.setting_key === 'org_directory_visible_org_types');
       return {
         header: headerSetting,
         logo: logoSetting,
@@ -105,7 +124,8 @@ export default function OrganisationDirectorySettingsPage() {
         nameTooltip: nameTooltipSetting,
         cardsPerRow: cardsPerRowSetting,
         excludedOrgs: excludedOrgsSetting,
-        allowedStatuses: allowedStatusesSetting
+        allowedStatuses: allowedStatusesSetting,
+        visibleOrgTypes: visibleOrgTypesSetting
       };
     },
     refetchOnMount: true
@@ -147,6 +167,14 @@ export default function OrganisationDirectorySettingsPage() {
         setAllowedApplicationStatuses(Array.isArray(statuses) ? statuses : []);
       } catch {
         setAllowedApplicationStatuses([]);
+      }
+    }
+    if (settings?.visibleOrgTypes) {
+      try {
+        const types = JSON.parse(settings.visibleOrgTypes.setting_value);
+        setVisibleOrgTypes(Array.isArray(types) ? types : []);
+      } catch {
+        setVisibleOrgTypes([]);
       }
     }
   }, [settings]);
@@ -292,6 +320,19 @@ export default function OrganisationDirectorySettingsPage() {
           description: 'List of application_status values that allow an organisation to appear in the directory'
         });
       }
+
+      // Save visible organisation types setting
+      if (settings?.visibleOrgTypes) {
+        await base44.entities.SystemSettings.update(settings.visibleOrgTypes.id, {
+          setting_value: JSON.stringify(visibleOrgTypes)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_visible_org_types',
+          setting_value: JSON.stringify(visibleOrgTypes),
+          description: 'List of organisation type values that allow an organisation to appear in the directory'
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
@@ -315,6 +356,14 @@ export default function OrganisationDirectorySettingsPage() {
       prev.includes(status)
         ? prev.filter((s) => s !== status)
         : [...prev, status]
+    );
+  };
+
+  const toggleOrgType = (typeValue) => {
+    setVisibleOrgTypes((prev) =>
+      prev.includes(typeValue)
+        ? prev.filter((t) => t !== typeValue)
+        : [...prev, typeValue]
     );
   };
 
@@ -542,6 +591,67 @@ export default function OrganisationDirectorySettingsPage() {
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-sm text-amber-800">
                     No filter applied - all organisations will be shown regardless of application status
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {orgTypeField && orgTypeOptions.length > 0 && (
+          <Card className="border-slate-200 shadow-sm mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="w-5 h-5" />
+                Organisation Type Filter
+              </CardTitle>
+              <p className="text-sm text-slate-600 mt-2">
+                Only show organisations with specific types. If no types are selected, all organisations will be shown.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                {orgTypeOptions.map((opt) => (
+                  <div
+                    key={opt.value}
+                    className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <span className="font-medium text-slate-900">{opt.label}</span>
+                    <Checkbox
+                      checked={visibleOrgTypes.includes(opt.value)}
+                      onCheckedChange={() => toggleOrgType(opt.value)}
+                      data-testid={`checkbox-org-type-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {visibleOrgTypes.length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    Only showing organisations with type: {visibleOrgTypes.map(val => {
+                      const opt = orgTypeOptions.find(o => o.value === val);
+                      return opt?.label || val;
+                    }).join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {visibleOrgTypes.length === 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800">
+                    No filter applied - all organisations will be shown regardless of type
                   </p>
                 </div>
               )}
