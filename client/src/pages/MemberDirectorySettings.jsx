@@ -4,7 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Save, Users, GripVertical, CreditCard, Eye } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Save, Users, GripVertical, CreditCard, Eye, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -12,7 +13,7 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CORE_FIELDS, normalizeFieldVisibility } from "@/utils/directorySettings";
 
 function migrateSettings(raw) {
-  const migrated = { field_order: raw.field_order || [], custom_fields: {} };
+  const migrated = { field_order: raw.field_order || [], custom_fields: {}, visible_role_ids: raw.visible_role_ids || [] };
 
   for (const cf of CORE_FIELDS) {
     const val = raw[cf.key];
@@ -76,6 +77,15 @@ export default function MemberDirectorySettingsPage() {
     },
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: roles = [], isLoading: isLoadingRoles } = useQuery({
+    queryKey: ['roles-for-directory-settings'],
+    queryFn: async () => {
+      const allRoles = await base44.entities.Role.list();
+      return (allRoles || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: directoryFields = [], isLoading: isLoadingFields } = useQuery({
@@ -215,7 +225,17 @@ export default function MemberDirectorySettingsPage() {
     saveSettingsMutation.mutate(settings);
   };
 
-  if (!accessChecked || isLoading || isLoadingFields || !settings) {
+  const handleRoleToggle = useCallback((roleId) => {
+    setSettings(prev => {
+      const current = prev.visible_role_ids || [];
+      const next = current.includes(roleId)
+        ? current.filter(id => id !== roleId)
+        : [...current, roleId];
+      return { ...prev, visible_role_ids: next };
+    });
+  }, []);
+
+  if (!accessChecked || isLoading || isLoadingFields || isLoadingRoles || !settings) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -247,6 +267,47 @@ export default function MemberDirectorySettingsPage() {
           </div>
           <p className="text-slate-600">Configure what information displays on member directory cards and detail views. Drag to reorder.</p>
         </div>
+
+        <Card className="border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Visible Roles
+            </CardTitle>
+            <CardDescription>
+              Select which roles appear in the member directory. If none are selected, all members are shown.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {roles.length === 0 ? (
+              <p className="text-sm text-slate-500">No roles found.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {roles.map(role => {
+                  const isChecked = (settings.visible_role_ids || []).includes(role.id);
+                  return (
+                    <label
+                      key={role.id}
+                      className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover-elevate"
+                      data-testid={`checkbox-role-${role.id}`}
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => handleRoleToggle(role.id)}
+                      />
+                      <span className="text-sm font-medium text-slate-700 truncate">{role.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {(settings.visible_role_ids || []).length > 0 && (
+              <p className="text-xs text-slate-500 mt-3">
+                {settings.visible_role_ids.length} role{settings.visible_role_ids.length !== 1 ? 's' : ''} selected
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="border-slate-200">
           <CardHeader>

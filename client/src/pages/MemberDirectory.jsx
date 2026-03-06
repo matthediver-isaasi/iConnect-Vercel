@@ -313,6 +313,11 @@ export default function MemberDirectoryPage() {
     // Filter out members who opted out of directory
     filtered = filtered.filter(member => member.show_in_directory !== false);
     
+    // Filter by visible roles (configured in Member Directory Settings)
+    if (displaySettings?.visible_role_ids?.length > 0) {
+      filtered = filtered.filter(member => displaySettings.visible_role_ids.includes(member.role_id));
+    }
+    
     if (!showDisabled) {
       filtered = filtered.filter(member => member.login_enabled !== false);
     }
