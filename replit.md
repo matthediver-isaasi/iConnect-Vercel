@@ -39,3 +39,6 @@ The frontend employs a custom "new-york" design system, leveraging shadcn/ui (Ra
 -   **Microsoft Graph API:** Outlook email integration.
 -   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).
 -   **Zoho Campaigns:** Syncing member communication preferences.
+
+## Organisation Directory Type Filter
+Organisation Directory Settings (`OrganisationDirectorySettings.jsx`) supports a "Visible Organisation Types" filter via the `org_directory_visible_org_types` system setting (JSON array of type values). When non-empty, only organisations whose `org_type`/`organisation_type`/`organization_type` preference field value matches one of the selected types are shown. Empty = show all (backward compatible). Both `OrganisationDirectory.jsx` and `IEditOrganisationDirectoryElement.jsx` (page builder) respect this filter. The settings and directory pages use separate TanStack Query keys (`organisation-directory-settings-admin` vs `organisation-directory-settings`) to avoid cache collisions.
