@@ -756,7 +756,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               <SelectTrigger className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
                 <SelectValue placeholder={field.placeholder || 'Select an option'} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent side="bottom">
                 {(field.options || []).filter(option => option !== '').map((option, index) => (
                   <SelectItem key={index} value={option}>
                     {option}
@@ -889,7 +889,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 {selectedOrg?.name}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent side="bottom">
               {organisations.map((org) => (
                 <SelectItem key={org.id} value={org.id} data-testid={`option-organisation-${org.id}`}>
                   {org.name}
@@ -1050,7 +1050,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             <SelectTrigger data-testid={`select-category-dropdown-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent side="bottom">
               {subcategoryOptions.filter(option => option !== '').map((option, index) => (
                 <SelectItem key={index} value={option} data-testid={`option-subcategory-${index}`}>
                   {option}
@@ -1338,7 +1338,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             <SelectTrigger data-testid={`select-custom-field-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent side="bottom">
               {customFieldOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
