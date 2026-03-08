@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -307,22 +307,27 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   // Combine field.locked with disabled prop - either makes the field non-editable
   const isFieldDisabled = field.locked || disabled;
 
+  const domainErrorRef = useRef('');
+  const emailFormatErrorRef = useRef('');
+
   // Basic email format validation
   const validateEmailFormat = (email) => {
     if (!email) {
       setEmailFormatError('');
-      onValidityChange?.(field.id, true);
+      emailFormatErrorRef.current = '';
+      onValidityChange?.(field.id, !domainErrorRef.current);
       return true;
     }
-    // Basic email pattern: something@something.something
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailPattern.test(email)) {
       setEmailFormatError('Please enter a valid email address');
+      emailFormatErrorRef.current = 'Please enter a valid email address';
       onValidityChange?.(field.id, false);
       return false;
     }
     setEmailFormatError('');
-    onValidityChange?.(field.id, true);
+    emailFormatErrorRef.current = '';
+    onValidityChange?.(field.id, !domainErrorRef.current);
     return true;
   };
 
@@ -333,7 +338,6 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       onValidityChange?.(field.id, true);
       return true;
     }
-    // Basic URL pattern: protocol://domain or just domain.tld
     const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/.*)?$/;
     if (!urlPattern.test(url)) {
       setUrlFormatError('Please enter a valid web address (e.g., https://example.com)');
@@ -347,33 +351,35 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
   // Domain validation helper for email fields
   const validateEmailDomain = (email) => {
-    // Early exit if validation not enabled
     if (!field.validate_org_domain) {
       setDomainError('');
+      domainErrorRef.current = '';
       return;
     }
     
-    // Check if user has an organization
     if (!organizationInfo) {
-      setDomainError('Domain validation requires an organisation. Please ensure you are logged in and associated with an organisation.');
+      const err = 'Domain validation requires an organisation. Please ensure you are associated with an organisation.';
+      setDomainError(err);
+      domainErrorRef.current = err;
+      onValidityChange?.(field.id, false);
       return;
     }
     
-    // Skip if no email entered yet
     if (!email) {
       setDomainError('');
+      domainErrorRef.current = '';
+      onValidityChange?.(field.id, !emailFormatErrorRef.current);
       return;
     }
     
-    // Extract domain from email
     const emailParts = email.split('@');
     if (emailParts.length !== 2 || !emailParts[1]) {
       setDomainError('');
+      domainErrorRef.current = '';
       return;
     }
     const emailDomain = emailParts[1].toLowerCase();
     
-    // Get allowed domains from organization's verified_domains custom field
     const allowedDomains = [];
     if (organizationInfo.verified_domains && Array.isArray(organizationInfo.verified_domains)) {
       organizationInfo.verified_domains.forEach(d => {
@@ -381,18 +387,24 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       });
     }
     
-    // If no domains configured on org, show warning
     if (allowedDomains.length === 0) {
-      setDomainError('No allowed domains configured for your organisation.');
+      const err = 'No allowed domains configured for your organisation.';
+      setDomainError(err);
+      domainErrorRef.current = err;
+      onValidityChange?.(field.id, false);
       return;
     }
     
-    // Check if email domain matches any allowed domain
     if (!allowedDomains.includes(emailDomain)) {
       const domainList = allowedDomains.join(', ');
-      setDomainError(`Email domain must be one of: ${domainList}`);
+      const err = `Email domain must be one of: ${domainList}`;
+      setDomainError(err);
+      domainErrorRef.current = err;
+      onValidityChange?.(field.id, false);
     } else {
       setDomainError('');
+      domainErrorRef.current = '';
+      onValidityChange?.(field.id, !emailFormatErrorRef.current);
     }
   };
 

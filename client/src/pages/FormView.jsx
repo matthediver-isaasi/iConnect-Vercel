@@ -1783,6 +1783,12 @@ export default function FormViewPage() {
       }
     }
 
+    const invalidFields = visibleFields.filter(field => fieldValidity[field.id] === false);
+    if (invalidFields.length > 0) {
+      toast.error(`Please fix validation errors: ${invalidFields.map(f => f.label).join(', ')}`);
+      return;
+    }
+
     const overLimitFields = visibleFields.filter(field =>
       field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
     );
