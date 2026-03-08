@@ -119,27 +119,46 @@ export default function TeamPage({ hasBanner }) {
     enabled: !!inviteTemplateId
   });
 
+  const replaceAllPlaceholders = (text) => {
+    if (!text) return text;
+    const inviterFirst = memberInfo?.first_name || '';
+    const inviterLast = memberInfo?.last_name || '';
+    const inviterFull = [inviterFirst, inviterLast].filter(Boolean).join(' ');
+    const orgName = organizationInfo?.name || '';
+    const orgId = memberInfo?.organization_id || '';
+
+    let result = text;
+    result = result.replace(/\{\{inviter_name\}\}/gi, inviterFull);
+    result = result.replace(/\{\{organization_name\}\}/gi, orgName);
+    result = result.replace(/\{\{organization_id\}\}/gi, orgId);
+
+    result = result.replace(/\[\[member\.full_name\]\]/gi, inviterFull);
+    result = result.replace(/\[\[member_full_name\]\]/gi, inviterFull);
+    result = result.replace(/\[\[member\.first_name\]\]/gi, inviterFirst);
+    result = result.replace(/\[\[member_first_name\]\]/gi, inviterFirst);
+    result = result.replace(/\[\[member\.last_name\]\]/gi, inviterLast);
+    result = result.replace(/\[\[member_last_name\]\]/gi, inviterLast);
+    result = result.replace(/\[\[member\.email\]\]/gi, memberInfo?.email || '');
+    result = result.replace(/\[\[member_email\]\]/gi, memberInfo?.email || '');
+    result = result.replace(/\[\[organization\.name\]\]/gi, orgName);
+    result = result.replace(/\[\[organization_name\]\]/gi, orgName);
+    result = result.replace(/\[\[organization\.id\]\]/gi, orgId);
+    result = result.replace(/\[\[organization_id\]\]/gi, orgId);
+    return result;
+  };
+
   useEffect(() => {
     if (showInviteDialog && inviteTemplate) {
-      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
-      const orgName = organizationInfo?.name || '';
-      
       let subject = inviteTemplate.subject || 'You have been invited to join our team';
       let body = inviteTemplate.body || '';
       
-      subject = subject.replace(/\{\{inviter_name\}\}/gi, inviterName);
-      subject = subject.replace(/\{\{organization_name\}\}/gi, orgName);
-      
-      body = body.replace(/\{\{inviter_name\}\}/gi, inviterName);
-      body = body.replace(/\{\{organization_name\}\}/gi, orgName);
-      
-      setInviteSubject(subject);
-      setInviteBody(body);
+      setInviteSubject(replaceAllPlaceholders(subject));
+      setInviteBody(replaceAllPlaceholders(body));
     } else if (showInviteDialog && !inviteTemplate) {
-      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
+      const inviterFull = [memberInfo?.first_name, memberInfo?.last_name].filter(Boolean).join(' ');
       const orgName = organizationInfo?.name || '';
       setInviteSubject(`You're invited to join ${orgName || 'our team'}`);
-      setInviteBody(`<p>Hi,</p><p>${inviterName} has invited you to join ${orgName || 'our team'}.</p><p>Click the link below to accept the invitation and set up your account.</p>`);
+      setInviteBody(`<p>Hi,</p><p>${inviterFull} has invited you to join ${orgName || 'our team'}.</p><p>Click the link below to accept the invitation and set up your account:</p><p style="margin: 20px 0; text-align: center;"><a href="{{invite_link}}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>`);
     }
   }, [showInviteDialog, inviteTemplate, memberInfo, organizationInfo]);
 
@@ -281,7 +300,8 @@ export default function TeamPage({ hasBanner }) {
         inviterName: `${memberInfo.first_name} ${memberInfo.last_name}`,
         inviterEmail: memberInfo.email,
         emailSubject: subject,
-        emailBody: body
+        emailBody: body,
+        organizationId: memberInfo.organization_id
       });
       return response.data;
     },

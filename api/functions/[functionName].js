@@ -4054,7 +4054,7 @@ const functionHandlers = {
   async sendTeamMemberInvite(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
-    const { email, inviterName, inviterEmail, emailSubject, emailBody } = params;
+    const { email, inviterName, inviterEmail, emailSubject, emailBody, organizationId: paramOrgId } = params;
     
     if (!email) {
       return { success: false, error: 'Email is required' };
@@ -4062,6 +4062,15 @@ const functionHandlers = {
     
     if (!inviterEmail) {
       return { success: false, error: 'Inviter email is required' };
+    }
+
+    // Resolve tenant_id from request for scoped lookups
+    let resolvedTenantId = null;
+    try {
+      const tenantContext = await getTenantContext(req);
+      resolvedTenantId = tenantContext?.tenantId || null;
+    } catch (e) {
+      console.warn('[sendTeamMemberInvite] Could not resolve tenant context:', e.message);
     }
     
     // Get base URL for signup link
@@ -4077,21 +4086,23 @@ const functionHandlers = {
       return { success: false, error: 'Server configuration error: site URL not set' };
     }
     
-    // Check if the invitee already has a member record
-    const { data: existingMember } = await supabase
+    // Check if the invitee already has a member record (tenant-scoped if possible)
+    let existingMemberQuery = supabase
       .from('member')
       .select('id, organization_id, email')
-      .eq('email', email.toLowerCase())
-      .maybeSingle();
+      .eq('email', email.toLowerCase());
+    if (resolvedTenantId) existingMemberQuery = existingMemberQuery.eq('tenant_id', resolvedTenantId);
+    const { data: existingMember } = await existingMemberQuery.maybeSingle();
     
-    // Get the inviter's details including organization and tenant_id for email domain
-    const { data: inviter } = await supabase
+    // Get the inviter's details including organization and tenant_id for email domain (tenant-scoped if possible)
+    let inviterQuery = supabase
       .from('member')
       .select('id, first_name, last_name, organization_id, tenant_id')
-      .eq('email', inviterEmail.toLowerCase())
-      .maybeSingle();
+      .eq('email', inviterEmail.toLowerCase());
+    if (resolvedTenantId) inviterQuery = inviterQuery.eq('tenant_id', resolvedTenantId);
+    const { data: inviter } = await inviterQuery.maybeSingle();
     
-    const organizationId = inviter?.organization_id;
+    const organizationId = inviter?.organization_id || paramOrgId || null;
     const inviterFullName = inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : inviterName || '';
     
     // If the invitee already exists, check if they belong to a different organization
