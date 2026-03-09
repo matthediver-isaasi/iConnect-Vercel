@@ -2533,7 +2533,7 @@ export default function MembershipTierManagement() {
       )}
 
       <div>
-        {(isEditable || isHistoricalView) && tierData?.config && (
+        {(isCreatingNew || ((isEditable || isHistoricalView) && tierData?.config)) && (
           <>
             <StepIndicator currentStep={wizardStep} onStepClick={handleStepClick} />
             {renderWizardContent()}
