@@ -485,7 +485,7 @@ export default function MemberDetail() {
   // Communication categories and preferences (tenant-scoped via entity API)
   const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
     queryKey: ["communicationCategories"],
-    enabled: activeTab === 'communications',
+    enabled: activeTab === 'communications' || activeTab === 'overview',
     queryFn: async () => {
       const categories = await base44.entities.CommunicationCategory.list({
         filter: { is_active: true },
@@ -501,7 +501,7 @@ export default function MemberDetail() {
 
   const { data: communicationPreferences = [] } = useQuery({
     queryKey: ["communicationPreferences", id],
-    enabled: !!id && activeTab === 'communications',
+    enabled: !!id && (activeTab === 'communications' || activeTab === 'overview'),
     queryFn: async () => {
       if (!id) return [];
       const { data, error } = await supabase
@@ -1442,6 +1442,80 @@ export default function MemberDetail() {
                   </div>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-blue-600" />
+                    Communication Preferences
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="py-3 space-y-3">
+                  {(() => {
+                    const isOptedOutAll = member?.communications_opted_out_all === true;
+                    return (
+                      <>
+                        <div
+                          className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}
+                          data-testid="comm-opt-out-all"
+                        >
+                          <div className="space-y-0.5">
+                            <h4 className="text-sm font-medium text-slate-900">
+                              Opt out of all communications
+                            </h4>
+                            <p className="text-xs text-slate-500">
+                              {isOptedOutAll
+                                ? "Opted out of all marketing communications"
+                                : "Stop all marketing communications"}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={isOptedOutAll}
+                            onCheckedChange={(checked) => handleOptOutAllToggle(checked)}
+                            disabled={updatingOptOutAll}
+                            data-testid="switch-opt-out-all"
+                          />
+                        </div>
+
+                        {communicationCategoriesLoading ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                          </div>
+                        ) : availableCommCategories.length === 0 ? (
+                          <p className="text-sm text-slate-500 text-center py-4">No communication categories available.</p>
+                        ) : (
+                          <div className={`space-y-2 ${isOptedOutAll ? 'opacity-50' : ''}`}>
+                            {availableCommCategories.map((category) => {
+                              const pref = communicationPreferences.find(p => p.category_id === category.id);
+                              const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
+                              return (
+                                <div
+                                  key={category.id}
+                                  className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                                  data-testid={`comm-category-${category.id}`}
+                                >
+                                  <div className="space-y-0.5">
+                                    <h4 className="text-sm font-medium text-slate-900">{category.name}</h4>
+                                    {category.description && (
+                                      <p className="text-xs text-slate-500">{category.description}</p>
+                                    )}
+                                  </div>
+                                  <Switch
+                                    checked={isSubscribed}
+                                    onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
+                                    disabled={updatingCommPrefs.has(category.id) || isOptedOutAll}
+                                    data-testid={`switch-comm-${category.id}`}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
             </div>
           </div>
         </TabsContent>
@@ -1555,13 +1629,6 @@ export default function MemberDetail() {
               )}
             </CardContent>
           </Card>
-          {member.id && (
-            <MemberEmails 
-              memberId={member.id}
-              memberEmail={member.email}
-              memberName={`${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email}
-            />
-          )}
         </TabsContent>
 
         {/* Categories Tab */}
@@ -2061,92 +2128,13 @@ export default function MemberDetail() {
 
         {/* Communications Tab */}
         <TabsContent value="communications" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="w-5 h-5 text-blue-600" />
-                Communication Preferences
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {(() => {
-                const isOptedOutAll = member?.communications_opted_out_all === true;
-                return (
-                  <>
-                    <div
-                      className={`flex items-center justify-between p-4 rounded-lg border ${isOptedOutAll ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}
-                      data-testid="comm-opt-out-all"
-                    >
-                      <div className="space-y-1">
-                        <h4 className="font-medium text-slate-900 flex items-center gap-2">
-                          Opt out of all communications
-                        </h4>
-                        <p className="text-sm text-slate-500">
-                          {isOptedOutAll
-                            ? "This member has opted out of all marketing communications"
-                            : "Enable this to stop all marketing communications for this member"}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={isOptedOutAll}
-                        onCheckedChange={(checked) => handleOptOutAllToggle(checked)}
-                        disabled={updatingOptOutAll}
-                        data-testid="switch-opt-out-all"
-                      />
-                    </div>
-
-                    {isOptedOutAll && (
-                      <div
-                        className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
-                        data-testid="comm-opt-out-warning"
-                      >
-                        <span>This member has opted out of all communications. Turn off the toggle above to manage individual preferences.</span>
-                      </div>
-                    )}
-
-                    {communicationCategoriesLoading ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-                      </div>
-                    ) : availableCommCategories.length === 0 ? (
-                      <div className="text-center py-8 text-slate-500">
-                        <Mail className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                        <p>No communication categories available for this member's role.</p>
-                      </div>
-                    ) : (
-                      <div className={`space-y-4 ${isOptedOutAll ? 'opacity-50' : ''}`}>
-                        {availableCommCategories.map((category) => {
-                          const pref = communicationPreferences.find(p => p.category_id === category.id);
-                          const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
-
-                          return (
-                            <div
-                              key={category.id}
-                              className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200"
-                              data-testid={`comm-category-${category.id}`}
-                            >
-                              <div className="space-y-1">
-                                <h4 className="font-medium text-slate-900">{category.name}</h4>
-                                {category.description && (
-                                  <p className="text-sm text-slate-500">{category.description}</p>
-                                )}
-                              </div>
-                              <Switch
-                                checked={isSubscribed}
-                                onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
-                                disabled={updatingCommPrefs.has(category.id) || isOptedOutAll}
-                                data-testid={`switch-comm-${category.id}`}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </CardContent>
-          </Card>
+          {member.id && (
+            <MemberEmails 
+              memberId={member.id}
+              memberEmail={member.email}
+              memberName={`${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email}
+            />
+          )}
         </TabsContent>
 
           {!member?.organization_id && (

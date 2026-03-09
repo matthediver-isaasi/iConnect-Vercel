@@ -17,7 +17,9 @@ import {
   Paperclip,
   Clock,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Pin,
+  Flag
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
@@ -142,6 +144,40 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
     setExpandedEmail(expandedEmail === emailId ? null : emailId);
   };
 
+  const handleTogglePin = async (e, emailId, currentValue) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/outlook/emails/update', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailId, is_pinned: !currentValue })
+      });
+      if (response.ok) {
+        queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
+      }
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+    }
+  };
+
+  const handleToggleFlag = async (e, emailId, currentValue) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch('/api/outlook/emails/update', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailId, is_flagged: !currentValue })
+      });
+      if (response.ok) {
+        queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
+      }
+    } catch (err) {
+      console.error('Failed to toggle flag:', err);
+    }
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -171,7 +207,12 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
     );
   }
 
-  const emails = data?.emails || [];
+  const rawEmails = data?.emails || [];
+  const emails = [...rawEmails].sort((a, b) => {
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    return 0;
+  });
 
   return (
     <>
@@ -279,8 +320,26 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
                               <Paperclip className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                             )}
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <span className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`text-email-date-${email.id}`}>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`toggle-elevate ${email.is_pinned ? 'toggle-elevated text-blue-600' : 'text-muted-foreground/40'}`}
+                              onClick={(e) => handleTogglePin(e, email.id, email.is_pinned)}
+                              data-testid={`button-pin-email-${email.id}`}
+                            >
+                              <Pin className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`toggle-elevate ${email.is_flagged ? 'toggle-elevated text-red-500' : 'text-muted-foreground/40'}`}
+                              onClick={(e) => handleToggleFlag(e, email.id, email.is_flagged)}
+                              data-testid={`button-flag-email-${email.id}`}
+                            >
+                              <Flag className={`h-3.5 w-3.5 ${email.is_flagged ? 'fill-red-500' : ''}`} />
+                            </Button>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap ml-1" data-testid={`text-email-date-${email.id}`}>
                               {emailDate ? format(new Date(emailDate), 'MMM d, h:mm a') : 'No date'}
                             </span>
                             {expandedEmail === email.id ? (
