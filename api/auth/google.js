@@ -65,7 +65,7 @@ export default async function handler(req, res) {
       nonce,
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
-      originHost: req.headers.host,
+      originHost: req.headers['x-forwarded-host'] || req.headers.host,
       returnTo: req.query.returnTo || null,
       timestamp: Date.now()
     };
