@@ -52,7 +52,7 @@ export default function OutlookConnection() {
   };
 
   const handleConnect = () => {
-    window.location.href = '/api/auth/outlook?returnTo=' + encodeURIComponent(window.location.pathname);
+    window.location.href = '/api/auth/outlook?returnTo=' + encodeURIComponent(window.location.pathname) + '&originHost=' + encodeURIComponent(window.location.host);
   };
 
   const handleDisconnect = async () => {

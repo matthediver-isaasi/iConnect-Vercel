@@ -86,7 +86,15 @@ export default async function handler(req, res) {
       ? 'https://iconn.app/api/auth/outlook/callback'
       : `http://${req.headers.host}/api/auth/outlook/callback`;
     
-    const originHost = req.headers['x-forwarded-host'] || req.headers.host || (isProduction ? 'iconn.app' : 'localhost:5000');
+    const isValidIconnHost = (h) => h && (/^([a-zA-Z0-9-]+\.)+iconn\.app$/.test(h) || h === 'iconn.app');
+    const queryHost = req.query.originHost;
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const hostHeader = req.headers.host;
+    const originHost = (isValidIconnHost(queryHost) ? queryHost : null)
+      || (isValidIconnHost(forwardedHost) ? forwardedHost : null)
+      || (isValidIconnHost(hostHeader) ? hostHeader : null)
+      || (isProduction ? 'iconn.app' : 'localhost:5000');
+    console.log(`[Outlook OAuth] Host resolution: query=${queryHost}, x-forwarded-host=${forwardedHost}, host=${hostHeader}, resolved=${originHost}`);
     
     const statePayload = {
       nonce,
