@@ -36,9 +36,12 @@ The frontend employs a custom "new-york" design system, leveraging shadcn/ui (Ra
 -   **Supabase:** PostgreSQL database and file storage.
 -   **Stripe:** Payment processing, supporting per-feature test/live mode switching.
 -   **Xero:** Invoice generation.
--   **Microsoft Graph API:** Outlook email integration.
+-   **Microsoft Graph API:** Outlook email integration with background cron-based sync.
 -   **Mailgun:** Tenant-specific email sending, delivery, and native Email Marketing System (EMS).
 -   **Zoho Campaigns:** Syncing member communication preferences.
+
+## Outlook Background Email Sync
+A Vercel cron job (`api/cron/sync-outlook-emails.js`) runs every 5 minutes, checking all active `outlook_connection` records. For each connection, it compares `last_sync_at` against the tenant's configured `outlook_sync_frequency_minutes` system setting (default: 15 min). Eligible connections are synced using the shared helper `api/_lib/outlookSync.js` (token refresh, Graph API email fetch, member matching, upsert to `member_email`). Results are logged to `scheduled_task_log`. The frequency is configurable per-tenant from the Admin Integrations page (`api/admin/outlook-sync-settings.js`). The manual sync endpoint `api/outlook/sync.js` also uses the shared helper.
 
 ## Organisation Directory Type Filter
 Organisation Directory Settings (`OrganisationDirectorySettings.jsx`) supports a "Visible Organisation Types" filter via the `org_directory_visible_org_types` system setting (JSON array of type values). When non-empty, only organisations whose `org_type`/`organisation_type`/`organization_type` preference field value matches one of the selected types are shown. Empty = show all (backward compatible). Both `OrganisationDirectory.jsx` and `IEditOrganisationDirectoryElement.jsx` (page builder) respect this filter. The settings and directory pages use separate TanStack Query keys (`organisation-directory-settings-admin` vs `organisation-directory-settings`) to avoid cache collisions.

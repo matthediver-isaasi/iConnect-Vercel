@@ -148,6 +148,11 @@ export default function AdminIntegrations() {
   const [stripeTestError, setStripeTestError] = useState(null);
   const [stripePromise, setStripePromise] = useState(null);
 
+  const [outlookSyncFrequency, setOutlookSyncFrequency] = useState(15);
+  const [outlookConnectedAccounts, setOutlookConnectedAccounts] = useState(0);
+  const [outlookSyncSaving, setOutlookSyncSaving] = useState(false);
+  const [outlookSyncLoaded, setOutlookSyncLoaded] = useState(false);
+
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
     { value: 'eu', label: 'Europe', accountsDomain: 'https://accounts.zoho.eu', campaignsDomain: 'https://campaigns.zoho.eu' },
@@ -298,9 +303,46 @@ export default function AdminIntegrations() {
         
         fetchZohoStatus();
         fetchXeroStatus();
+        fetchOutlookSyncSettings();
       }
     } catch (err) {
       console.error('Failed to fetch integrations:', err);
+    }
+  };
+
+  const fetchOutlookSyncSettings = async () => {
+    try {
+      const response = await fetch('/api/admin/outlook-sync-settings', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setOutlookSyncFrequency(data.frequency_minutes || 15);
+        setOutlookConnectedAccounts(data.connected_accounts || 0);
+        setOutlookSyncLoaded(true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Outlook sync settings:', err);
+    }
+  };
+
+  const handleSaveOutlookSync = async () => {
+    setOutlookSyncSaving(true);
+    try {
+      const response = await fetch('/api/admin/outlook-sync-settings', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ frequency_minutes: outlookSyncFrequency })
+      });
+      if (response.ok) {
+        toast({ title: "Saved", description: "Outlook sync frequency updated successfully" });
+      } else {
+        const data = await response.json();
+        toast({ title: "Error", description: data.error || "Failed to save setting", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to save setting", variant: "destructive" });
+    } finally {
+      setOutlookSyncSaving(false);
     }
   };
 
@@ -1689,6 +1731,79 @@ export default function AdminIntegrations() {
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <Mail className="h-5 w-5 text-blue-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-white">Outlook Email Sync</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Automatically sync emails from connected Outlook accounts
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-sm text-slate-400">
+                  Connected Outlook accounts will have their emails synced automatically in the background.
+                  Choose how often the sync should run for your tenant.
+                </p>
+
+                {outlookSyncLoaded && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="border-blue-500/30 text-blue-400" data-testid="badge-outlook-connected-count">
+                      {outlookConnectedAccounts} connected {outlookConnectedAccounts === 1 ? 'account' : 'accounts'}
+                    </Badge>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Sync Frequency</Label>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <Select
+                      value={String(outlookSyncFrequency)}
+                      onValueChange={(val) => setOutlookSyncFrequency(Number(val))}
+                      data-testid="select-outlook-sync-frequency"
+                    >
+                      <SelectTrigger className="w-[200px] bg-slate-900/50 border-slate-600 text-white" data-testid="select-trigger-outlook-sync-frequency">
+                        <SelectValue placeholder="Select frequency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">Every 5 minutes</SelectItem>
+                        <SelectItem value="15">Every 15 minutes</SelectItem>
+                        <SelectItem value="30">Every 30 minutes</SelectItem>
+                        <SelectItem value="60">Every hour</SelectItem>
+                        <SelectItem value="240">Every 4 hours</SelectItem>
+                        <SelectItem value="720">Every 12 hours</SelectItem>
+                        <SelectItem value="1440">Daily</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      onClick={handleSaveOutlookSync}
+                      disabled={outlookSyncSaving}
+                      className="border-blue-500/50 text-blue-400"
+                      data-testid="button-save-outlook-sync"
+                    >
+                      {outlookSyncSaving ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Save
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    The background sync checks every 5 minutes and processes accounts that are due based on this frequency.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
 

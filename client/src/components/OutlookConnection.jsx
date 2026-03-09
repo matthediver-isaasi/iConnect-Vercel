@@ -2,8 +2,16 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Mail, RefreshCw, CheckCircle2, AlertTriangle, ExternalLink, Unlink } from 'lucide-react';
+import { Loader2, Mail, RefreshCw, CheckCircle2, AlertTriangle, ExternalLink, Unlink, Clock } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+
+function formatSyncFrequency(minutes) {
+  if (!minutes) return null;
+  if (minutes < 60) return `every ${minutes} minutes`;
+  if (minutes === 60) return 'every hour';
+  if (minutes < 1440) return `every ${minutes / 60} hours`;
+  return 'daily';
+}
 
 export default function OutlookConnection() {
   const { toast } = useToast();
@@ -11,6 +19,7 @@ export default function OutlookConnection() {
   const [connection, setConnection] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [syncFrequency, setSyncFrequency] = useState(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -26,6 +35,8 @@ export default function OutlookConnection() {
     } else {
       fetchConnectionStatus();
     }
+
+    fetchSyncFrequency();
 
     if (urlParams.get('outlook_error')) {
       toast({
@@ -48,6 +59,17 @@ export default function OutlookConnection() {
       console.error('Failed to fetch Outlook status:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSyncFrequency = async () => {
+    try {
+      const response = await fetch('/api/admin/outlook-sync-settings', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setSyncFrequency(data.frequency_minutes || 15);
+      }
+    } catch (err) {
     }
   };
 
@@ -170,11 +192,19 @@ export default function OutlookConnection() {
               </div>
             )}
 
-            <div className="text-sm text-muted-foreground">
-              {connection.lastSyncAt ? (
-                <span>Last synced: {new Date(connection.lastSyncAt).toLocaleString()}</span>
-              ) : (
-                <span>Not synced yet</span>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <div>
+                {connection.lastSyncAt ? (
+                  <span>Last synced: {new Date(connection.lastSyncAt).toLocaleString()}</span>
+                ) : (
+                  <span>Not synced yet</span>
+                )}
+              </div>
+              {syncFrequency && (
+                <div className="flex items-center gap-1.5" data-testid="text-outlook-sync-frequency">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>Emails sync automatically {formatSyncFrequency(syncFrequency)}</span>
+                </div>
               )}
             </div>
 
