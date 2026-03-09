@@ -426,12 +426,39 @@ export default function OrganisationsListPage() {
   }, [members]);
 
   const orgValuesMap = useMemo(() => {
+    const extractPrimitiveValue = (val) => {
+      if (val === null || val === undefined) return val;
+      if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
+        return val.value;
+      }
+      if (Array.isArray(val)) {
+        return val.map(item => {
+          if (typeof item === 'object' && item !== null && item.value !== undefined) {
+            return item.value;
+          }
+          return item;
+        });
+      }
+      return val;
+    };
+
     const map = {};
     allOrgPreferenceValues.forEach(pv => {
       if (!map[pv.organization_id]) {
         map[pv.organization_id] = {};
       }
-      map[pv.organization_id][pv.field_id] = pv.value;
+      let normalizedValue = pv.value;
+      if (typeof pv.value === 'string') {
+        const trimmed = pv.value.trim();
+        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+          try {
+            normalizedValue = JSON.parse(trimmed);
+          } catch {
+          }
+        }
+      }
+      normalizedValue = extractPrimitiveValue(normalizedValue);
+      map[pv.organization_id][pv.field_id] = normalizedValue;
     });
     return map;
   }, [allOrgPreferenceValues]);
@@ -468,22 +495,17 @@ export default function OrganisationsListPage() {
         
         result = result.filter(org => {
           const orgFieldValue = orgValuesMap[org.id]?.[fieldId];
-          if (!orgFieldValue) return false;
+          if (orgFieldValue === null || orgFieldValue === undefined) return false;
           
           if (isTextFilter) {
-            // Text search
-            return orgFieldValue.toLowerCase().includes(actualValue);
+            const strVal = Array.isArray(orgFieldValue) ? orgFieldValue.join(' ') : String(orgFieldValue);
+            return strVal.toLowerCase().includes(actualValue);
           }
           
-          try {
-            const parsed = JSON.parse(orgFieldValue);
-            if (Array.isArray(parsed)) {
-              return parsed.includes(filterValue);
-            }
-            return parsed === filterValue;
-          } catch {
-            return orgFieldValue === filterValue;
+          if (Array.isArray(orgFieldValue)) {
+            return orgFieldValue.includes(filterValue);
           }
+          return orgFieldValue === filterValue;
         });
       }
     });
