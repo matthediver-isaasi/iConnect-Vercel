@@ -52,18 +52,9 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'You must be logged in to connect Outlook' });
     }
 
-    // Get identityId from various sources:
-    // - For tenant_user sessions: identityId is stored in the raw session data
-    // - For member sessions: memberId is the identity
-    let identityId = tenantContext.memberId;
-    
-    // For tenant_user sessions, get identityId from raw session data
-    if (tenantContext.tenantUserId) {
-      const sessionResult = await getSession(req);
-      if (sessionResult?.data?.identityId) {
-        identityId = sessionResult.data.identityId;
-      }
-    }
+    const sessionResult = await getSession(req);
+    const sessionData = sessionResult?.data;
+    let identityId = sessionData?.identityId || sessionData?.userId || tenantContext.memberId;
     
     if (!identityId) {
       return res.status(401).json({ error: 'Could not determine user identity' });
