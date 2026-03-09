@@ -239,7 +239,7 @@ export default function OrganisationDirectoryPage() {
     enabled: filterableFields.length > 0 || (hasVisibleOrgTypes && !!orgTypeFieldId),
     queryFn: async () => {
       try {
-        const values = await base44.entities.OrganizationPreferenceValue.list();
+        const values = await base44.entities.OrganizationPreferenceValue.listAll();
         return values || [];
       } catch {
         return [];

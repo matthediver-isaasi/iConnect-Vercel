@@ -360,7 +360,7 @@ export default function DynamicDirectoryView() {
     enabled: !!directory && directory.entity_type === 'organization',
     queryFn: async () => {
       try {
-        const values = await base44.entities.OrganizationPreferenceValue.list();
+        const values = await base44.entities.OrganizationPreferenceValue.listAll();
         return values || [];
       } catch {
         return [];

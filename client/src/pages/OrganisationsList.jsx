@@ -248,7 +248,7 @@ export default function OrganisationsListPage() {
     enabled: accessChecked && orgCustomFields.length > 0,
     queryFn: async () => {
       try {
-        const values = await base44.entities.OrganizationPreferenceValue.list();
+        const values = await base44.entities.OrganizationPreferenceValue.listAll();
         return values || [];
       } catch {
         return [];
