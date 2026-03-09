@@ -31,14 +31,16 @@ function verifyState(signedState) {
 
 function buildRedirect(path, isProduction, originHost = null) {
   if (isProduction) {
-    // Validate originHost to prevent open redirect attacks - must be *.iconn.app
     let safeHost = 'iconn.app';
-    if (originHost && /^([a-zA-Z0-9-]+\.)+iconn\.app$/.test(originHost)) {
+    const regexMatch = originHost && /^([a-zA-Z0-9-]+\.)+iconn\.app$/.test(originHost);
+    if (regexMatch) {
       safeHost = originHost;
     } else if (originHost === 'iconn.app') {
       safeHost = 'iconn.app';
     }
-    return `https://${safeHost}${path}`;
+    const url = `https://${safeHost}${path}`;
+    console.log(`[Outlook OAuth Callback] buildRedirect: originHost=${originHost}, regexMatch=${regexMatch}, safeHost=${safeHost}, url=${url}`);
+    return url;
   }
   return path;
 }
@@ -74,6 +76,7 @@ export default async function handler(req, res) {
     console.error('[Outlook OAuth Callback] Invalid or expired state');
     return res.redirect(buildRedirect('/settings?outlook_error=invalid_state', isProduction));
   }
+  console.log(`[Outlook OAuth Callback] State decoded: originHost=${stateData.originHost}, returnTo=${stateData.returnTo}, tenantId=${stateData.tenantId}, identityId=${stateData.identityId}`);
 
   const cookies = parse(req.headers.cookie || '');
   const storedNonce = cookies['outlook_oauth_nonce'];
@@ -201,7 +204,9 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', clearNonceCookie);
 
     const finalPath = returnTo || '/settings';
+    console.log(`[Outlook OAuth Callback] Building success redirect: returnTo=${returnTo}, finalPath=${finalPath}, originHost=${originHost}`);
     const successRedirect = buildRedirect(`${finalPath}?outlook_connected=true`, isProduction, originHost);
+    console.log(`[Outlook OAuth Callback] Final redirect URL: ${successRedirect}`);
     
     res.redirect(successRedirect);
 
