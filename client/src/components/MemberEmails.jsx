@@ -248,60 +248,68 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
           ) : (
             <ScrollArea className="h-[500px]">
               <div className="space-y-2">
-                {emails.map((email) => (
+                {emails.map((email) => {
+                  const emailDate = email.sent_at || email.received_at;
+                  const contactLine = email.direction === 'inbound'
+                    ? (email.from_name || email.from_address || 'Unknown sender')
+                    : `To: ${email.to_addresses?.[0]?.name || email.to_addresses?.[0]?.address || 'Unknown recipient'}`;
+
+                  return (
                   <div
                     key={email.id}
-                    className="border rounded-lg overflow-hidden"
+                    className="border rounded-lg"
                   >
                     <button
-                      className="w-full p-3 text-left hover:bg-muted/50 transition-colors"
+                      className="w-full p-3 text-left hover-elevate transition-colors"
                       onClick={() => toggleExpand(email.id)}
                       data-testid={`button-email-${email.id}`}
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div className="mt-0.5">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             {email.direction === 'inbound' ? (
-                              <Inbox className="h-4 w-4 text-blue-500" />
+                              <Inbox className="h-4 w-4 text-blue-500 flex-shrink-0" />
                             ) : (
-                              <Send className="h-4 w-4 text-green-500" />
+                              <Send className="h-4 w-4 text-green-500 flex-shrink-0" />
+                            )}
+                            <span className="font-medium truncate" data-testid={`text-email-contact-${email.id}`}>
+                              {contactLine}
+                            </span>
+                            {email.has_attachments && (
+                              <Paperclip className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                             )}
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium truncate">
-                                {email.subject || '(No subject)'}
-                              </span>
-                              {email.has_attachments && (
-                                <Paperclip className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground truncate">
-                              {email.body_preview}
-                            </p>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap" data-testid={`text-email-date-${email.id}`}>
+                              {emailDate ? format(new Date(emailDate), 'MMM d, h:mm a') : 'No date'}
+                            </span>
+                            {expandedEmail === email.id ? (
+                              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <div className="text-right">
-                            <Badge variant={email.direction === 'inbound' ? 'secondary' : 'outline'}>
-                              {email.direction === 'inbound' ? 'Received' : 'Sent'}
-                            </Badge>
-                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {format(new Date(email.sent_at || email.received_at), 'MMM d, h:mm a')}
-                            </p>
-                            {email.synced_by_name && (
-                              <p className="text-xs text-muted-foreground/70 mt-0.5">
-                                via {email.synced_by_name}
-                              </p>
-                            )}
-                          </div>
-                          {expandedEmail === email.id ? (
-                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+
+                        <div className="flex items-center gap-2 pl-6 flex-wrap">
+                          <span className="text-sm truncate min-w-0" data-testid={`text-email-subject-${email.id}`}>
+                            {email.subject || '(No subject)'}
+                          </span>
+                          <Badge variant={email.direction === 'inbound' ? 'secondary' : 'outline'}>
+                            {email.direction === 'inbound' ? 'Received' : 'Sent'}
+                          </Badge>
+                          {email.synced_by_name && (
+                            <span className="text-xs text-muted-foreground/70">
+                              via {email.synced_by_name}
+                            </span>
                           )}
                         </div>
+
+                        {email.body_preview && (
+                          <p className="text-sm text-muted-foreground pl-6 line-clamp-2" data-testid={`text-email-preview-${email.id}`}>
+                            {email.body_preview}
+                          </p>
+                        )}
                       </div>
                     </button>
 
@@ -335,7 +343,8 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
                       </>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </ScrollArea>
           )}
