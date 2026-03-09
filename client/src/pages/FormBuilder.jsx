@@ -114,6 +114,7 @@ const MEMBER_CORE_FIELDS = [
 
 const ORG_CORE_FIELDS = [
   { value: 'name', label: 'Organisation Name' },
+  { value: 'logo_url', label: 'Logo' },
   { value: 'invoicing_email', label: 'Invoicing Email' },
   { value: 'invoicing_address', label: 'Invoicing Address' },
   { value: 'phone', label: 'Phone' },

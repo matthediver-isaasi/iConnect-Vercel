@@ -783,6 +783,7 @@ export default async function handler(req, res) {
       }
       const orgCoreFieldMappings = {
         'name': 'name',
+        'logo_url': 'logo_url',
         'email': 'email',
         'phone': 'phone',
         'website': 'website',
@@ -835,7 +836,7 @@ export default async function handler(req, res) {
           createdOrganizationId = existingOrg.id;
         } else if (orgAction === 'update' || orgAction === 'upsert') {
           // Update existing organization - dynamically include all orgData fields that were explicitly set
-          const allowedOrgColumns = ['name', 'invoicing_email', 'phone', 'website_url', 'invoicing_address', 'email', 'address'];
+          const allowedOrgColumns = ['name', 'logo_url', 'invoicing_email', 'phone', 'website_url', 'invoicing_address', 'email', 'address'];
           const orgUpdateData = {};
           for (const [key, value] of Object.entries(orgData)) {
             if (!allowedOrgColumns.includes(key)) continue;
@@ -886,6 +887,7 @@ export default async function handler(req, res) {
           
           const orgInsertData = {
             name: orgData.name,
+            logo_url: orgData.logo_url || null,
             invoicing_email: orgData.invoicing_email || null,
             invoicing_address: orgData.invoicing_address || null,
             phone: orgData.phone || null,
