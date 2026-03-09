@@ -33,7 +33,7 @@ function buildRedirect(path, isProduction, originHost = null) {
   if (isProduction) {
     // Validate originHost to prevent open redirect attacks - must be *.iconn.app
     let safeHost = 'iconn.app';
-    if (originHost && /^[a-zA-Z0-9-]+\.iconn\.app$/.test(originHost)) {
+    if (originHost && /^([a-zA-Z0-9-]+\.)+iconn\.app$/.test(originHost)) {
       safeHost = originHost;
     } else if (originHost === 'iconn.app') {
       safeHost = 'iconn.app';

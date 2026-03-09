@@ -13,16 +13,20 @@ export default function OutlookConnection() {
   const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
-    fetchConnectionStatus();
-    
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('outlook_connected') === 'true') {
+    const justConnected = urlParams.get('outlook_connected') === 'true';
+
+    if (justConnected) {
       toast({
         title: 'Outlook Connected',
         description: 'Your Outlook account has been connected successfully.',
       });
       window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => fetchConnectionStatus(), 500);
+    } else {
+      fetchConnectionStatus();
     }
+
     if (urlParams.get('outlook_error')) {
       toast({
         title: 'Connection Failed',
