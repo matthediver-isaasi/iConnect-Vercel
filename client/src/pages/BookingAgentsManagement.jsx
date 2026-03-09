@@ -31,13 +31,15 @@ import {
   ExternalLink,
   UserCheck,
   UserX,
-  Settings
+  Settings,
+  Monitor
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const MEETING_TYPES = [
   { value: 'phone', label: 'Phone Call', icon: Phone },
   { value: 'zoom', label: 'Zoom Meeting', icon: Video },
+  { value: 'teams', label: 'Microsoft Teams', icon: Monitor },
   { value: 'in_person', label: 'In Person', icon: MapPin }
 ];
 
@@ -125,6 +127,16 @@ export default function BookingAgentsManagement() {
     }
   });
   const zoomConnected = zoomStatus?.connected ?? false;
+
+  const { data: outlookSyncSettings } = useQuery({
+    queryKey: ['outlook-sync-settings-booking'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/outlook-sync-settings', { credentials: 'include' });
+      if (!response.ok) return { connected_accounts: 0 };
+      return response.json();
+    }
+  });
+  const outlookConnected = (outlookSyncSettings?.connected_accounts ?? 0) > 0;
 
   const { data: zoomUsersData, isLoading: zoomUsersLoading } = useQuery({
     queryKey: ['zoom-users'],
@@ -1026,13 +1038,13 @@ export default function BookingAgentsManagement() {
                   </SelectTrigger>
                   <SelectContent>
                     {MEETING_TYPES.map(opt => {
-                      const isZoomDisabled = opt.value === 'zoom' && !zoomConnected;
+                      const isDisabled = (opt.value === 'zoom' && !zoomConnected) || (opt.value === 'teams' && !outlookConnected);
                       return (
-                        <SelectItem key={opt.value} value={opt.value} disabled={isZoomDisabled}>
+                        <SelectItem key={opt.value} value={opt.value} disabled={isDisabled}>
                           <div className="flex items-center gap-2">
-                            <opt.icon className={`h-4 w-4 ${isZoomDisabled ? 'opacity-50' : ''}`} />
-                            <span className={isZoomDisabled ? 'opacity-50' : ''}>{opt.label}</span>
-                            {isZoomDisabled && (
+                            <opt.icon className={`h-4 w-4 ${isDisabled ? 'opacity-50' : ''}`} />
+                            <span className={isDisabled ? 'opacity-50' : ''}>{opt.label}</span>
+                            {isDisabled && (
                               <span className="text-xs text-muted-foreground ml-1">(not connected)</span>
                             )}
                           </div>

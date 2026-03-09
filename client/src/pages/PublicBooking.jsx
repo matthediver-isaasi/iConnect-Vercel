@@ -24,7 +24,8 @@ import {
   AlertTriangle,
   Globe,
   Video,
-  MapPin
+  MapPin,
+  Monitor
 } from 'lucide-react';
 import { format, addDays, addMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isBefore, isAfter } from 'date-fns';
 import { publicClient } from '@/api/publicClient';
@@ -32,12 +33,14 @@ import { publicClient } from '@/api/publicClient';
 const MEETING_TYPE_ICONS = {
   phone: PhoneIcon,
   zoom: Video,
+  teams: Monitor,
   in_person: MapPin
 };
 
 const MEETING_TYPE_LABELS = {
   phone: 'Phone Call',
   zoom: 'Zoom Meeting',
+  teams: 'Microsoft Teams',
   in_person: 'In Person'
 };
 
@@ -270,6 +273,23 @@ export default function PublicBooking() {
                   data-testid="link-zoom-join"
                 >
                   {bookingResult.booking.zoom_join_url}
+                </a>
+              </div>
+            )}
+            {bookingResult?.booking?.teams_join_url && (
+              <div className="bg-muted rounded-lg p-4 w-full">
+                <div className="flex items-center gap-2 justify-center mb-2">
+                  <Monitor className="h-4 w-4" />
+                  <span className="font-medium">Microsoft Teams Meeting</span>
+                </div>
+                <a
+                  href={bookingResult.booking.teams_join_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary underline break-all"
+                  data-testid="link-teams-join"
+                >
+                  Join Teams Meeting
                 </a>
               </div>
             )}

@@ -207,6 +207,13 @@ export default async function handler(req, res) {
         .ilike('email', attendee_email)
         .limit(1);
 
+      if (meetingType === 'teams') {
+        const outlookConn = await getOutlookConnectionForIdentity(identity.id, tenantId);
+        if (!outlookConn) {
+          return res.status(400).json({ error: 'Microsoft Teams meetings require the agent to have a connected Outlook account. Please contact the organiser.' });
+        }
+      }
+
       const meetingTitle = selectedTemplate 
         ? `${selectedTemplate.name} with ${attendee_name}`
         : `Meeting with ${attendee_name}`;
@@ -302,11 +309,11 @@ export default async function handler(req, res) {
 
       // Create calendar event in agent's Outlook calendar if connected
       let calendarEventId = null;
+      let teamsMeetingData = null;
       try {
         const outlookConnection = await getOutlookConnectionForIdentity(identity.id, tenantId);
         if (outlookConnection) {
           const agentTimezone = profile.timezone || 'UTC';
-          // Format times as local strings (without Z suffix) for Microsoft Graph when specifying timeZone
           const startLocalStr = formatInTimeZone(startTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
           const endLocalStr = formatInTimeZone(endTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
           
@@ -314,6 +321,9 @@ export default async function handler(req, res) {
             ? `<p><strong>Zoom Meeting:</strong> <a href="${zoomMeetingData.join_url}">${zoomMeetingData.join_url}</a></p>
                ${zoomMeetingData.password ? `<p><strong>Meeting Password:</strong> ${zoomMeetingData.password}</p>` : ''}`
             : '';
+
+          const isTeamsMeeting = meetingType === 'teams';
+          const useOnlineMeeting = isTeamsMeeting || !!zoomMeetingData;
 
           const calendarEvent = await createCalendarEvent(outlookConnection, {
             subject: `Meeting with ${attendee_name}`,
@@ -327,13 +337,28 @@ export default async function handler(req, res) {
             endDateTime: endLocalStr,
             timeZone: agentTimezone,
             attendees: [{ email: attendee_email, name: attendee_name }],
-            isOnlineMeeting: !!zoomMeetingData
+            isOnlineMeeting: useOnlineMeeting
           });
           
           calendarEventId = calendarEvent?.id;
           console.log('[Public Booking] Created Outlook calendar event:', calendarEventId);
+
+          if (isTeamsMeeting && calendarEvent?.onlineMeeting?.joinUrl) {
+            teamsMeetingData = {
+              joinUrl: calendarEvent.onlineMeeting.joinUrl
+            };
+            console.log('[Public Booking] Teams meeting created with join URL');
+
+            const { error: teamsUpdateError } = await supabase
+              .from('agent_booking')
+              .update({ teams_join_url: teamsMeetingData.joinUrl })
+              .eq('id', booking.id);
+
+            if (teamsUpdateError) {
+              console.error('[Public Booking] Failed to save Teams join URL:', teamsUpdateError);
+            }
+          }
           
-          // Update booking with calendar event ID
           if (calendarEventId) {
             const { error: updateEventIdError } = await supabase
               .from('agent_booking')
@@ -347,10 +372,12 @@ export default async function handler(req, res) {
             }
           }
         } else {
+          if (meetingType === 'teams') {
+            console.error('[Public Booking] Teams meeting requested but no Outlook connection for agent');
+          }
           console.log('[Public Booking] No Outlook connection for agent, skipping calendar event');
         }
       } catch (calendarError) {
-        // Don't fail the booking if calendar creation fails
         console.error('[Public Booking] Calendar event creation failed:', calendarError);
       }
 
@@ -502,6 +529,7 @@ export default async function handler(req, res) {
               meeting_title: meetingTitle,
               zoom_join_url: zoomMeetingData?.join_url || '',
               zoom_password: zoomMeetingData?.password || '',
+              teams_join_url: teamsMeetingData?.joinUrl || '',
               tenant_name: tenant?.name || '',
               attendee_notes: attendee_notes || ''
             };
@@ -540,7 +568,8 @@ export default async function handler(req, res) {
           calendarEventCreated: !!calendarEventId,
           linkedMeetingRequestId,
           zoom_join_url: zoomMeetingData?.join_url || null,
-          zoom_meeting_id: zoomMeetingData?.id ? String(zoomMeetingData.id) : null
+          zoom_meeting_id: zoomMeetingData?.id ? String(zoomMeetingData.id) : null,
+          teams_join_url: teamsMeetingData?.joinUrl || null
         },
         agent: {
           name: `${identity.first_name || ''} ${identity.last_name || ''}`.trim(),

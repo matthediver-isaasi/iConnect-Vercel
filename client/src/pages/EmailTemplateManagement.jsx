@@ -140,6 +140,7 @@ const PLACEHOLDER_GROUPS = [
       { value: '{{meeting_title}}', label: 'Meeting Title' },
       { value: '{{zoom_join_url}}', label: 'Zoom Join URL' },
       { value: '{{zoom_password}}', label: 'Zoom Password' },
+      { value: '{{teams_join_url}}', label: 'Teams Join URL' },
       { value: '{{tenant_name}}', label: 'Organisation Name' },
       { value: '{{attendee_notes}}', label: 'Attendee Notes' },
     ]
