@@ -145,17 +145,51 @@ export default async function handler(req, res) {
 
     const tokenExpiresAt = new Date(Date.now() + (expires_in * 1000)).toISOString();
 
-    const { data: existingConnection, error: checkError } = await supabase
+    let existingConnection = null;
+
+    const { data: byIdentity, error: identityLookupError } = await supabase
       .from('outlook_connection')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('identity_id', identityId)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (identityLookupError) {
+      console.error('[Outlook OAuth Callback] Error looking up by identity_id:', identityLookupError);
+      return res.redirect(buildRedirect('/settings?outlook_error=save_failed', isProduction, originHost));
+    }
+
+    if (byIdentity) {
+      existingConnection = byIdentity;
+      console.log('[Outlook OAuth Callback] Found existing connection by identity_id:', byIdentity.id);
+    } else {
+      const { data: byMsUser, error: msUserLookupError } = await supabase
+        .from('outlook_connection')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('microsoft_user_id', microsoftUserId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (msUserLookupError) {
+        console.error('[Outlook OAuth Callback] Error looking up by microsoft_user_id:', msUserLookupError);
+        return res.redirect(buildRedirect('/settings?outlook_error=save_failed', isProduction, originHost));
+      }
+
+      if (byMsUser) {
+        existingConnection = byMsUser;
+        console.log('[Outlook OAuth Callback] Found existing connection by microsoft_user_id:', byMsUser.id);
+      }
+    }
 
     if (existingConnection) {
       const { error: updateError } = await supabase
         .from('outlook_connection')
         .update({
+          identity_id: identityId,
           microsoft_user_id: microsoftUserId,
           microsoft_email: microsoftEmail,
           display_name: displayName,
