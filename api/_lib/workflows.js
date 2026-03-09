@@ -147,16 +147,17 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
     console.log(`[processSpecialPlaceholders] Generated passwordUrl: "${passwordUrl}"`);
     
     if (passwordUrl) {
+      const passwordLink = `<a href="${passwordUrl}" style="color: #0066cc; text-decoration: underline;">Set your password</a>`;
       // Replace all forms of the placeholder (flexible regex with whitespace support)
-      result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordUrl);
+      result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordLink);
       // Also replace [[set_password_url]] syntax
-      result = result.replace(/\[\[\s*set_password_url\s*\]\]/gi, passwordUrl);
+      result = result.replace(/\[\[\s*set_password_url\s*\]\]/gi, passwordLink);
       // HTML entity encoded versions
-      result = result.replace(/&#123;&#123;\s*set_password_url\s*&#125;&#125;/gi, passwordUrl);
-      result = result.replace(/&lcub;&lcub;\s*set_password_url\s*&rcub;&rcub;/gi, passwordUrl);
+      result = result.replace(/&#123;&#123;\s*set_password_url\s*&#125;&#125;/gi, passwordLink);
+      result = result.replace(/&lcub;&lcub;\s*set_password_url\s*&rcub;&rcub;/gi, passwordLink);
       // URL encoded version
-      result = result.replace(/%7B%7Bset_password_url%7D%7D/gi, passwordUrl);
-      console.log(`[Workflows] Replaced {{set_password_url}} with ${passwordUrl}`);
+      result = result.replace(/%7B%7Bset_password_url%7D%7D/gi, passwordLink);
+      console.log(`[Workflows] Replaced {{set_password_url}} with HTML link: ${passwordUrl}`);
     } else {
       console.warn(`[Workflows] Failed to generate password setup URL for member ${entityId}, removing placeholder to avoid raw text in email`);
       // Remove the placeholder rather than leaving raw {{set_password_url}} text in the email

@@ -314,8 +314,9 @@ async function processSpecialPlaceholders(
     if (memberEmail) {
       const passwordUrl = await generatePasswordSetupUrl(entityId, memberEmail, baseUrl);
       if (passwordUrl) {
-        result = result.replace(/\{\{set_password_url\}\}/g, passwordUrl);
-        result = result.replace(/\[\[set_password_url\]\]/g, passwordUrl);
+        const passwordLink = `<a href="${passwordUrl}" style="color: #0066cc; text-decoration: underline;">Set your password</a>`;
+        result = result.replace(/\{\{set_password_url\}\}/g, passwordLink);
+        result = result.replace(/\[\[set_password_url\]\]/g, passwordLink);
       }
     }
   }
