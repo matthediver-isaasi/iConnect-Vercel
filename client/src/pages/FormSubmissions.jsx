@@ -74,6 +74,16 @@ export default function FormSubmissionsPage() {
     }
   });
 
+  const formsById = useMemo(() => {
+    const map = {};
+    forms.forEach(f => { map[f.id] = f; });
+    return map;
+  }, [forms]);
+
+  const resolveFormName = (submission) => {
+    return submission.form_name || formsById[submission.form_id]?.name || 'Unknown Form';
+  };
+
   const { data: viewingForm } = useQuery({
     queryKey: ['form-detail', viewingSubmission?.form_id],
     queryFn: async () => {
@@ -208,7 +218,7 @@ export default function FormSubmissionsPage() {
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter(s => 
-        s.form_name?.toLowerCase().includes(searchLower) ||
+        resolveFormName(s).toLowerCase().includes(searchLower) ||
         s.submitted_by_email?.toLowerCase().includes(searchLower) ||
         s.submitted_by_name?.toLowerCase().includes(searchLower) ||
         JSON.stringify(s.submission_data).toLowerCase().includes(searchLower)
@@ -216,7 +226,7 @@ export default function FormSubmissionsPage() {
     }
 
     return filtered;
-  }, [submissions, selectedForm, selectedStatus, searchQuery]);
+  }, [submissions, selectedForm, selectedStatus, searchQuery, formsById]);
 
   const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
   const paginatedSubmissions = useMemo(() => {
@@ -238,13 +248,13 @@ export default function FormSubmissionsPage() {
   const formCounts = useMemo(() => {
     const counts = {};
     submissions.forEach(s => {
-      const formName = s.form_name || 'Unknown Form';
+      const formName = resolveFormName(s);
       counts[formName] = (counts[formName] || 0) + 1;
     });
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
-  }, [submissions]);
+  }, [submissions, formsById]);
 
   const timeAnalytics = useMemo(() => {
     const now = moment();
@@ -538,7 +548,7 @@ export default function FormSubmissionsPage() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <CardTitle className="text-base mb-2">{submission.form_name}</CardTitle>
+                        <CardTitle className="text-base mb-2">{resolveFormName(submission)}</CardTitle>
                         <div className="flex flex-wrap items-center gap-2 text-sm">
                           {getStatusBadge(submission.status)}
                           {submission.submitted_by_name && (
@@ -716,7 +726,7 @@ export default function FormSubmissionsPage() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <Label className="text-slate-600">Form</Label>
-                    <p className="font-medium text-slate-900">{viewingSubmission.form_name}</p>
+                    <p className="font-medium text-slate-900">{resolveFormName(viewingSubmission)}</p>
                   </div>
                   <div>
                     <Label className="text-slate-600">Submitted</Label>
@@ -790,7 +800,7 @@ export default function FormSubmissionsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Submission</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this submission from "{submissionToDelete?.form_name}"? 
+              Are you sure you want to delete this submission from "{submissionToDelete ? resolveFormName(submissionToDelete) : ''}"? 
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
