@@ -6,8 +6,9 @@ const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
   'send_email', 'email_templates', 'prefill_source',
-  'visibility_rules', 'pages',  // Needed for conditional logic and multi-page forms
-  'entity_pipelines',  // Needed for role capacity checking
+  'visibility_rules', 'pages',
+  'entity_pipelines',
+  'uniqueness_checks', 'application_level',
   'blank_layout'
 ];
 
