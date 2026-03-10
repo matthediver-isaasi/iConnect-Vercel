@@ -1,0 +1,294 @@
+ "success": true,
+    "branding": {
+        "id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "name": "Graduate Futures Institute",
+        "slug": "gfi",
+        "logoUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/file-repository/uploads/1769777208426-q8jfu4i-svgviewer-png-output.png",
+        "headerLogoUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/file-repository/uploads/1769766504490-abk7r7e-26710cf5a_GFIheaderlogo_1_.png",
+        "faviconUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/file-repository/uploads/1767909733211-xza2ojg-fgifavicon.png",
+        "primaryColor": "#5C0085",
+        "secondaryColor": "#BA0087",
+        "tagline": "",
+        "headerConfig": {
+            "logoWidth": "",
+            "logoHeight": "144",
+            "logoShadow": "none",
+            "logoPadding": "17",
+            "gradientStops": [
+                {
+                    "color": "#FFFFFF",
+                    "position": 0
+                },
+                {
+                    "color": "#FFFFFF",
+                    "position": 30
+                },
+                {
+                    "color": "#5C0085",
+                    "position": 50
+                },
+                {
+                    "color": "#BA0087",
+                    "position": 65
+                },
+                {
+                    "color": "#EE00C3",
+                    "position": 80
+                },
+                {
+                    "color": "#FF4229",
+                    "position": 90
+                },
+                {
+                    "color": "#FFB000",
+                    "position": 100
+                }
+            ],
+            "logoMarginTop": "",
+            "logoBackground": "",
+            "logoMarginLeft": "",
+            "logoBorderColor": "",
+            "logoBorderWidth": "",
+            "logoBorderRadiusTopLeft": "",
+            "logoBorderRadiusTopRight": "",
+            "logoBorderRadiusBottomLeft": "",
+            "logoBorderRadiusBottomRight": ""
+        },
+        "footerConfig": {
+            "address": {
+                "name": "Graduate Futures Institute",
+                "lines": [
+                    "c/o Hawsons Chartered Accountants",
+                    "Pegasus House",
+                    "Sheffield",
+                    "South Yorkshire"
+                ]
+            },
+            "columns": 3,
+            "contact": {
+                "email": "hello@graduatefutures.org",
+                "phone": "+44 (0)114 251 5750"
+            },
+            "ctaLink": "Membership",
+            "ctaText": "Become a member today",
+            "legalText": "The Association of Graduate Careers Advisory Services (Graduate Futures Institute) is a registered charity in England and Wales (1078508) and Scotland (SC038805) Company No. 03884685.",
+            "textColor": "#FFFFFF",
+            "ctaButtonText": "Join Us",
+            "gradientColors": [
+                "#5C0085",
+                "#BA0087",
+                "#EE00C3",
+                "#FF4229",
+                "#FFB000"
+            ],
+            "newsletterText": "Sign up to The Fast Track, our e-newsletter.",
+            "backgroundColor": "#000000",
+            "columnAlignments": {
+                "3": "right",
+                "4": "right"
+            },
+            "privacyPolicyUrl": "https://www.graduatefutures.org/privacy-policy",
+            "termsAndConditionsUrl": "https://www.graduatefutures.org/website-terms-and-conditions"
+        },
+        "brandingConfig": {
+            "button_styles": {
+                "primary": {
+                    "hover": {
+                        "type": "gradient",
+                        "solidColor": "#BA0087",
+                        "gradientAngle": 90,
+                        "gradientStops": [
+                            {
+                                "color": "#BA0087",
+                                "position": 0
+                            },
+                            {
+                                "color": "#EE00C3",
+                                "position": 100
+                            }
+                        ]
+                    },
+                    "border": {
+                        "color": "#000000",
+                        "style": "solid",
+                        "width": 0
+                    },
+                    "radius": 0,
+                    "textColor": "#FFFFFF",
+                    "background": {
+                        "type": "gradient",
+                        "solidColor": "#5C0085",
+                        "gradientAngle": 68,
+                        "gradientStops": [
+                            {
+                                "color": "#5c0085",
+                                "position": 0
+                            },
+                            {
+                                "color": "#ba0087",
+                                "position": 32
+                            },
+                            {
+                                "color": "#ee00c3",
+                                "position": 58
+                            },
+                            {
+                                "color": "#ff4229",
+                                "position": 79
+                            },
+                            {
+                                "color": "#ffb000",
+                                "position": 100
+                            }
+                        ]
+                    },
+                    "hoverTextColor": "#FFFFFF"
+                },
+                "secondary": {
+                    "hover": {
+                        "type": "gradient",
+                        "solidColor": "#5C0085",
+                        "gradientAngle": 90,
+                        "gradientStops": [
+                            {
+                                "color": "#5C0085",
+                                "position": 0
+                            },
+                            {
+                                "color": "#BA0087",
+                                "position": 100
+                            }
+                        ]
+                    },
+                    "border": {
+                        "color": "#000000",
+                        "style": "solid",
+                        "width": 2
+                    },
+                    "radius": 6,
+                    "textColor": "#000000",
+                    "background": {
+                        "type": "solid",
+                        "solidColor": "transparent",
+                        "gradientAngle": 90,
+                        "gradientStops": [
+                            {
+                                "color": "#FFFFFF",
+                                "position": 0
+                            },
+                            {
+                                "color": "#F0F0F0",
+                                "position": 100
+                            }
+                        ]
+                    },
+                    "hoverTextColor": "#FFFFFF"
+                }
+            },
+            "footerLogoWidth": "",
+            "footerLogoHeight": "",
+            "footerSocialIconColor": "#FFFFFF",
+            "headerSocialIconColor": "#5C0085"
+        },
+        "platformBranding": {
+            "textColor": "#64748B",
+            "backgroundColor": "#000000",
+            "showPlatformBranding": true
+        },
+        "buttonStyles": {
+            "primary": {
+                "hover": {
+                    "type": "gradient",
+                    "solidColor": "#BA0087",
+                    "gradientAngle": 90,
+                    "gradientStops": [
+                        {
+                            "color": "#BA0087",
+                            "position": 0
+                        },
+                        {
+                            "color": "#EE00C3",
+                            "position": 100
+                        }
+                    ]
+                },
+                "border": {
+                    "color": "#000000",
+                    "style": "solid",
+                    "width": 0
+                },
+                "radius": 0,
+                "textColor": "#FFFFFF",
+                "background": {
+                    "type": "gradient",
+                    "solidColor": "#5C0085",
+                    "gradientAngle": 68,
+                    "gradientStops": [
+                        {
+                            "color": "#5c0085",
+                            "position": 0
+                        },
+                        {
+                            "color": "#ba0087",
+                            "position": 32
+                        },
+                        {
+                            "color": "#ee00c3",
+                            "position": 58
+                        },
+                        {
+                            "color": "#ff4229",
+                            "position": 79
+                        },
+                        {
+                            "color": "#ffb000",
+                            "position": 100
+                        }
+                    ]
+                },
+                "hoverTextColor": "#FFFFFF"
+            },
+            "secondary": {
+                "hover": {
+                    "type": "gradient",
+                    "solidColor": "#5C0085",
+                    "gradientAngle": 90,
+                    "gradientStops": [
+                        {
+                            "color": "#5C0085",
+                            "position": 0
+                        },
+                        {
+                            "color": "#BA0087",
+                            "position": 100
+                        }
+                    ]
+                },
+                "border": {
+                    "color": "#000000",
+                    "style": "solid",
+                    "width": 2
+                },
+                "radius": 6,
+                "textColor": "#000000",
+                "background": {
+                    "type": "solid",
+                    "solidColor": "transparent",
+                    "gradientAngle": 90,
+                    "gradientStops": [
+                        {
+                            "color": "#FFFFFF",
+                            "position": 0
+                        },
+                        {
+                            "color": "#F0F0F0",
+                            "position": 100
+                        }
+                    ]
+                },
+                "hoverTextColor": "#FFFFFF"
+            }
+        },
+        "allowSearchIndexing": false
+    }
+}
