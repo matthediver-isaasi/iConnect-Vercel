@@ -472,13 +472,17 @@ export default function PublicLayout({ children, currentPageName }) {
                       marginBottom: '12px'
                     };
                     
+                    const headingTitle = (tenantFooterConfig.newsletterText && item.title === 'Sign up to our newsletter')
+                      ? tenantFooterConfig.newsletterText
+                      : (item.title || 'Section');
+                    
                     return (
                       <div key={item.id}>
                         <h4 
                           className="text-sm" 
                           style={headingStyles}
                         >
-                          {item.title || 'Section'}
+                          {headingTitle}
                         </h4>
                         {!headingStyle && (
                           <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
