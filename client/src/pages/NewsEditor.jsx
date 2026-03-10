@@ -506,12 +506,12 @@ export default function NewsEditorPage() {
                       </div>
                       {showSafeArea && (
                         <div className="absolute inset-0 pointer-events-none">
-                          <div className="absolute inset-0 border-[3px] border-white/60" style={{ top: '20%', left: '20%', right: '20%', bottom: '20%', borderStyle: 'dashed' }} />
-                          <div className="absolute top-0 left-0 right-0 bg-black/40" style={{ height: '20%' }} />
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/40" style={{ height: '20%' }} />
-                          <div className="absolute bg-black/40" style={{ top: '20%', bottom: '20%', left: 0, width: '20%' }} />
-                          <div className="absolute bg-black/40" style={{ top: '20%', bottom: '20%', right: 0, width: '20%' }} />
-                          <span className="absolute text-[10px] text-white/80 font-medium" style={{ top: '20%', left: '20%', transform: 'translate(4px, 4px)' }}>Safe area</span>
+                          <div className="absolute inset-0 border-[3px] border-white/60" style={{ top: '10%', left: '10%', right: '10%', bottom: '10%', borderStyle: 'dashed' }} />
+                          <div className="absolute top-0 left-0 right-0 bg-black/40" style={{ height: '10%' }} />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/40" style={{ height: '10%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '10%', bottom: '10%', left: 0, width: '10%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '10%', bottom: '10%', right: 0, width: '10%' }} />
+                          <span className="absolute text-[10px] text-white/80 font-medium" style={{ top: '10%', left: '10%', transform: 'translate(4px, 4px)' }}>Safe area</span>
                         </div>
                       )}
                       <Button
