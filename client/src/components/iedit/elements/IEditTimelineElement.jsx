@@ -842,12 +842,12 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     if (ShapeIcon) {
       const icon = (
         <ShapeIcon
+          color={fillColor}
+          fill={fillColor}
           className="transition-all duration-200"
           style={{
             width: `${size}px`,
             height: `${size}px`,
-            color: fillColor,
-            fill: fillColor,
             filter: isActive ? `drop-shadow(0 0 3px ${fillColor}33)` : 'none',
           }}
         />
@@ -1164,8 +1164,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             if (ShapeIcon) {
               const icon = (
                 <ShapeIcon
+                  color={fillColor}
+                  fill={fillColor}
                   className="w-3.5 h-3.5 shrink-0 transition-colors"
-                  style={{ color: fillColor, fill: fillColor }}
                 />
               );
               return hasWrapper ? <div style={wrapperStyle} className="shrink-0">{icon}</div> : icon;
@@ -3659,7 +3660,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               <Label className="text-xs text-slate-500 shrink-0">Colour</Label>
                               <input
                                 type="color"
-                                value={item.highlight.marker_color || ''}
+                                value={item.highlight.marker_color || content.marker_color || content.line_color || '#d1d5db'}
                                 onChange={(e) => updateItemHighlight(index, 'marker_color', e.target.value)}
                                 className="w-7 h-7 rounded border border-slate-200 cursor-pointer"
                                 data-testid={`input-highlight-marker-color-${index}`}
