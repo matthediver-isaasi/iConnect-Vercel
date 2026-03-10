@@ -13,7 +13,7 @@ import {
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
-  ChevronDown, ChevronRight, ExternalLink
+  ChevronDown, ChevronRight, ExternalLink, Download
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -413,6 +413,74 @@ export default function EmailCampaigns() {
       );
     }
     return filtered;
+  };
+
+  const handleExportStatsCSV = () => {
+    if (!statsData) return;
+    const rows = [];
+    const escapeCell = (val) => {
+      if (val == null) return '';
+      let str = String(val);
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = "'" + str;
+      }
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+
+    rows.push(['Campaign Statistics']);
+    rows.push(['Campaign', statsData.name]);
+    rows.push([]);
+    rows.push(['Metric', 'Count']);
+    rows.push(['Sent', statsData.sent]);
+    rows.push(['Delivered', statsData.delivered]);
+    rows.push(['Opened', statsData.opened]);
+    rows.push(['Clicked', statsData.clicked]);
+    rows.push(['Bounced', statsData.bounced]);
+    rows.push(['Unsubscribed', statsData.unsubscribed]);
+    rows.push(['Complaints', statsData.complained]);
+
+    if (statsData.heatmapData && statsData.heatmapData.length > 0) {
+      rows.push([]);
+      rows.push(['Link Click Heatmap']);
+      rows.push(['URL', 'Clicks']);
+      statsData.heatmapData.forEach(link => {
+        rows.push([link.url, link.clicks]);
+      });
+    }
+
+    if (statsDetailView && statsRecipients.length > 0) {
+      const recipients = getFilteredRecipients();
+      rows.push([]);
+      const title = 'Recipients' +
+        (statsFilter ? ` (filtered: ${statsFilter})` : '') +
+        (statsLinkFilter ? ` (link: ${statsLinkFilter})` : '');
+      rows.push([title]);
+      rows.push(['Email', 'Status', 'Opens', 'Clicks', 'Sent At']);
+      recipients.forEach(r => {
+        rows.push([
+          r.email,
+          r.status,
+          r.open_count || 0,
+          r.click_count || 0,
+          r.sent_at ? new Date(r.sent_at).toISOString() : ''
+        ]);
+      });
+    }
+
+    const csvContent = rows.map(row => row.map(escapeCell).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const safeName = (statsData.name || 'campaign').replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    link.download = `campaign-stats-${safeName}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const toggleRecipientExpand = (recipientId) => {
@@ -919,6 +987,16 @@ export default function EmailCampaigns() {
                 </DialogDescription>
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportStatsCSV}
+                  disabled={!statsData}
+                  data-testid="button-export-stats-csv"
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
+                </Button>
                 {statsDetailView ? (
                   <Button
                     variant="outline"
