@@ -1345,6 +1345,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                         src={item.image_url || item.feature_image_url}
                         alt={item.title || item.name}
                         className="w-full h-full object-cover"
+                        style={{ objectPosition: item.feature_image_focal_point ? `${item.feature_image_focal_point.x}% ${item.feature_image_focal_point.y}%` : '50% 50%' }}
                       />
                     )}
                     {item._cardConfig?.showLabel !== false && (

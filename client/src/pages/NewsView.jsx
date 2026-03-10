@@ -135,6 +135,7 @@ export default function NewsViewPage() {
                 src={news.feature_image_url} 
                 alt={news.title}
                 className="w-full h-full object-cover"
+                style={{ objectPosition: news.feature_image_focal_point ? `${news.feature_image_focal_point.x}% ${news.feature_image_focal_point.y}%` : '50% 50%' }}
               />
             </div>
           )}

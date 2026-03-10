@@ -79,6 +79,7 @@ export default function NewsCard({
               src={article.feature_image_url} 
               alt={article.title}
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+              style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
             />
           </div>
           <div className="w-full h-[3px]" style={{ backgroundColor: '#5d0d77' }}></div>

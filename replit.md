@@ -43,5 +43,41 @@ The frontend employs a custom "new-york" design system, leveraging shadcn/ui (Ra
 ## Outlook Background Email Sync
 A Vercel cron job (`api/cron/sync-outlook-emails.js`) runs every 5 minutes, checking all active `outlook_connection` records. For each connection, it compares `last_sync_at` against the tenant's configured `outlook_sync_frequency_minutes` system setting (default: 15 min). Eligible connections are synced using the shared helper `api/_lib/outlookSync.js` (token refresh, Graph API email fetch, member matching, upsert to `member_email`). Results are logged to `scheduled_task_log`. The frequency is configurable per-tenant from the Admin Integrations page (`api/admin/outlook-sync-settings.js`). The manual sync endpoint `api/outlook/sync.js` also uses the shared helper.
 
+## Database Connection Instructions
+⚠️ NEVER REMOVE THIS SECTION - These instructions are essential for database access ⚠️
+
+This project uses Supabase PostgreSQL databases. Direct psql commands and execute_sql_tool DO NOT WORK on Replit due to IPv6 connectivity issues.
+
+### Available Database Secrets
+| Secret | Database | Purpose |
+|--------|----------|---------|
+| SOURCE_DATABASE_URL | Legacy single-tenant Supabase | Original data source for migrations |
+| DEST_DATABASE_URL | New multi-tenant Supabase | Production destination database |
+| DEST_SUPABASE_KEY | New multi-tenant Supabase | Service role key for Supabase client |
+
+### How to Query the Database
+USE NODE.JS SCRIPTS - NOT psql or execute_sql_tool
+
+```javascript
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseKey = process.env.DEST_SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const { data, error } = await supabase
+  .from('member')
+  .select('*')
+  .eq('tenant_id', 'fd82da65-aab7-4a5c-85b8-b2febeb2003d')
+  .limit(10);
+```
+
+Run with: `node scripts/debug-query.mjs` or inline with `node -e "..."`
+
+### Important Notes
+- Replit's built-in database tools won't work due to IPv6 routing issues
+- Always use Supabase client (`@supabase/supabase-js`) or pg client with `DEST_DATABASE_URL`
+- Tenant ID for GFI: `fd82da65-aab7-4a5c-85b8-b2febeb2003d`
+
 ## Organisation Directory Type Filter
 Organisation Directory Settings (`OrganisationDirectorySettings.jsx`) supports a "Visible Organisation Types" filter via the `org_directory_visible_org_types` system setting (JSON array of type values). When non-empty, only organisations whose `org_type`/`organisation_type`/`organization_type` preference field value matches one of the selected types are shown. Empty = show all (backward compatible). Both `OrganisationDirectory.jsx` and `IEditOrganisationDirectoryElement.jsx` (page builder) respect this filter. The settings and directory pages use separate TanStack Query keys (`organisation-directory-settings-admin` vs `organisation-directory-settings`) to avoid cache collisions.

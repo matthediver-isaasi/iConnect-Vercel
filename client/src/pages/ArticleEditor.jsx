@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Save, Eye, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User, Share2, Copy, Check } from "lucide-react";
+import { ArrowLeft, Save, Eye, EyeOff, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User, Share2, Copy, Check, Crosshair } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -62,6 +62,8 @@ export default function ArticleEditorPage() {
   const [copiedPassword, setCopiedPassword] = useState(false);
   // Delete confirmation dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [focalPoint, setFocalPoint] = useState({ x: 50, y: 50 });
+  const [showSafeArea, setShowSafeArea] = useState(false);
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -149,6 +151,9 @@ export default function ArticleEditorPage() {
       setSeoTitle(article.seo_title || "");
       setSeoDescription(article.seo_description || "");
       setSharePassword(article.share_password || "");
+      if (article.feature_image_focal_point) {
+        setFocalPoint(article.feature_image_focal_point);
+      }
       
       // Handle slug - new structure stores clean slugs without handle suffix
       // For legacy articles, extract the base slug from "-by-{handle}" format
@@ -362,6 +367,7 @@ export default function ArticleEditorPage() {
             summary,
             content,
             feature_image_url: featureImage,
+            feature_image_focal_point: focalPoint,
             subcategories,
             tags,
             status,
@@ -405,7 +411,7 @@ export default function ArticleEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article]);
 
   const saveMutation = useMutation({
     mutationFn: async (publishNow = false) => {
@@ -452,6 +458,7 @@ export default function ArticleEditorPage() {
           summary,
           content,
           feature_image_url: featureImage,
+          feature_image_focal_point: focalPoint,
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
@@ -474,6 +481,7 @@ export default function ArticleEditorPage() {
           summary,
           content,
           feature_image_url: featureImage,
+          feature_image_focal_point: focalPoint,
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
@@ -496,6 +504,7 @@ export default function ArticleEditorPage() {
           summary,
           content,
           feature_image_url: featureImage,
+          feature_image_focal_point: focalPoint,
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
@@ -518,6 +527,7 @@ export default function ArticleEditorPage() {
           summary,
           content,
           feature_image_url: featureImage,
+          feature_image_focal_point: focalPoint,
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
@@ -1040,20 +1050,60 @@ export default function ArticleEditorPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {featureImage ? (
-                  <div className="relative">
-                    <img 
-                      src={featureImage} 
-                      alt="Feature" 
-                      className="w-full h-48 object-cover rounded-lg"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-2 right-2"
-                      onClick={() => setFeatureImage("")}
+                  <div className="space-y-3">
+                    <div 
+                      className="relative rounded-lg overflow-hidden cursor-crosshair"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                        const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+                        setFocalPoint({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
+                      }}
+                      data-testid="focal-point-picker"
                     >
-                      <X className="w-4 h-4" />
-                    </Button>
+                      <img 
+                        src={featureImage} 
+                        alt="Feature" 
+                        className="w-full h-48 object-cover"
+                        style={{ objectPosition: `${focalPoint.x}% ${focalPoint.y}%` }}
+                      />
+                      <div 
+                        className="absolute pointer-events-none"
+                        style={{ left: `${focalPoint.x}%`, top: `${focalPoint.y}%`, transform: 'translate(-50%, -50%)' }}
+                      >
+                        <Crosshair className="w-6 h-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
+                      </div>
+                      {showSafeArea && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className="absolute inset-0 border-[3px] border-white/60" style={{ top: '20%', left: '20%', right: '20%', bottom: '20%', borderStyle: 'dashed' }} />
+                          <div className="absolute top-0 left-0 right-0 bg-black/40" style={{ height: '20%' }} />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/40" style={{ height: '20%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '20%', bottom: '20%', left: 0, width: '20%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '20%', bottom: '20%', right: 0, width: '20%' }} />
+                          <span className="absolute text-[10px] text-white/80 font-medium" style={{ top: '20%', left: '20%', transform: 'translate(4px, 4px)' }}>Safe area</span>
+                        </div>
+                      )}
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2"
+                        onClick={(e) => { e.stopPropagation(); setFeatureImage(""); setFocalPoint({ x: 50, y: 50 }); }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">Click image to set focal point ({focalPoint.x}%, {focalPoint.y}%)</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowSafeArea(!showSafeArea)}
+                        data-testid="button-toggle-safe-area"
+                      >
+                        {showSafeArea ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+                        Safe area
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <label className="block">

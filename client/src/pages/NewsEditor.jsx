@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Save, Trash2, Upload, X, Loader2, CheckCircle2, Clock, Share2, Copy, Check } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Upload, X, Loader2, CheckCircle2, Clock, Share2, Copy, Check, Crosshair, Eye, EyeOff } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -47,6 +47,8 @@ export default function NewsEditorPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [sharePassword, setSharePassword] = useState("");
+  const [focalPoint, setFocalPoint] = useState({ x: 50, y: 50 });
+  const [showSafeArea, setShowSafeArea] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
 
@@ -103,6 +105,9 @@ export default function NewsEditorPage() {
       setSeoTitle(news.seo_title || "");
       setSeoDescription(news.seo_description || "");
       setSharePassword(news.share_password || "");
+      if (news.feature_image_focal_point) {
+        setFocalPoint(news.feature_image_focal_point);
+      }
     }
   }, [news]);
 
@@ -131,6 +136,7 @@ export default function NewsEditorPage() {
             summary,
             content,
             feature_image_url: featureImage,
+            feature_image_focal_point: focalPoint,
             subcategories,
             tags,
             status,
@@ -148,7 +154,7 @@ export default function NewsEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, newsId, memberInfo, currentMember]);
+  }, [title, slug, summary, content, featureImage, focalPoint, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, newsId, memberInfo, currentMember]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ publishNow }) => {
@@ -164,6 +170,7 @@ export default function NewsEditorPage() {
         summary,
         content,
         feature_image_url: featureImage,
+        feature_image_focal_point: focalPoint,
         subcategories,
         tags,
         status: publishNow ? 'published' : status,
@@ -474,20 +481,60 @@ export default function NewsEditorPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {featureImage ? (
-                  <div className="relative">
-                    <img 
-                      src={featureImage} 
-                      alt="Feature" 
-                      className="w-full h-48 object-cover rounded-lg"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-2 right-2"
-                      onClick={() => setFeatureImage("")}
+                  <div className="space-y-3">
+                    <div 
+                      className="relative rounded-lg overflow-hidden cursor-crosshair"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+                        const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+                        setFocalPoint({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
+                      }}
+                      data-testid="focal-point-picker"
                     >
-                      <X className="w-4 h-4" />
-                    </Button>
+                      <img 
+                        src={featureImage} 
+                        alt="Feature" 
+                        className="w-full h-48 object-cover"
+                        style={{ objectPosition: `${focalPoint.x}% ${focalPoint.y}%` }}
+                      />
+                      <div 
+                        className="absolute pointer-events-none"
+                        style={{ left: `${focalPoint.x}%`, top: `${focalPoint.y}%`, transform: 'translate(-50%, -50%)' }}
+                      >
+                        <Crosshair className="w-6 h-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
+                      </div>
+                      {showSafeArea && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className="absolute inset-0 border-[3px] border-white/60" style={{ top: '20%', left: '20%', right: '20%', bottom: '20%', borderStyle: 'dashed' }} />
+                          <div className="absolute top-0 left-0 right-0 bg-black/40" style={{ height: '20%' }} />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/40" style={{ height: '20%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '20%', bottom: '20%', left: 0, width: '20%' }} />
+                          <div className="absolute bg-black/40" style={{ top: '20%', bottom: '20%', right: 0, width: '20%' }} />
+                          <span className="absolute text-[10px] text-white/80 font-medium" style={{ top: '20%', left: '20%', transform: 'translate(4px, 4px)' }}>Safe area</span>
+                        </div>
+                      )}
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2"
+                        onClick={(e) => { e.stopPropagation(); setFeatureImage(""); setFocalPoint({ x: 50, y: 50 }); }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">Click image to set focal point ({focalPoint.x}%, {focalPoint.y}%)</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowSafeArea(!showSafeArea)}
+                        data-testid="button-toggle-safe-area"
+                      >
+                        {showSafeArea ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+                        Safe area
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <label className="block">

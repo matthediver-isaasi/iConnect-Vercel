@@ -694,6 +694,7 @@ export default function ArticleViewPage() {
                 src={article.feature_image_url} 
                 alt={article.title}
                 className="w-full h-full object-cover"
+                style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
               />
             </div>
           )}

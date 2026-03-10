@@ -40,6 +40,7 @@ export default async function handler(req, res) {
         slug,
         summary,
         feature_image_url,
+        feature_image_focal_point,
         published_date,
         status,
         subcategories,

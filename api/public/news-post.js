@@ -93,6 +93,7 @@ export default async function handler(req, res) {
         published_date,
         subcategories,
         feature_image_url,
+        feature_image_focal_point,
         seo_title,
         seo_description,
         tenant_id

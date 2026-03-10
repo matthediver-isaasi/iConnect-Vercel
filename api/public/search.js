@@ -43,14 +43,14 @@ export default async function handler(req, res) {
       
       supabase
         .from('blog_post')
-        .select('id, title, summary, feature_image_url, published_date, slug')
+        .select('id, title, summary, feature_image_url, feature_image_focal_point, published_date, slug')
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum),
       
       supabase
         .from('news_post')
-        .select('id, title, summary, feature_image_url, published_date, slug')
+        .select('id, title, summary, feature_image_url, feature_image_focal_point, published_date, slug')
         .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum),
