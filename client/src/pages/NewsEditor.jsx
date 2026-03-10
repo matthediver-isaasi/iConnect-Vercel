@@ -470,6 +470,7 @@ export default function NewsEditorPage() {
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base">Feature Image</CardTitle>
+                <p className="text-xs text-slate-500 mt-1">Recommended: 1200 x 630px. Keep text and key content in the centre of the image as edges may be cropped.</p>
               </CardHeader>
               <CardContent className="space-y-4">
                 {featureImage ? (
