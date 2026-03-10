@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, ArrowLeft, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -817,16 +817,6 @@ export default function CommunicationsManagementPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          <Button
-            variant="ghost"
-            onClick={() => navigate(createPageUrl('RoleManagement'))}
-            className="mb-6"
-            data-testid="button-back-to-roles"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Role Management
-          </Button>
-
           <Card className="border-amber-200 bg-amber-50">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -913,16 +903,6 @@ CREATE POLICY "Service role has full access to member_communication_preference"
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <Button
-          variant="ghost"
-          onClick={() => navigate(createPageUrl('RoleManagement'))}
-          className="mb-6"
-          data-testid="button-back-to-roles"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Role Management
-        </Button>
-
         <Card className="shadow-lg border-0">
           <CardHeader className="border-b border-slate-200 bg-white rounded-t-lg">
             <div className="flex items-center justify-between">
