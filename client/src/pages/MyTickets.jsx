@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, MapPin, Clock, Ticket, User, AlertCircle, Download, Pencil, ExternalLink } from "lucide-react";
+import { Calendar, MapPin, Clock, Ticket, User, AlertCircle, Download, Pencil, ExternalLink, Search, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -34,6 +35,10 @@ export default function MyTicketsPage({ hasBanner }) {
   const [cancelledTicketIds, setCancelledTicketIds] = React.useState(new Set());
   const [showTour, setShowTour] = React.useState(false);
   const [tourAutoShow, setTourAutoShow] = React.useState(false);
+  const [sortOrder, setSortOrder] = React.useState('desc');
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const PAGE_SIZE = 10;
 
   const hasAutoStartedTour = React.useRef(false);
 
@@ -151,6 +156,51 @@ export default function MyTicketsPage({ hasBanner }) {
   }
 
   const isLoading = loadingTickets || loadingEvents || loadingMembers;
+
+  const filteredAndSortedTickets = React.useMemo(() => {
+    const ticketsWithEvents = myTickets.map(ticket => ({
+      ticket,
+      event: events.find(e => e.id === ticket.event_id)
+    })).filter(item => item.event);
+
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = query
+      ? ticketsWithEvents.filter(({ ticket, event }) => {
+          return (
+            (event.title || '').toLowerCase().includes(query) ||
+            (event.location || '').toLowerCase().includes(query) ||
+            (ticket.booking_reference || '').toLowerCase().includes(query) ||
+            (ticket.backstage_order_id || '').toLowerCase().includes(query) ||
+            (ticket.status || '').toLowerCase().includes(query)
+          );
+        })
+      : ticketsWithEvents;
+
+    filtered.sort((a, b) => {
+      const dateA = a.event.start_date ? new Date(a.event.start_date).getTime() : 0;
+      const dateB = b.event.start_date ? new Date(b.event.start_date).getTime() : 0;
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+
+    return filtered;
+  }, [myTickets, events, searchQuery, sortOrder]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedTickets.length / PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedTickets = filteredAndSortedTickets.slice(
+    (safeCurrentPage - 1) * PAGE_SIZE,
+    safeCurrentPage * PAGE_SIZE
+  );
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, sortOrder]);
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -290,6 +340,35 @@ export default function MyTicketsPage({ hasBanner }) {
           </div>
         )}
 
+        {!isLoading && myTickets.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by event, location, reference..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+                data-testid="input-search-tickets"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="default"
+                onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                data-testid="button-toggle-sort"
+              >
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                Date {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+              </Button>
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                {filteredAndSortedTickets.length} ticket{filteredAndSortedTickets.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="space-y-6">
             {Array(4).fill(0).map((_, i) => (
@@ -324,13 +403,29 @@ export default function MyTicketsPage({ hasBanner }) {
               </Link>
             </CardContent>
           </Card>
+        ) : filteredAndSortedTickets.length === 0 && searchQuery ? (
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="p-12 text-center">
+              <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                No matching tickets
+              </h3>
+              <p className="text-slate-600 mb-6">
+                No tickets match your search for "{searchQuery}"
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => setSearchQuery('')}
+                data-testid="button-clear-search"
+              >
+                Clear search
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
           <div className="space-y-6">
-            {myTickets.map((ticket, index) => {
-              const event = events.find((e) => e.id === ticket.event_id);
+            {paginatedTickets.map(({ ticket, event }, index) => {
               const bookedByMember = members.find((m) => m.id === ticket.member_id);
-
-              if (!event) return null;
 
               const startDate = event.start_date ? new Date(event.start_date) : null;
               const isSelfBooked = ticket.member_id === memberInfo.id || memberInfo.email === ticket.attendee_email;
@@ -500,6 +595,34 @@ export default function MyTicketsPage({ hasBanner }) {
                 </Card>
               );
             })}
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-4 pt-4">
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  data-testid="button-prev-page"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {safeCurrentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  data-testid="button-next-page"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
