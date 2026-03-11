@@ -126,6 +126,7 @@ async function handlePost(req, res) {
 async function handleGet(req, res) {
   const tenantUser = await getSessionTenantUser(req);
   let tenantId;
+  let memberIdFilter = null;
 
   if (tenantUser) {
     tenantId = tenantUser.tenant_id;
@@ -135,20 +136,7 @@ async function handleGet(req, res) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     tenantId = member.organization?.tenant_id || member.tenant_id;
-
-    const { data: requests, error } = await supabase
-      .from('booking_cancellation_request')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('member_id', member.id)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('[CancellationRequest] Error fetching member requests:', error);
-      return res.status(500).json({ error: 'Failed to fetch requests' });
-    }
-
-    return res.json({ requests: requests || [] });
+    memberIdFilter = member.id;
   }
 
   if (!tenantId) {
@@ -163,6 +151,10 @@ async function handleGet(req, res) {
       .select('*')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
+
+    if (memberIdFilter) {
+      query = query.eq('member_id', memberIdFilter);
+    }
 
     if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
       query = query.eq('status', statusFilter);
