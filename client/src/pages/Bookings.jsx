@@ -20,6 +20,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -35,6 +37,7 @@ export default function BookingsPage() {
   const [cancelTarget, setCancelTarget] = React.useState(null);
   const [cancelReason, setCancelReason] = React.useState('');
   const [submittingCancel, setSubmittingCancel] = React.useState(false);
+  const [termsAgreed, setTermsAgreed] = React.useState(false);
   const [showTour, setShowTour] = React.useState(false);
   const [tourAutoShow, setTourAutoShow] = React.useState(false);
   const [poInputValues, setPoInputValues] = React.useState({});
@@ -107,6 +110,16 @@ export default function BookingsPage() {
     refetchOnMount: true,
   });
 
+  const { data: cancellationTermsUrl } = useQuery({
+    queryKey: ['system-setting', 'cancellation_terms_url'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'cancellation_terms_url');
+      return setting?.setting_value || '';
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const pendingCancelBookingIds = React.useMemo(() => {
     return new Set(
       cancellationRequests
@@ -169,6 +182,11 @@ export default function BookingsPage() {
       return;
     }
 
+    if (cancellationTermsUrl && !termsAgreed) {
+      toast.error('You must agree to the cancellation terms and conditions before submitting.');
+      return;
+    }
+
     setSubmittingCancel(true);
 
     try {
@@ -198,6 +216,7 @@ export default function BookingsPage() {
       setShowCancelDialog(false);
       setCancelTarget(null);
       setCancelReason('');
+      setTermsAgreed(false);
       queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
     } catch (error) {
       console.error('Cancellation request error:', error);
@@ -772,7 +791,7 @@ export default function BookingsPage() {
         )}
       </div>
 
-      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); } }}>
+      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request Cancellation</DialogTitle>
@@ -809,12 +828,36 @@ export default function BookingsPage() {
                   data-testid="input-cancel-reason"
                 />
               </div>
+              {cancellationTermsUrl && (
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="terms-agreement"
+                      checked={termsAgreed}
+                      onCheckedChange={setTermsAgreed}
+                      data-testid="switch-terms-agreement"
+                    />
+                    <Label htmlFor="terms-agreement" className="text-sm text-slate-700 cursor-pointer">
+                      I agree to the cancellation terms and conditions
+                    </Label>
+                  </div>
+                  <a
+                    href={cancellationTermsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:text-blue-800 underline inline-block"
+                    data-testid="link-cancellation-terms"
+                  >
+                    View Terms & Conditions
+                  </a>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); }}
+              onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); }}
               data-testid="button-cancel-dialog-close"
             >
               Keep Registration
@@ -822,7 +865,7 @@ export default function BookingsPage() {
             <Button
               variant="destructive"
               onClick={handleCancelSubmit}
-              disabled={submittingCancel}
+              disabled={submittingCancel || (cancellationTermsUrl && !termsAgreed)}
               data-testid="button-submit-cancellation"
             >
               {submittingCancel ? (

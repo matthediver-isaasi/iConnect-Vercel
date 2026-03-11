@@ -24,6 +24,7 @@ export default function EventSettingsPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
+  const [cancellationTermsUrl, setCancellationTermsUrl] = useState('');
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
   const [xeroStripeBankAccountCode, setXeroStripeBankAccountCode] = useState("");
@@ -133,6 +134,11 @@ export default function EventSettingsPage() {
     const deadlineSetting = settings.find(s => s.setting_key === 'cancellation_deadline_hours');
     if (deadlineSetting) {
       setCancellationDeadlineHours(parseInt(deadlineSetting.setting_value) || 0);
+    }
+
+    const termsUrlSetting = settings.find(s => s.setting_key === 'cancellation_terms_url');
+    if (termsUrlSetting) {
+      setCancellationTermsUrl(termsUrlSetting.setting_value || '');
     }
     
     const xeroSetting = settings.find(s => s.setting_key === 'xero_invoice_enabled');
@@ -277,6 +283,20 @@ export default function EventSettingsPage() {
         });
       }
       
+      const termsUrlSetting = settings.find(s => s.setting_key === 'cancellation_terms_url');
+      if (termsUrlSetting) {
+        await base44.entities.SystemSettings.update(termsUrlSetting.id, {
+          setting_value: cancellationTermsUrl.trim(),
+          description: 'URL to cancellation terms and conditions page'
+        });
+      } else if (cancellationTermsUrl.trim()) {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'cancellation_terms_url',
+          setting_value: cancellationTermsUrl.trim(),
+          description: 'URL to cancellation terms and conditions page'
+        });
+      }
+
       // Save Xero invoice setting
       const xeroSetting = settings.find(s => s.setting_key === 'xero_invoice_enabled');
       
@@ -1155,6 +1175,23 @@ export default function EventSettingsPage() {
                 <p className="text-xs text-slate-500">
                   Members will not be able to cancel tickets within this timeframe before the event starts.
                   Set to 0 to allow cancellations up until the event start time.
+                </p>
+              </div>
+              <div className="space-y-2 pt-4 border-t border-slate-200">
+                <Label htmlFor="cancellation-terms-url">
+                  Cancellation Terms & Conditions URL
+                </Label>
+                <Input
+                  id="cancellation-terms-url"
+                  type="url"
+                  value={cancellationTermsUrl}
+                  onChange={(e) => setCancellationTermsUrl(e.target.value)}
+                  placeholder="https://example.com/cancellation-terms"
+                  data-testid="input-cancellation-terms-url"
+                />
+                <p className="text-xs text-slate-500">
+                  When set, members must agree to these terms before submitting a cancellation request.
+                  Leave empty to allow cancellation requests without terms agreement.
                 </p>
               </div>
             </div>
