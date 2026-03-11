@@ -38,6 +38,7 @@ export default function BookingsPage() {
   const [cancelReason, setCancelReason] = React.useState('');
   const [submittingCancel, setSubmittingCancel] = React.useState(false);
   const [termsAgreed, setTermsAgreed] = React.useState(false);
+  const [deadlinePassed, setDeadlinePassed] = React.useState(false);
   const [showTour, setShowTour] = React.useState(false);
   const [tourAutoShow, setTourAutoShow] = React.useState(false);
   const [poInputValues, setPoInputValues] = React.useState({});
@@ -110,15 +111,22 @@ export default function BookingsPage() {
     refetchOnMount: true,
   });
 
-  const { data: cancellationTermsUrl } = useQuery({
-    queryKey: ['system-setting', 'cancellation_terms_url'],
+  const { data: cancellationSettings } = useQuery({
+    queryKey: ['system-setting', 'cancellation_settings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'cancellation_terms_url');
-      return setting?.setting_value || '';
+      const termsSetting = allSettings.find(s => s.setting_key === 'cancellation_terms_url');
+      const deadlineSetting = allSettings.find(s => s.setting_key === 'cancellation_deadline_hours');
+      return {
+        termsUrl: termsSetting?.setting_value || '',
+        deadlineHours: parseInt(deadlineSetting?.setting_value) || 0,
+      };
     },
     staleTime: 5 * 60 * 1000,
   });
+
+  const cancellationTermsUrl = cancellationSettings?.termsUrl || '';
+  const cancellationDeadlineHours = cancellationSettings?.deadlineHours || 0;
 
   const pendingCancelBookingIds = React.useMemo(() => {
     return new Set(
@@ -173,6 +181,21 @@ export default function BookingsPage() {
       setCancelTarget({ type: 'individual', bookings: [booking] });
     }
     setCancelReason('');
+
+    if (cancellationDeadlineHours > 0 && booking.event_id) {
+      const event = events.find(e => e.id === booking.event_id);
+      if (event?.start_date) {
+        const eventStart = new Date(event.start_date);
+        const now = new Date();
+        const hoursUntilEvent = (eventStart.getTime() - now.getTime()) / (1000 * 60 * 60);
+        setDeadlinePassed(hoursUntilEvent < cancellationDeadlineHours);
+      } else {
+        setDeadlinePassed(false);
+      }
+    } else {
+      setDeadlinePassed(false);
+    }
+
     setShowCancelDialog(true);
   };
 
@@ -217,6 +240,7 @@ export default function BookingsPage() {
       setCancelTarget(null);
       setCancelReason('');
       setTermsAgreed(false);
+      setDeadlinePassed(false);
       queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
     } catch (error) {
       console.error('Cancellation request error:', error);
@@ -791,16 +815,41 @@ export default function BookingsPage() {
         )}
       </div>
 
-      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); } }}>
+      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); setDeadlinePassed(false); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Request Cancellation</DialogTitle>
+            <DialogTitle>{deadlinePassed ? 'Cancellation Not Available' : 'Request Cancellation'}</DialogTitle>
             <DialogDescription>
-              {cancelTarget?.type === 'group'
-                ? `Submit a cancellation request for ${cancelTarget.bookings.length} ticket(s). An administrator will review your request.`
-                : 'Submit a cancellation request for this ticket. An administrator will review your request.'}
+              {deadlinePassed
+                ? `Cancellation requests cannot be submitted within ${cancellationDeadlineHours} hour${cancellationDeadlineHours !== 1 ? 's' : ''} of the event start time.`
+                : cancelTarget?.type === 'group'
+                  ? `Submit a cancellation request for ${cancelTarget.bookings.length} ticket(s). An administrator will review your request.`
+                  : 'Submit a cancellation request for this ticket. An administrator will review your request.'}
             </DialogDescription>
           </DialogHeader>
+          {deadlinePassed ? (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-md">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">Cancellation deadline has passed</p>
+                  <p>
+                    Cancellation requests must be submitted at least {cancellationDeadlineHours} hour{cancellationDeadlineHours !== 1 ? 's' : ''} before the event starts. Please contact an administrator directly if you need to cancel.
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setDeadlinePassed(false); }}
+                  data-testid="button-deadline-close"
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+          <>
           {cancelTarget && (
             <div className="space-y-4">
               <div className="space-y-2">
@@ -857,7 +906,7 @@ export default function BookingsPage() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); }}
+              onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); setDeadlinePassed(false); }}
               data-testid="button-cancel-dialog-close"
             >
               Keep Registration
@@ -878,6 +927,8 @@ export default function BookingsPage() {
               )}
             </Button>
           </DialogFooter>
+          </>
+          )}
         </DialogContent>
       </Dialog>
 
