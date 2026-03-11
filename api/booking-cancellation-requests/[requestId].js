@@ -1,5 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionTenantUser } from '../_lib/session.js';
+import { getStripeCredentials } from '../_lib/stripeCredentials.js';
+import Stripe from 'stripe';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -96,6 +98,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
     vouchers: [],
     discountCode: null,
     programTicket: null,
+    stripeRefund: null,
     replacements: [],
   };
 
@@ -388,6 +391,89 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
 
         reversalResults.programTicket = { programTag: event.program_tag, success: true };
         console.log(`[CancellationRequest] Program ticket refunded for ${event.program_tag}`);
+      }
+    }
+
+    // --- Stripe Refund ---
+    if (booking.stripe_payment_intent_id && booking.payment_method === 'card') {
+      try {
+        const totalCost = parseFloat(booking.total_cost) || 0;
+        const trainingFundAmt = parseFloat(booking.training_fund_amount) || 0;
+        const voucherAmt = parseFloat(booking.voucher_amount) || 0;
+        const discountAmt = parseFloat(booking.discount_code_amount) || 0;
+        const accountAmt = parseFloat(booking.account_amount) || 0;
+        const cardAmount = Math.max(0, totalCost - trainingFundAmt - voucherAmt - discountAmt - accountAmt);
+
+        if (cardAmount > 0) {
+          const creds = await getStripeCredentials(tenantId, 'events');
+          if (!creds || !creds.secret_key || !creds.is_enabled) {
+            reversalResults.stripeRefund = {
+              success: false,
+              amount: cardAmount,
+              requiresManualRefund: true,
+              error: !creds?.is_enabled ? 'Stripe integration is disabled for this tenant' : 'Stripe not configured for this tenant',
+            };
+            console.warn(`[CancellationRequest] Stripe not available — manual refund needed for £${cardAmount}`);
+          } else {
+            const stripe = new Stripe(creds.secret_key);
+            const refundAmountPence = Math.round(cardAmount * 100);
+
+            const paymentIntent = await stripe.paymentIntents.retrieve(booking.stripe_payment_intent_id);
+            const amountReceived = paymentIntent.amount_received || 0;
+            const amountRefunded = paymentIntent.amount_received
+              ? (await stripe.refunds.list({ payment_intent: booking.stripe_payment_intent_id, limit: 100 })).data.reduce((sum, r) => sum + (r.status !== 'failed' ? r.amount : 0), 0)
+              : 0;
+            const refundableAmount = amountReceived - amountRefunded;
+
+            if (refundableAmount <= 0) {
+              reversalResults.stripeRefund = {
+                success: true,
+                amount: cardAmount,
+                alreadyRefunded: true,
+                paymentIntentId: booking.stripe_payment_intent_id,
+              };
+              console.log(`[CancellationRequest] PaymentIntent ${booking.stripe_payment_intent_id} already fully refunded`);
+            } else {
+              const actualRefundPence = Math.min(refundAmountPence, refundableAmount);
+              const idempotencyKey = `cancel-refund-${request.id}-${booking.id}`;
+              const refund = await stripe.refunds.create({
+                payment_intent: booking.stripe_payment_intent_id,
+                amount: actualRefundPence,
+                reason: 'requested_by_customer',
+                metadata: {
+                  booking_id: booking.id,
+                  booking_reference: booking.booking_reference || '',
+                  cancellation_request_id: request.id,
+                },
+              }, {
+                idempotencyKey,
+              });
+
+              const actualRefundAmount = actualRefundPence / 100;
+              reversalResults.stripeRefund = {
+                success: true,
+                amount: actualRefundAmount,
+                refundId: refund.id,
+                status: refund.status,
+                paymentIntentId: booking.stripe_payment_intent_id,
+                partialRefund: actualRefundPence < refundAmountPence,
+              };
+              console.log(`[CancellationRequest] Stripe refund ${refund.id} created: £${actualRefundAmount} (status: ${refund.status})`);
+            }
+          }
+        } else {
+          console.log(`[CancellationRequest] Card amount is £0 — no Stripe refund needed`);
+        }
+      } catch (err) {
+        const cardAmount = Math.max(0, (parseFloat(booking.total_cost) || 0) - (parseFloat(booking.training_fund_amount) || 0) - (parseFloat(booking.voucher_amount) || 0) - (parseFloat(booking.discount_code_amount) || 0) - (parseFloat(booking.account_amount) || 0));
+        console.error('[CancellationRequest] Stripe refund error:', err.message);
+        reversalResults.stripeRefund = {
+          success: false,
+          amount: cardAmount,
+          requiresManualRefund: true,
+          error: err.message,
+          paymentIntentId: booking.stripe_payment_intent_id,
+        };
       }
     }
 

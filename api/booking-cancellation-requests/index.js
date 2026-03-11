@@ -253,11 +253,18 @@ async function handleGet(req, res) {
         const voucherDetails = voucherTxnsByRef[bookingRef] || [];
         const discountCode = booking.discount_code_id ? discountCodesMap[booking.discount_code_id] || null : null;
 
+        const totalCost = parseFloat(booking.total_cost) || 0;
+        const trainingFundAmount = parseFloat(booking.training_fund_amount) || 0;
+        const voucherAmount = parseFloat(booking.voucher_amount) || 0;
+        const discountCodeAmount = parseFloat(booking.discount_code_amount) || 0;
+        const accountAmount = parseFloat(booking.account_amount) || 0;
+        const cardAmount = Math.max(0, totalCost - trainingFundAmount - voucherAmount - discountCodeAmount - accountAmount);
+
         financialSummary = {
-          trainingFundAmount: parseFloat(booking.training_fund_amount) || 0,
-          voucherAmount: parseFloat(booking.voucher_amount) || 0,
+          trainingFundAmount,
+          voucherAmount,
           voucherDetails,
-          discountCodeAmount: parseFloat(booking.discount_code_amount) || 0,
+          discountCodeAmount,
           discountCode: discountCode ? {
             id: discountCode.id,
             code: discountCode.code,
@@ -267,8 +274,9 @@ async function handleGet(req, res) {
             expiresAt: discountCode.expires_at,
           } : null,
           stripePaymentIntentId: booking.stripe_payment_intent_id || null,
-          accountAmount: parseFloat(booking.account_amount) || 0,
-          totalCost: parseFloat(booking.total_cost) || 0,
+          cardAmount,
+          accountAmount,
+          totalCost,
           paymentMethod: booking.payment_method,
           xeroInvoiceId: booking.xero_invoice_id || null,
           xeroInvoiceNumber: booking.xero_invoice_number || null,

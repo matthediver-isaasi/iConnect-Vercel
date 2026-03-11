@@ -160,6 +160,7 @@ export default function CancellationRequests() {
 
       if (action === 'approved') {
         const messages = [`${requestIds.length} ticket(s) cancellation approved`];
+        const stripeWarnings = [];
         for (const rr of allReversalResults) {
           if (rr.trainingFund?.success) messages.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
           for (const v of rr.vouchers || []) {
@@ -169,8 +170,14 @@ export default function CancellationRequests() {
           if (rr.discountCode?.reversed) messages.push(`Discount code ${rr.discountCode.code} usage reversed`);
           if (rr.discountCode?.replacementCreated) messages.push(`Replacement discount code ${rr.discountCode.newCode} created`);
           if (rr.programTicket?.success) messages.push(`Program ticket refunded`);
+          if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe refund: £${Number(rr.stripeRefund.amount).toFixed(2)}${rr.stripeRefund.partialRefund ? ' (partial)' : ''}`);
+          if (rr.stripeRefund?.success && rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe payment already refunded`);
+          if (rr.stripeRefund && !rr.stripeRefund.success) stripeWarnings.push(`Stripe refund failed for £${Number(rr.stripeRefund.amount).toFixed(2)} — manual refund needed`);
         }
         toast.success(messages.join('. '));
+        for (const warning of stripeWarnings) {
+          toast.warning(warning);
+        }
       } else {
         toast.success(`${requestIds.length} ticket(s) cancellation rejected`);
       }
@@ -378,7 +385,7 @@ export default function CancellationRequests() {
                         if (fs.trainingFundAmount > 0) items.push(`Training Fund: £${fs.trainingFundAmount.toFixed(2)}`);
                         if (fs.voucherAmount > 0) items.push(`Voucher: £${fs.voucherAmount.toFixed(2)}`);
                         if (fs.discountCodeAmount > 0) items.push(`Discount: £${fs.discountCodeAmount.toFixed(2)}`);
-                        if (fs.stripePaymentIntentId) items.push('Stripe Payment');
+                        if (fs.stripePaymentIntentId && fs.cardAmount > 0) items.push(`Stripe Refund: £${fs.cardAmount.toFixed(2)}`);
                         if (fs.xeroInvoiceId) items.push(`Xero: ${fs.xeroInvoiceNumber || 'Invoice'}`);
                         if (items.length === 0) return null;
                         const hasExpired = (fs.voucherDetails || []).some(v => v.expired) || fs.discountCode?.expired;
@@ -595,10 +602,10 @@ export default function CancellationRequests() {
                       </div>
                     )}
 
-                    {hasStripe && (
+                    {hasStripe && fs.cardAmount > 0 && (
                       <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-stripe">
-                        <span>Stripe Payment</span>
-                        <Badge variant="outline">Phase 2</Badge>
+                        <span>Stripe Refund</span>
+                        <Badge variant="outline">£{fs.cardAmount.toFixed(2)}</Badge>
                       </div>
                     )}
 
