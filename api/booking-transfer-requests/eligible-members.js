@@ -65,7 +65,7 @@ export default async function handler(req, res) {
         .from('team_member')
         .select('role_id')
         .eq('organization_id', booking.organization_id)
-        .eq('member_id', booking.member_id || member.id)
+        .eq('member_id', member.id)
         .maybeSingle();
 
       roleId = teamMember?.role_id || null;

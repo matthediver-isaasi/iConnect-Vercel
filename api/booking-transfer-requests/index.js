@@ -128,7 +128,7 @@ async function handlePost(req, res) {
         .from('team_member')
         .select('role_id')
         .eq('organization_id', bookingFull.organization_id)
-        .eq('member_id', booking.member_id || member.id)
+        .eq('member_id', member.id)
         .maybeSingle();
 
       let targetTeamQuery = supabase

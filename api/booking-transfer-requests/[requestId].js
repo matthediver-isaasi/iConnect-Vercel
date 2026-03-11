@@ -88,7 +88,6 @@ export default async function handler(req, res) {
           attendee_email: targetMember.email,
           attendee_first_name: targetMember.first_name,
           attendee_last_name: targetMember.last_name,
-          member_id: targetMember.id,
         })
         .eq('id', booking.id)
         .eq('tenant_id', tenantId);
