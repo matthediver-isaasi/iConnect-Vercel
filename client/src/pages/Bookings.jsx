@@ -39,6 +39,7 @@ export default function BookingsPage() {
   const [submittingCancel, setSubmittingCancel] = React.useState(false);
   const [termsAgreed, setTermsAgreed] = React.useState(false);
   const [deadlinePassed, setDeadlinePassed] = React.useState(false);
+  const [showTermsModal, setShowTermsModal] = React.useState(false);
   const [showTour, setShowTour] = React.useState(false);
   const [tourAutoShow, setTourAutoShow] = React.useState(false);
   const [poInputValues, setPoInputValues] = React.useState({});
@@ -115,17 +116,17 @@ export default function BookingsPage() {
     queryKey: ['system-setting', 'cancellation_settings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
-      const termsSetting = allSettings.find(s => s.setting_key === 'cancellation_terms_url');
+      const termsSetting = allSettings.find(s => s.setting_key === 'event_booking_terms');
       const deadlineSetting = allSettings.find(s => s.setting_key === 'cancellation_deadline_hours');
       return {
-        termsUrl: termsSetting?.setting_value || '',
+        termsContent: termsSetting?.setting_value || '',
         deadlineHours: parseInt(deadlineSetting?.setting_value) || 0,
       };
     },
     staleTime: 5 * 60 * 1000,
   });
 
-  const cancellationTermsUrl = cancellationSettings?.termsUrl || '';
+  const bookingTermsContent = cancellationSettings?.termsContent || '';
   const cancellationDeadlineHours = cancellationSettings?.deadlineHours || 0;
 
   const pendingCancelBookingIds = React.useMemo(() => {
@@ -205,7 +206,7 @@ export default function BookingsPage() {
       return;
     }
 
-    if (cancellationTermsUrl && !termsAgreed) {
+    if (bookingTermsContent && !termsAgreed) {
       toast.error('You must agree to the cancellation terms and conditions before submitting.');
       return;
     }
@@ -877,7 +878,7 @@ export default function BookingsPage() {
                   data-testid="input-cancel-reason"
                 />
               </div>
-              {cancellationTermsUrl && (
+              {bookingTermsContent && (
                 <div className="space-y-2 pt-2 border-t border-slate-200">
                   <div className="flex items-center gap-3">
                     <Switch
@@ -890,15 +891,14 @@ export default function BookingsPage() {
                       I agree to the cancellation terms and conditions
                     </Label>
                   </div>
-                  <a
-                    href={cancellationTermsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-600 hover:text-blue-800 underline inline-block"
-                    data-testid="link-cancellation-terms"
+                  <button
+                    type="button"
+                    onClick={() => setShowTermsModal(true)}
+                    className="text-sm text-blue-600 hover:text-blue-800 underline inline-block cursor-pointer"
+                    data-testid="button-view-terms"
                   >
                     View Terms & Conditions
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -914,7 +914,7 @@ export default function BookingsPage() {
             <Button
               variant="destructive"
               onClick={handleCancelSubmit}
-              disabled={submittingCancel || (cancellationTermsUrl && !termsAgreed)}
+              disabled={submittingCancel || (bookingTermsContent && !termsAgreed)}
               data-testid="button-submit-cancellation"
             >
               {submittingCancel ? (
@@ -929,6 +929,28 @@ export default function BookingsPage() {
           </DialogFooter>
           </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Terms & Conditions</DialogTitle>
+          </DialogHeader>
+          <div
+            className="flex-1 overflow-y-auto prose prose-sm max-w-none text-slate-700"
+            dangerouslySetInnerHTML={{ __html: bookingTermsContent }}
+            data-testid="text-terms-content"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowTermsModal(false)}
+              data-testid="button-close-terms"
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
