@@ -28,6 +28,7 @@ The application is deployed on Vercel, using `iconn.app` for tenant owner manage
 -   **Dynamic Directory:** Configurable member/organisation directories with slug-based URLs, server-side filtering, and field visibility settings.
 -   **Forum Module:** Provides tenant-scoped discussion forums with role-managed access.
 -   **Membership Tier System:** Supports pricing based on organization or member attributes with historical versioning, multi-structure support, configurable discounts, pro-rata pricing, and cron-based renewals.
+-   **Booking Cancellation Requests:** Members can request cancellation of individual tickets or entire booking groups from the /Bookings page. Requests go to an admin review queue (CancellationRequests admin page) where they can be approved or rejected. Approval automatically cancels the booking and handles program ticket refunds. Uses `booking_cancellation_request` table. API: `api/booking-cancellation-requests/`.
 
 ## UI/UX
 The frontend employs a custom "new-york" design system, leveraging shadcn/ui (Radix UI) and Tailwind CSS for a consistent, responsive user experience with a collapsible sidebar.

@@ -61,6 +61,8 @@ import EventSettings from "./EventSettings";
 
 import Bookings from "./Bookings";
 
+import CancellationRequests from "./CancellationRequests";
+
 import BookingAgentsManagement from "./BookingAgentsManagement";
 
 import TourManagement from "./TourManagement";
@@ -417,6 +419,8 @@ const PAGES = {
     
     Bookings: Bookings,
     
+    CancellationRequests: CancellationRequests,
+    
     BookingAgentsManagement: BookingAgentsManagement,
     
     TourManagement: TourManagement,
@@ -731,6 +735,8 @@ function PagesContent() {
                 <Route path="/EventSettings" element={<EventSettings />} />
                 
                 <Route path="/Bookings" element={<Bookings />} />
+                
+                <Route path="/CancellationRequests" element={<CancellationRequests />} />
                 
                 <Route path="/booking-agents" element={<BookingAgentsManagement />} />
                 

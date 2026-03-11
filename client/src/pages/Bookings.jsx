@@ -4,29 +4,22 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye } from "lucide-react";
+import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, X, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -38,10 +31,10 @@ export default function BookingsPage() {
   const canAccessInvoices = !isFeatureExcluded('commerce.bookings.access-invoices');
   const { hasBanner } = useLayoutContext();
   const queryClient = useQueryClient();
-  const [cancellingTicketId, setCancellingTicketId] = React.useState(null);
   const [showCancelDialog, setShowCancelDialog] = React.useState(false);
-  const [ticketToCancel, setTicketToCancel] = React.useState(null);
-  const [cancelledTicketIds, setCancelledTicketIds] = React.useState(new Set());
+  const [cancelTarget, setCancelTarget] = React.useState(null);
+  const [cancelReason, setCancelReason] = React.useState('');
+  const [submittingCancel, setSubmittingCancel] = React.useState(false);
   const [showTour, setShowTour] = React.useState(false);
   const [tourAutoShow, setTourAutoShow] = React.useState(false);
   const [poInputValues, setPoInputValues] = React.useState({});
@@ -99,6 +92,29 @@ export default function BookingsPage() {
     refetchOnMount: true,
   });
 
+  const { data: cancellationRequests = [] } = useQuery({
+    queryKey: ['my-cancellation-requests'],
+    queryFn: async () => {
+      const response = await fetch('/api/booking-cancellation-requests', {
+        credentials: 'include',
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.requests || [];
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const pendingCancelBookingIds = React.useMemo(() => {
+    return new Set(
+      cancellationRequests
+        .filter(r => r.status === 'pending')
+        .map(r => r.booking_id)
+    );
+  }, [cancellationRequests]);
+
   const handleTourComplete = async () => {
     setShowTour(false);
     setTourAutoShow(false);
@@ -136,54 +152,58 @@ export default function BookingsPage() {
     }
   };
 
-  const handleCancelClick = (booking) => {
-    setTicketToCancel(booking);
+  const handleCancelClick = (booking, groupBookings = null) => {
+    if (groupBookings) {
+      const activeBookings = groupBookings.filter(b => b.status !== 'cancelled' && !pendingCancelBookingIds.has(b.id));
+      setCancelTarget({ type: 'group', bookings: activeBookings, booking_group_reference: booking.booking_group_reference });
+    } else {
+      setCancelTarget({ type: 'individual', bookings: [booking] });
+    }
+    setCancelReason('');
     setShowCancelDialog(true);
   };
 
-  const handleCancelConfirm = async () => {
-    if (!ticketToCancel || !ticketToCancel.backstage_order_id) {
-      toast.error('Unable to cancel: Missing ticket information');
+  const handleCancelSubmit = async () => {
+    if (!cancelTarget || cancelTarget.bookings.length === 0) {
       setShowCancelDialog(false);
       return;
     }
 
-    setCancellingTicketId(ticketToCancel.id);
-    setShowCancelDialog(false);
+    setSubmittingCancel(true);
 
     try {
-      const allMembers = await base44.entities.Member.listAll();
-      const currentMember = allMembers.find(m => m.email === memberInfo.email);
-      
-      if (!currentMember) {
-        toast.error('Unable to verify member identity');
-        setCancellingTicketId(null);
-        setTicketToCancel(null);
-        return;
-      }
-
-      const response = await base44.functions.invoke('cancelTicketViaFlow', {
-        orderId: ticketToCancel.backstage_order_id,
-        cancelReason: 'Cancelled by member via iConnect',
-        memberId: currentMember.id
+      const response = await fetch('/api/booking-cancellation-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          booking_ids: cancelTarget.bookings.map(b => b.id),
+          booking_group_reference: cancelTarget.booking_group_reference || null,
+          request_type: cancelTarget.type,
+          reason: cancelReason.trim() || null,
+        }),
       });
 
-      if (response.data.success) {
-        setCancelledTicketIds(prev => new Set([...prev, ticketToCancel.id]));
-        toast.success('Ticket cancelled successfully');
-        
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
-      } else {
-        throw new Error(response.data.error || 'Failed to cancel ticket');
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit cancellation request');
       }
+
+      toast.success(
+        cancelTarget.type === 'group'
+          ? 'Cancellation request submitted for all tickets'
+          : 'Cancellation request submitted'
+      );
+      setShowCancelDialog(false);
+      setCancelTarget(null);
+      setCancelReason('');
+      queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
     } catch (error) {
-      console.error('Cancellation error:', error);
-      toast.error('Failed to cancel ticket. Please try again or contact support.');
+      console.error('Cancellation request error:', error);
+      toast.error(error.message || 'Failed to submit cancellation request. Please try again.');
     } finally {
-      setCancellingTicketId(null);
-      setTicketToCancel(null);
+      setSubmittingCancel(false);
     }
   };
 
@@ -499,12 +519,26 @@ export default function BookingsPage() {
                       </div>
                       
                       <div>
-                        <h4 className="text-sm font-semibold text-slate-700 mb-3">
-                          Attendees ({groupBookings.length})
-                        </h4>
+                        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                          <h4 className="text-sm font-semibold text-slate-700">
+                            Attendees ({groupBookings.length})
+                          </h4>
+                          {groupBookings.filter(b => b.status !== 'cancelled' && !pendingCancelBookingIds.has(b.id)).length > 1 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleCancelClick(groupBookings[0], groupBookings)}
+                              data-testid={`button-cancel-all-${bookingRef}`}
+                            >
+                              <XCircle className="w-4 h-4 mr-1" />
+                              Cancel All
+                            </Button>
+                          )}
+                        </div>
                         <div className="grid md:grid-cols-2 gap-3">
                           {groupBookings.map((booking, bookingIndex) => {
-                            const isCancelled = booking.status === 'cancelled' || cancelledTicketIds.has(booking.id);
+                            const isCancelled = booking.status === 'cancelled';
+                            const hasPendingCancel = pendingCancelBookingIds.has(booking.id);
                             
                             return (
                               <div 
@@ -513,6 +547,8 @@ export default function BookingsPage() {
                                 className={`flex flex-col gap-2 p-3 rounded-lg border ${
                                   isCancelled 
                                     ? 'bg-red-50/50 border-red-200' 
+                                    : hasPendingCancel
+                                    ? 'bg-amber-50/50 border-amber-200'
                                     : 'bg-slate-50 border-slate-200'
                                 }`}
                               >
@@ -546,20 +582,25 @@ export default function BookingsPage() {
                                       )}
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <Badge className={`${getStatusColor(isCancelled ? 'cancelled' : booking.status)}`}>
-                                      {isCancelled ? 'cancelled' : booking.status}
-                                    </Badge>
-                                    {!isCancelled && booking.backstage_order_id && (
+                                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                    {hasPendingCancel ? (
+                                      <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                                        Cancellation Requested
+                                      </Badge>
+                                    ) : (
+                                      <Badge className={`${getStatusColor(isCancelled ? 'cancelled' : booking.status)}`}>
+                                        {isCancelled ? 'cancelled' : booking.status}
+                                      </Badge>
+                                    )}
+                                    {!isCancelled && !hasPendingCancel && (
                                       <Button
                                         id={index === 0 && bookingIndex === 0 ? "first-ticket-edit-button" : undefined}
                                         variant="ghost"
                                         size="icon"
-                                        className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
                                         onClick={() => handleCancelClick(booking)}
-                                        disabled={cancellingTicketId === booking.id}
+                                        data-testid={`button-cancel-ticket-${booking.id}`}
                                       >
-                                        <Pencil className="w-3 h-3" />
+                                        <X className="w-4 h-4" />
                                       </Button>
                                     )}
                                   </div>
@@ -731,25 +772,71 @@ export default function BookingsPage() {
         )}
       </div>
 
-      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel Registration?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cancelling this registration will make the ticket available for reallocation.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>No, keep registration</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancelConfirm}
-              className="bg-red-600 hover:bg-red-700"
+      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request Cancellation</DialogTitle>
+            <DialogDescription>
+              {cancelTarget?.type === 'group'
+                ? `Submit a cancellation request for ${cancelTarget.bookings.length} ticket(s). An administrator will review your request.`
+                : 'Submit a cancellation request for this ticket. An administrator will review your request.'}
+            </DialogDescription>
+          </DialogHeader>
+          {cancelTarget && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                {cancelTarget.bookings.map(b => (
+                  <div key={b.id} className="flex items-center gap-2 text-sm p-2 bg-slate-50 rounded-md border border-slate-200">
+                    <User className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-700 truncate" data-testid={`text-cancel-attendee-${b.id}`}>
+                      {b.attendee_first_name && b.attendee_last_name
+                        ? `${b.attendee_first_name} ${b.attendee_last_name}`
+                        : b.attendee_email || 'Unknown attendee'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">
+                  Reason for cancellation (optional)
+                </label>
+                <Textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Let us know why you need to cancel..."
+                  className="resize-none"
+                  rows={3}
+                  data-testid="input-cancel-reason"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); }}
+              data-testid="button-cancel-dialog-close"
             >
-              Yes, cancel registration
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              Keep Registration
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelSubmit}
+              disabled={submittingCancel}
+              data-testid="button-submit-cancellation"
+            >
+              {submittingCancel ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                'Submit Cancellation Request'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Invoice Preview Dialog */}
       <Dialog open={invoiceModalOpen} onOpenChange={handleInvoiceModalClose}>
