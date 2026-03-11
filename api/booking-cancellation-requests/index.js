@@ -174,7 +174,7 @@ async function handleGet(req, res) {
     if (bookingIds.length > 0) {
       const { data: bookings } = await supabase
         .from('booking')
-        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, ticket_class_name')
+        .select('id, attendee_email, attendee_first_name, attendee_last_name, event_id, status, booking_group_reference, booking_reference, ticket_class_name, training_fund_amount, voucher_amount, discount_code_id, discount_code_amount, stripe_payment_intent_id, account_amount, total_cost, payment_method, organization_id, xero_invoice_id, xero_invoice_number')
         .in('id', bookingIds);
       bookingsMap = (bookings || []).reduce((acc, b) => { acc[b.id] = b; return acc; }, {});
     }
@@ -202,14 +202,85 @@ async function handleGet(req, res) {
       eventsMap = (events || []).reduce((acc, e) => { acc[e.id] = e; return acc; }, {});
     }
 
+    // Fetch voucher expiry data for reversal preview
+    const bookingRefs = [...new Set(Object.values(bookingsMap).map(b => b.booking_group_reference || b.booking_reference).filter(Boolean))];
+    let voucherTxnsByRef = {};
+    if (bookingRefs.length > 0) {
+      const { data: voucherTxns } = await supabase
+        .from('voucher_transaction')
+        .select('id, voucher_id, booking_reference, amount, type')
+        .in('booking_reference', bookingRefs)
+        .eq('type', 'booking_usage');
+      if (voucherTxns && voucherTxns.length > 0) {
+        const voucherIds = [...new Set(voucherTxns.map(vt => vt.voucher_id))];
+        const { data: vouchers } = await supabase
+          .from('voucher')
+          .select('id, code, value, expires_at, status')
+          .in('id', voucherIds);
+        const vouchersMap = (vouchers || []).reduce((acc, v) => { acc[v.id] = v; return acc; }, {});
+        for (const vt of voucherTxns) {
+          if (!voucherTxnsByRef[vt.booking_reference]) voucherTxnsByRef[vt.booking_reference] = [];
+          const voucher = vouchersMap[vt.voucher_id];
+          voucherTxnsByRef[vt.booking_reference].push({
+            voucherId: vt.voucher_id,
+            amount: vt.amount,
+            code: voucher?.code || null,
+            expired: voucher?.expires_at ? new Date(voucher.expires_at) < new Date() : false,
+            expiresAt: voucher?.expires_at || null,
+          });
+        }
+      }
+    }
+
+    // Fetch discount code expiry data for reversal preview
+    const discountCodeIds = [...new Set(Object.values(bookingsMap).map(b => b.discount_code_id).filter(Boolean))];
+    let discountCodesMap = {};
+    if (discountCodeIds.length > 0) {
+      const { data: discountCodes } = await supabase
+        .from('discount_code')
+        .select('id, code, type, value, expires_at, is_active')
+        .in('id', discountCodeIds);
+      discountCodesMap = (discountCodes || []).reduce((acc, dc) => { acc[dc.id] = dc; return acc; }, {});
+    }
+
     const enrichedRequests = (requests || []).map(r => {
       const booking = bookingsMap[r.booking_id] || null;
       const eventId = r.event_id || booking?.event_id || null;
+
+      let financialSummary = null;
+      if (booking && r.status === 'pending') {
+        const bookingRef = booking.booking_group_reference || booking.booking_reference;
+        const voucherDetails = voucherTxnsByRef[bookingRef] || [];
+        const discountCode = booking.discount_code_id ? discountCodesMap[booking.discount_code_id] || null : null;
+
+        financialSummary = {
+          trainingFundAmount: parseFloat(booking.training_fund_amount) || 0,
+          voucherAmount: parseFloat(booking.voucher_amount) || 0,
+          voucherDetails,
+          discountCodeAmount: parseFloat(booking.discount_code_amount) || 0,
+          discountCode: discountCode ? {
+            id: discountCode.id,
+            code: discountCode.code,
+            type: discountCode.type,
+            value: discountCode.value,
+            expired: discountCode.expires_at ? new Date(discountCode.expires_at) < new Date() : false,
+            expiresAt: discountCode.expires_at,
+          } : null,
+          stripePaymentIntentId: booking.stripe_payment_intent_id || null,
+          accountAmount: parseFloat(booking.account_amount) || 0,
+          totalCost: parseFloat(booking.total_cost) || 0,
+          paymentMethod: booking.payment_method,
+          xeroInvoiceId: booking.xero_invoice_id || null,
+          xeroInvoiceNumber: booking.xero_invoice_number || null,
+        };
+      }
+
       return {
         ...r,
         booking,
         member: membersMap[r.member_id] || null,
         event: eventId ? (eventsMap[eventId] || null) : null,
+        financialSummary,
       };
     });
 

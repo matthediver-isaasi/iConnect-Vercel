@@ -2033,6 +2033,8 @@ const functionHandlers = {
         guest_organisation_name: attendee.organization || null,
         attendee_phone: attendee.phone || null,
         attendee_job_title: attendee.job_title || null,
+        discount_code_id: validatedDiscountCodeId || null,
+        discount_code_amount: validatedDiscountAmount > 0 ? validatedDiscountAmount / ticketsRequired : 0,
         created_at: new Date().toISOString(),
         tenant_id: event.tenant_id
       };

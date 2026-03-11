@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw, DollarSign, AlertTriangle, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -35,6 +35,8 @@ export default function CancellationRequests() {
   const [reviewDialog, setReviewDialog] = useState(null);
   const [reviewNotes, setReviewNotes] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [voucherReplacements, setVoucherReplacements] = useState({});
+  const [discountCodeReplacement, setDiscountCodeReplacement] = useState({ create: false, newExpiryDate: "" });
 
   useEffect(() => {
     if (isAccessReady) {
@@ -116,32 +118,67 @@ export default function CancellationRequests() {
 
     try {
       const requestIds = reviewDialog.items.map(i => i.id);
+      let allReversalResults = [];
 
-      for (const requestId of requestIds) {
+      for (let i = 0; i < requestIds.length; i++) {
+        const requestId = requestIds[i];
+        const body = {
+          status: action,
+          review_notes: reviewNotes.trim() || null,
+        };
+
+        if (action === 'approved' && i === 0) {
+          const voucherReplacementsList = Object.entries(voucherReplacements)
+            .filter(([, v]) => v.create && v.newExpiryDate)
+            .map(([voucherId, v]) => ({ voucherId, newExpiryDate: v.newExpiryDate }));
+
+          body.reversal_options = {
+            voucherReplacements: voucherReplacementsList.length > 0 ? voucherReplacementsList : undefined,
+            discountCodeReplacement: discountCodeReplacement.create && discountCodeReplacement.newExpiryDate
+              ? { newExpiryDate: discountCodeReplacement.newExpiryDate }
+              : undefined,
+          };
+        }
+
         const response = await fetch(`/api/booking-cancellation-requests/${requestId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({
-            status: action,
-            review_notes: reviewNotes.trim() || null,
-          }),
+          body: JSON.stringify(body),
         });
 
         if (!response.ok) {
           const data = await response.json();
           throw new Error(data.error || `Failed to ${action} request`);
         }
+
+        const result = await response.json();
+        if (result.reversalResults) {
+          allReversalResults.push(result.reversalResults);
+        }
       }
 
-      toast.success(
-        action === 'approved'
-          ? `${requestIds.length} ticket(s) cancellation approved`
-          : `${requestIds.length} ticket(s) cancellation rejected`
-      );
+      if (action === 'approved') {
+        const messages = [`${requestIds.length} ticket(s) cancellation approved`];
+        for (const rr of allReversalResults) {
+          if (rr.trainingFund?.success) messages.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
+          for (const v of rr.vouchers || []) {
+            if (v.reinstated) messages.push(`Voucher ${v.code}: £${Number(v.amount).toFixed(2)} reinstated`);
+            if (v.replacementCreated) messages.push(`Replacement voucher ${v.newVoucherCode} created`);
+          }
+          if (rr.discountCode?.reversed) messages.push(`Discount code ${rr.discountCode.code} usage reversed`);
+          if (rr.discountCode?.replacementCreated) messages.push(`Replacement discount code ${rr.discountCode.newCode} created`);
+          if (rr.programTicket?.success) messages.push(`Program ticket refunded`);
+        }
+        toast.success(messages.join('. '));
+      } else {
+        toast.success(`${requestIds.length} ticket(s) cancellation rejected`);
+      }
 
       setReviewDialog(null);
       setReviewNotes("");
+      setVoucherReplacements({});
+      setDiscountCodeReplacement({ create: false, newExpiryDate: "" });
       queryClient.invalidateQueries({ queryKey: ['cancellation-requests'] });
     } catch (error) {
       console.error('Review error:', error);
@@ -334,6 +371,30 @@ export default function CancellationRequests() {
                         ))}
                       </div>
 
+                      {allPending && (() => {
+                        const fs = firstItem.financialSummary;
+                        if (!fs) return null;
+                        const items = [];
+                        if (fs.trainingFundAmount > 0) items.push(`Training Fund: £${fs.trainingFundAmount.toFixed(2)}`);
+                        if (fs.voucherAmount > 0) items.push(`Voucher: £${fs.voucherAmount.toFixed(2)}`);
+                        if (fs.discountCodeAmount > 0) items.push(`Discount: £${fs.discountCodeAmount.toFixed(2)}`);
+                        if (fs.stripePaymentIntentId) items.push('Stripe Payment');
+                        if (fs.xeroInvoiceId) items.push(`Xero: ${fs.xeroInvoiceNumber || 'Invoice'}`);
+                        if (items.length === 0) return null;
+                        const hasExpired = (fs.voucherDetails || []).some(v => v.expired) || fs.discountCode?.expired;
+                        return (
+                          <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground" data-testid="row-financial-preview">
+                            <DollarSign className="w-3 h-3 shrink-0" />
+                            <span>{items.join(' · ')}</span>
+                            {hasExpired && (
+                              <Badge variant="outline" className="text-orange-600 border-orange-300 text-xs">
+                                Expired items
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {group.reason && (
                         <div className="p-3 bg-slate-50 rounded-md border border-slate-200">
                           <p className="text-xs font-medium text-slate-500 mb-1">Reason</p>
@@ -358,7 +419,7 @@ export default function CancellationRequests() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => { setReviewDialog({ ...group, action: 'rejected' }); setReviewNotes(""); }}
+                            onClick={() => { setReviewDialog({ ...group, action: 'rejected' }); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); }}
                             data-testid={`button-reject-${group.key}`}
                           >
                             <XCircle className="w-4 h-4 mr-1" />
@@ -366,7 +427,7 @@ export default function CancellationRequests() {
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => { setReviewDialog({ ...group, action: 'approved' }); setReviewNotes(""); }}
+                            onClick={() => { setReviewDialog({ ...group, action: 'approved' }); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); }}
                             data-testid={`button-approve-${group.key}`}
                           >
                             <CheckCircle className="w-4 h-4 mr-1" />
@@ -383,28 +444,28 @@ export default function CancellationRequests() {
         )}
       </div>
 
-      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); } }}>
-        <DialogContent>
+      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {reviewDialog?.action === 'approved' ? 'Approve Cancellation' : 'Reject Cancellation'}
             </DialogTitle>
             <DialogDescription>
               {reviewDialog?.action === 'approved'
-                ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and make them available for reallocation.`
+                ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.`
                 : `Rejecting will keep the ticket(s) active. The member will see their request was declined.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {reviewDialog && (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-slate-700">
+                <p className="text-sm font-medium" data-testid="text-review-event">
                   {reviewDialog.event?.title || 'Unknown Event'}
                 </p>
                 {reviewDialog.items?.map(item => (
-                  <div key={item.id} className="flex items-center gap-2 text-sm p-2 bg-slate-50 rounded-md border border-slate-200">
-                    <User className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span className="text-slate-700 truncate">
+                  <div key={item.id} className="flex items-center gap-2 text-sm p-2 bg-muted rounded-md">
+                    <User className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">
                       {item.booking?.attendee_first_name && item.booking?.attendee_last_name
                         ? `${item.booking.attendee_first_name} ${item.booking.attendee_last_name}`
                         : item.booking?.attendee_email || 'Unknown'}
@@ -413,8 +474,147 @@ export default function CancellationRequests() {
                 ))}
               </div>
             )}
+
+            {reviewDialog?.action === 'approved' && (() => {
+              const fs = reviewDialog?.items?.[0]?.financialSummary;
+              if (!fs) return null;
+              const hasTrainingFund = fs.trainingFundAmount > 0;
+              const hasVoucher = fs.voucherAmount > 0;
+              const hasDiscount = fs.discountCodeAmount > 0;
+              const hasStripe = !!fs.stripePaymentIntentId;
+              const hasXero = !!fs.xeroInvoiceId;
+              const hasAnything = hasTrainingFund || hasVoucher || hasDiscount || hasStripe || hasXero;
+
+              if (!hasAnything) return null;
+
+              return (
+                <div className="space-y-3" data-testid="section-financial-summary">
+                  <div className="flex items-center gap-2">
+                    <RotateCcw className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm font-medium">Financial Reversal Summary</p>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    {hasTrainingFund && (
+                      <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-training-fund">
+                        <span>Training Fund Reinstatement</span>
+                        <Badge variant="outline">£{fs.trainingFundAmount.toFixed(2)}</Badge>
+                      </div>
+                    )}
+
+                    {hasVoucher && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-voucher-amount">
+                          <span>Voucher Reinstatement</span>
+                          <Badge variant="outline">£{fs.voucherAmount.toFixed(2)}</Badge>
+                        </div>
+                        {fs.voucherDetails?.map((v) => {
+                          if (!v.expired) return (
+                            <div key={v.voucherId} className="flex items-center gap-2 pl-4 text-xs text-muted-foreground" data-testid={`row-voucher-detail-${v.voucherId}`}>
+                              <CheckCircle className="w-3 h-3 text-green-600 shrink-0" />
+                              <span>Voucher {v.code}: £{parseFloat(v.amount).toFixed(2)} will be reinstated</span>
+                            </div>
+                          );
+                          return (
+                            <div key={v.voucherId} className="space-y-2 p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid={`row-voucher-expired-${v.voucherId}`}>
+                              <div className="flex items-center gap-2 text-xs">
+                                <AlertTriangle className="w-3 h-3 text-orange-600 shrink-0" />
+                                <span className="text-orange-700 dark:text-orange-400">Voucher {v.code} expired {v.expiresAt ? format(new Date(v.expiresAt), "MMM d, yyyy") : ''} — £{parseFloat(v.amount).toFixed(2)} cannot be reinstated</span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  variant={voucherReplacements[v.voucherId]?.create ? "default" : "outline"}
+                                  onClick={() => setVoucherReplacements(prev => ({
+                                    ...prev,
+                                    [v.voucherId]: { create: !prev[v.voucherId]?.create, newExpiryDate: prev[v.voucherId]?.newExpiryDate || "" }
+                                  }))}
+                                  data-testid={`button-voucher-replace-${v.voucherId}`}
+                                >
+                                  {voucherReplacements[v.voucherId]?.create ? 'Creating replacement' : 'Create replacement voucher'}
+                                </Button>
+                                {voucherReplacements[v.voucherId]?.create && (
+                                  <Input
+                                    type="date"
+                                    className="w-40"
+                                    value={voucherReplacements[v.voucherId]?.newExpiryDate || ""}
+                                    onChange={(e) => setVoucherReplacements(prev => ({
+                                      ...prev,
+                                      [v.voucherId]: { ...prev[v.voucherId], newExpiryDate: e.target.value }
+                                    }))}
+                                    min={format(new Date(), "yyyy-MM-dd")}
+                                    data-testid={`input-voucher-expiry-${v.voucherId}`}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {hasDiscount && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-discount-amount">
+                          <span>Discount Code ({fs.discountCode?.code})</span>
+                          <Badge variant="outline">£{fs.discountCodeAmount.toFixed(2)}</Badge>
+                        </div>
+                        {fs.discountCode?.expired ? (
+                          <div className="space-y-2 p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="row-discount-expired">
+                            <div className="flex items-center gap-2 text-xs">
+                              <AlertTriangle className="w-3 h-3 text-orange-600 shrink-0" />
+                              <span className="text-orange-700 dark:text-orange-400">Discount code expired {fs.discountCode.expiresAt ? format(new Date(fs.discountCode.expiresAt), "MMM d, yyyy") : ''} — usage cannot be reversed</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                size="sm"
+                                variant={discountCodeReplacement.create ? "default" : "outline"}
+                                onClick={() => setDiscountCodeReplacement(prev => ({ create: !prev.create, newExpiryDate: prev.newExpiryDate }))}
+                                data-testid="button-discount-replace"
+                              >
+                                {discountCodeReplacement.create ? 'Creating replacement' : 'Create replacement code'}
+                              </Button>
+                              {discountCodeReplacement.create && (
+                                <Input
+                                  type="date"
+                                  className="w-40"
+                                  value={discountCodeReplacement.newExpiryDate}
+                                  onChange={(e) => setDiscountCodeReplacement(prev => ({ ...prev, newExpiryDate: e.target.value }))}
+                                  min={format(new Date(), "yyyy-MM-dd")}
+                                  data-testid="input-discount-expiry"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 pl-4 text-xs text-muted-foreground" data-testid="row-discount-active">
+                            <CheckCircle className="w-3 h-3 text-green-600 shrink-0" />
+                            <span>Usage count will be decremented</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {hasStripe && (
+                      <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-stripe">
+                        <span>Stripe Payment</span>
+                        <Badge variant="outline">Phase 2</Badge>
+                      </div>
+                    )}
+
+                    {hasXero && (
+                      <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-xero">
+                        <span>Xero Invoice ({fs.xeroInvoiceNumber})</span>
+                        <Badge variant="outline">Phase 3</Badge>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm font-medium">
                 Notes (optional)
               </label>
               <Textarea
@@ -430,7 +630,7 @@ export default function CancellationRequests() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setReviewDialog(null); setReviewNotes(""); }}
+              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); }}
               data-testid="button-review-cancel"
             >
               Cancel
