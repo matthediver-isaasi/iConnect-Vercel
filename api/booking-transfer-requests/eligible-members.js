@@ -60,15 +60,30 @@ export default async function handler(req, res) {
     }
 
     let roleId = null;
+    let attendeeMemberId = booking.member_id;
     if (booking.organization_id) {
-      const { data: teamMember } = await supabase
-        .from('team_member')
-        .select('role_id')
-        .eq('organization_id', booking.organization_id)
-        .eq('member_id', member.id)
-        .maybeSingle();
+      if (booking.attendee_email) {
+        const { data: attendeeMember } = await supabase
+          .from('member')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('email', booking.attendee_email)
+          .maybeSingle();
+        if (attendeeMember) {
+          attendeeMemberId = attendeeMember.id;
+        }
+      }
 
-      roleId = teamMember?.role_id || null;
+      if (attendeeMemberId) {
+        const { data: teamMember } = await supabase
+          .from('team_member')
+          .select('role_id')
+          .eq('organization_id', booking.organization_id)
+          .eq('member_id', attendeeMemberId)
+          .maybeSingle();
+
+        roleId = teamMember?.role_id || null;
+      }
     }
 
     const searchPattern = `%${query}%`;

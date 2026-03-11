@@ -118,18 +118,35 @@ async function handlePost(req, res) {
 
     const { data: bookingFull } = await supabase
       .from('booking')
-      .select('organization_id')
+      .select('organization_id, attendee_email')
       .eq('id', booking_id)
       .eq('tenant_id', tenantId)
       .single();
 
     if (bookingFull?.organization_id) {
-      const { data: requesterTeam } = await supabase
-        .from('team_member')
-        .select('role_id')
-        .eq('organization_id', bookingFull.organization_id)
-        .eq('member_id', member.id)
-        .maybeSingle();
+      let attendeeMemberId = booking.member_id;
+      if (bookingFull.attendee_email) {
+        const { data: attendeeMember } = await supabase
+          .from('member')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('email', bookingFull.attendee_email)
+          .maybeSingle();
+        if (attendeeMember) {
+          attendeeMemberId = attendeeMember.id;
+        }
+      }
+
+      let attendeeRoleId = null;
+      if (attendeeMemberId) {
+        const { data: attendeeTeam } = await supabase
+          .from('team_member')
+          .select('role_id')
+          .eq('organization_id', bookingFull.organization_id)
+          .eq('member_id', attendeeMemberId)
+          .maybeSingle();
+        attendeeRoleId = attendeeTeam?.role_id || null;
+      }
 
       let targetTeamQuery = supabase
         .from('team_member')
@@ -137,8 +154,8 @@ async function handlePost(req, res) {
         .eq('organization_id', bookingFull.organization_id)
         .eq('member_id', target_member_id);
 
-      if (requesterTeam?.role_id) {
-        targetTeamQuery = targetTeamQuery.eq('role_id', requesterTeam.role_id);
+      if (attendeeRoleId) {
+        targetTeamQuery = targetTeamQuery.eq('role_id', attendeeRoleId);
       }
 
       const { data: targetTeam } = await targetTeamQuery;
