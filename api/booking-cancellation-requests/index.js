@@ -334,6 +334,79 @@ async function handleGet(req, res) {
       };
     });
 
+    const groupFinancialSummaries = {};
+    const pendingGroupRequests = enrichedRequests.filter(r => r.status === 'pending' && r.request_type === 'group' && r.booking_group_reference);
+    const groupsByRef = {};
+    for (const r of pendingGroupRequests) {
+      if (!groupsByRef[r.booking_group_reference]) groupsByRef[r.booking_group_reference] = [];
+      groupsByRef[r.booking_group_reference].push(r);
+    }
+
+    for (const [ref, groupItems] of Object.entries(groupsByRef)) {
+      let totalTrainingFund = 0;
+      let totalVoucher = 0;
+      let totalDiscount = 0;
+      let totalCard = 0;
+      let totalAccount = 0;
+      let totalCost = 0;
+      let stripePaymentIntentId = null;
+      let xeroInvoiceId = null;
+      let xeroInvoiceNumber = null;
+      let paymentMethod = null;
+      const allVoucherDetails = [];
+      let discountCode = null;
+      const seenVoucherIds = new Set();
+
+      for (const item of groupItems) {
+        const fs = item.financialSummary;
+        if (!fs) continue;
+        totalTrainingFund += fs.trainingFundAmount || 0;
+        totalVoucher += fs.voucherAmount || 0;
+        totalDiscount += fs.discountCodeAmount || 0;
+        totalCard += fs.cardAmount || 0;
+        totalAccount += fs.accountAmount || 0;
+        totalCost += fs.totalCost || 0;
+        if (!stripePaymentIntentId && fs.stripePaymentIntentId) stripePaymentIntentId = fs.stripePaymentIntentId;
+        if (!xeroInvoiceId && fs.xeroInvoiceId) {
+          xeroInvoiceId = fs.xeroInvoiceId;
+          xeroInvoiceNumber = fs.xeroInvoiceNumber;
+        }
+        if (!paymentMethod && fs.paymentMethod) paymentMethod = fs.paymentMethod;
+        if (fs.voucherDetails) {
+          for (const vd of fs.voucherDetails) {
+            if (!seenVoucherIds.has(vd.voucherId)) {
+              seenVoucherIds.add(vd.voucherId);
+              allVoucherDetails.push(vd);
+            }
+          }
+        }
+        if (!discountCode && fs.discountCode) discountCode = fs.discountCode;
+      }
+
+      groupFinancialSummaries[ref] = {
+        trainingFundAmount: totalTrainingFund,
+        voucherAmount: totalVoucher,
+        voucherDetails: allVoucherDetails,
+        discountCodeAmount: totalDiscount,
+        discountCode,
+        stripePaymentIntentId,
+        cardAmount: totalCard,
+        accountAmount: totalAccount,
+        totalCost,
+        paymentMethod,
+        xeroInvoiceId,
+        xeroInvoiceNumber,
+        ticketCount: groupItems.length,
+        consolidated: true,
+      };
+    }
+
+    for (const r of enrichedRequests) {
+      if (r.request_type === 'group' && r.booking_group_reference && groupFinancialSummaries[r.booking_group_reference]) {
+        r.groupFinancialSummary = groupFinancialSummaries[r.booking_group_reference];
+      }
+    }
+
     return res.json({ requests: enrichedRequests });
   } catch (err) {
     console.error('[CancellationRequest] Error:', err);

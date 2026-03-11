@@ -200,30 +200,33 @@ export default function CancellationRequests() {
 
     try {
       const requestIds = reviewDialog.items.map(i => i.id);
+      const isGroupRequest = reviewDialog.request_type === 'group' && requestIds.length > 1;
+
+      const voucherReplacementsList = Object.entries(voucherReplacements)
+        .filter(([, v]) => v.create && v.newExpiryDate)
+        .map(([voucherId, v]) => ({ voucherId, newExpiryDate: v.newExpiryDate }));
+
+      const reversalOpts = {
+        voucherReplacements: voucherReplacementsList.length > 0 ? voucherReplacementsList : undefined,
+        discountCodeReplacement: discountCodeReplacement.create && discountCodeReplacement.newExpiryDate
+          ? { newExpiryDate: discountCodeReplacement.newExpiryDate }
+          : undefined,
+      };
+
       let allReversalResults = [];
 
-      for (let i = 0; i < requestIds.length; i++) {
-        const requestId = requestIds[i];
+      if (isGroupRequest) {
         const body = {
+          request_ids: requestIds,
           status: action,
           review_notes: reviewNotes.trim() || null,
         };
-
-        if (action === 'approved' && i === 0) {
-          const voucherReplacementsList = Object.entries(voucherReplacements)
-            .filter(([, v]) => v.create && v.newExpiryDate)
-            .map(([voucherId, v]) => ({ voucherId, newExpiryDate: v.newExpiryDate }));
-
-          body.reversal_options = {
-            voucherReplacements: voucherReplacementsList.length > 0 ? voucherReplacementsList : undefined,
-            discountCodeReplacement: discountCodeReplacement.create && discountCodeReplacement.newExpiryDate
-              ? { newExpiryDate: discountCodeReplacement.newExpiryDate }
-              : undefined,
-          };
+        if (action === 'approved') {
+          body.reversal_options = reversalOpts;
         }
 
-        const response = await fetch(`/api/booking-cancellation-requests/${requestId}`, {
-          method: 'PATCH',
+        const response = await fetch('/api/booking-cancellation-requests/approve-group', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(body),
@@ -231,31 +234,67 @@ export default function CancellationRequests() {
 
         if (!response.ok) {
           const data = await response.json();
-          throw new Error(data.error || `Failed to ${action} request`);
+          throw new Error(data.error || `Failed to ${action} group request`);
         }
 
         const result = await response.json();
         if (result.reversalResults) {
           allReversalResults.push(result.reversalResults);
         }
+      } else {
+        for (let i = 0; i < requestIds.length; i++) {
+          const requestId = requestIds[i];
+          const body = {
+            status: action,
+            review_notes: reviewNotes.trim() || null,
+          };
+
+          if (action === 'approved' && i === 0) {
+            body.reversal_options = reversalOpts;
+          }
+
+          const response = await fetch(`/api/booking-cancellation-requests/${requestId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(body),
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || `Failed to ${action} request`);
+          }
+
+          const result = await response.json();
+          if (result.reversalResults) {
+            allReversalResults.push(result.reversalResults);
+          }
+        }
       }
 
       if (action === 'approved') {
-        const messages = [`${requestIds.length} ticket(s) cancellation approved`];
+        const messages = [`${requestIds.length} ticket(s) cancellation approved${isGroupRequest ? ' (consolidated)' : ''}`];
         const warnings = [];
         for (const rr of allReversalResults) {
-          if (rr.trainingFund?.success) messages.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
+          if (isGroupRequest) {
+            const totalTF = (rr.trainingFund || []).filter(t => t.success).reduce((sum, t) => sum + t.amount, 0);
+            if (totalTF > 0) messages.push(`Training fund: £${totalTF.toFixed(2)} reinstated`);
+            const programCount = (rr.programTickets || []).filter(p => p.success).length;
+            if (programCount > 0) messages.push(`${programCount} program ticket(s) refunded`);
+          } else {
+            if (rr.trainingFund?.success) messages.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
+            if (rr.programTicket?.success) messages.push(`Program ticket refunded`);
+          }
           for (const v of rr.vouchers || []) {
             if (v.reinstated) messages.push(`Voucher ${v.code}: £${Number(v.amount).toFixed(2)} reinstated`);
             if (v.replacementCreated) messages.push(`Replacement voucher ${v.newVoucherCode} created`);
           }
           if (rr.discountCode?.reversed) messages.push(`Discount code ${rr.discountCode.code} usage reversed`);
           if (rr.discountCode?.replacementCreated) messages.push(`Replacement discount code ${rr.discountCode.newCode} created`);
-          if (rr.programTicket?.success) messages.push(`Program ticket refunded`);
-          if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe refund: £${Number(rr.stripeRefund.amount).toFixed(2)}${rr.stripeRefund.partialRefund ? ' (partial)' : ''}`);
+          if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe refund: £${Number(rr.stripeRefund.amount).toFixed(2)}${rr.stripeRefund.partialRefund ? ' (partial)' : ''}${rr.stripeRefund.consolidated ? ' (consolidated)' : ''}`);
           if (rr.stripeRefund?.success && rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe payment already refunded`);
           if (rr.stripeRefund && !rr.stripeRefund.success) warnings.push(`Stripe refund failed for £${Number(rr.stripeRefund.amount).toFixed(2)} — manual refund needed`);
-          if (rr.xeroCreditNote?.success && rr.xeroCreditNote?.allocated) messages.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber}: £${Number(rr.xeroCreditNote.amount).toFixed(2)} (allocated${rr.xeroCreditNote.alreadyExisted ? ', already existed' : ''})`);
+          if (rr.xeroCreditNote?.success && rr.xeroCreditNote?.allocated) messages.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber}: £${Number(rr.xeroCreditNote.amount).toFixed(2)} (allocated${rr.xeroCreditNote.alreadyExisted ? ', already existed' : ''}${rr.xeroCreditNote.consolidated ? ', consolidated' : ''})`);
           if (rr.xeroCreditNote?.success && !rr.xeroCreditNote?.allocated) warnings.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber} created for £${Number(rr.xeroCreditNote.amount).toFixed(2)} but not allocated — manual allocation needed`);
           if (rr.xeroCreditNote && !rr.xeroCreditNote.success && rr.xeroCreditNote.skipped) warnings.push(`Xero credit note skipped: ${rr.xeroCreditNote.reason}`);
           if (rr.xeroCreditNote && !rr.xeroCreditNote.success && !rr.xeroCreditNote.skipped) warnings.push(`Xero credit note failed for £${Number(rr.xeroCreditNote.amount).toFixed(2)} — manual action needed`);
@@ -430,11 +469,15 @@ export default function CancellationRequests() {
                             </Badge>
                           ) : (
                             <>
-                              {group.items.length > 1 && (
+                              {group.request_type === 'group' && group.items.length > 1 ? (
+                                <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
+                                  Group ({group.items.length} tickets)
+                                </Badge>
+                              ) : group.items.length > 1 ? (
                                 <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
                                   {group.items.length} tickets
                                 </Badge>
-                              )}
+                              ) : null}
                             </>
                           )}
                           {allSameStatus && getStatusBadge(firstItem.status)}
@@ -497,7 +540,8 @@ export default function CancellationRequests() {
                       )}
 
                       {!isTransfer && allPending && (() => {
-                        const fs = firstItem.financialSummary;
+                        const isGroup = group.request_type === 'group' && group.items.length > 1;
+                        const fs = isGroup ? firstItem.groupFinancialSummary : firstItem.financialSummary;
                         if (!fs) return null;
                         const items = [];
                         if (fs.trainingFundAmount > 0) items.push(`Training Fund: £${fs.trainingFundAmount.toFixed(2)}`);
@@ -511,6 +555,11 @@ export default function CancellationRequests() {
                           <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground" data-testid="row-financial-preview">
                             <DollarSign className="w-3 h-3 shrink-0" />
                             <span>{items.join(' · ')}</span>
+                            {isGroup && fs.consolidated && (
+                              <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
+                                Consolidated
+                              </Badge>
+                            )}
                             {hasExpired && (
                               <Badge variant="outline" className="text-orange-600 border-orange-300 text-xs">
                                 Expired items
@@ -583,7 +632,7 @@ export default function CancellationRequests() {
                     ? 'Approving will transfer the ticket to the target member.'
                     : 'Rejecting will keep the ticket with the current attendee. The requester will be notified.')
                 : (reviewDialog?.action === 'approved'
-                    ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.`
+                    ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.${reviewDialog?.request_type === 'group' && (reviewDialog?.items?.length || 0) > 1 ? ' Stripe refund and Xero credit note will be consolidated into a single transaction.' : ''}`
                     : `Rejecting will keep the ticket(s) active. The member will see their request was declined.`)}
             </DialogDescription>
           </DialogHeader>
@@ -615,7 +664,10 @@ export default function CancellationRequests() {
             )}
 
             {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
-              const fs = reviewDialog?.items?.[0]?.financialSummary;
+              const isGroupReview = reviewDialog?.request_type === 'group' && reviewDialog?.items?.length > 1;
+              const fs = isGroupReview
+                ? reviewDialog?.items?.[0]?.groupFinancialSummary
+                : reviewDialog?.items?.[0]?.financialSummary;
               if (!fs) return null;
               const hasTrainingFund = fs.trainingFundAmount > 0;
               const hasVoucher = fs.voucherAmount > 0;
@@ -628,9 +680,14 @@ export default function CancellationRequests() {
 
               return (
                 <div className="space-y-3" data-testid="section-financial-summary">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <RotateCcw className="w-4 h-4 text-muted-foreground" />
                     <p className="text-sm font-medium">Financial Reversal Summary</p>
+                    {isGroupReview && fs.consolidated && (
+                      <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
+                        Consolidated ({fs.ticketCount} tickets)
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="space-y-2 text-sm">
