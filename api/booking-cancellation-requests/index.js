@@ -177,7 +177,6 @@ async function handleGet(req, res) {
 
     const bookingIds = [...new Set((requests || []).map(r => r.booking_id))];
     const memberIds = [...new Set((requests || []).map(r => r.member_id))];
-    const eventIds = [...new Set((requests || []).filter(r => r.event_id).map(r => r.event_id))];
 
     let bookingsMap = {};
     if (bookingIds.length > 0) {
@@ -187,6 +186,11 @@ async function handleGet(req, res) {
         .in('id', bookingIds);
       bookingsMap = (bookings || []).reduce((acc, b) => { acc[b.id] = b; return acc; }, {});
     }
+
+    const eventIds = [...new Set([
+      ...(requests || []).filter(r => r.event_id).map(r => r.event_id),
+      ...Object.values(bookingsMap).filter(b => b.event_id).map(b => b.event_id),
+    ])];
 
     let membersMap = {};
     if (memberIds.length > 0) {
@@ -206,12 +210,16 @@ async function handleGet(req, res) {
       eventsMap = (events || []).reduce((acc, e) => { acc[e.id] = e; return acc; }, {});
     }
 
-    const enrichedRequests = (requests || []).map(r => ({
-      ...r,
-      booking: bookingsMap[r.booking_id] || null,
-      member: membersMap[r.member_id] || null,
-      event: eventsMap[r.event_id] || null,
-    }));
+    const enrichedRequests = (requests || []).map(r => {
+      const booking = bookingsMap[r.booking_id] || null;
+      const eventId = r.event_id || booking?.event_id || null;
+      return {
+        ...r,
+        booking,
+        member: membersMap[r.member_id] || null,
+        event: eventId ? (eventsMap[eventId] || null) : null,
+      };
+    });
 
     return res.json({ requests: enrichedRequests });
   } catch (err) {

@@ -154,13 +154,13 @@ export default function CancellationRequests() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'pending':
-        return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+        return <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
       case 'approved':
-        return <Badge className="bg-green-100 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
+        return <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>;
       case 'rejected':
-        return <Badge className="bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
+        return <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>;
       default:
-        return <Badge className="bg-slate-100 text-slate-700 border-slate-200">{status}</Badge>;
+        return <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-200">{status}</Badge>;
     }
   };
 
@@ -280,7 +280,7 @@ export default function CancellationRequests() {
                             {group.event?.title || 'Unknown Event'}
                           </CardTitle>
                           {group.items.length > 1 && (
-                            <Badge className="bg-blue-100 text-blue-700 border-blue-200">
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
                               {group.items.length} tickets
                             </Badge>
                           )}
@@ -324,7 +324,7 @@ export default function CancellationRequests() {
                                   : item.booking?.attendee_email || 'Unknown attendee'}
                               </span>
                               {item.booking?.ticket_class_name && (
-                                <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">
+                                <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200 text-xs">
                                   {item.booking.ticket_class_name}
                                 </Badge>
                               )}
