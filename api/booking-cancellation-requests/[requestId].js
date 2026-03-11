@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionTenantUser } from '../_lib/session.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
+import { createXeroCreditNote } from '../_lib/xero.js';
 import Stripe from 'stripe';
 
 export default async function handler(req, res) {
@@ -99,6 +100,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
     discountCode: null,
     programTicket: null,
     stripeRefund: null,
+    xeroCreditNote: null,
     replacements: [],
   };
 
@@ -473,6 +475,56 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
           requiresManualRefund: true,
           error: err.message,
           paymentIntentId: booking.stripe_payment_intent_id,
+        };
+      }
+    }
+
+    // --- Xero Credit Note ---
+    if (booking.xero_invoice_id) {
+      try {
+        const creditAmount = parseFloat(booking.total_cost) || 0;
+
+        if (creditAmount > 0) {
+          const result = await createXeroCreditNote({
+            appTenantId: tenantId,
+            invoiceId: booking.xero_invoice_id,
+            creditAmount,
+            description: `Cancellation of booking ${booking.booking_reference || booking.id} — ${booking.attendee_first_name || ''} ${booking.attendee_last_name || ''}`.trim(),
+            reference: `Cancel: ${booking.booking_reference || booking.id}`,
+          });
+
+          if (result.skipped) {
+            reversalResults.xeroCreditNote = {
+              success: false,
+              skipped: true,
+              reason: result.reason,
+              amount: creditAmount,
+              invoiceNumber: result.invoiceNumber,
+              requiresManualAction: true,
+            };
+            console.log(`[CancellationRequest] Xero credit note skipped: ${result.reason}`);
+          } else {
+            reversalResults.xeroCreditNote = {
+              success: true,
+              amount: result.amount,
+              creditNoteId: result.creditNoteId,
+              creditNoteNumber: result.creditNoteNumber,
+              allocated: result.allocated,
+              invoiceNumber: result.invoiceNumber,
+            };
+            console.log(`[CancellationRequest] Xero credit note ${result.creditNoteNumber} created for £${result.amount}`);
+          }
+        }
+      } catch (err) {
+        const creditAmount = parseFloat(booking.total_cost) || 0;
+        console.error('[CancellationRequest] Xero credit note error:', err.message);
+        reversalResults.xeroCreditNote = {
+          success: false,
+          amount: creditAmount,
+          requiresManualAction: true,
+          error: err.message,
+          invoiceId: booking.xero_invoice_id,
+          invoiceNumber: booking.xero_invoice_number,
         };
       }
     }

@@ -415,3 +415,174 @@ export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   const pdfBuffer = await pdfResponse.arrayBuffer();
   return Buffer.from(pdfBuffer);
 }
+
+export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference }) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const numericAmount = Number(creditAmount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new Error(`creditAmount must be a positive number, got: ${creditAmount}`);
+  }
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  console.log(`[Xero] Retrieving invoice ${invoiceId} for credit note creation`);
+  const invoiceResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Accept': 'application/json'
+    }
+  });
+
+  const invoiceData = await safeXeroJson(invoiceResponse, 'invoice-retrieve');
+  const invoice = invoiceData?.Invoices?.[0];
+
+  if (!invoice) {
+    throw new Error(`Invoice ${invoiceId} not found in Xero`);
+  }
+
+  if (invoice.Status === 'VOIDED') {
+    return { skipped: true, reason: 'Invoice is voided', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+
+  if (invoice.Status === 'DRAFT') {
+    return { skipped: true, reason: 'Invoice is in draft status — credit note cannot be allocated against drafts', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+
+  const amountDue = Number(invoice.AmountDue) || 0;
+  const amountCredited = Number(invoice.AmountCredited) || 0;
+  const invoiceTotal = Number(invoice.Total) || 0;
+  const remainingCreditable = Math.max(0, invoiceTotal - amountCredited);
+
+  if (remainingCreditable <= 0) {
+    return { skipped: true, reason: 'Invoice already fully credited', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+
+  const effectiveAmount = Math.min(numericAmount, remainingCreditable);
+
+  if (reference) {
+    const existingResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes?where=Reference=="${encodeURIComponent(reference)}"`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json'
+      }
+    });
+    const existingData = await safeXeroJson(existingResponse, 'creditnote-dedup-check');
+    const existingCreditNotes = existingData?.CreditNotes || [];
+    const matchingCN = existingCreditNotes.find(cn => cn.Status !== 'DELETED' && cn.Status !== 'VOIDED');
+    if (matchingCN) {
+      console.log(`[Xero] Credit note already exists for reference "${reference}": ${matchingCN.CreditNoteNumber}`);
+      return {
+        creditNoteId: matchingCN.CreditNoteID,
+        creditNoteNumber: matchingCN.CreditNoteNumber,
+        amount: Number(matchingCN.Total),
+        status: matchingCN.Status,
+        allocated: (Number(matchingCN.Total) - Number(matchingCN.RemainingCredit || 0)) > 0,
+        invoiceId,
+        invoiceNumber: invoice.InvoiceNumber,
+        alreadyExisted: true,
+      };
+    }
+  }
+
+  const contactId = invoice.Contact?.ContactID;
+  if (!contactId) {
+    throw new Error(`Invoice ${invoiceId} has no associated contact in Xero`);
+  }
+
+  const originalLineItem = invoice.LineItems?.[0];
+  const accountCode = originalLineItem?.AccountCode || '200';
+  const taxType = originalLineItem?.TaxType || null;
+
+  const lineItem = {
+    Description: description || `Credit note for cancelled booking`,
+    Quantity: 1,
+    UnitAmount: Number(effectiveAmount.toFixed(2)),
+    AccountCode: accountCode,
+  };
+  if (taxType) {
+    lineItem.TaxType = taxType;
+  }
+
+  const creditNotePayload = {
+    CreditNotes: [{
+      Type: 'ACCRECCREDIT',
+      Contact: { ContactID: contactId },
+      Date: new Date().toISOString().split('T')[0],
+      Reference: reference || '',
+      Status: 'AUTHORISED',
+      LineItems: [lineItem],
+    }]
+  };
+
+  console.log(`[Xero] Creating credit note for £${effectiveAmount.toFixed(2)} against invoice ${invoice.InvoiceNumber} (requested: £${numericAmount.toFixed(2)}, creditable: £${remainingCreditable.toFixed(2)})`);
+  const creditNoteResponse = await fetch('https://api.xero.com/api.xro/2.0/CreditNotes', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(creditNotePayload)
+  });
+
+  const creditNoteData = await safeXeroJson(creditNoteResponse, 'creditnote-create');
+  const creditNote = creditNoteData?.CreditNotes?.[0];
+
+  if (!creditNote?.CreditNoteID) {
+    throw new Error(`Failed to create Xero credit note: ${JSON.stringify(creditNoteData).substring(0, 500)}`);
+  }
+
+  console.log(`[Xero] Credit note created: ${creditNote.CreditNoteNumber} (${creditNote.CreditNoteID})`);
+
+  let allocated = false;
+  const allocatableAmount = Math.min(effectiveAmount, amountDue);
+  if (allocatableAmount > 0) {
+    try {
+      const allocationPayload = {
+        Allocations: [{
+          Invoice: { InvoiceID: invoiceId },
+          Amount: Number(allocatableAmount.toFixed(2)),
+          Date: new Date().toISOString().split('T')[0],
+        }]
+      };
+
+      const allocationResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${creditNote.CreditNoteID}/Allocations`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(allocationPayload)
+      });
+
+      const allocationData = await safeXeroJson(allocationResponse, 'creditnote-allocate');
+      if (allocationData?.Allocations?.length > 0) {
+        allocated = true;
+        console.log(`[Xero] Credit note ${creditNote.CreditNoteNumber} allocated £${allocatableAmount.toFixed(2)} against invoice ${invoice.InvoiceNumber}`);
+      }
+    } catch (allocErr) {
+      console.warn(`[Xero] Failed to allocate credit note (non-fatal): ${allocErr.message}`);
+    }
+  } else {
+    console.log(`[Xero] Invoice ${invoice.InvoiceNumber} has no amount due — credit note created but not allocated`);
+  }
+
+  return {
+    creditNoteId: creditNote.CreditNoteID,
+    creditNoteNumber: creditNote.CreditNoteNumber,
+    amount: effectiveAmount,
+    status: creditNote.Status,
+    allocated,
+    invoiceId,
+    invoiceNumber: invoice.InvoiceNumber,
+  };
+}

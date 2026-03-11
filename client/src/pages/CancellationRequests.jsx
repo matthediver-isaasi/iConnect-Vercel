@@ -160,7 +160,7 @@ export default function CancellationRequests() {
 
       if (action === 'approved') {
         const messages = [`${requestIds.length} ticket(s) cancellation approved`];
-        const stripeWarnings = [];
+        const warnings = [];
         for (const rr of allReversalResults) {
           if (rr.trainingFund?.success) messages.push(`Training fund: £${Number(rr.trainingFund.amount).toFixed(2)} reinstated`);
           for (const v of rr.vouchers || []) {
@@ -172,10 +172,14 @@ export default function CancellationRequests() {
           if (rr.programTicket?.success) messages.push(`Program ticket refunded`);
           if (rr.stripeRefund?.success && !rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe refund: £${Number(rr.stripeRefund.amount).toFixed(2)}${rr.stripeRefund.partialRefund ? ' (partial)' : ''}`);
           if (rr.stripeRefund?.success && rr.stripeRefund?.alreadyRefunded) messages.push(`Stripe payment already refunded`);
-          if (rr.stripeRefund && !rr.stripeRefund.success) stripeWarnings.push(`Stripe refund failed for £${Number(rr.stripeRefund.amount).toFixed(2)} — manual refund needed`);
+          if (rr.stripeRefund && !rr.stripeRefund.success) warnings.push(`Stripe refund failed for £${Number(rr.stripeRefund.amount).toFixed(2)} — manual refund needed`);
+          if (rr.xeroCreditNote?.success && rr.xeroCreditNote?.allocated) messages.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber}: £${Number(rr.xeroCreditNote.amount).toFixed(2)} (allocated${rr.xeroCreditNote.alreadyExisted ? ', already existed' : ''})`);
+          if (rr.xeroCreditNote?.success && !rr.xeroCreditNote?.allocated) warnings.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber} created for £${Number(rr.xeroCreditNote.amount).toFixed(2)} but not allocated — manual allocation needed`);
+          if (rr.xeroCreditNote && !rr.xeroCreditNote.success && rr.xeroCreditNote.skipped) warnings.push(`Xero credit note skipped: ${rr.xeroCreditNote.reason}`);
+          if (rr.xeroCreditNote && !rr.xeroCreditNote.success && !rr.xeroCreditNote.skipped) warnings.push(`Xero credit note failed for £${Number(rr.xeroCreditNote.amount).toFixed(2)} — manual action needed`);
         }
         toast.success(messages.join('. '));
-        for (const warning of stripeWarnings) {
+        for (const warning of warnings) {
           toast.warning(warning);
         }
       } else {
@@ -386,7 +390,7 @@ export default function CancellationRequests() {
                         if (fs.voucherAmount > 0) items.push(`Voucher: £${fs.voucherAmount.toFixed(2)}`);
                         if (fs.discountCodeAmount > 0) items.push(`Discount: £${fs.discountCodeAmount.toFixed(2)}`);
                         if (fs.stripePaymentIntentId && fs.cardAmount > 0) items.push(`Stripe Refund: £${fs.cardAmount.toFixed(2)}`);
-                        if (fs.xeroInvoiceId) items.push(`Xero: ${fs.xeroInvoiceNumber || 'Invoice'}`);
+                        if (fs.xeroInvoiceId) items.push(`Xero Credit Note: £${fs.totalCost.toFixed(2)} (#${fs.xeroInvoiceNumber || 'Invoice'})`);
                         if (items.length === 0) return null;
                         const hasExpired = (fs.voucherDetails || []).some(v => v.expired) || fs.discountCode?.expired;
                         return (
@@ -611,8 +615,8 @@ export default function CancellationRequests() {
 
                     {hasXero && (
                       <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-xero">
-                        <span>Xero Invoice ({fs.xeroInvoiceNumber})</span>
-                        <Badge variant="outline">Phase 3</Badge>
+                        <span>Xero Credit Note (#{fs.xeroInvoiceNumber})</span>
+                        <Badge variant="outline">£{fs.totalCost.toFixed(2)}</Badge>
                       </div>
                     )}
                   </div>
