@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, MapPin, Clock, Ticket, User, AlertCircle, Download, ExternalLink, Search, ArrowUpDown, ChevronLeft, ChevronRight, XCircle, Loader2 } from "lucide-react";
+import { Calendar, MapPin, Clock, Ticket, User, AlertCircle, Download, ExternalLink, Search, ArrowUpDown, ChevronLeft, ChevronRight, XCircle, Loader2, ArrowRightLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -25,6 +25,7 @@ import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import TransferTicketDialog from "@/components/TransferTicketDialog";
 
 const ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN = "agcasevents";
 
@@ -146,6 +147,37 @@ export default function MyTicketsPage({ hasBanner }) {
         .map(r => r.booking_id)
     );
   }, [cancellationRequests]);
+
+  const [showTransferDialog, setShowTransferDialog] = React.useState(false);
+  const [transferTarget, setTransferTarget] = React.useState(null);
+
+  const { data: transferRequests = [] } = useQuery({
+    queryKey: ['my-transfer-requests'],
+    queryFn: async () => {
+      const response = await fetch('/api/booking-transfer-requests', {
+        credentials: 'include',
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.requests || [];
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const pendingTransferBookingIds = React.useMemo(() => {
+    return new Set(
+      transferRequests
+        .filter(r => r.status === 'pending')
+        .map(r => r.booking_id)
+    );
+  }, [transferRequests]);
+
+  const handleTransferClick = (ticket) => {
+    setTransferTarget(ticket);
+    setShowTransferDialog(true);
+  };
 
   const handleTourComplete = async () => {
     setShowTour(false);
@@ -494,6 +526,8 @@ export default function MyTicketsPage({ hasBanner }) {
               const isSelfBooked = ticket.member_id === memberInfo.id || memberInfo.email === ticket.attendee_email;
               const isCancelled = ticket.status === 'cancelled';
               const hasPendingCancel = pendingCancelBookingIds.has(ticket.id);
+              const hasPendingTransfer = pendingTransferBookingIds.has(ticket.id);
+              const hasPendingRequest = hasPendingCancel || hasPendingTransfer;
               const backstageEventUrl = event.backstage_public_url || null;
 
               return (
@@ -528,6 +562,11 @@ export default function MyTicketsPage({ hasBanner }) {
                           {hasPendingCancel && !isCancelled && (
                             <Badge className="bg-amber-100 text-amber-700 border-amber-200" data-testid={`badge-pending-cancel-${ticket.id}`}>
                               Cancellation Pending
+                            </Badge>
+                          )}
+                          {hasPendingTransfer && !isCancelled && (
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-200" data-testid={`badge-pending-transfer-${ticket.id}`}>
+                              Transfer Pending
                             </Badge>
                           )}
                         </div>
@@ -596,7 +635,7 @@ export default function MyTicketsPage({ hasBanner }) {
                           </div>
                         )}
 
-                        {!isCancelled && !hasPendingCancel && startDate && (
+                        {!isCancelled && !hasPendingRequest && startDate && (
                           <div className="flex flex-col gap-2">
                             <div className="flex gap-2">
                               <Button
@@ -610,6 +649,15 @@ export default function MyTicketsPage({ hasBanner }) {
                                 Add to Calendar
                               </Button>
                               
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleTransferClick(ticket)}
+                                data-testid={`button-transfer-ticket-${ticket.id}`}
+                              >
+                                <ArrowRightLeft className="w-4 h-4" />
+                              </Button>
+
                               <Button
                                 id={index === 0 ? "cancel-ticket-button" : undefined}
                                 variant="outline"
@@ -644,6 +692,14 @@ export default function MyTicketsPage({ hasBanner }) {
                             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                             <p className="text-xs text-amber-800 font-medium">
                               Cancellation request submitted — awaiting admin review
+                            </p>
+                          </div>
+                        )}
+                        {hasPendingTransfer && !isCancelled && (
+                          <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <ArrowRightLeft className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                            <p className="text-xs text-blue-800 font-medium">
+                              Transfer request submitted — awaiting admin review
                             </p>
                           </div>
                         )}
@@ -837,6 +893,15 @@ export default function MyTicketsPage({ hasBanner }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TransferTicketDialog
+        open={showTransferDialog}
+        onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); } }}
+        booking={transferTarget}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['my-transfer-requests'] });
+        }}
+      />
     </div>
   );
 }

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw, DollarSign, AlertTriangle, RotateCcw } from "lucide-react";
+import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw, DollarSign, AlertTriangle, RotateCcw, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -32,6 +32,7 @@ export default function CancellationRequests() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("pending");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [reviewDialog, setReviewDialog] = useState(null);
   const [reviewNotes, setReviewNotes] = useState("");
   const [processing, setProcessing] = useState(false);
@@ -69,7 +70,32 @@ export default function CancellationRequests() {
     enabled: accessChecked,
   });
 
-  const requests = requestsData?.requests || [];
+  const { data: transferRequestsData, isLoading: transferLoading, error: transferError, refetch: refetchTransfers } = useQuery({
+    queryKey: ['transfer-requests', statusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (statusFilter && statusFilter !== 'all') {
+        params.set('status', statusFilter);
+      }
+      const response = await fetch(`/api/booking-transfer-requests?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch transfer requests');
+      }
+      return response.json();
+    },
+    staleTime: 0,
+    refetchOnMount: true,
+    enabled: accessChecked,
+  });
+
+  const cancellationRequests = requestsData?.requests || [];
+  const transferRequests = transferRequestsData?.requests || [];
+
+  const requests = typeFilter === 'transfers' ? [] : cancellationRequests;
+  const transfers = typeFilter === 'cancellations' ? [] : transferRequests;
 
   const groupedRequests = useMemo(() => {
     const groups = {};
@@ -92,25 +118,81 @@ export default function CancellationRequests() {
     return Object.values(groups);
   }, [requests]);
 
+  const transferItems = useMemo(() => {
+    return transfers.map(tr => ({
+      ...tr,
+      _type: 'transfer',
+      key: tr.booking_id,
+      items: [tr],
+    }));
+  }, [transfers]);
+
+  const allItems = useMemo(() => {
+    const cancellationGroups = groupedRequests.map(g => ({ ...g, _type: 'cancellation' }));
+    return [...cancellationGroups, ...transferItems].sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    );
+  }, [groupedRequests, transferItems]);
+
   const filteredGroups = useMemo(() => {
-    if (!searchQuery.trim()) return groupedRequests;
-    const q = searchQuery.toLowerCase();
-    return groupedRequests.filter(group => {
-      const eventTitle = group.event?.title || '';
-      const memberName = group.member ? `${group.member.first_name || ''} ${group.member.last_name || ''}` : '';
-      const memberEmail = group.member?.email || '';
-      const attendees = group.items.map(i => {
-        const b = i.booking;
-        return b ? `${b.attendee_first_name || ''} ${b.attendee_last_name || ''} ${b.attendee_email || ''}` : '';
-      }).join(' ');
-      return (
-        eventTitle.toLowerCase().includes(q) ||
-        memberName.toLowerCase().includes(q) ||
-        memberEmail.toLowerCase().includes(q) ||
-        attendees.toLowerCase().includes(q)
-      );
-    });
-  }, [groupedRequests, searchQuery]);
+    let items = allItems;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter(group => {
+        const eventTitle = group.event?.title || '';
+        const memberName = group.member ? `${group.member.first_name || ''} ${group.member.last_name || ''}` : '';
+        const memberEmail = group.member?.email || '';
+        const attendees = group.items.map(i => {
+          const b = i.booking;
+          return b ? `${b.attendee_first_name || ''} ${b.attendee_last_name || ''} ${b.attendee_email || ''}` : '';
+        }).join(' ');
+        const targetName = group._type === 'transfer' && group.target_member
+          ? `${group.target_member.first_name || ''} ${group.target_member.last_name || ''}`
+          : '';
+        return (
+          eventTitle.toLowerCase().includes(q) ||
+          memberName.toLowerCase().includes(q) ||
+          memberEmail.toLowerCase().includes(q) ||
+          attendees.toLowerCase().includes(q) ||
+          targetName.toLowerCase().includes(q)
+        );
+      });
+    }
+    return items;
+  }, [allItems, searchQuery]);
+
+  const handleTransferReview = async (action) => {
+    if (!reviewDialog || reviewDialog._type !== 'transfer') return;
+    setProcessing(true);
+
+    try {
+      const requestId = reviewDialog.items[0].id;
+      const response = await fetch(`/api/booking-transfer-requests/${requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          status: action,
+          review_notes: reviewNotes.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || `Failed to ${action} transfer request`);
+      }
+
+      toast.success(action === 'approved' ? 'Transfer approved — ticket transferred' : 'Transfer request rejected');
+      setReviewDialog(null);
+      setReviewNotes("");
+      queryClient.invalidateQueries({ queryKey: ['transfer-requests'] });
+    } catch (error) {
+      console.error('Transfer review error:', error);
+      toast.error(error.message || `Failed to ${action} transfer request`);
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const handleReview = async (action) => {
     if (!reviewDialog) return;
@@ -212,7 +294,9 @@ export default function CancellationRequests() {
     }
   };
 
-  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const pendingCancellationCount = cancellationRequests.filter(r => r.status === 'pending').length;
+  const pendingTransferCount = transferRequests.filter(r => r.status === 'pending').length;
+  const pendingCount = pendingCancellationCount + pendingTransferCount;
 
   if (!accessChecked) {
     return (
@@ -228,12 +312,12 @@ export default function CancellationRequests() {
         <div className="mb-8">
           <div className="flex items-center justify-between gap-4 mb-2 flex-wrap">
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900" data-testid="text-page-title">
-              Cancellation Requests
+              Booking Requests
             </h1>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => refetch()}
+              onClick={() => { refetch(); refetchTransfers(); }}
               data-testid="button-refresh"
             >
               <RefreshCw className="w-4 h-4 mr-1" />
@@ -241,7 +325,7 @@ export default function CancellationRequests() {
             </Button>
           </div>
           <p className="text-slate-600">
-            Review and manage booking cancellation requests from members
+            Review and manage booking cancellation and transfer requests from members
           </p>
         </div>
 
@@ -256,6 +340,16 @@ export default function CancellationRequests() {
               data-testid="input-search"
             />
           </div>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-[180px]" data-testid="select-type-filter">
+              <SelectValue placeholder="Filter by type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="cancellations">Cancellations</SelectItem>
+              <SelectItem value="transfers">Transfers</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
               <SelectValue placeholder="Filter by status" />
@@ -269,7 +363,7 @@ export default function CancellationRequests() {
           </Select>
         </div>
 
-        {isLoading ? (
+        {(isLoading || transferLoading) ? (
           <div className="grid gap-4">
             {Array(3).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
@@ -286,13 +380,13 @@ export default function CancellationRequests() {
               </Card>
             ))}
           </div>
-        ) : error ? (
+        ) : (error || transferError) ? (
           <Card className="border-red-200">
             <CardContent className="p-8 text-center">
               <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-slate-900 mb-2">Failed to load requests</h3>
-              <p className="text-slate-600 mb-4">{error.message}</p>
-              <Button variant="outline" onClick={() => refetch()} data-testid="button-retry">
+              <p className="text-slate-600 mb-4">{error?.message || transferError?.message}</p>
+              <Button variant="outline" onClick={() => { refetch(); refetchTransfers(); }} data-testid="button-retry">
                 Try Again
               </Button>
             </CardContent>
@@ -306,8 +400,8 @@ export default function CancellationRequests() {
               </h3>
               <p className="text-slate-600">
                 {statusFilter === 'pending'
-                  ? 'All cancellation requests have been reviewed.'
-                  : 'No cancellation requests match your current filters.'}
+                  ? 'All requests have been reviewed.'
+                  : 'No requests match your current filters.'}
               </p>
             </CardContent>
           </Card>
@@ -318,6 +412,8 @@ export default function CancellationRequests() {
               const allPending = group.items.every(i => i.status === 'pending');
               const allSameStatus = group.items.every(i => i.status === firstItem.status);
 
+              const isTransfer = group._type === 'transfer';
+
               return (
                 <Card key={group.key} className="border-slate-200 shadow-sm" data-testid={`card-request-${group.key}`}>
                   <CardHeader className="border-b border-slate-200">
@@ -327,10 +423,19 @@ export default function CancellationRequests() {
                           <CardTitle className="text-lg truncate">
                             {group.event?.title || 'Unknown Event'}
                           </CardTitle>
-                          {group.items.length > 1 && (
+                          {isTransfer ? (
                             <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
-                              {group.items.length} tickets
+                              <ArrowRightLeft className="w-3 h-3 mr-1" />
+                              Transfer
                             </Badge>
+                          ) : (
+                            <>
+                              {group.items.length > 1 && (
+                                <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
+                                  {group.items.length} tickets
+                                </Badge>
+                              )}
+                            </>
                           )}
                           {allSameStatus && getStatusBadge(firstItem.status)}
                         </div>
@@ -382,7 +487,16 @@ export default function CancellationRequests() {
                         ))}
                       </div>
 
-                      {allPending && (() => {
+                      {isTransfer && group.target_member && (
+                        <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-md border border-blue-200">
+                          <ArrowRightLeft className="w-4 h-4 text-blue-500 shrink-0" />
+                          <span className="text-sm text-blue-800">
+                            Transfer to: <span className="font-medium">{group.target_member.first_name} {group.target_member.last_name}</span> ({group.target_member.email})
+                          </span>
+                        </div>
+                      )}
+
+                      {!isTransfer && allPending && (() => {
                         const fs = firstItem.financialSummary;
                         if (!fs) return null;
                         const items = [];
@@ -459,12 +573,18 @@ export default function CancellationRequests() {
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {reviewDialog?.action === 'approved' ? 'Approve Cancellation' : 'Reject Cancellation'}
+              {reviewDialog?._type === 'transfer'
+                ? (reviewDialog?.action === 'approved' ? 'Approve Transfer' : 'Reject Transfer')
+                : (reviewDialog?.action === 'approved' ? 'Approve Cancellation' : 'Reject Cancellation')}
             </DialogTitle>
             <DialogDescription>
-              {reviewDialog?.action === 'approved'
-                ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.`
-                : `Rejecting will keep the ticket(s) active. The member will see their request was declined.`}
+              {reviewDialog?._type === 'transfer'
+                ? (reviewDialog?.action === 'approved'
+                    ? 'Approving will transfer the ticket to the target member.'
+                    : 'Rejecting will keep the ticket with the current attendee. The requester will be notified.')
+                : (reviewDialog?.action === 'approved'
+                    ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.`
+                    : `Rejecting will keep the ticket(s) active. The member will see their request was declined.`)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -483,10 +603,18 @@ export default function CancellationRequests() {
                     </span>
                   </div>
                 ))}
+                {reviewDialog._type === 'transfer' && reviewDialog.target_member && (
+                  <div className="flex items-center gap-2 text-sm p-2 bg-blue-50 rounded-md border border-blue-200">
+                    <ArrowRightLeft className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span className="text-blue-800 truncate">
+                      Transfer to: <span className="font-medium">{reviewDialog.target_member.first_name} {reviewDialog.target_member.last_name}</span> ({reviewDialog.target_member.email})
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
-            {reviewDialog?.action === 'approved' && (() => {
+            {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
               const fs = reviewDialog?.items?.[0]?.financialSummary;
               if (!fs) return null;
               const hasTrainingFund = fs.trainingFundAmount > 0;
@@ -648,7 +776,7 @@ export default function CancellationRequests() {
             </Button>
             <Button
               variant={reviewDialog?.action === 'approved' ? 'default' : 'destructive'}
-              onClick={() => handleReview(reviewDialog?.action)}
+              onClick={() => reviewDialog?._type === 'transfer' ? handleTransferReview(reviewDialog?.action) : handleReview(reviewDialog?.action)}
               disabled={processing}
               data-testid="button-review-confirm"
             >

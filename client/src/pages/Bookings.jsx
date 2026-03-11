@@ -4,7 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, XCircle } from "lucide-react";
+import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, XCircle, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -26,6 +26,7 @@ import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import TransferTicketDialog from "@/components/TransferTicketDialog";
 
 export default function BookingsPage() {
   const { memberInfo, memberRole, isFeatureExcluded } = useMemberAccess();
@@ -140,6 +141,37 @@ export default function BookingsPage() {
         .map(r => r.booking_id)
     );
   }, [cancellationRequests]);
+
+  const [showTransferDialog, setShowTransferDialog] = React.useState(false);
+  const [transferTarget, setTransferTarget] = React.useState(null);
+
+  const { data: transferRequests = [] } = useQuery({
+    queryKey: ['my-transfer-requests'],
+    queryFn: async () => {
+      const response = await fetch('/api/booking-transfer-requests', {
+        credentials: 'include',
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.requests || [];
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const pendingTransferBookingIds = React.useMemo(() => {
+    return new Set(
+      transferRequests
+        .filter(r => r.status === 'pending')
+        .map(r => r.booking_id)
+    );
+  }, [transferRequests]);
+
+  const handleTransferClick = (booking) => {
+    setTransferTarget(booking);
+    setShowTransferDialog(true);
+  };
 
   const handleTourComplete = async () => {
     setShowTour(false);
@@ -648,6 +680,8 @@ export default function BookingsPage() {
                           {groupBookings.map((booking, bookingIndex) => {
                             const isCancelled = booking.status === 'cancelled';
                             const hasPendingCancel = pendingCancelBookingIds.has(booking.id);
+                            const hasPendingTransfer = pendingTransferBookingIds.has(booking.id);
+                            const hasPendingRequest = hasPendingCancel || hasPendingTransfer;
                             
                             return (
                               <div 
@@ -656,7 +690,7 @@ export default function BookingsPage() {
                                 className={`flex flex-col gap-2 p-3 rounded-lg border ${
                                   isCancelled 
                                     ? 'bg-red-50/50 border-red-200' 
-                                    : hasPendingCancel
+                                    : hasPendingRequest
                                     ? 'bg-amber-50/50 border-amber-200'
                                     : 'bg-slate-50 border-slate-200'
                                 }`}
@@ -696,23 +730,39 @@ export default function BookingsPage() {
                                       <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
                                         Cancellation Requested
                                       </Badge>
+                                    ) : hasPendingTransfer ? (
+                                      <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200" data-testid={`badge-pending-transfer-${booking.id}`}>
+                                        Transfer Pending
+                                      </Badge>
                                     ) : (
                                       <Badge variant="outline" className={getStatusColor(isCancelled ? 'cancelled' : booking.status)}>
                                         {isCancelled ? 'cancelled' : booking.status}
                                       </Badge>
                                     )}
-                                    {!isCancelled && !hasPendingCancel && (
-                                      <Button
-                                        id={index === 0 && bookingIndex === 0 ? "first-ticket-edit-button" : undefined}
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleCancelClick(booking)}
-                                        disabled={startDate && startDate < new Date()}
-                                        data-testid={`button-cancel-ticket-${booking.id}`}
-                                      >
-                                        <XCircle className="w-3.5 h-3.5 mr-1" />
-                                        Cancel
-                                      </Button>
+                                    {!isCancelled && !hasPendingRequest && (
+                                      <>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleTransferClick(booking)}
+                                          disabled={startDate && startDate < new Date()}
+                                          data-testid={`button-transfer-ticket-${booking.id}`}
+                                        >
+                                          <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
+                                          Transfer
+                                        </Button>
+                                        <Button
+                                          id={index === 0 && bookingIndex === 0 ? "first-ticket-edit-button" : undefined}
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleCancelClick(booking)}
+                                          disabled={startDate && startDate < new Date()}
+                                          data-testid={`button-cancel-ticket-${booking.id}`}
+                                        >
+                                          <XCircle className="w-3.5 h-3.5 mr-1" />
+                                          Cancel
+                                        </Button>
+                                      </>
                                     )}
                                   </div>
                                 </div>
@@ -1150,6 +1200,15 @@ export default function BookingsPage() {
           </div>
         </DialogContent>
       </Dialog>
+      <TransferTicketDialog
+        open={showTransferDialog}
+        onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); } }}
+        booking={transferTarget}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['my-transfer-requests'] });
+          queryClient.invalidateQueries({ queryKey: ['my-bookings'] });
+        }}
+      />
     </div>
   );
 }
