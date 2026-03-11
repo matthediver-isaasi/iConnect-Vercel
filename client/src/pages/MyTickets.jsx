@@ -1,25 +1,26 @@
 import React from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, MapPin, Clock, Ticket, User, AlertCircle, Download, Pencil, ExternalLink, Search, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, MapPin, Clock, Ticket, User, AlertCircle, Download, ExternalLink, Search, ArrowUpDown, ChevronLeft, ChevronRight, XCircle, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
@@ -29,10 +30,14 @@ const ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN = "agcasevents";
 
 export default function MyTicketsPage({ hasBanner }) {
   const { memberInfo, memberRole, reloadMemberInfo } = useMemberAccess();
-  const [cancellingTicketId, setCancellingTicketId] = React.useState(null);
+  const queryClient = useQueryClient();
   const [showCancelDialog, setShowCancelDialog] = React.useState(false);
-  const [ticketToCancel, setTicketToCancel] = React.useState(null);
-  const [cancelledTicketIds, setCancelledTicketIds] = React.useState(new Set());
+  const [cancelTarget, setCancelTarget] = React.useState(null);
+  const [cancelReason, setCancelReason] = React.useState('');
+  const [submittingCancel, setSubmittingCancel] = React.useState(false);
+  const [termsAgreed, setTermsAgreed] = React.useState(false);
+  const [deadlinePassed, setDeadlinePassed] = React.useState(false);
+  const [showTermsModal, setShowTermsModal] = React.useState(false);
   const [showTour, setShowTour] = React.useState(false);
   const [tourAutoShow, setTourAutoShow] = React.useState(false);
   const [sortOrder, setSortOrder] = React.useState('desc');
@@ -101,6 +106,46 @@ export default function MyTicketsPage({ hasBanner }) {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const { data: cancellationRequests = [] } = useQuery({
+    queryKey: ['my-cancellation-requests'],
+    queryFn: async () => {
+      const response = await fetch('/api/booking-cancellation-requests', {
+        credentials: 'include',
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.requests || [];
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: cancellationSettings } = useQuery({
+    queryKey: ['system-setting', 'cancellation_settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const termsSetting = allSettings.find(s => s.setting_key === 'event_booking_terms');
+      const deadlineSetting = allSettings.find(s => s.setting_key === 'cancellation_deadline_hours');
+      return {
+        termsContent: termsSetting?.setting_value || '',
+        deadlineHours: parseInt(deadlineSetting?.setting_value) || 0,
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const bookingTermsContent = cancellationSettings?.termsContent || '';
+  const cancellationDeadlineHours = cancellationSettings?.deadlineHours || 0;
+
+  const pendingCancelBookingIds = React.useMemo(() => {
+    return new Set(
+      cancellationRequests
+        .filter(r => r.status === 'pending')
+        .map(r => r.booking_id)
+    );
+  }, [cancellationRequests]);
 
   const handleTourComplete = async () => {
     setShowTour(false);
@@ -260,53 +305,71 @@ export default function MyTicketsPage({ hasBanner }) {
   };
 
   const handleCancelClick = (ticket) => {
-    setTicketToCancel(ticket);
+    setCancelTarget({ type: 'individual', bookings: [ticket] });
+    setCancelReason('');
+    setTermsAgreed(false);
+
+    if (cancellationDeadlineHours > 0 && ticket.event_id) {
+      const event = events.find(e => e.id === ticket.event_id);
+      if (event?.start_date) {
+        const eventStart = new Date(event.start_date);
+        const now = new Date();
+        const hoursUntilEvent = (eventStart.getTime() - now.getTime()) / (1000 * 60 * 60);
+        setDeadlinePassed(hoursUntilEvent < cancellationDeadlineHours);
+      } else {
+        setDeadlinePassed(false);
+      }
+    } else {
+      setDeadlinePassed(false);
+    }
+
     setShowCancelDialog(true);
   };
 
-  const handleCancelConfirm = async () => {
-    if (!ticketToCancel || !ticketToCancel.backstage_order_id) {
-      toast.error('Unable to cancel: Missing ticket information');
+  const handleCancelSubmit = async () => {
+    if (!cancelTarget || cancelTarget.bookings.length === 0) {
       setShowCancelDialog(false);
       return;
     }
 
-    setCancellingTicketId(ticketToCancel.id);
-    setShowCancelDialog(false);
+    if (bookingTermsContent && !termsAgreed) {
+      toast.error('You must agree to the cancellation terms and conditions before submitting.');
+      return;
+    }
+
+    setSubmittingCancel(true);
 
     try {
-      const allMembers = await base44.entities.Member.listAll();
-      const currentMember = allMembers.find((m) => m.email === memberInfo.email);
-
-      if (!currentMember) {
-        toast.error('Unable to verify member identity');
-        setCancellingTicketId(null);
-        setTicketToCancel(null);
-        return;
-      }
-
-      const response = await base44.functions.invoke('cancelTicketViaFlow', {
-        orderId: ticketToCancel.backstage_order_id,
-        cancelReason: 'Cancelled by member via iConnect',
-        memberId: currentMember.id
+      const response = await fetch('/api/booking-cancellation-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          booking_ids: cancelTarget.bookings.map(b => b.id),
+          booking_group_reference: null,
+          request_type: cancelTarget.type,
+          reason: cancelReason.trim() || null,
+        }),
       });
 
-      if (response.data.success) {
-        setCancelledTicketIds((prev) => new Set([...prev, ticketToCancel.id]));
-        toast.success('Ticket cancelled successfully');
+      const data = await response.json();
 
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
-      } else {
-        throw new Error(response.data.error || 'Failed to cancel ticket');
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit cancellation request');
       }
+
+      toast.success('Cancellation request submitted');
+      setShowCancelDialog(false);
+      setCancelTarget(null);
+      setCancelReason('');
+      setTermsAgreed(false);
+      setDeadlinePassed(false);
+      queryClient.invalidateQueries({ queryKey: ['my-cancellation-requests'] });
     } catch (error) {
-      console.error('Cancellation error:', error);
-      toast.error('Failed to cancel ticket. Please try again or contact support.');
+      console.error('Cancellation request error:', error);
+      toast.error(error.message || 'Failed to submit cancellation request. Please try again.');
     } finally {
-      setCancellingTicketId(null);
-      setTicketToCancel(null);
+      setSubmittingCancel(false);
     }
   };
 
@@ -429,7 +492,8 @@ export default function MyTicketsPage({ hasBanner }) {
 
               const startDate = event.start_date ? new Date(event.start_date) : null;
               const isSelfBooked = ticket.member_id === memberInfo.id || memberInfo.email === ticket.attendee_email;
-              const isCancelled = ticket.status === 'cancelled' || cancelledTicketIds.has(ticket.id);
+              const isCancelled = ticket.status === 'cancelled';
+              const hasPendingCancel = pendingCancelBookingIds.has(ticket.id);
               const backstageEventUrl = event.backstage_public_url || null;
 
               return (
@@ -454,13 +518,18 @@ export default function MyTicketsPage({ hasBanner }) {
                           )}
                         </div>
                         
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <Badge
                             id={index === 0 ? "first-ticket-status-badge" : undefined}
                             className={getStatusColor(isCancelled ? 'cancelled' : ticket.status)}
                           >
                             {isCancelled ? 'cancelled' : ticket.status}
                           </Badge>
+                          {hasPendingCancel && !isCancelled && (
+                            <Badge className="bg-amber-100 text-amber-700 border-amber-200" data-testid={`badge-pending-cancel-${ticket.id}`}>
+                              Cancellation Pending
+                            </Badge>
+                          )}
                         </div>
 
                         {!isSelfBooked && bookedByMember && (
@@ -527,7 +596,7 @@ export default function MyTicketsPage({ hasBanner }) {
                           </div>
                         )}
 
-                        {!isCancelled && startDate && (
+                        {!isCancelled && !hasPendingCancel && startDate && (
                           <div className="flex flex-col gap-2">
                             <div className="flex gap-2">
                               <Button
@@ -541,18 +610,16 @@ export default function MyTicketsPage({ hasBanner }) {
                                 Add to Calendar
                               </Button>
                               
-                              {ticket.backstage_order_id && (
-                                <Button
-                                  id={index === 0 ? "cancel-ticket-button" : undefined}
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleCancelClick(ticket)}
-                                  disabled={cancellingTicketId === ticket.id}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                              )}
+                              <Button
+                                id={index === 0 ? "cancel-ticket-button" : undefined}
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleCancelClick(ticket)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                data-testid={`button-cancel-ticket-${ticket.id}`}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </Button>
                             </div>
                             
                             {backstageEventUrl && (
@@ -572,6 +639,14 @@ export default function MyTicketsPage({ hasBanner }) {
                           </div>
                         )}
                         
+                        {hasPendingCancel && !isCancelled && (
+                          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <p className="text-xs text-amber-800 font-medium">
+                              Cancellation request submitted — awaiting admin review
+                            </p>
+                          </div>
+                        )}
                         {isCancelled && (
                           <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                             <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -627,25 +702,141 @@ export default function MyTicketsPage({ hasBanner }) {
         )}
       </div>
 
-      <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-lg font-semibold">Cancel Registration?</AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-muted-foreground">
-              Cancelling this registration will make the ticket available for reallocation.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>No, keep registration</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleCancelConfirm}
-              className="bg-red-600 hover:bg-red-700"
+      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); setDeadlinePassed(false); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{deadlinePassed ? 'Cancellation Not Available' : 'Request Cancellation'}</DialogTitle>
+            <DialogDescription>
+              {deadlinePassed
+                ? `Cancellation requests cannot be submitted within ${cancellationDeadlineHours} hour${cancellationDeadlineHours !== 1 ? 's' : ''} of the event start time.`
+                : 'Submit a cancellation request for this ticket. An administrator will review your request.'}
+            </DialogDescription>
+          </DialogHeader>
+          {deadlinePassed ? (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-md">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium mb-1">Cancellation deadline has passed</p>
+                  <p>
+                    Cancellation requests must be submitted at least {cancellationDeadlineHours} hour{cancellationDeadlineHours !== 1 ? 's' : ''} before the event starts. Please contact an administrator directly if you need to cancel.
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setDeadlinePassed(false); }}
+                  data-testid="button-deadline-close"
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+          <>
+          {cancelTarget && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                {cancelTarget.bookings.map(b => (
+                  <div key={b.id} className="flex items-center gap-2 text-sm p-2 bg-slate-50 rounded-md border border-slate-200">
+                    <User className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="text-slate-700 truncate" data-testid={`text-cancel-attendee-${b.id}`}>
+                      {b.attendee_first_name && b.attendee_last_name
+                        ? `${b.attendee_first_name} ${b.attendee_last_name}`
+                        : b.attendee_email || 'Unknown attendee'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">
+                  Reason for cancellation (optional)
+                </label>
+                <Textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Let us know why you need to cancel..."
+                  className="resize-none"
+                  rows={3}
+                  data-testid="input-cancel-reason"
+                />
+              </div>
+              {bookingTermsContent && (
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="terms-agreement"
+                      checked={termsAgreed}
+                      onCheckedChange={setTermsAgreed}
+                      data-testid="switch-terms-agreement"
+                    />
+                    <Label htmlFor="terms-agreement" className="text-sm text-slate-700 cursor-pointer">
+                      I agree to the cancellation terms and conditions
+                    </Label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTermsModal(true)}
+                    className="text-sm text-blue-600 hover:text-blue-800 underline inline-block cursor-pointer"
+                    data-testid="button-view-terms"
+                  >
+                    View Terms & Conditions
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setShowCancelDialog(false); setCancelTarget(null); setCancelReason(''); setTermsAgreed(false); setDeadlinePassed(false); }}
+              data-testid="button-cancel-dialog-close"
             >
-              Yes, cancel registration
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              Keep Registration
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelSubmit}
+              disabled={submittingCancel || (bookingTermsContent && !termsAgreed)}
+              data-testid="button-submit-cancellation"
+            >
+              {submittingCancel ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                'Submit Cancellation Request'
+              )}
+            </Button>
+          </DialogFooter>
+          </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Terms & Conditions</DialogTitle>
+          </DialogHeader>
+          <div
+            className="flex-1 overflow-y-auto prose prose-sm max-w-none text-slate-700"
+            dangerouslySetInnerHTML={{ __html: bookingTermsContent }}
+            data-testid="text-terms-content"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowTermsModal(false)}
+              data-testid="button-close-terms"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

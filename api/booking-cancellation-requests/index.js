@@ -67,7 +67,10 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'Some booking IDs are invalid or do not belong to your tenant' });
     }
 
-    const unauthorizedBookings = bookings.filter(b => b.member_id !== member.id);
+    const memberEmail = member.email?.toLowerCase();
+    const unauthorizedBookings = bookings.filter(b =>
+      b.member_id !== member.id && (b.attendee_email || '').toLowerCase() !== memberEmail
+    );
     if (unauthorizedBookings.length > 0) {
       return res.status(403).json({ error: 'You can only request cancellation for your own bookings' });
     }
@@ -128,6 +131,8 @@ async function handleGet(req, res) {
   let tenantId;
   let memberIdFilter = null;
 
+  let memberEmailFilter = null;
+
   if (tenantUser) {
     tenantId = tenantUser.tenant_id;
   } else {
@@ -137,6 +142,7 @@ async function handleGet(req, res) {
     }
     tenantId = member.organization?.tenant_id || member.tenant_id;
     memberIdFilter = member.id;
+    memberEmailFilter = member.email?.toLowerCase() || null;
   }
 
   if (!tenantId) {
@@ -146,25 +152,61 @@ async function handleGet(req, res) {
   const { status: statusFilter } = req.query;
 
   try {
-    let query = supabase
-      .from('booking_cancellation_request')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+    let requests;
 
     if (memberIdFilter) {
-      query = query.eq('member_id', memberIdFilter);
-    }
+      const bookingIdsForAttendee = [];
+      if (memberEmailFilter) {
+        const { data: attendeeBookings } = await supabase
+          .from('booking')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('attendee_email', memberEmailFilter);
 
-    if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
-      query = query.eq('status', statusFilter);
-    }
+        if (attendeeBookings?.length > 0) {
+          bookingIdsForAttendee.push(...attendeeBookings.map(b => b.id));
+        }
+      }
 
-    const { data: requests, error } = await query;
+      let query = supabase
+        .from('booking_cancellation_request')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('[CancellationRequest] Error fetching requests:', error);
-      return res.status(500).json({ error: 'Failed to fetch requests' });
+      if (bookingIdsForAttendee.length > 0) {
+        query = query.or(`member_id.eq.${memberIdFilter},booking_id.in.(${bookingIdsForAttendee.join(',')})`);
+      } else {
+        query = query.eq('member_id', memberIdFilter);
+      }
+
+      if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('[CancellationRequest] Error fetching requests:', error);
+        return res.status(500).json({ error: 'Failed to fetch requests' });
+      }
+      requests = data;
+    } else {
+      let query = supabase
+        .from('booking_cancellation_request')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false });
+
+      if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
+        query = query.eq('status', statusFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('[CancellationRequest] Error fetching requests:', error);
+        return res.status(500).json({ error: 'Failed to fetch requests' });
+      }
+      requests = data;
     }
 
     const bookingIds = [...new Set((requests || []).map(r => r.booking_id))];
