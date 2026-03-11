@@ -48,6 +48,10 @@ export default function BookingsPage() {
   const [invoiceModalOpen, setInvoiceModalOpen] = React.useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = React.useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = React.useState(null);
+  const [loadingCreditNoteFor, setLoadingCreditNoteFor] = React.useState(null);
+  const [creditNoteModalOpen, setCreditNoteModalOpen] = React.useState(false);
+  const [currentCreditNoteUrl, setCurrentCreditNoteUrl] = React.useState(null);
+  const [currentCreditNoteNumber, setCurrentCreditNoteNumber] = React.useState(null);
   
   // Add ref to track if tour has been auto-started in this session
   const hasAutoStartedTour = React.useRef(false);
@@ -376,13 +380,73 @@ export default function BookingsPage() {
 
   const handleInvoiceModalClose = (open) => {
     if (!open && currentInvoiceUrl) {
-      // Remove any URL parameters before revoking
       const baseBlobUrl = currentInvoiceUrl.split('#')[0];
       URL.revokeObjectURL(baseBlobUrl);
       setCurrentInvoiceUrl(null);
       setCurrentInvoiceNumber(null);
     }
     setInvoiceModalOpen(open);
+  };
+
+  const handleViewCreditNote = async (bookingGroupRef, creditNoteNumber) => {
+    setLoadingCreditNoteFor(bookingGroupRef);
+    try {
+      const response = await fetch(`/api/booking-credit-note/${encodeURIComponent(bookingGroupRef)}?inline=true`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to load credit note' }));
+        throw new Error(error.error || 'Failed to load credit note');
+      }
+      const blob = await response.blob();
+      const pdfUrl = URL.createObjectURL(blob) + '#toolbar=1&navpanes=0';
+      setCurrentCreditNoteUrl(pdfUrl);
+      setCurrentCreditNoteNumber(creditNoteNumber);
+      setCreditNoteModalOpen(true);
+    } catch (error) {
+      console.error('Error loading credit note:', error);
+      toast.error(error.message || 'Failed to load credit note');
+    } finally {
+      setLoadingCreditNoteFor(null);
+    }
+  };
+
+  const handleDownloadCreditNote = async (bookingGroupRef, creditNoteNumber) => {
+    setLoadingCreditNoteFor(bookingGroupRef);
+    try {
+      const response = await fetch(`/api/booking-credit-note/${encodeURIComponent(bookingGroupRef)}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to download credit note' }));
+        throw new Error(error.error || 'Failed to download credit note');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `credit-note-${creditNoteNumber || bookingGroupRef}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      toast.success('Downloading credit note...');
+    } catch (error) {
+      console.error('Error downloading credit note:', error);
+      toast.error(error.message || 'Failed to download credit note');
+    } finally {
+      setLoadingCreditNoteFor(null);
+    }
+  };
+
+  const handleCreditNoteModalClose = (open) => {
+    if (!open && currentCreditNoteUrl) {
+      const baseBlobUrl = currentCreditNoteUrl.split('#')[0];
+      URL.revokeObjectURL(baseBlobUrl);
+      setCurrentCreditNoteUrl(null);
+      setCurrentCreditNoteNumber(null);
+    }
+    setCreditNoteModalOpen(open);
   };
 
   if (!memberInfo) {
@@ -802,6 +866,57 @@ export default function BookingsPage() {
                         </div>
                       )}
                       
+                      {(() => {
+                        const creditNoteBooking = canAccessInvoices && isOneOffEvent && groupBookings.find(b => b.xero_credit_note_number);
+                        if (!creditNoteBooking) return null;
+                        return (
+                        <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg dark:bg-orange-950/30 dark:border-orange-800">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                            <span className="text-sm text-orange-800 dark:text-orange-300">
+                              Credit Note: <span className="font-mono font-medium">{creditNoteBooking.xero_credit_note_number}</span>
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewCreditNote(bookingRef, creditNoteBooking.xero_credit_note_number)}
+                              disabled={loadingCreditNoteFor === bookingRef}
+                              data-testid={`button-view-credit-note-${bookingRef}`}
+                              className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"
+                            >
+                              {loadingCreditNoteFor === bookingRef ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Eye className="w-4 h-4 mr-1" />
+                                  View
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownloadCreditNote(bookingRef, creditNoteBooking.xero_credit_note_number)}
+                              disabled={loadingCreditNoteFor === bookingRef}
+                              data-testid={`button-download-credit-note-${bookingRef}`}
+                              className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"
+                            >
+                              {loadingCreditNoteFor === bookingRef ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Download className="w-4 h-4 mr-1" />
+                                  Download
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                        );
+                      })()}
+
                       {groupBookings.some(b => b.status === 'pending') && (
                         <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -991,6 +1106,45 @@ export default function BookingsPage() {
                 src={currentInvoiceUrl}
                 className="w-full h-full rounded border border-slate-200"
                 title={`Invoice ${currentInvoiceNumber}`}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Credit Note Preview Dialog */}
+      <Dialog open={creditNoteModalOpen} onOpenChange={handleCreditNoteModalClose}>
+        <DialogContent className="max-w-4xl h-[80vh] p-0 flex flex-col">
+          <DialogHeader className="p-4 pb-2 border-b">
+            <DialogTitle className="flex items-center justify-between">
+              <span>Credit Note {currentCreditNoteNumber}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (currentCreditNoteUrl) {
+                    const baseBlobUrl = currentCreditNoteUrl.split('#')[0];
+                    const link = document.createElement('a');
+                    link.href = baseBlobUrl;
+                    link.download = `credit-note-${currentCreditNoteNumber || 'download'}.pdf`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    toast.success('Downloading credit note...');
+                  }
+                }}
+                data-testid="button-download-credit-note-from-preview"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download
+              </Button>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden p-4">
+            {currentCreditNoteUrl && (
+              <iframe
+                src={currentCreditNoteUrl}
+                className="w-full h-full rounded border border-slate-200"
+                title={`Credit Note ${currentCreditNoteNumber}`}
               />
             )}
           </div>

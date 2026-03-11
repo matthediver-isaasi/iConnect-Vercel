@@ -416,6 +416,26 @@ export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
   return Buffer.from(pdfBuffer);
 }
 
+export async function fetchXeroCreditNotePdf(creditNoteId, appTenantId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const pdfResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${creditNoteId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': tenantId,
+      'Accept': 'application/pdf'
+    }
+  });
+
+  if (!pdfResponse.ok) {
+    throw new Error(`Failed to fetch credit note PDF from Xero: ${pdfResponse.status}`);
+  }
+
+  const pdfBuffer = await pdfResponse.arrayBuffer();
+  return Buffer.from(pdfBuffer);
+}
+
 export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!invoiceId) throw new Error('invoiceId is required');

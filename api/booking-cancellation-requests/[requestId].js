@@ -511,8 +511,23 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
               creditNoteNumber: result.creditNoteNumber,
               allocated: result.allocated,
               invoiceNumber: result.invoiceNumber,
+              alreadyExisted: result.alreadyExisted || false,
             };
             console.log(`[CancellationRequest] Xero credit note ${result.creditNoteNumber} created for £${result.amount}`);
+
+            if (result.creditNoteId) {
+              const { error: cnUpdateError } = await supabase
+                .from('booking')
+                .update({
+                  xero_credit_note_id: result.creditNoteId,
+                  xero_credit_note_number: result.creditNoteNumber,
+                })
+                .eq('id', booking.id);
+
+              if (cnUpdateError) {
+                console.warn(`[CancellationRequest] Failed to store credit note on booking: ${cnUpdateError.message}`);
+              }
+            }
           }
         }
       } catch (err) {
