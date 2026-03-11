@@ -1566,20 +1566,25 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
               .eq('id', tenantId)
               .single();
             
-            // Build placeholders for the email template
+            // Fetch organization name for placeholders
+            const orgName = await getOrganizationName(organizationId);
+            
+            const memberFullName = `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim();
+            
+            // Build {{...}} placeholders for the email template
             const placeholders = {
               '{{first_name}}': newMember.first_name || '',
               '{{last_name}}': newMember.last_name || '',
               '{{email}}': newMember.email || '',
-              '{{full_name}}': `${newMember.first_name || ''} ${newMember.last_name || ''}`.trim(),
+              '{{full_name}}': memberFullName,
               '{{member_first_name}}': newMember.first_name || '',
               '{{member_last_name}}': newMember.last_name || '',
               '{{member_email}}': newMember.email || '',
               '{{tenant_name}}': tenant?.name || '',
-              '{{organization_name}}': '', // Could be fetched if needed
+              '{{organization_name}}': orgName,
             };
             
-            // Replace placeholders in subject and body
+            // Replace {{...}} placeholders in subject and body
             let emailSubject = emailTemplate.subject || '';
             let emailBody = emailTemplate.body || '';
             
@@ -1587,6 +1592,22 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
               emailSubject = emailSubject.replaceAll(placeholder, value);
               emailBody = emailBody.replaceAll(placeholder, value);
             }
+            
+            // Replace [[...]] double-bracket placeholders (e.g. [[organization.name]], [[member.first_name]])
+            const doubleBracketPlaceholders = {
+              'organization.name': orgName,
+              'tenant.name': tenant?.name || '',
+              'member.first_name': newMember.first_name || '',
+              'member.last_name': newMember.last_name || '',
+              'member.email': newMember.email || '',
+              'member.full_name': memberFullName,
+              'first_name': newMember.first_name || '',
+              'last_name': newMember.last_name || '',
+              'email': newMember.email || '',
+              'full_name': memberFullName,
+            };
+            emailSubject = replaceDoubleBracketPlaceholders(emailSubject, doubleBracketPlaceholders);
+            emailBody = replaceDoubleBracketPlaceholders(emailBody, doubleBracketPlaceholders);
             
             // Send the email (include from and replyTo from template if available)
             const emailResult = await sendEmail({
