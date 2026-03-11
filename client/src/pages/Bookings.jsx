@@ -509,12 +509,12 @@ export default function BookingsPage() {
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <CardTitle className="text-xl">{eventTitle}</CardTitle>
                           {isOneOffEvent && (
-                            <Badge className="bg-purple-100 text-purple-700 border-purple-200 no-default-hover-elevate no-default-active-elevate">
+                            <Badge variant="outline" className="bg-purple-100 text-purple-700 border-purple-200">
                               One-off Event
                             </Badge>
                           )}
                           {programTag && !isOneOffEvent && (
-                            <Badge className="bg-blue-100 text-blue-700 border-blue-200 no-default-hover-elevate no-default-active-elevate">
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
                               {programTag}
                             </Badge>
                           )}
@@ -629,11 +629,11 @@ export default function BookingsPage() {
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
                                     {hasPendingCancel ? (
-                                      <Badge className="bg-amber-100 text-amber-700 border-amber-200 no-default-hover-elevate no-default-active-elevate">
+                                      <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
                                         Cancellation Requested
                                       </Badge>
                                     ) : (
-                                      <Badge className={`${getStatusColor(isCancelled ? 'cancelled' : booking.status)} no-default-hover-elevate no-default-active-elevate`}>
+                                      <Badge variant="outline" className={getStatusColor(isCancelled ? 'cancelled' : booking.status)}>
                                         {isCancelled ? 'cancelled' : booking.status}
                                       </Badge>
                                     )}
