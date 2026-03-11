@@ -100,6 +100,7 @@ async function handlePost(req, res) {
       .select('id, first_name, last_name, email')
       .eq('id', target_member_id)
       .eq('tenant_id', tenantId)
+      .not('email', 'ilike', 'deleted_%@deleted.local')
       .single();
 
     if (targetError || !targetMember) {

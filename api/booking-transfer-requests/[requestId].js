@@ -138,14 +138,16 @@ export default async function handler(req, res) {
 
 async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes }) {
   let eventName = 'an event';
+  let eventDetails = null;
   if (booking.event_id) {
     const { data: event } = await supabase
       .from('event')
-      .select('title')
+      .select('title, start_date, end_date, location, venue')
       .eq('id', booking.event_id)
       .maybeSingle();
     if (event?.title) {
       eventName = event.title;
+      eventDetails = event;
     }
   }
 
@@ -175,7 +177,7 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
 
     if (targetMember.email) {
       try {
-        const html = buildNewAttendeeEmail(targetMember.first_name || 'there', eventName, bookingRef);
+        const html = buildNewAttendeeEmail(targetMember.first_name || 'there', eventName, bookingRef, eventDetails);
         const result = await sendEmail({
           to: targetMember.email,
           subject: `Event Registration Confirmation — ${eventName}`,
@@ -232,11 +234,29 @@ function buildOriginalAttendeeEmail(name, eventName, bookingRef) {
   return body;
 }
 
-function buildNewAttendeeEmail(name, eventName, bookingRef) {
+function buildNewAttendeeEmail(name, eventName, bookingRef, eventDetails) {
   let body = '';
   body += `<p>Hi ${name},</p>`;
   body += `<p>You have been registered to attend <strong>${eventName}</strong>.</p>`;
-  body += `<p>A ticket has been transferred to you. Please find the event details below.</p>`;
+  body += `<p>A ticket has been transferred to you.</p>`;
+
+  if (eventDetails) {
+    body += `<div style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">`;
+    body += `<p style="margin: 0 0 8px 0; font-weight: 600; color: #333;">Event Details</p>`;
+    if (eventDetails.start_date) {
+      try {
+        const startDate = new Date(eventDetails.start_date);
+        const dateStr = startDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        const timeStr = startDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        body += `<p style="margin: 0 0 4px 0; color: #555;">Date: ${dateStr} at ${timeStr}</p>`;
+      } catch (e) { /* skip */ }
+    }
+    if (eventDetails.location || eventDetails.venue) {
+      const loc = [eventDetails.venue, eventDetails.location].filter(Boolean).join(', ');
+      body += `<p style="margin: 0 0 4px 0; color: #555;">Location: ${loc}</p>`;
+    }
+    body += `</div>`;
+  }
 
   if (bookingRef) {
     body += `<p style="color: #666; font-size: 14px;">Booking reference: <strong>${bookingRef}</strong></p>`;
