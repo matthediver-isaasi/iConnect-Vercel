@@ -4,7 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, X, XCircle } from "lucide-react";
+import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -572,6 +572,7 @@ export default function BookingsPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => handleCancelClick(groupBookings[0], groupBookings)}
+                              disabled={startDate && startDate < new Date()}
                               data-testid={`button-cancel-all-${bookingRef}`}
                             >
                               <XCircle className="w-4 h-4 mr-1" />
@@ -639,12 +640,14 @@ export default function BookingsPage() {
                                     {!isCancelled && !hasPendingCancel && (
                                       <Button
                                         id={index === 0 && bookingIndex === 0 ? "first-ticket-edit-button" : undefined}
-                                        variant="ghost"
-                                        size="icon"
+                                        variant="outline"
+                                        size="sm"
                                         onClick={() => handleCancelClick(booking)}
+                                        disabled={startDate && startDate < new Date()}
                                         data-testid={`button-cancel-ticket-${booking.id}`}
                                       >
-                                        <X className="w-4 h-4" />
+                                        <XCircle className="w-3.5 h-3.5 mr-1" />
+                                        Cancel
                                       </Button>
                                     )}
                                   </div>
