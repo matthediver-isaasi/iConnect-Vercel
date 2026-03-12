@@ -497,9 +497,10 @@ export default function CommunicationsManagementPage() {
     const assignedRoleIds = getCategoryRoles(categoryId);
     if (assignedRoleIds.length === 0) return [];
     
-    // Filter eligible members by role and exclude those who opted out of ALL communications
+    // Filter eligible members by role, exclude inactive logins, and exclude those who opted out of ALL communications
     const eligibleMembers = allMembers.filter(member => 
       assignedRoleIds.includes(member.role_id) && 
+      member.login_enabled !== false &&
       member.communications_opted_out_all !== true
     );
     
