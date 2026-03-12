@@ -56,6 +56,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
     'event_spotlight': IEditEventSpotlightElement,
     'video': IEditVideoElementRenderer,
     'timeline': IEditTimelineElementRenderer,
+    'hero_carousel': IEditHeroCarouselElementRenderer,
   };
 
   const Component = elementComponents[element.element_type];

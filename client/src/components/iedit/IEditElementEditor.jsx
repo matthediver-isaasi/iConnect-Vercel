@@ -35,6 +35,7 @@ import { IEditImageElementEditor } from "./elements/IEditImageElement";
 import { IEditImageHeroElementEditor } from "./elements/IEditImageHeroElement";
 import { IEditVideoElementEditor } from "./elements/IEditVideoElement";
 import { IEditTimelineElementEditor } from "./elements/IEditTimelineElement";
+import { IEditHeroCarouselElementEditor } from "./elements/IEditHeroCarouselElement";
 
 export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -210,6 +211,9 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
 
   // Check if this is a Timeline element (custom editor)
   const isTimeline = element.element_type === 'timeline';
+
+  // Check if this is a Hero Carousel element (custom editor)
+  const isHeroCarousel = element.element_type === 'hero_carousel';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -566,6 +570,8 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
               />
             ) : isTimeline ? (
               <IEditTimelineElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isHeroCarousel ? (
+              <IEditHeroCarouselElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : (
               renderContentFields()
             )}
@@ -817,6 +823,11 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
             />
           ) : isTimeline ? (
             <IEditTimelineElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isHeroCarousel ? (
+            <IEditHeroCarouselElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={handleContentChangeFromEditor}
             />
