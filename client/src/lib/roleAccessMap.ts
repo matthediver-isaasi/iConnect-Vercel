@@ -119,6 +119,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
+        id: "commerce.event-cancellations",
+        label: "Cancellation Requests"
+      },
+      {
         id: "commerce.buy-tickets",
         label: "Buy Tickets",
         features: [
@@ -870,6 +874,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "feature_PostJobsForOtherOrgs": "jobs.my-postings.post-for-others",
   "page_Events": "events.browse-events",
   "page_Bookings": "commerce.bookings",
+  "page_CancellationRequests": "commerce.event-cancellations",
   "page_MyTickets": "events.my-tickets",
   "page_BuyProgramTickets": "commerce.buy-tickets",
   "page_Balances": "commerce.balances",
