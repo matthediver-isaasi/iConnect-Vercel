@@ -833,6 +833,11 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   };
   const containerHeight = getContainerHeight();
 
+  const prevIndexRef = useRef(0);
+  useEffect(() => {
+    prevIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
   const getSlideTransitionStyle = (slideIndex) => {
     const isActive = slideIndex === currentIndex;
     const dur = `${transitionDuration}ms`;
@@ -847,14 +852,30 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
       };
     }
 
-    const directions = {
-      'slide-left': { enter: 'translateX(0)', exit: 'translateX(-100%)' },
-      'slide-right': { enter: 'translateX(0)', exit: 'translateX(100%)' },
-      'slide-up': { enter: 'translateY(0)', exit: 'translateY(-100%)' },
+    const movingForward = currentIndex > prevIndexRef.current ||
+      (currentIndex === 0 && prevIndexRef.current === slides.length - 1);
+
+    const slideMap = {
+      'slide-left': {
+        activeEnter: movingForward ? 'translateX(100%)' : 'translateX(-100%)',
+        activeVisible: 'translateX(0)',
+        inactiveExit: movingForward ? 'translateX(-100%)' : 'translateX(100%)',
+      },
+      'slide-right': {
+        activeEnter: movingForward ? 'translateX(-100%)' : 'translateX(100%)',
+        activeVisible: 'translateX(0)',
+        inactiveExit: movingForward ? 'translateX(100%)' : 'translateX(-100%)',
+      },
+      'slide-up': {
+        activeEnter: 'translateY(100%)',
+        activeVisible: 'translateY(0)',
+        inactiveExit: 'translateY(-100%)',
+      },
     };
-    const dir = directions[transitionEffect] || directions['slide-left'];
+    const dir = slideMap[transitionEffect] || slideMap['slide-left'];
+
     return {
-      transform: isActive ? dir.enter : dir.exit,
+      transform: isActive ? dir.activeVisible : dir.inactiveExit,
       opacity: isActive ? 1 : 0,
       transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`,
       position: 'absolute',
