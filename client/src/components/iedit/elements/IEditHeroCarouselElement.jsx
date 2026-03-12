@@ -720,9 +720,11 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const content = contentProp || element?.content || { slides: [] };
   const slides = content.slides || [];
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [previousIndex, setPreviousIndex] = useState(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef(null);
+  const isMobilePreview = previewViewport === 'mobile';
 
   const autoplayInterval = content.autoplayInterval ?? 5;
   const transitionEffect = content.transitionEffect || 'fade';
@@ -801,9 +803,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const goToSlide = useCallback((newIndex) => {
     if (isTransitioning || slides.length <= 1) return;
     setIsTransitioning(true);
+    setPreviousIndex(currentIndex);
     setCurrentIndex(newIndex);
-    setTimeout(() => setIsTransitioning(false), transitionDuration);
-  }, [isTransitioning, slides.length, transitionDuration]);
+    setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); }, transitionDuration);
+  }, [isTransitioning, slides.length, transitionDuration, currentIndex]);
 
   const goToNext = useCallback(() => {
     goToSlide((currentIndex + 1) % slides.length);
@@ -820,8 +823,11 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     }
     timerRef.current = setInterval(() => {
       setIsTransitioning(true);
-      setCurrentIndex(prev => (prev + 1) % slides.length);
-      setTimeout(() => setIsTransitioning(false), transitionDuration);
+      setCurrentIndex(prev => {
+        setPreviousIndex(prev);
+        return (prev + 1) % slides.length;
+      });
+      setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); }, transitionDuration);
     }, autoplayInterval * 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [slides.length, autoplayInterval, isPaused, transitionDuration]);
@@ -833,54 +839,62 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   };
   const containerHeight = getContainerHeight();
 
-  const prevIndexRef = useRef(0);
-  useEffect(() => {
-    prevIndexRef.current = currentIndex;
-  }, [currentIndex]);
-
   const getSlideTransitionStyle = (slideIndex) => {
     const isActive = slideIndex === currentIndex;
+    const isPrev = slideIndex === previousIndex;
     const dur = `${transitionDuration}ms`;
+    const base = { position: 'absolute', inset: 0 };
 
     if (transitionEffect === 'fade') {
       return {
+        ...base,
         opacity: isActive ? 1 : 0,
         transition: `opacity ${dur} ease-in-out`,
-        position: 'absolute',
-        inset: 0,
-        zIndex: isActive ? 2 : 1,
+        zIndex: isActive ? 2 : (isPrev ? 1 : 0),
       };
     }
 
-    const movingForward = currentIndex > prevIndexRef.current ||
-      (currentIndex === 0 && prevIndexRef.current === slides.length - 1);
+    const movingForward = previousIndex !== null && (
+      currentIndex > previousIndex ||
+      (currentIndex === 0 && previousIndex === slides.length - 1)
+    );
 
-    const slideMap = {
-      'slide-left': {
-        activeEnter: movingForward ? 'translateX(100%)' : 'translateX(-100%)',
-        activeVisible: 'translateX(0)',
-        inactiveExit: movingForward ? 'translateX(-100%)' : 'translateX(100%)',
-      },
-      'slide-right': {
-        activeEnter: movingForward ? 'translateX(-100%)' : 'translateX(100%)',
-        activeVisible: 'translateX(0)',
-        inactiveExit: movingForward ? 'translateX(100%)' : 'translateX(-100%)',
-      },
-      'slide-up': {
-        activeEnter: 'translateY(100%)',
-        activeVisible: 'translateY(0)',
-        inactiveExit: 'translateY(-100%)',
-      },
+    const exitTransforms = {
+      'slide-left': movingForward ? 'translateX(-100%)' : 'translateX(100%)',
+      'slide-right': movingForward ? 'translateX(100%)' : 'translateX(-100%)',
+      'slide-up': 'translateY(-100%)',
     };
-    const dir = slideMap[transitionEffect] || slideMap['slide-left'];
+    const enterTransforms = {
+      'slide-left': movingForward ? 'translateX(100%)' : 'translateX(-100%)',
+      'slide-right': movingForward ? 'translateX(-100%)' : 'translateX(100%)',
+      'slide-up': 'translateY(100%)',
+    };
+    const effect = exitTransforms[transitionEffect] ? transitionEffect : 'slide-left';
 
+    if (isActive) {
+      return {
+        ...base,
+        transform: 'translateX(0) translateY(0)',
+        opacity: 1,
+        transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`,
+        zIndex: 2,
+      };
+    }
+    if (isPrev) {
+      return {
+        ...base,
+        transform: exitTransforms[effect],
+        opacity: 0,
+        transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`,
+        zIndex: 1,
+      };
+    }
     return {
-      transform: isActive ? dir.activeVisible : dir.inactiveExit,
-      opacity: isActive ? 1 : 0,
-      transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`,
-      position: 'absolute',
-      inset: 0,
-      zIndex: isActive ? 2 : 1,
+      ...base,
+      transform: enterTransforms[effect],
+      opacity: 0,
+      transition: 'none',
+      zIndex: 0,
     };
   };
 
@@ -904,12 +918,18 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     right: 'text-right'
   }[text_alignment] || 'text-center';
 
+  const displayHeaderFS = isMobilePreview ? mobileHeaderFS : safeHeaderFS;
+  const displaySubheadingFS = isMobilePreview ? mobileSubheadingFS : safeSubheadingFS;
+  const displayContentFS = isMobilePreview ? mobileContentFS : safeContentFS;
+  const displayPaddingV = isMobilePreview ? mobilePaddingV : parseInt(padding_vertical);
+  const displayPaddingH = isMobilePreview ? mobilePaddingH : parseInt(padding_horizontal);
+
   return (
     <>
       <style>{`
         .${instanceId} .hc-title {
           font-family: ${effectiveHeaderFontFamily};
-          font-size: ${safeHeaderFS}px;
+          font-size: ${displayHeaderFS}px;
           color: ${header_color};
           line-height: ${effectiveHeaderLineHeight};
           ${effectiveHeaderFontWeight ? `font-weight: ${effectiveHeaderFontWeight};` : ''}
@@ -917,21 +937,21 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         }
         .${instanceId} .hc-subheading {
           font-family: ${effectiveSubheadingFontFamily};
-          font-size: ${safeSubheadingFS}px;
+          font-size: ${displaySubheadingFS}px;
           color: ${subheading_color};
           line-height: ${effectiveSubheadingLineHeight};
           ${effectiveSubheadingFontWeight ? `font-weight: ${effectiveSubheadingFontWeight};` : 'font-weight: 400;'}
           letter-spacing: ${effectiveSubheadingLetterSpacing}px;
-          margin-top: 16px;
+          margin-top: ${isMobilePreview ? '12px' : '16px'};
         }
         .${instanceId} .hc-body {
           font-family: ${effectiveContentFontFamily};
-          font-size: ${safeContentFS}px;
+          font-size: ${displayContentFS}px;
           color: ${content_color};
           line-height: ${effectiveContentLineHeight};
           ${effectiveContentFontWeight ? `font-weight: ${effectiveContentFontWeight};` : 'font-weight: 400;'}
           letter-spacing: ${effectiveContentLetterSpacing}px;
-          margin-top: 16px;
+          margin-top: ${isMobilePreview ? '12px' : '16px'};
         }
         .${instanceId} .hc-subheading p,
         .${instanceId} .hc-body p {
@@ -941,7 +961,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         .${instanceId} .hc-body p:last-child {
           margin-bottom: 0;
         }
-        @media (max-width: 767px) {
+        ${isMobilePreview ? '' : `@media (max-width: 767px) {
           .${instanceId} .hc-title { font-size: ${mobileHeaderFS}px; }
           .${instanceId} .hc-subheading { font-size: ${mobileSubheadingFS}px; margin-top: 12px; }
           .${instanceId} .hc-body { font-size: ${mobileContentFS}px; margin-top: 12px; }
@@ -954,7 +974,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
           }
-        }
+        }`}
       `}</style>
 
       <div
@@ -992,13 +1012,13 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             <div
               className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
               style={{
-                paddingLeft: `${padding_horizontal}px`,
-                paddingRight: `${padding_horizontal}px`,
-                paddingTop: `${padding_vertical}px`,
-                paddingBottom: `${padding_vertical}px`,
+                paddingLeft: `${displayPaddingH}px`,
+                paddingRight: `${displayPaddingH}px`,
+                paddingTop: `${displayPaddingV}px`,
+                paddingBottom: `${displayPaddingV}px`,
               }}
             >
-              <div className={`hc-text-box max-w-2xl ${positionClass}`}>
+              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} ${positionClass}`}>
                 {slide.headerText && (
                   <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
                 )}
