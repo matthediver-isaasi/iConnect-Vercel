@@ -59,9 +59,17 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'You can only transfer your own bookings' });
     }
 
+    const { data: transferRoleSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'transfer_restrict_by_role')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const restrictByRole = transferRoleSetting?.setting_value !== 'false';
+
     let roleId = null;
     let attendeeMemberId = booking.member_id;
-    if (booking.organization_id) {
+    if (booking.organization_id && restrictByRole) {
       if (booking.attendee_email) {
         const { data: attendeeMember } = await supabase
           .from('member')

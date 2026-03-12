@@ -95,6 +95,9 @@ export default function EventSettingsPage() {
   const [bookingTerms, setBookingTerms] = useState("");
   const [savingBookingTerms, setSavingBookingTerms] = useState(false);
   
+  // Transfer role restriction
+  const [transferRestrictByRole, setTransferRestrictByRole] = useState(true);
+  
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -244,6 +247,11 @@ export default function EventSettingsPage() {
     const donationSetting = settings.find(s => s.setting_key === 'event_donation_enabled');
     if (donationSetting) {
       setDonationEnabled(donationSetting.setting_value === 'true');
+    }
+    
+    const transferRoleSetting = settings.find(s => s.setting_key === 'transfer_restrict_by_role');
+    if (transferRoleSetting) {
+      setTransferRestrictByRole(transferRoleSetting.setting_value !== 'false');
     }
   }, [settings]);
 
@@ -467,6 +475,21 @@ export default function EventSettingsPage() {
           setting_key: 'event_donation_enabled',
           setting_value: donationEnabled.toString(),
           description: 'Enable donation option during event registration checkout'
+        });
+      }
+      
+      const transferRoleSetting = settings.find(s => s.setting_key === 'transfer_restrict_by_role');
+      
+      if (transferRoleSetting) {
+        await base44.entities.SystemSettings.update(transferRoleSetting.id, {
+          setting_value: transferRestrictByRole.toString(),
+          description: 'Restrict ticket transfers to members with the same role within the organisation'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'transfer_restrict_by_role',
+          setting_value: transferRestrictByRole.toString(),
+          description: 'Restrict ticket transfers to members with the same role within the organisation'
         });
       }
       
@@ -1156,6 +1179,49 @@ export default function EventSettingsPage() {
                   Members will not be able to cancel tickets within this timeframe before the event starts.
                   Set to 0 to allow cancellations up until the event start time.
                 </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Transfer Settings Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-blue-600" />
+              <CardTitle>Ticket Transfer Settings</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="transfer-restrict-role-toggle">
+                    Restrict ticket transfers to same role
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, members can only transfer tickets to other members within the same organisation who share the same role.
+                    When disabled, tickets can be transferred to any member in the same organisation regardless of role.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="transfer-restrict-role-toggle"
+                    checked={transferRestrictByRole}
+                    onCheckedChange={setTransferRestrictByRole}
+                    data-testid="switch-transfer-restrict-role"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  data-testid="button-save-transfer-settings"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </Button>
               </div>
             </div>
           </CardContent>
