@@ -124,44 +124,63 @@ async function handlePost(req, res) {
       .single();
 
     if (bookingFull?.organization_id) {
-      let attendeeMemberId = booking.member_id;
-      if (bookingFull.attendee_email) {
-        const { data: attendeeMember } = await supabase
-          .from('member')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .ilike('email', bookingFull.attendee_email)
-          .maybeSingle();
-        if (attendeeMember) {
-          attendeeMemberId = attendeeMember.id;
+      const { data: targetMemberOrg } = await supabase
+        .from('member')
+        .select('organization_id')
+        .eq('id', target_member_id)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (!targetMemberOrg || targetMemberOrg.organization_id !== bookingFull.organization_id) {
+        return res.status(400).json({ error: 'Target member must be in the same organisation' });
+      }
+
+      const { data: transferRoleSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'transfer_restrict_by_role')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      const restrictByRole = transferRoleSetting?.setting_value !== 'false';
+
+      if (restrictByRole) {
+        let attendeeMemberId = booking.member_id;
+        if (bookingFull.attendee_email) {
+          const { data: attendeeMember } = await supabase
+            .from('member')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .ilike('email', bookingFull.attendee_email)
+            .maybeSingle();
+          if (attendeeMember) {
+            attendeeMemberId = attendeeMember.id;
+          }
         }
-      }
 
-      let attendeeRoleId = null;
-      if (attendeeMemberId) {
-        const { data: attendeeTeam } = await supabase
-          .from('team_member')
-          .select('role_id')
-          .eq('organization_id', bookingFull.organization_id)
-          .eq('member_id', attendeeMemberId)
-          .maybeSingle();
-        attendeeRoleId = attendeeTeam?.role_id || null;
-      }
+        let attendeeRoleId = null;
+        if (attendeeMemberId) {
+          const { data: attendeeTeam } = await supabase
+            .from('team_member')
+            .select('role_id')
+            .eq('organization_id', bookingFull.organization_id)
+            .eq('member_id', attendeeMemberId)
+            .maybeSingle();
+          attendeeRoleId = attendeeTeam?.role_id || null;
+        }
 
-      let targetTeamQuery = supabase
-        .from('team_member')
-        .select('role_id')
-        .eq('organization_id', bookingFull.organization_id)
-        .eq('member_id', target_member_id);
+        if (attendeeRoleId) {
+          const { data: targetTeam } = await supabase
+            .from('team_member')
+            .select('role_id')
+            .eq('organization_id', bookingFull.organization_id)
+            .eq('member_id', target_member_id)
+            .eq('role_id', attendeeRoleId)
+            .maybeSingle();
 
-      if (attendeeRoleId) {
-        targetTeamQuery = targetTeamQuery.eq('role_id', attendeeRoleId);
-      }
-
-      const { data: targetTeam } = await targetTeamQuery;
-
-      if (!targetTeam || targetTeam.length === 0) {
-        return res.status(400).json({ error: 'Target member must be in the same organisation and role' });
+          if (!targetTeam) {
+            return res.status(400).json({ error: 'Target member must have the same role within the organisation' });
+          }
+        }
       }
     }
 

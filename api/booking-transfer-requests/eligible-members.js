@@ -48,6 +48,7 @@ export default async function handler(req, res) {
       .single();
 
     if (bookingError || !booking) {
+      console.log('[TransferEligible] Booking not found:', booking_id, bookingError?.message);
       return res.status(404).json({ error: 'Booking not found' });
     }
 
@@ -67,32 +68,7 @@ export default async function handler(req, res) {
       .maybeSingle();
     const restrictByRole = transferRoleSetting?.setting_value !== 'false';
 
-    let roleId = null;
-    let attendeeMemberId = booking.member_id;
-    if (booking.organization_id && restrictByRole) {
-      if (booking.attendee_email) {
-        const { data: attendeeMember } = await supabase
-          .from('member')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .ilike('email', booking.attendee_email)
-          .maybeSingle();
-        if (attendeeMember) {
-          attendeeMemberId = attendeeMember.id;
-        }
-      }
-
-      if (attendeeMemberId) {
-        const { data: teamMember } = await supabase
-          .from('team_member')
-          .select('role_id')
-          .eq('organization_id', booking.organization_id)
-          .eq('member_id', attendeeMemberId)
-          .maybeSingle();
-
-        roleId = teamMember?.role_id || null;
-      }
-    }
+    console.log('[TransferEligible] booking_id:', booking_id, 'org_id:', booking.organization_id, 'restrictByRole:', restrictByRole);
 
     const searchPattern = `%${query}%`;
 
@@ -105,6 +81,10 @@ export default async function handler(req, res) {
       .or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern},email.ilike.${searchPattern}`)
       .limit(20);
 
+    if (booking.organization_id) {
+      membersQuery = membersQuery.eq('organization_id', booking.organization_id);
+    }
+
     const { data: members, error: searchError } = await membersQuery;
 
     if (searchError) {
@@ -113,28 +93,54 @@ export default async function handler(req, res) {
     }
 
     if (!members || members.length === 0) {
+      console.log('[TransferEligible] No members found matching query:', query);
       return res.json([]);
     }
 
     let eligibleMembers = members;
 
-    if (booking.organization_id) {
-      const memberIds = members.map(m => m.id);
-
-      let teamQuery = supabase
-        .from('team_member')
-        .select('member_id, role_id')
-        .eq('organization_id', booking.organization_id)
-        .in('member_id', memberIds);
-
-      if (roleId) {
-        teamQuery = teamQuery.eq('role_id', roleId);
+    if (booking.organization_id && restrictByRole) {
+      let attendeeMemberId = booking.member_id;
+      if (booking.attendee_email) {
+        const { data: attendeeMember } = await supabase
+          .from('member')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('email', booking.attendee_email)
+          .maybeSingle();
+        if (attendeeMember) {
+          attendeeMemberId = attendeeMember.id;
+        }
       }
 
-      const { data: teamMembers } = await teamQuery;
-      const eligibleMemberIds = new Set((teamMembers || []).map(tm => tm.member_id));
+      let roleId = null;
+      if (attendeeMemberId) {
+        const { data: teamMember } = await supabase
+          .from('team_member')
+          .select('role_id')
+          .eq('organization_id', booking.organization_id)
+          .eq('member_id', attendeeMemberId)
+          .maybeSingle();
 
-      eligibleMembers = members.filter(m => eligibleMemberIds.has(m.id));
+        roleId = teamMember?.role_id || null;
+      }
+
+      console.log('[TransferEligible] Role restriction active, attendee roleId:', roleId);
+
+      if (roleId) {
+        const memberIds = members.map(m => m.id);
+
+        const { data: teamMembers } = await supabase
+          .from('team_member')
+          .select('member_id')
+          .eq('organization_id', booking.organization_id)
+          .eq('role_id', roleId)
+          .in('member_id', memberIds);
+
+        const eligibleMemberIds = new Set((teamMembers || []).map(tm => tm.member_id));
+        eligibleMembers = members.filter(m => eligibleMemberIds.has(m.id));
+        console.log('[TransferEligible] After role filter:', eligibleMembers.length, 'of', members.length);
+      }
     }
 
     if (booking.attendee_email) {
@@ -144,6 +150,7 @@ export default async function handler(req, res) {
       );
     }
 
+    console.log('[TransferEligible] Returning', eligibleMembers.length, 'eligible members');
     return res.json(eligibleMembers);
   } catch (err) {
     console.error('[TransferEligible] Error:', err);
