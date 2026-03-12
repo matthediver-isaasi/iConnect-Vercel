@@ -25,6 +25,7 @@ import { IEditLogoGridElementRenderer } from "./elements/IEditLogoGridElement";
 import IEditEventSpotlightElement from "./elements/IEditEventSpotlightElement";
 import { IEditVideoElementRenderer } from "./elements/IEditVideoElement";
 import { IEditTimelineElementRenderer } from "./elements/IEditTimelineElement";
+import { IEditHeroCarouselElementRenderer } from "./elements/IEditHeroCarouselElement";
 
 export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst, previewViewport }) {
   // Map element types to their corresponding components
