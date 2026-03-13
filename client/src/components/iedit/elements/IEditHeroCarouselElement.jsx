@@ -538,19 +538,6 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Header Position</label>
-              <select
-                value={content.header_position || 'center'}
-                onChange={(e) => updateContent('header_position', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                data-testid="select-herocarousel-header-position"
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
           </div>
         )}
       </div>
@@ -619,50 +606,27 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
             </div>
 
             <div className="space-y-3 pt-4 border-t border-slate-100">
-              <h4 className="text-sm font-semibold">Text Position</h4>
+              <h4 className="text-sm font-semibold">Text Position Offset</h4>
+              <p className="text-xs text-slate-500">0 = centered. Negative moves left/up, positive moves right/down.</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1">From Left (px)</label>
+                  <label className="block text-sm font-medium mb-1">X Offset (px)</label>
                   <input
                     type="number"
-                    value={content.text_padding_left || 0}
-                    onChange={(e) => updateContent('text_padding_left', e.target.value)}
+                    value={content.text_offset_x ?? 0}
+                    onChange={(e) => updateContent('text_offset_x', parseInt(e.target.value) || 0)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="0"
-                    data-testid="input-herocarousel-text-padding-left"
+                    data-testid="input-herocarousel-text-offset-x"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">From Right (px)</label>
+                  <label className="block text-sm font-medium mb-1">Y Offset (px)</label>
                   <input
                     type="number"
-                    value={content.text_padding_right || 0}
-                    onChange={(e) => updateContent('text_padding_right', e.target.value)}
+                    value={content.text_offset_y ?? 0}
+                    onChange={(e) => updateContent('text_offset_y', parseInt(e.target.value) || 0)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="0"
-                    data-testid="input-herocarousel-text-padding-right"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">From Top (px)</label>
-                  <input
-                    type="number"
-                    value={content.text_padding_top || 0}
-                    onChange={(e) => updateContent('text_padding_top', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="0"
-                    data-testid="input-herocarousel-text-padding-top"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">From Bottom (px)</label>
-                  <input
-                    type="number"
-                    value={content.text_padding_bottom || 0}
-                    onChange={(e) => updateContent('text_padding_bottom', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="0"
-                    data-testid="input-herocarousel-text-padding-bottom"
+                    data-testid="input-herocarousel-text-offset-y"
                   />
                 </div>
               </div>
@@ -804,15 +768,12 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     content_letter_spacing = 0,
     content_line_height = 1.6,
     text_alignment = 'center',
-    header_position = 'center',
     height_type = 'custom',
     custom_height = 500,
     padding_vertical = 60,
     padding_horizontal = 16,
-    text_padding_left = 0,
-    text_padding_right = 0,
-    text_padding_top = 0,
-    text_padding_bottom = 0,
+    text_offset_x = 0,
+    text_offset_y = 0,
     mobile_header_font_size,
     mobile_subheading_font_size,
     mobile_content_font_size,
@@ -853,14 +814,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const mobileContentFS = mobile_content_font_size || Math.max(14, Math.round(safeContentFS * 0.9));
   const mobilePaddingV = Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingH = Math.max(16, parseInt(padding_horizontal));
-  const parsedTextPaddingLeft = parseInt(text_padding_left) || 0;
-  const parsedTextPaddingRight = parseInt(text_padding_right) || 0;
-  const parsedTextPaddingTop = parseInt(text_padding_top) || 0;
-  const parsedTextPaddingBottom = parseInt(text_padding_bottom) || 0;
-  const mobileTextPaddingLeft = Math.min(parsedTextPaddingLeft, 16);
-  const mobileTextPaddingRight = Math.min(parsedTextPaddingRight, 16);
-  const mobileTextPaddingTop = parsedTextPaddingTop > 0 ? Math.max(16, Math.round(parsedTextPaddingTop * 0.5)) : 0;
-  const mobileTextPaddingBottom = parsedTextPaddingBottom > 0 ? Math.max(16, Math.round(parsedTextPaddingBottom * 0.5)) : 0;
+  const parsedOffsetX = parseInt(text_offset_x) || 0;
+  const parsedOffsetY = parseInt(text_offset_y) || 0;
+  const mobileOffsetX = Math.round(parsedOffsetX * 0.5);
+  const mobileOffsetY = Math.round(parsedOffsetY * 0.5);
 
   const goToSlide = useCallback((newIndex) => {
     if (isTransitioning || slides.length <= 1) return;
@@ -968,12 +925,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     );
   }
 
-  const positionClass = {
-    left: 'mr-auto',
-    center: 'mx-auto',
-    right: 'ml-auto',
-  }[header_position] || 'mx-auto';
-
   const textAlignClass = {
     left: 'text-left',
     center: 'text-center',
@@ -985,10 +936,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const displayContentFS = isMobilePreview ? mobileContentFS : safeContentFS;
   const displayPaddingV = isMobilePreview ? mobilePaddingV : parseInt(padding_vertical);
   const displayPaddingH = isMobilePreview ? mobilePaddingH : parseInt(padding_horizontal);
-  const displayTextPaddingLeft = isMobilePreview ? mobileTextPaddingLeft : parsedTextPaddingLeft;
-  const displayTextPaddingRight = isMobilePreview ? mobileTextPaddingRight : parsedTextPaddingRight;
-  const displayTextPaddingTop = isMobilePreview ? mobileTextPaddingTop : parsedTextPaddingTop;
-  const displayTextPaddingBottom = isMobilePreview ? mobileTextPaddingBottom : parsedTextPaddingBottom;
 
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   useEffect(() => {
@@ -1000,36 +947,12 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     return () => mql.removeEventListener('change', handler);
   }, [isMobilePreview]);
 
-  const effectiveMobile = isMobilePreview || isMobileViewport;
-  const effLeft = effectiveMobile ? mobileTextPaddingLeft : parsedTextPaddingLeft;
-  const effRight = effectiveMobile ? mobileTextPaddingRight : parsedTextPaddingRight;
-  const effTop = effectiveMobile ? mobileTextPaddingTop : parsedTextPaddingTop;
-  const effBottom = effectiveMobile ? mobileTextPaddingBottom : parsedTextPaddingBottom;
-  const hasHorizontalOverride = effLeft > 0 || effRight > 0;
-  const hasTextPaddingOverride = hasHorizontalOverride || effTop > 0 || effBottom > 0;
-
-  const verticalAlign = effTop > 0
-    ? 'items-start'
-    : effBottom > 0
-      ? 'items-end'
-      : 'items-center';
-
-  const mobileVerticalAlign = mobileTextPaddingTop > 0
-    ? 'items-start'
-    : mobileTextPaddingBottom > 0
-      ? 'items-end'
-      : 'items-center';
+  const effOffsetX = (isMobilePreview || isMobileViewport) ? mobileOffsetX : parsedOffsetX;
+  const effOffsetY = (isMobilePreview || isMobileViewport) ? mobileOffsetY : parsedOffsetY;
 
   const textBoxStyle = {};
-  if (hasTextPaddingOverride) {
-    if (effLeft > 0) {
-      textBoxStyle.marginLeft = `${effLeft}px`;
-    } else if (effRight > 0) {
-      textBoxStyle.marginLeft = 'auto';
-    }
-    if (effRight > 0) textBoxStyle.marginRight = `${effRight}px`;
-    if (effTop > 0) textBoxStyle.marginTop = `${effTop}px`;
-    if (effBottom > 0) textBoxStyle.marginBottom = `${effBottom}px`;
+  if (effOffsetX !== 0 || effOffsetY !== 0) {
+    textBoxStyle.transform = `translate(${effOffsetX}px, ${effOffsetY}px)`;
   }
 
   return (
@@ -1079,7 +1002,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             padding-right: ${mobilePaddingH}px !important;
             padding-top: ${mobilePaddingV}px !important;
             padding-bottom: ${mobilePaddingV}px !important;
-            align-items: ${mobileVerticalAlign === 'items-start' ? 'flex-start' : mobileVerticalAlign === 'items-end' ? 'flex-end' : 'center'} !important;
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
@@ -1120,7 +1042,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             </div>
 
             <div
-              className={`hc-content-wrap relative h-full flex ${verticalAlign} z-10 max-w-7xl mx-auto ${textAlignClass}`}
+              className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
               style={{
                 paddingLeft: `${displayPaddingH}px`,
                 paddingRight: `${displayPaddingH}px`,
@@ -1128,7 +1050,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
                 paddingBottom: `${displayPaddingV}px`,
               }}
             >
-              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'}${hasHorizontalOverride ? '' : ` ${positionClass}`}`} style={textBoxStyle}>
+              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
                 {slide.headerText && (
                   <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
                 )}
