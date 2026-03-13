@@ -985,6 +985,17 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const displayContentFS = isMobilePreview ? mobileContentFS : safeContentFS;
   const displayPaddingV = isMobilePreview ? mobilePaddingV : parseInt(padding_vertical);
   const displayPaddingH = isMobilePreview ? mobilePaddingH : parseInt(padding_horizontal);
+  const displayTextPaddingLeft = isMobilePreview ? mobileTextPaddingLeft : parsedTextPaddingLeft;
+  const displayTextPaddingRight = isMobilePreview ? mobileTextPaddingRight : parsedTextPaddingRight;
+  const displayTextPaddingTop = isMobilePreview ? mobileTextPaddingTop : parsedTextPaddingTop;
+  const displayTextPaddingBottom = isMobilePreview ? mobileTextPaddingBottom : parsedTextPaddingBottom;
+  const verticalAlign = displayTextPaddingTop > 0 && displayTextPaddingBottom > 0
+    ? 'items-start'
+    : displayTextPaddingTop > 0
+      ? 'items-start'
+      : displayTextPaddingBottom > 0
+        ? 'items-end'
+        : 'items-center';
 
   return (
     <>
@@ -1023,28 +1034,18 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         .${instanceId} .hc-body p:last-child {
           margin-bottom: 0;
         }
-        .${instanceId} .hc-text-box {
-          padding-left: ${isMobilePreview ? mobileTextPaddingLeft : (parseInt(text_padding_left) || 0)}px;
-          padding-right: ${isMobilePreview ? mobileTextPaddingRight : (parseInt(text_padding_right) || 0)}px;
-          padding-top: ${isMobilePreview ? mobileTextPaddingTop : (parseInt(text_padding_top) || 0)}px;
-          padding-bottom: ${isMobilePreview ? mobileTextPaddingBottom : (parseInt(text_padding_bottom) || 0)}px;
-        }
         ${isMobilePreview ? '' : `@media (max-width: 767px) {
           .${instanceId} .hc-title { font-size: ${mobileHeaderFS}px; }
           .${instanceId} .hc-subheading { font-size: ${mobileSubheadingFS}px; margin-top: 12px; }
           .${instanceId} .hc-body { font-size: ${mobileContentFS}px; margin-top: 12px; }
           .${instanceId} .hc-content-wrap {
-            padding-left: ${mobilePaddingH}px !important;
-            padding-right: ${mobilePaddingH}px !important;
-            padding-top: ${mobilePaddingV}px !important;
-            padding-bottom: ${mobilePaddingV}px !important;
+            padding-left: ${mobilePaddingH + mobileTextPaddingLeft}px !important;
+            padding-right: ${mobilePaddingH + mobileTextPaddingRight}px !important;
+            padding-top: ${mobilePaddingV + mobileTextPaddingTop}px !important;
+            padding-bottom: ${mobilePaddingV + mobileTextPaddingBottom}px !important;
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
-            padding-left: ${mobileTextPaddingLeft}px !important;
-            padding-right: ${mobileTextPaddingRight}px !important;
-            padding-top: ${mobileTextPaddingTop}px !important;
-            padding-bottom: ${mobileTextPaddingBottom}px !important;
           }
         }`}
       `}</style>
@@ -1082,12 +1083,12 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             </div>
 
             <div
-              className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
+              className={`hc-content-wrap relative h-full flex ${verticalAlign} z-10 max-w-7xl mx-auto ${textAlignClass}`}
               style={{
-                paddingLeft: `${displayPaddingH}px`,
-                paddingRight: `${displayPaddingH}px`,
-                paddingTop: `${displayPaddingV}px`,
-                paddingBottom: `${displayPaddingV}px`,
+                paddingLeft: `${displayPaddingH + displayTextPaddingLeft}px`,
+                paddingRight: `${displayPaddingH + displayTextPaddingRight}px`,
+                paddingTop: `${displayPaddingV + displayTextPaddingTop}px`,
+                paddingBottom: `${displayPaddingV + displayTextPaddingBottom}px`,
               }}
             >
               <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} ${positionClass}`}>
