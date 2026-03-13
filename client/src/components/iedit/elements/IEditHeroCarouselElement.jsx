@@ -853,10 +853,14 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const mobileContentFS = mobile_content_font_size || Math.max(14, Math.round(safeContentFS * 0.9));
   const mobilePaddingV = Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingH = Math.max(16, parseInt(padding_horizontal));
-  const mobileTextPaddingLeft = Math.max(0, Math.min(parseInt(text_padding_left) || 0, 20));
-  const mobileTextPaddingRight = Math.max(0, Math.min(parseInt(text_padding_right) || 0, 20));
-  const mobileTextPaddingTop = Math.max(0, Math.min(parseInt(text_padding_top) || 0, 20));
-  const mobileTextPaddingBottom = Math.max(0, Math.min(parseInt(text_padding_bottom) || 0, 20));
+  const parsedTextPaddingLeft = parseInt(text_padding_left) || 0;
+  const parsedTextPaddingRight = parseInt(text_padding_right) || 0;
+  const parsedTextPaddingTop = parseInt(text_padding_top) || 0;
+  const parsedTextPaddingBottom = parseInt(text_padding_bottom) || 0;
+  const mobileTextPaddingLeft = Math.min(parsedTextPaddingLeft, 16);
+  const mobileTextPaddingRight = Math.min(parsedTextPaddingRight, 16);
+  const mobileTextPaddingTop = parsedTextPaddingTop > 0 ? Math.max(16, Math.round(parsedTextPaddingTop * 0.5)) : 0;
+  const mobileTextPaddingBottom = parsedTextPaddingBottom > 0 ? Math.max(16, Math.round(parsedTextPaddingBottom * 0.5)) : 0;
 
   const goToSlide = useCallback((newIndex) => {
     if (isTransitioning || slides.length <= 1) return;
