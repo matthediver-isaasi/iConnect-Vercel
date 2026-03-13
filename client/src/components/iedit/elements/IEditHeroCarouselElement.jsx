@@ -990,6 +990,18 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const displayTextPaddingTop = isMobilePreview ? mobileTextPaddingTop : parsedTextPaddingTop;
   const displayTextPaddingBottom = isMobilePreview ? mobileTextPaddingBottom : parsedTextPaddingBottom;
 
+  const verticalAlign = displayTextPaddingTop > 0
+    ? 'items-start'
+    : displayTextPaddingBottom > 0
+      ? 'items-end'
+      : 'items-center';
+
+  const mobileVerticalAlign = mobileTextPaddingTop > 0
+    ? 'items-start'
+    : mobileTextPaddingBottom > 0
+      ? 'items-end'
+      : 'items-center';
+
   return (
     <>
       <style>{`
@@ -1027,10 +1039,17 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         .${instanceId} .hc-body p:last-child {
           margin-bottom: 0;
         }
-        ${displayTextPaddingLeft > 0 ? `.${instanceId} .hc-text-box { margin-left: ${displayTextPaddingLeft}px !important; }` : ''}
-        ${displayTextPaddingRight > 0 ? `.${instanceId} .hc-text-box { margin-right: ${displayTextPaddingRight}px !important; }` : ''}
-        ${displayTextPaddingTop > 0 ? `.${instanceId} .hc-text-box { margin-top: ${displayTextPaddingTop}px !important; }` : ''}
-        ${displayTextPaddingBottom > 0 ? `.${instanceId} .hc-text-box { margin-bottom: ${displayTextPaddingBottom}px !important; }` : ''}
+        ${(() => {
+          const rules = [];
+          if (displayTextPaddingLeft > 0) rules.push(`margin-left: ${displayTextPaddingLeft}px !important;`);
+          if (displayTextPaddingRight > 0) {
+            rules.push(`margin-right: ${displayTextPaddingRight}px !important;`);
+            if (displayTextPaddingLeft === 0) rules.push(`margin-left: auto !important;`);
+          }
+          if (displayTextPaddingTop > 0) rules.push(`margin-top: ${displayTextPaddingTop}px !important;`);
+          if (displayTextPaddingBottom > 0) rules.push(`margin-bottom: ${displayTextPaddingBottom}px !important;`);
+          return rules.length > 0 ? `.${instanceId} .hc-text-box { ${rules.join(' ')} }` : '';
+        })()}
         ${isMobilePreview ? '' : `@media (max-width: 767px) {
           .${instanceId} .hc-title { font-size: ${mobileHeaderFS}px; }
           .${instanceId} .hc-subheading { font-size: ${mobileSubheadingFS}px; margin-top: 12px; }
@@ -1040,11 +1059,13 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             padding-right: ${mobilePaddingH}px !important;
             padding-top: ${mobilePaddingV}px !important;
             padding-bottom: ${mobilePaddingV}px !important;
+            align-items: ${mobileVerticalAlign === 'items-start' ? 'flex-start' : mobileVerticalAlign === 'items-end' ? 'flex-end' : 'center'} !important;
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
             ${mobileTextPaddingLeft > 0 ? `margin-left: ${mobileTextPaddingLeft}px !important;` : ''}
             ${mobileTextPaddingRight > 0 ? `margin-right: ${mobileTextPaddingRight}px !important;` : ''}
+            ${mobileTextPaddingRight > 0 && mobileTextPaddingLeft === 0 ? `margin-left: auto !important;` : ''}
             ${mobileTextPaddingTop > 0 ? `margin-top: ${mobileTextPaddingTop}px !important;` : ''}
             ${mobileTextPaddingBottom > 0 ? `margin-bottom: ${mobileTextPaddingBottom}px !important;` : ''}
           }
@@ -1084,7 +1105,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             </div>
 
             <div
-              className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
+              className={`hc-content-wrap relative h-full flex ${verticalAlign} z-10 max-w-7xl mx-auto ${textAlignClass}`}
               style={{
                 paddingLeft: `${displayPaddingH}px`,
                 paddingRight: `${displayPaddingH}px`,
