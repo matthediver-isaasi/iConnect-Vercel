@@ -1004,20 +1004,36 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
 
   const hasTextPaddingOverride = displayTextPaddingLeft > 0 || displayTextPaddingRight > 0 || displayTextPaddingTop > 0 || displayTextPaddingBottom > 0;
 
+  const computeMarginLeft = (left, right) => {
+    if (left > 0) return `${left}px`;
+    if (right > 0) return 'auto';
+    return undefined;
+  };
+  const computeMarginRight = (right) => right > 0 ? `${right}px` : undefined;
+  const computeMarginTop = (top) => top > 0 ? `${top}px` : undefined;
+  const computeMarginBottom = (bottom) => bottom > 0 ? `${bottom}px` : undefined;
+
   const textBoxStyle = {};
-  if (displayTextPaddingLeft > 0) {
-    textBoxStyle.marginLeft = `${displayTextPaddingLeft}px`;
-  } else if (displayTextPaddingRight > 0) {
-    textBoxStyle.marginLeft = 'auto';
+  if (hasTextPaddingOverride) {
+    if (isMobilePreview) {
+      textBoxStyle.marginLeft = computeMarginLeft(displayTextPaddingLeft, displayTextPaddingRight);
+      textBoxStyle.marginRight = computeMarginRight(displayTextPaddingRight);
+      textBoxStyle.marginTop = computeMarginTop(displayTextPaddingTop);
+      textBoxStyle.marginBottom = computeMarginBottom(displayTextPaddingBottom);
+    } else {
+      textBoxStyle.marginLeft = 'var(--hc-tb-ml)';
+      textBoxStyle.marginRight = 'var(--hc-tb-mr)';
+      textBoxStyle.marginTop = 'var(--hc-tb-mt)';
+      textBoxStyle.marginBottom = 'var(--hc-tb-mb)';
+    }
   }
-  if (displayTextPaddingRight > 0) {
-    textBoxStyle.marginRight = `${displayTextPaddingRight}px`;
-  }
-  if (displayTextPaddingTop > 0) {
-    textBoxStyle.marginTop = `${displayTextPaddingTop}px`;
-  }
-  if (displayTextPaddingBottom > 0) {
-    textBoxStyle.marginBottom = `${displayTextPaddingBottom}px`;
+
+  const containerCssVars = {};
+  if (hasTextPaddingOverride && !isMobilePreview) {
+    containerCssVars['--hc-tb-ml'] = computeMarginLeft(displayTextPaddingLeft, displayTextPaddingRight) || '0';
+    containerCssVars['--hc-tb-mr'] = computeMarginRight(displayTextPaddingRight) || '0';
+    containerCssVars['--hc-tb-mt'] = computeMarginTop(displayTextPaddingTop) || '0';
+    containerCssVars['--hc-tb-mb'] = computeMarginBottom(displayTextPaddingBottom) || '0';
   }
 
   return (
@@ -1071,10 +1087,12 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
-            ${mobileTextPaddingLeft > 0 ? `margin-left: ${mobileTextPaddingLeft}px !important;` : (mobileTextPaddingRight > 0 ? 'margin-left: auto !important;' : '')}
-            ${mobileTextPaddingRight > 0 ? `margin-right: ${mobileTextPaddingRight}px !important;` : ''}
-            ${mobileTextPaddingTop > 0 ? `margin-top: ${mobileTextPaddingTop}px !important;` : ''}
-            ${mobileTextPaddingBottom > 0 ? `margin-bottom: ${mobileTextPaddingBottom}px !important;` : ''}
+          }
+          .${instanceId} {
+            ${mobileTextPaddingLeft > 0 ? `--hc-tb-ml: ${mobileTextPaddingLeft}px;` : (mobileTextPaddingRight > 0 ? '--hc-tb-ml: auto;' : '')}
+            ${mobileTextPaddingRight > 0 ? `--hc-tb-mr: ${mobileTextPaddingRight}px;` : ''}
+            ${mobileTextPaddingTop > 0 ? `--hc-tb-mt: ${mobileTextPaddingTop}px;` : ''}
+            ${mobileTextPaddingBottom > 0 ? `--hc-tb-mb: ${mobileTextPaddingBottom}px;` : ''}
           }
         }`}
       `}</style>
@@ -1082,7 +1100,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
       <div
         id={anchor || undefined}
         className={`${instanceId} relative w-full overflow-hidden`}
-        style={containerHeight}
+        style={{ ...containerHeight, ...containerCssVars }}
         onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
         onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
       >
