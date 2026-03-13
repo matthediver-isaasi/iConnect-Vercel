@@ -990,9 +990,26 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const displayTextPaddingTop = isMobilePreview ? mobileTextPaddingTop : parsedTextPaddingTop;
   const displayTextPaddingBottom = isMobilePreview ? mobileTextPaddingBottom : parsedTextPaddingBottom;
 
-  const verticalAlign = displayTextPaddingTop > 0
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    if (isMobilePreview) return;
+    const mql = window.matchMedia('(max-width: 767px)');
+    setIsMobileViewport(mql.matches);
+    const handler = (e) => setIsMobileViewport(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, [isMobilePreview]);
+
+  const effectiveMobile = isMobilePreview || isMobileViewport;
+  const effLeft = effectiveMobile ? mobileTextPaddingLeft : parsedTextPaddingLeft;
+  const effRight = effectiveMobile ? mobileTextPaddingRight : parsedTextPaddingRight;
+  const effTop = effectiveMobile ? mobileTextPaddingTop : parsedTextPaddingTop;
+  const effBottom = effectiveMobile ? mobileTextPaddingBottom : parsedTextPaddingBottom;
+  const hasTextPaddingOverride = effLeft > 0 || effRight > 0 || effTop > 0 || effBottom > 0;
+
+  const verticalAlign = effTop > 0
     ? 'items-start'
-    : displayTextPaddingBottom > 0
+    : effBottom > 0
       ? 'items-end'
       : 'items-center';
 
@@ -1002,38 +1019,16 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
       ? 'items-end'
       : 'items-center';
 
-  const hasTextPaddingOverride = displayTextPaddingLeft > 0 || displayTextPaddingRight > 0 || displayTextPaddingTop > 0 || displayTextPaddingBottom > 0;
-
-  const computeMarginLeft = (left, right) => {
-    if (left > 0) return `${left}px`;
-    if (right > 0) return 'auto';
-    return undefined;
-  };
-  const computeMarginRight = (right) => right > 0 ? `${right}px` : undefined;
-  const computeMarginTop = (top) => top > 0 ? `${top}px` : undefined;
-  const computeMarginBottom = (bottom) => bottom > 0 ? `${bottom}px` : undefined;
-
   const textBoxStyle = {};
   if (hasTextPaddingOverride) {
-    if (isMobilePreview) {
-      textBoxStyle.marginLeft = computeMarginLeft(displayTextPaddingLeft, displayTextPaddingRight);
-      textBoxStyle.marginRight = computeMarginRight(displayTextPaddingRight);
-      textBoxStyle.marginTop = computeMarginTop(displayTextPaddingTop);
-      textBoxStyle.marginBottom = computeMarginBottom(displayTextPaddingBottom);
-    } else {
-      textBoxStyle.marginLeft = 'var(--hc-tb-ml)';
-      textBoxStyle.marginRight = 'var(--hc-tb-mr)';
-      textBoxStyle.marginTop = 'var(--hc-tb-mt)';
-      textBoxStyle.marginBottom = 'var(--hc-tb-mb)';
+    if (effLeft > 0) {
+      textBoxStyle.marginLeft = `${effLeft}px`;
+    } else if (effRight > 0) {
+      textBoxStyle.marginLeft = 'auto';
     }
-  }
-
-  const containerCssVars = {};
-  if (hasTextPaddingOverride && !isMobilePreview) {
-    containerCssVars['--hc-tb-ml'] = computeMarginLeft(displayTextPaddingLeft, displayTextPaddingRight) || '0';
-    containerCssVars['--hc-tb-mr'] = computeMarginRight(displayTextPaddingRight) || '0';
-    containerCssVars['--hc-tb-mt'] = computeMarginTop(displayTextPaddingTop) || '0';
-    containerCssVars['--hc-tb-mb'] = computeMarginBottom(displayTextPaddingBottom) || '0';
+    if (effRight > 0) textBoxStyle.marginRight = `${effRight}px`;
+    if (effTop > 0) textBoxStyle.marginTop = `${effTop}px`;
+    if (effBottom > 0) textBoxStyle.marginBottom = `${effBottom}px`;
   }
 
   return (
@@ -1088,19 +1083,13 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
           }
-          .${instanceId} {
-            ${mobileTextPaddingLeft > 0 ? `--hc-tb-ml: ${mobileTextPaddingLeft}px;` : (mobileTextPaddingRight > 0 ? '--hc-tb-ml: auto;' : '')}
-            ${mobileTextPaddingRight > 0 ? `--hc-tb-mr: ${mobileTextPaddingRight}px;` : ''}
-            ${mobileTextPaddingTop > 0 ? `--hc-tb-mt: ${mobileTextPaddingTop}px;` : ''}
-            ${mobileTextPaddingBottom > 0 ? `--hc-tb-mb: ${mobileTextPaddingBottom}px;` : ''}
-          }
         }`}
       `}</style>
 
       <div
         id={anchor || undefined}
         className={`${instanceId} relative w-full overflow-hidden`}
-        style={{ ...containerHeight, ...containerCssVars }}
+        style={containerHeight}
         onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
         onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
       >
