@@ -617,6 +617,56 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
                 </div>
               </div>
             </div>
+
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <h4 className="text-sm font-semibold">Text Position</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Left (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_left || 0}
+                    onChange={(e) => updateContent('text_padding_left', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                    data-testid="input-herocarousel-text-padding-left"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Right (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_right || 0}
+                    onChange={(e) => updateContent('text_padding_right', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                    data-testid="input-herocarousel-text-padding-right"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Top (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_top || 0}
+                    onChange={(e) => updateContent('text_padding_top', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                    data-testid="input-herocarousel-text-padding-top"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Bottom (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_bottom || 0}
+                    onChange={(e) => updateContent('text_padding_bottom', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                    data-testid="input-herocarousel-text-padding-bottom"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -759,6 +809,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     custom_height = 500,
     padding_vertical = 60,
     padding_horizontal = 16,
+    text_padding_left = 0,
+    text_padding_right = 0,
+    text_padding_top = 0,
+    text_padding_bottom = 0,
     mobile_header_font_size,
     mobile_subheading_font_size,
     mobile_content_font_size,
@@ -799,6 +853,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const mobileContentFS = mobile_content_font_size || Math.max(14, Math.round(safeContentFS * 0.9));
   const mobilePaddingV = Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingH = Math.max(16, parseInt(padding_horizontal));
+  const mobileTextPaddingLeft = Math.max(0, Math.min(parseInt(text_padding_left) || 0, 20));
+  const mobileTextPaddingRight = Math.max(0, Math.min(parseInt(text_padding_right) || 0, 20));
+  const mobileTextPaddingTop = Math.max(0, Math.min(parseInt(text_padding_top) || 0, 20));
+  const mobileTextPaddingBottom = Math.max(0, Math.min(parseInt(text_padding_bottom) || 0, 20));
 
   const goToSlide = useCallback((newIndex) => {
     if (isTransitioning || slides.length <= 1) return;
@@ -961,6 +1019,12 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         .${instanceId} .hc-body p:last-child {
           margin-bottom: 0;
         }
+        .${instanceId} .hc-text-box {
+          padding-left: ${isMobilePreview ? mobileTextPaddingLeft : (parseInt(text_padding_left) || 0)}px;
+          padding-right: ${isMobilePreview ? mobileTextPaddingRight : (parseInt(text_padding_right) || 0)}px;
+          padding-top: ${isMobilePreview ? mobileTextPaddingTop : (parseInt(text_padding_top) || 0)}px;
+          padding-bottom: ${isMobilePreview ? mobileTextPaddingBottom : (parseInt(text_padding_bottom) || 0)}px;
+        }
         ${isMobilePreview ? '' : `@media (max-width: 767px) {
           .${instanceId} .hc-title { font-size: ${mobileHeaderFS}px; }
           .${instanceId} .hc-subheading { font-size: ${mobileSubheadingFS}px; margin-top: 12px; }
@@ -973,6 +1037,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
+            padding-left: ${mobileTextPaddingLeft}px !important;
+            padding-right: ${mobileTextPaddingRight}px !important;
+            padding-top: ${mobileTextPaddingTop}px !important;
+            padding-bottom: ${mobileTextPaddingBottom}px !important;
           }
         }`}
       `}</style>
