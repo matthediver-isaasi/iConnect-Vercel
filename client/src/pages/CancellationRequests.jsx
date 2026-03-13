@@ -200,7 +200,7 @@ export default function CancellationRequests() {
 
     try {
       const requestIds = reviewDialog.items.map(i => i.id);
-      const isGroupRequest = reviewDialog.request_type === 'group' && requestIds.length > 1;
+      const isGroupRequest = reviewDialog.request_type === 'group';
 
       const voucherReplacementsList = Object.entries(voucherReplacements)
         .filter(([, v]) => v.create && v.newExpiryDate)
@@ -540,7 +540,7 @@ export default function CancellationRequests() {
                       )}
 
                       {!isTransfer && allPending && (() => {
-                        const isGroup = group.request_type === 'group' && group.items.length > 1;
+                        const isGroup = group.request_type === 'group';
                         const fs = isGroup ? firstItem.groupFinancialSummary : firstItem.financialSummary;
                         if (!fs) return null;
                         const items = [];
@@ -632,7 +632,7 @@ export default function CancellationRequests() {
                     ? 'Approving will transfer the ticket to the target member.'
                     : 'Rejecting will keep the ticket with the current attendee. The requester will be notified.')
                 : (reviewDialog?.action === 'approved'
-                    ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.${reviewDialog?.request_type === 'group' && (reviewDialog?.items?.length || 0) > 1 ? ' Stripe refund and Xero credit note will be consolidated into a single transaction.' : ''}`
+                    ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.${reviewDialog?.request_type === 'group' ? ' Stripe refund and Xero credit note will be consolidated into a single transaction.' : ''}`
                     : `Rejecting will keep the ticket(s) active. The member will see their request was declined.`)}
             </DialogDescription>
           </DialogHeader>
@@ -664,7 +664,7 @@ export default function CancellationRequests() {
             )}
 
             {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
-              const isGroupReview = reviewDialog?.request_type === 'group' && reviewDialog?.items?.length > 1;
+              const isGroupReview = reviewDialog?.request_type === 'group';
               const fs = isGroupReview
                 ? reviewDialog?.items?.[0]?.groupFinancialSummary
                 : reviewDialog?.items?.[0]?.financialSummary;
