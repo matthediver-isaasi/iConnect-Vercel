@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionMember, getSessionTenantUser } from '../_lib/session.js';
+import { getSessionMember } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -214,21 +215,26 @@ async function handlePost(req, res) {
 }
 
 async function handleGet(req, res) {
-  const tenantUser = await getSessionTenantUser(req);
-  let tenantId;
+  const ctx = await getTenantContext(req);
+  if (!ctx.isAuthenticated) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  const tenantId = ctx.tenantId;
   let memberIdFilter = null;
   let memberEmailFilter = null;
 
-  if (tenantUser) {
-    tenantId = tenantUser.tenant_id;
-  } else {
-    const member = await getSessionMember(req);
-    if (!member) {
-      return res.status(401).json({ error: 'Not authenticated' });
+  const isAdmin = await hasAdminAccess(ctx);
+  if (!isAdmin) {
+    memberIdFilter = ctx.memberId;
+    if (ctx.memberId) {
+      const { data: memberData } = await supabase
+        .from('member')
+        .select('email')
+        .eq('id', ctx.memberId)
+        .single();
+      memberEmailFilter = memberData?.email?.toLowerCase() || null;
     }
-    tenantId = member.organization?.tenant_id || member.tenant_id;
-    memberIdFilter = member.id;
-    memberEmailFilter = member.email?.toLowerCase() || null;
   }
 
   if (!tenantId) {

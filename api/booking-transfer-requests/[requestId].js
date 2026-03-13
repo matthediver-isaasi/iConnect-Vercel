@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
 
 export default async function handler(req, res) {
@@ -20,12 +20,16 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const tenantUser = await getSessionTenantUser(req);
-  if (!tenantUser) {
+  const ctx = await getTenantContext(req);
+  if (!ctx.isAuthenticated) {
     return res.status(401).json({ error: 'Admin authentication required' });
   }
 
-  const tenantId = tenantUser.tenant_id;
+  if (!(await hasAdminAccess(ctx))) {
+    return res.status(403).json({ error: 'Admin access required to approve or reject transfer requests' });
+  }
+
+  const tenantId = ctx.tenantId;
   const { requestId } = req.query;
 
   if (!requestId) {
@@ -76,7 +80,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Target member not found' });
     }
 
-    const reviewerName = tenantUser.email || tenantUser.name || 'Admin';
+    let reviewerName = 'Admin';
+    if (ctx.tenantUserId) {
+      const { data: tu } = await supabase.from('tenant_user').select('email, name').eq('id', ctx.tenantUserId).single();
+      if (tu) reviewerName = tu.email || tu.name || 'Admin';
+    } else if (ctx.memberId) {
+      const { data: m } = await supabase.from('member').select('email, first_name, last_name').eq('id', ctx.memberId).single();
+      if (m) reviewerName = m.email || [m.first_name, m.last_name].filter(Boolean).join(' ') || 'Admin';
+    }
 
     if (status === 'approved') {
       const originalAttendeeEmail = booking.attendee_email;
