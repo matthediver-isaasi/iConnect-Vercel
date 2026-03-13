@@ -1071,6 +1071,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
+            ${mobileTextPaddingLeft > 0 ? `margin-left: ${mobileTextPaddingLeft}px !important;` : (mobileTextPaddingRight > 0 ? 'margin-left: auto !important;' : '')}
+            ${mobileTextPaddingRight > 0 ? `margin-right: ${mobileTextPaddingRight}px !important;` : ''}
+            ${mobileTextPaddingTop > 0 ? `margin-top: ${mobileTextPaddingTop}px !important;` : ''}
+            ${mobileTextPaddingBottom > 0 ? `margin-bottom: ${mobileTextPaddingBottom}px !important;` : ''}
           }
         }`}
       `}</style>
