@@ -1002,6 +1002,24 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
       ? 'items-end'
       : 'items-center';
 
+  const hasTextPaddingOverride = displayTextPaddingLeft > 0 || displayTextPaddingRight > 0 || displayTextPaddingTop > 0 || displayTextPaddingBottom > 0;
+
+  const textBoxStyle = {};
+  if (displayTextPaddingLeft > 0) {
+    textBoxStyle.marginLeft = `${displayTextPaddingLeft}px`;
+  } else if (displayTextPaddingRight > 0) {
+    textBoxStyle.marginLeft = 'auto';
+  }
+  if (displayTextPaddingRight > 0) {
+    textBoxStyle.marginRight = `${displayTextPaddingRight}px`;
+  }
+  if (displayTextPaddingTop > 0) {
+    textBoxStyle.marginTop = `${displayTextPaddingTop}px`;
+  }
+  if (displayTextPaddingBottom > 0) {
+    textBoxStyle.marginBottom = `${displayTextPaddingBottom}px`;
+  }
+
   return (
     <>
       <style>{`
@@ -1039,17 +1057,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         .${instanceId} .hc-body p:last-child {
           margin-bottom: 0;
         }
-        ${(() => {
-          const rules = [];
-          if (displayTextPaddingLeft > 0) rules.push(`margin-left: ${displayTextPaddingLeft}px !important;`);
-          if (displayTextPaddingRight > 0) {
-            rules.push(`margin-right: ${displayTextPaddingRight}px !important;`);
-            if (displayTextPaddingLeft === 0) rules.push(`margin-left: auto !important;`);
-          }
-          if (displayTextPaddingTop > 0) rules.push(`margin-top: ${displayTextPaddingTop}px !important;`);
-          if (displayTextPaddingBottom > 0) rules.push(`margin-bottom: ${displayTextPaddingBottom}px !important;`);
-          return rules.length > 0 ? `.${instanceId} .hc-text-box { ${rules.join(' ')} }` : '';
-        })()}
+        
         ${isMobilePreview ? '' : `@media (max-width: 767px) {
           .${instanceId} .hc-title { font-size: ${mobileHeaderFS}px; }
           .${instanceId} .hc-subheading { font-size: ${mobileSubheadingFS}px; margin-top: 12px; }
@@ -1063,11 +1071,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
-            ${mobileTextPaddingLeft > 0 ? `margin-left: ${mobileTextPaddingLeft}px !important;` : ''}
-            ${mobileTextPaddingRight > 0 ? `margin-right: ${mobileTextPaddingRight}px !important;` : ''}
-            ${mobileTextPaddingRight > 0 && mobileTextPaddingLeft === 0 ? `margin-left: auto !important;` : ''}
-            ${mobileTextPaddingTop > 0 ? `margin-top: ${mobileTextPaddingTop}px !important;` : ''}
-            ${mobileTextPaddingBottom > 0 ? `margin-bottom: ${mobileTextPaddingBottom}px !important;` : ''}
           }
         }`}
       `}</style>
@@ -1113,7 +1116,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
                 paddingBottom: `${displayPaddingV}px`,
               }}
             >
-              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} ${positionClass}`}>
+              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'}${hasTextPaddingOverride ? '' : ` ${positionClass}`}`} style={textBoxStyle}>
                 {slide.headerText && (
                   <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
                 )}
