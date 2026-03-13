@@ -1005,7 +1005,8 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const effRight = effectiveMobile ? mobileTextPaddingRight : parsedTextPaddingRight;
   const effTop = effectiveMobile ? mobileTextPaddingTop : parsedTextPaddingTop;
   const effBottom = effectiveMobile ? mobileTextPaddingBottom : parsedTextPaddingBottom;
-  const hasTextPaddingOverride = effLeft > 0 || effRight > 0 || effTop > 0 || effBottom > 0;
+  const hasHorizontalOverride = effLeft > 0 || effRight > 0;
+  const hasTextPaddingOverride = hasHorizontalOverride || effTop > 0 || effBottom > 0;
 
   const verticalAlign = effTop > 0
     ? 'items-start'
@@ -1127,7 +1128,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
                 paddingBottom: `${displayPaddingV}px`,
               }}
             >
-              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'}${hasTextPaddingOverride ? '' : ` ${positionClass}`}`} style={textBoxStyle}>
+              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'}${hasHorizontalOverride ? '' : ` ${positionClass}`}`} style={textBoxStyle}>
                 {slide.headerText && (
                   <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
                 )}
