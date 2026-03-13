@@ -989,13 +989,11 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const displayTextPaddingRight = isMobilePreview ? mobileTextPaddingRight : parsedTextPaddingRight;
   const displayTextPaddingTop = isMobilePreview ? mobileTextPaddingTop : parsedTextPaddingTop;
   const displayTextPaddingBottom = isMobilePreview ? mobileTextPaddingBottom : parsedTextPaddingBottom;
-  const verticalAlign = displayTextPaddingTop > 0 && displayTextPaddingBottom > 0
+  const verticalAlign = displayTextPaddingTop > 0
     ? 'items-start'
-    : displayTextPaddingTop > 0
-      ? 'items-start'
-      : displayTextPaddingBottom > 0
-        ? 'items-end'
-        : 'items-center';
+    : displayTextPaddingBottom > 0
+      ? 'items-end'
+      : 'items-center';
 
   return (
     <>
