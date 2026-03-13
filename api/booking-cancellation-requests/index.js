@@ -361,6 +361,8 @@ async function handleGet(req, res) {
       const allVoucherDetails = [];
       let discountCode = null;
       const seenVoucherIds = new Set();
+      const seenStripeIntents = new Set();
+      const seenXeroInvoices = new Set();
 
       for (const item of groupItems) {
         const fs = item.financialSummary;
@@ -371,10 +373,16 @@ async function handleGet(req, res) {
         totalCard += fs.cardAmount || 0;
         totalAccount += fs.accountAmount || 0;
         totalCost += fs.totalCost || 0;
-        if (!stripePaymentIntentId && fs.stripePaymentIntentId) stripePaymentIntentId = fs.stripePaymentIntentId;
-        if (!xeroInvoiceId && fs.xeroInvoiceId) {
-          xeroInvoiceId = fs.xeroInvoiceId;
-          xeroInvoiceNumber = fs.xeroInvoiceNumber;
+        if (fs.stripePaymentIntentId) {
+          seenStripeIntents.add(fs.stripePaymentIntentId);
+          if (!stripePaymentIntentId) stripePaymentIntentId = fs.stripePaymentIntentId;
+        }
+        if (fs.xeroInvoiceId) {
+          seenXeroInvoices.add(fs.xeroInvoiceId);
+          if (!xeroInvoiceId) {
+            xeroInvoiceId = fs.xeroInvoiceId;
+            xeroInvoiceNumber = fs.xeroInvoiceNumber;
+          }
         }
         if (!paymentMethod && fs.paymentMethod) paymentMethod = fs.paymentMethod;
         if (fs.voucherDetails) {
@@ -387,6 +395,9 @@ async function handleGet(req, res) {
         }
         if (!discountCode && fs.discountCode) discountCode = fs.discountCode;
       }
+
+      const hasMultipleStripeIntents = seenStripeIntents.size > 1;
+      const hasMultipleXeroInvoices = seenXeroInvoices.size > 1;
 
       groupFinancialSummaries[ref] = {
         trainingFundAmount: totalTrainingFund,
@@ -403,6 +414,8 @@ async function handleGet(req, res) {
         xeroInvoiceNumber,
         ticketCount: groupItems.length,
         consolidated: true,
+        hasMultipleStripeIntents,
+        hasMultipleXeroInvoices,
       };
     }
 

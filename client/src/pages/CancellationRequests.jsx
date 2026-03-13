@@ -100,10 +100,11 @@ export default function CancellationRequests() {
   const groupedRequests = useMemo(() => {
     const groups = {};
     for (const req of requests) {
-      const key = req.booking_group_reference || req.booking_id;
+      const baseKey = req.booking_group_reference || req.booking_id;
+      const key = `${baseKey}::${req.request_type || 'individual'}`;
       if (!groups[key]) {
         groups[key] = {
-          key,
+          key: baseKey,
           booking_group_reference: req.booking_group_reference,
           event: req.event,
           member: req.member,
@@ -689,6 +690,21 @@ export default function CancellationRequests() {
                       </Badge>
                     )}
                   </div>
+
+                  {isGroupReview && (fs.hasMultipleStripeIntents || fs.hasMultipleXeroInvoices) && (
+                    <div className="p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="warning-multi-financial">
+                      <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-400">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>
+                          {fs.hasMultipleStripeIntents && fs.hasMultipleXeroInvoices
+                            ? 'This group has multiple Stripe payment intents and Xero invoices. Consolidated approval will be rejected — use individual ticket approvals instead.'
+                            : fs.hasMultipleStripeIntents
+                              ? 'This group has multiple Stripe payment intents. Consolidated refund will be rejected — use individual ticket approvals instead.'
+                              : 'This group has multiple Xero invoices. Consolidated credit note will be rejected — use individual ticket approvals instead.'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-2 text-sm">
                     {hasTrainingFund && (

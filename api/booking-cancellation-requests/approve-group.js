@@ -99,7 +99,7 @@ export default async function handler(req, res) {
       reversalResults = result.reversalResults;
     }
 
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from('booking_cancellation_request')
       .update({
         status,
@@ -108,11 +108,17 @@ export default async function handler(req, res) {
         review_notes: review_notes || null,
       })
       .in('id', request_ids)
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending')
+      .select('id');
 
     if (updateError) {
       console.error('[GroupApproval] Update error:', updateError);
       return res.status(500).json({ error: 'Failed to update request statuses' });
+    }
+
+    if (!updatedRows || updatedRows.length !== request_ids.length) {
+      console.warn(`[GroupApproval] Expected to update ${request_ids.length} requests but only ${updatedRows?.length || 0} were still pending — possible concurrent approval`);
     }
 
     sendGroupNotificationEmails({
@@ -545,7 +551,9 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
     const bookingsWithXero = bookings.filter(b => b.xero_invoice_id);
     if (bookingsWithXero.length > 0) {
       try {
-        const totalCreditAmount = bookings.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
+        const xeroInvoiceId = bookingsWithXero[0].xero_invoice_id;
+        const bookingsForThisInvoice = bookings.filter(b => b.xero_invoice_id === xeroInvoiceId);
+        const totalCreditAmount = bookingsForThisInvoice.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
 
         if (totalCreditAmount > 0) {
           const xeroBooking = bookingsWithXero[0];
