@@ -363,16 +363,16 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
                                   </div>
 
                                   <div>
-                                    <Label className="text-xs">Image Focus Point</Label>
+                                    <Label className="text-xs">Image Display</Label>
                                     <select
-                                      value={slide.imageFocusPoint || 'center'}
-                                      onChange={(e) => updateSlide(index, 'imageFocusPoint', e.target.value)}
+                                      value={slide.imageFit || 'cover'}
+                                      onChange={(e) => updateSlide(index, 'imageFit', e.target.value)}
                                       className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                                      data-testid={`select-herocarousel-image-focus-${index}`}
+                                      data-testid={`select-herocarousel-image-fit-${index}`}
                                     >
-                                      <option value="top">Top</option>
-                                      <option value="center">Center</option>
-                                      <option value="bottom">Bottom</option>
+                                      <option value="cover">Cover (Fill & Crop)</option>
+                                      <option value="contain">Contain (Fit Within)</option>
+                                      <option value="original">Original (Full Width, Natural Height)</option>
                                     </select>
                                   </div>
 
@@ -1052,7 +1052,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
                   src={slide.backgroundImage}
                   alt=""
                   className="absolute inset-0 w-full h-full"
-                  style={{ objectFit: 'cover', objectPosition: `center ${slide.imageFocusPoint || 'center'}` }}
+                  style={{ objectFit: slide.imageFit === 'original' ? 'contain' : (slide.imageFit || 'cover') }}
                 />
               ) : (
                 <div
