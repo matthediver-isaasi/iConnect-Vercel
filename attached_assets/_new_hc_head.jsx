@@ -887,6 +887,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [slides.length, autoplayInterval, isPaused, transitionDuration]);
 
+  const allSlidesOriginal = slides.every(s => s.imageFit === 'original');
   const activeSlideOriginal = slides[currentIndex]?.imageFit === 'original';
 
   const getDesktopHeightCSS = () => {

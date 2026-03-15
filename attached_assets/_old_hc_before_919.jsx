@@ -569,51 +569,43 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
 
         {expandedSections.layout && (
           <div className="p-4 space-y-4 border-t border-slate-200">
-            {(content.slides || []).length > 0 && (content.slides || []).every(s => s.imageFit === 'original') ? (
-              <div className="text-xs text-slate-500 italic">
-                Height is determined by the image when all slides use "Original" display mode.
+            <div>
+              <label className="block text-sm font-medium mb-1">Container Height</label>
+              <select
+                value={content.height_type || 'custom'}
+                onChange={(e) => updateContent('height_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-herocarousel-height"
+              >
+                <option value="auto">Auto (Min Height)</option>
+                <option value="full">Full Viewport</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
+            {content.height_type === 'auto' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Minimum Height (px)</label>
+                <Input
+                  type="number"
+                  value={content.auto_min_height ?? 400}
+                  onChange={(e) => updateContent('auto_min_height', parseInt(e.target.value) || 200)}
+                  min="100"
+                  data-testid="input-herocarousel-auto-min-height"
+                />
               </div>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Container Height</label>
-                  <select
-                    value={content.height_type || 'custom'}
-                    onChange={(e) => updateContent('height_type', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    data-testid="select-herocarousel-height"
-                  >
-                    <option value="auto">Auto (Min Height)</option>
-                    <option value="full">Full Viewport</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                </div>
+            )}
 
-                {content.height_type === 'auto' && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Minimum Height (px)</label>
-                    <Input
-                      type="number"
-                      value={content.auto_min_height ?? 400}
-                      onChange={(e) => updateContent('auto_min_height', parseInt(e.target.value) || 200)}
-                      min="100"
-                      data-testid="input-herocarousel-auto-min-height"
-                    />
-                  </div>
-                )}
-
-                {content.height_type === 'custom' && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Custom Height (px)</label>
-                    <Input
-                      type="number"
-                      value={content.custom_height || 500}
-                      onChange={(e) => updateContent('custom_height', parseInt(e.target.value) || 500)}
-                      min="200"
-                    />
-                  </div>
-                )}
-              </>
+            {content.height_type === 'custom' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Custom Height (px)</label>
+                <Input
+                  type="number"
+                  value={content.custom_height || 500}
+                  onChange={(e) => updateContent('custom_height', parseInt(e.target.value) || 500)}
+                  min="200"
+                />
+              </div>
             )}
 
             <div className="space-y-3 pt-4 border-t border-slate-100">
@@ -887,38 +879,20 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [slides.length, autoplayInterval, isPaused, transitionDuration]);
 
-  const activeSlideOriginal = slides[currentIndex]?.imageFit === 'original';
-
-  const getDesktopHeightCSS = () => {
-    if (activeSlideOriginal) return '';
-    if (height_type === 'full') return 'height: 100vh;';
-    if (height_type === 'custom') return `height: ${custom_height}px;`;
-    return `min-height: ${parseInt(auto_min_height) || 400}px;`;
+  const getContainerHeight = () => {
+    if (height_type === 'full') return { height: '100vh' };
+    if (height_type === 'custom') return { height: `${custom_height}px` };
+    return { minHeight: `${parseInt(auto_min_height) || 400}px` };
   };
-
-  const getMobileHeightCSS = () => {
-    if (activeSlideOriginal) return '';
-    if (height_type === 'full') return 'height: 100vh;';
-    if (height_type === 'custom') return `height: ${Math.round(parseInt(custom_height) * 0.6)}px;`;
-    return `min-height: ${Math.round((parseInt(auto_min_height) || 400) * 0.6)}px;`;
-  };
+  const containerHeight = getContainerHeight();
 
   const getSlideTransitionStyle = (slideIndex) => {
     const isActive = slideIndex === currentIndex;
     const isPrev = slideIndex === previousIndex;
     const dur = `${transitionDuration}ms`;
     const base = { position: 'absolute', inset: 0 };
-    const relBase = { position: 'relative', width: '100%' };
 
     if (transitionEffect === 'fade') {
-      if (isActive && activeSlideOriginal) {
-        return {
-          ...relBase,
-          opacity: 1,
-          transition: `opacity ${dur} ease-in-out`,
-          zIndex: 2,
-        };
-      }
       return {
         ...base,
         opacity: isActive ? 1 : 0,
@@ -945,15 +919,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     const effect = exitTransforms[transitionEffect] ? transitionEffect : 'slide-left';
 
     if (isActive) {
-      if (activeSlideOriginal) {
-        return {
-          ...relBase,
-          transform: 'translateX(0) translateY(0)',
-          opacity: 1,
-          transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`,
-          zIndex: 2,
-        };
-      }
       return {
         ...base,
         transform: 'translateX(0) translateY(0)',
@@ -1021,9 +986,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   return (
     <>
       <style>{`
-        .${instanceId} {
-          ${getDesktopHeightCSS()}
-        }
         .${instanceId} .hc-title {
           font-family: ${effectiveHeaderFontFamily};
           font-size: ${displayHeaderFS}px;
@@ -1060,9 +1022,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         }
         
         ${isMobilePreview ? '' : `@media (max-width: 767px) {
-          .${instanceId} {
-            ${getMobileHeightCSS()}
-          }
           .${instanceId} .hc-title { font-size: ${mobileHeaderFS}px; }
           .${instanceId} .hc-subheading { font-size: ${mobileSubheadingFS}px; margin-top: 12px; }
           .${instanceId} .hc-body { font-size: ${mobileContentFS}px; margin-top: 12px; }
@@ -1081,131 +1040,68 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
       <div
         id={anchor || undefined}
         className={`${instanceId} relative w-full overflow-hidden`}
+        style={containerHeight}
         onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
         onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
       >
-        {slides.map((slide, index) => {
-          const isOriginal = slide.imageFit === 'original';
-          const isActiveSlide = index === currentIndex;
-          return (
-            <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
-              {isOriginal && isActiveSlide ? (
-                <>
-                  <div className="relative">
-                    {slide.backgroundImage ? (
-                      <img
-                        src={slide.backgroundImage}
-                        alt=""
-                        className="w-full h-auto block"
-                      />
-                    ) : (
-                      <div
-                        className="w-full"
-                        style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)', minHeight: '300px' }}
-                      />
-                    )}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundColor: slide.overlayColor || '#000000',
-                        opacity: (slide.overlayOpacity ?? 40) / 100
-                      }}
-                    />
-                  </div>
-
-                  <div
-                    className={`hc-content-wrap absolute inset-0 flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
-                    style={{
-                      paddingLeft: `${displayPaddingH}px`,
-                      paddingRight: `${displayPaddingH}px`,
-                      paddingTop: `${displayPaddingV}px`,
-                      paddingBottom: `${displayPaddingV}px`,
-                    }}
-                  >
-                    <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
-                      {slide.headerText && (
-                        <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
-                      )}
-                      {slide.subheadingText && (
-                        <div className="hc-subheading" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.subheadingText) }} />
-                      )}
-                      {slide.contentText && (
-                        <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
-                      )}
-                      {slide.ctaText && slide.ctaLink && (
-                        <div style={{ marginTop: '24px' }}>
-                          <a
-                            href={slide.ctaLink}
-                            className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
-                          >
-                            {slide.ctaText}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
+        {slides.map((slide, index) => (
+          <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
+            <div className="absolute inset-0">
+              {slide.backgroundImage ? (
+                <img
+                  src={slide.backgroundImage}
+                  alt=""
+                  className="absolute inset-0 w-full h-full"
+                  style={{ objectFit: slide.imageFit === 'original' ? 'contain' : (slide.imageFit || 'cover') }}
+                />
               ) : (
-                <>
-                  <div className="absolute inset-0">
-                    {slide.backgroundImage ? (
-                      <img
-                        src={slide.backgroundImage}
-                        alt=""
-                        className="absolute inset-0 w-full h-full"
-                        style={{ objectFit: isOriginal ? 'contain' : (slide.imageFit || 'cover') }}
-                      />
-                    ) : (
-                      <div
-                        className="absolute inset-0"
-                        style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)' }}
-                      />
-                    )}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundColor: slide.overlayColor || '#000000',
-                        opacity: (slide.overlayOpacity ?? 40) / 100
-                      }}
-                    />
-                  </div>
-
-                  <div
-                    className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
-                    style={{
-                      paddingLeft: `${displayPaddingH}px`,
-                      paddingRight: `${displayPaddingH}px`,
-                      paddingTop: `${displayPaddingV}px`,
-                      paddingBottom: `${displayPaddingV}px`,
-                    }}
-                  >
-                    <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
-                      {slide.headerText && (
-                        <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
-                      )}
-                      {slide.subheadingText && (
-                        <div className="hc-subheading" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.subheadingText) }} />
-                      )}
-                      {slide.contentText && (
-                        <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
-                      )}
-                      {slide.ctaText && slide.ctaLink && (
-                        <div style={{ marginTop: '24px' }}>
-                          <a
-                            href={slide.ctaLink}
-                            className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
-                          >
-                            {slide.ctaText}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
+                <div
+                  className="absolute inset-0"
+                  style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)' }}
+                />
               )}
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundColor: slide.overlayColor || '#000000',
+                  opacity: (slide.overlayOpacity ?? 40) / 100
+                }}
+              />
             </div>
-          );
-        })}
+
+            <div
+              className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
+              style={{
+                paddingLeft: `${displayPaddingH}px`,
+                paddingRight: `${displayPaddingH}px`,
+                paddingTop: `${displayPaddingV}px`,
+                paddingBottom: `${displayPaddingV}px`,
+              }}
+            >
+              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
+                {slide.headerText && (
+                  <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
+                )}
+                {slide.subheadingText && (
+                  <div className="hc-subheading" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.subheadingText) }} />
+                )}
+                {slide.contentText && (
+                  <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
+                )}
+                {slide.ctaText && slide.ctaLink && (
+                  <div style={{ marginTop: '24px' }}>
+                    <a
+                      href={slide.ctaLink}
+                      className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
+                    >
+                      {slide.ctaText}
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
 
         {showArrows && slides.length > 1 && (
           <>
