@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save } from "lucide-react";
+import { Mail, Plus, Pencil, Trash2, Users, Shield, AlertTriangle, Download, Loader2, ChevronLeft, ChevronRight, ChevronDown, X, RefreshCw, Link2, Unlink, Send, Globe, ListFilter, Check, Save, Search, UserX } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -493,6 +493,11 @@ export default function CommunicationsManagementPage() {
   const [subscribersPage, setSubscribersPage] = useState(1);
   const SUBSCRIBERS_PER_PAGE = 10;
 
+  const [optOutSearch, setOptOutSearch] = useState('');
+  const [optOutPage, setOptOutPage] = useState(1);
+  const [exportingOptOuts, setExportingOptOuts] = useState(false);
+  const OPT_OUT_PER_PAGE = 10;
+
   const getSubscribersForCategory = (categoryId) => {
     const assignedRoleIds = getCategoryRoles(categoryId);
     if (assignedRoleIds.length === 0) return [];
@@ -593,6 +598,75 @@ export default function CommunicationsManagementPage() {
     const start = (subscribersPage - 1) * SUBSCRIBERS_PER_PAGE;
     const subscribers = allSubscribers.slice(start, start + SUBSCRIBERS_PER_PAGE);
     return { subscribers, totalPages, total };
+  };
+
+  const globalOptOutMembers = useMemo(() => {
+    return allMembers.filter(member => member.communications_opted_out_all === true);
+  }, [allMembers]);
+
+  const filteredOptOutMembers = useMemo(() => {
+    if (!optOutSearch.trim()) return globalOptOutMembers;
+    const search = optOutSearch.toLowerCase().trim();
+    return globalOptOutMembers.filter(member => {
+      const name = [member.first_name, member.last_name].filter(Boolean).join(' ').toLowerCase();
+      const email = (member.email || '').toLowerCase();
+      const org = (member.organization_id && orgLookup[member.organization_id] || '').toLowerCase();
+      const role = (member.role_id && roleLookup[member.role_id] || '').toLowerCase();
+      return name.includes(search) || email.includes(search) || org.includes(search) || role.includes(search);
+    });
+  }, [globalOptOutMembers, optOutSearch, orgLookup, roleLookup]);
+
+  const getPaginatedOptOuts = () => {
+    const total = filteredOptOutMembers.length;
+    const totalPages = Math.ceil(total / OPT_OUT_PER_PAGE) || 1;
+    const safePage = Math.min(optOutPage, totalPages);
+    const start = (safePage - 1) * OPT_OUT_PER_PAGE;
+    const members = filteredOptOutMembers.slice(start, start + OPT_OUT_PER_PAGE);
+    return { members, totalPages, total, currentPage: safePage };
+  };
+
+  const handleExportOptOuts = () => {
+    setExportingOptOuts(true);
+    try {
+      if (globalOptOutMembers.length === 0) {
+        toast.info('No globally opted-out members to export');
+        setExportingOptOuts(false);
+        return;
+      }
+
+      const headers = ['Name', 'Email', 'Organisation', 'Role'];
+      const rows = globalOptOutMembers.map(member => {
+        const name = [member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A';
+        const email = member.email || 'N/A';
+        const org = (member.organization_id && orgLookup[member.organization_id]) || 'N/A';
+        const role = (member.role_id && roleLookup[member.role_id]) || 'N/A';
+
+        return [name, email, org, role].map(val => {
+          const escaped = String(val).replace(/"/g, '""');
+          return `"${escaped}"`;
+        }).join(',');
+      });
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      const date = new Date().toISOString().split('T')[0];
+      link.setAttribute('href', url);
+      link.setAttribute('download', `global_opt_outs_${date}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${globalOptOutMembers.length} opted-out member${globalOptOutMembers.length !== 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export opt-out list');
+    } finally {
+      setExportingOptOuts(false);
+    }
   };
 
   const handleExportSubscribers = async (category) => {
@@ -943,6 +1017,15 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 <TabsTrigger value="categories" data-testid="tab-categories">
                   <Mail className="w-4 h-4 mr-2" />
                   Subscription Categories
+                </TabsTrigger>
+                <TabsTrigger value="opt-outs" data-testid="tab-opt-outs" onClick={() => { setOptOutPage(1); }}>
+                  <UserX className="w-4 h-4 mr-2" />
+                  Global Opt-Outs
+                  {!membersLoading && globalOptOutMembers.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs" data-testid="badge-opt-out-count">
+                      {globalOptOutMembers.length}
+                    </Badge>
+                  )}
                 </TabsTrigger>
               </TabsList>
 
@@ -1309,6 +1392,134 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 })}
               </div>
             )}
+              </TabsContent>
+
+              <TabsContent value="opt-outs">
+                <div className="mb-4 flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900" data-testid="text-opt-outs-heading">Global Opt-Outs</h3>
+                    <p className="text-sm text-slate-500">Members who have opted out of all communications.</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={handleExportOptOuts}
+                    disabled={exportingOptOuts || membersLoading || globalOptOutMembers.length === 0}
+                    data-testid="button-export-opt-outs"
+                  >
+                    {exportingOptOuts ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-2" />
+                    )}
+                    Download CSV
+                  </Button>
+                </div>
+
+                {membersLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
+                    <span className="text-slate-600">Loading members...</span>
+                  </div>
+                ) : globalOptOutMembers.length === 0 ? (
+                  <div className="text-center py-12" data-testid="text-no-opt-outs">
+                    <UserX className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-slate-900 mb-2">No Global Opt-Outs</h3>
+                    <p className="text-slate-600">
+                      No members have globally opted out of all communications.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="relative mb-4">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <Input
+                        placeholder="Search by name, email, organisation, or role..."
+                        value={optOutSearch}
+                        onChange={(e) => { setOptOutSearch(e.target.value); setOptOutPage(1); }}
+                        className="pl-9"
+                        data-testid="input-opt-out-search"
+                      />
+                    </div>
+
+                    {(() => {
+                      const { members, totalPages, total, currentPage } = getPaginatedOptOuts();
+
+                      if (total === 0) {
+                        return (
+                          <div className="text-center py-12" data-testid="text-no-search-results">
+                            <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                            <p className="text-slate-600">No opted-out members match your search.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Email</TableHead>
+                                <TableHead>Organisation</TableHead>
+                                <TableHead>Role</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {members.map((member) => (
+                                <TableRow
+                                  key={member.id}
+                                  data-testid={`row-opt-out-${member.id}`}
+                                  className="cursor-pointer hover:bg-blue-50 transition-colors"
+                                  onClick={() => navigate(`/members/${member.id}`)}
+                                >
+                                  <TableCell className="font-medium text-blue-600 hover:text-blue-700" data-testid={`text-opt-out-name-${member.id}`}>
+                                    {[member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A'}
+                                  </TableCell>
+                                  <TableCell className="text-slate-600" data-testid={`text-opt-out-email-${member.id}`}>{member.email || 'N/A'}</TableCell>
+                                  <TableCell data-testid={`text-opt-out-org-${member.id}`}>{(member.organization_id && orgLookup[member.organization_id]) || 'N/A'}</TableCell>
+                                  <TableCell data-testid={`text-opt-out-role-${member.id}`}>{(member.role_id && roleLookup[member.role_id]) || 'N/A'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between mt-4 pt-4 border-t gap-2 flex-wrap">
+                              <div className="text-sm text-slate-600" data-testid="text-opt-out-page-info">
+                                Showing {((currentPage - 1) * OPT_OUT_PER_PAGE) + 1} - {Math.min(currentPage * OPT_OUT_PER_PAGE, total)} of {total}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setOptOutPage(p => Math.max(1, p - 1))}
+                                  disabled={currentPage === 1}
+                                  data-testid="button-opt-out-prev-page"
+                                >
+                                  <ChevronLeft className="w-4 h-4" />
+                                  Previous
+                                </Button>
+                                <span className="text-sm text-slate-600 px-2" data-testid="text-opt-out-page-label">
+                                  Page {currentPage} of {totalPages}
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setOptOutPage(p => Math.min(totalPages, p + 1))}
+                                  disabled={currentPage === totalPages}
+                                  data-testid="button-opt-out-next-page"
+                                >
+                                  Next
+                                  <ChevronRight className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
               </TabsContent>
             </Tabs>
           </CardContent>
