@@ -363,6 +363,20 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
                                   </div>
 
                                   <div>
+                                    <Label className="text-xs">Image Focus Point</Label>
+                                    <select
+                                      value={slide.imageFocusPoint || 'center'}
+                                      onChange={(e) => updateSlide(index, 'imageFocusPoint', e.target.value)}
+                                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                                      data-testid={`select-herocarousel-image-focus-${index}`}
+                                    >
+                                      <option value="top">Top</option>
+                                      <option value="center">Center</option>
+                                      <option value="bottom">Bottom</option>
+                                    </select>
+                                  </div>
+
+                                  <div>
                                     <Label>Header Text</Label>
                                     <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
                                       <ReactQuill
@@ -1038,7 +1052,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
                   src={slide.backgroundImage}
                   alt=""
                   className="absolute inset-0 w-full h-full"
-                  style={{ objectFit: 'cover' }}
+                  style={{ objectFit: 'cover', objectPosition: `center ${slide.imageFocusPoint || 'center'}` }}
                 />
               ) : (
                 <div
