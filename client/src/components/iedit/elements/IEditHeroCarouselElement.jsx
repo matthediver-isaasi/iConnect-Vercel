@@ -891,14 +891,14 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const activeSlideOriginal = slides[currentIndex]?.imageFit === 'original';
 
   const getDesktopHeightCSS = () => {
-    if (allSlidesOriginal) return '';
+    if (activeSlideOriginal) return '';
     if (height_type === 'full') return 'height: 100vh;';
     if (height_type === 'custom') return `height: ${custom_height}px;`;
     return `min-height: ${parseInt(auto_min_height) || 400}px;`;
   };
 
   const getMobileHeightCSS = () => {
-    if (allSlidesOriginal) return '';
+    if (activeSlideOriginal) return '';
     if (height_type === 'full') return 'height: 100vh;';
     if (height_type === 'custom') return `height: ${Math.round(parseInt(custom_height) * 0.6)}px;`;
     return `min-height: ${Math.round((parseInt(auto_min_height) || 400) * 0.6)}px;`;
