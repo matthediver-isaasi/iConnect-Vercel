@@ -891,7 +891,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   }, [slides.length, autoplayInterval, isPaused, transitionDuration]);
 
   const settledSlideOriginal = slides[settledIndex]?.imageFit === 'original';
-  const activeSlideOriginal = slides[currentIndex]?.imageFit === 'original';
 
   const getDesktopHeightCSS = () => {
     if (settledSlideOriginal) return '';
@@ -912,17 +911,8 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     const isPrev = slideIndex === previousIndex;
     const dur = `${transitionDuration}ms`;
     const base = { position: 'absolute', inset: 0 };
-    const relBase = { position: 'relative', width: '100%' };
 
     if (transitionEffect === 'fade') {
-      if (isActive && activeSlideOriginal) {
-        return {
-          ...relBase,
-          opacity: 1,
-          transition: `opacity ${dur} ease-in-out`,
-          zIndex: 2,
-        };
-      }
       return {
         ...base,
         opacity: isActive ? 1 : 0,
@@ -949,15 +939,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     const effect = exitTransforms[transitionEffect] ? transitionEffect : 'slide-left';
 
     if (isActive) {
-      if (activeSlideOriginal) {
-        return {
-          ...relBase,
-          transform: 'translateX(0) translateY(0)',
-          opacity: 1,
-          transition: `transform ${dur} ease-in-out, opacity ${dur} ease-in-out`,
-          zIndex: 2,
-        };
-      }
       return {
         ...base,
         transform: 'translateX(0) translateY(0)',
@@ -1089,128 +1070,74 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
         onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
       >
-        {slides.map((slide, index) => {
-          const isOriginal = slide.imageFit === 'original';
-          const isActiveSlide = index === currentIndex;
-          return (
-            <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
-              {isOriginal && isActiveSlide ? (
-                <>
-                  <div className="relative">
-                    {slide.backgroundImage ? (
-                      <img
-                        src={slide.backgroundImage}
-                        alt=""
-                        className="w-full h-auto block"
-                      />
-                    ) : (
-                      <div
-                        className="w-full"
-                        style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)', minHeight: '300px' }}
-                      />
-                    )}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundColor: slide.overlayColor || '#000000',
-                        opacity: (slide.overlayOpacity ?? 40) / 100
-                      }}
-                    />
-                  </div>
+        {settledSlideOriginal && slides[settledIndex]?.backgroundImage && (
+          <img
+            src={slides[settledIndex].backgroundImage}
+            alt=""
+            className="w-full h-auto block"
+            style={{ visibility: 'hidden' }}
+            aria-hidden="true"
+          />
+        )}
 
-                  <div
-                    className={`hc-content-wrap absolute inset-0 flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
-                    style={{
-                      paddingLeft: `${displayPaddingH}px`,
-                      paddingRight: `${displayPaddingH}px`,
-                      paddingTop: `${displayPaddingV}px`,
-                      paddingBottom: `${displayPaddingV}px`,
-                    }}
-                  >
-                    <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
-                      {slide.headerText && (
-                        <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
-                      )}
-                      {slide.subheadingText && (
-                        <div className="hc-subheading" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.subheadingText) }} />
-                      )}
-                      {slide.contentText && (
-                        <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
-                      )}
-                      {slide.ctaText && slide.ctaLink && (
-                        <div style={{ marginTop: '24px' }}>
-                          <a
-                            href={slide.ctaLink}
-                            className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
-                          >
-                            {slide.ctaText}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
+        {slides.map((slide, index) => (
+          <div key={slide.id || index} style={getSlideTransitionStyle(index)}>
+            <div className="absolute inset-0">
+              {slide.backgroundImage ? (
+                <img
+                  src={slide.backgroundImage}
+                  alt=""
+                  className="absolute inset-0 w-full h-full"
+                  style={{ objectFit: slide.imageFit === 'original' ? 'contain' : (slide.imageFit || 'cover') }}
+                />
               ) : (
-                <>
-                  <div className="absolute inset-0">
-                    {slide.backgroundImage ? (
-                      <img
-                        src={slide.backgroundImage}
-                        alt=""
-                        className="absolute inset-0 w-full h-full"
-                        style={{ objectFit: isOriginal ? 'contain' : (slide.imageFit || 'cover') }}
-                      />
-                    ) : (
-                      <div
-                        className="absolute inset-0"
-                        style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)' }}
-                      />
-                    )}
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundColor: slide.overlayColor || '#000000',
-                        opacity: (slide.overlayOpacity ?? 40) / 100
-                      }}
-                    />
-                  </div>
-
-                  <div
-                    className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
-                    style={{
-                      paddingLeft: `${displayPaddingH}px`,
-                      paddingRight: `${displayPaddingH}px`,
-                      paddingTop: `${displayPaddingV}px`,
-                      paddingBottom: `${displayPaddingV}px`,
-                    }}
-                  >
-                    <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
-                      {slide.headerText && (
-                        <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
-                      )}
-                      {slide.subheadingText && (
-                        <div className="hc-subheading" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.subheadingText) }} />
-                      )}
-                      {slide.contentText && (
-                        <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
-                      )}
-                      {slide.ctaText && slide.ctaLink && (
-                        <div style={{ marginTop: '24px' }}>
-                          <a
-                            href={slide.ctaLink}
-                            className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
-                          >
-                            {slide.ctaText}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
+                <div
+                  className="absolute inset-0"
+                  style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%)' }}
+                />
               )}
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundColor: slide.overlayColor || '#000000',
+                  opacity: (slide.overlayOpacity ?? 40) / 100
+                }}
+              />
             </div>
-          );
-        })}
+
+            <div
+              className={`hc-content-wrap relative h-full flex items-center z-10 max-w-7xl mx-auto ${textAlignClass}`}
+              style={{
+                paddingLeft: `${displayPaddingH}px`,
+                paddingRight: `${displayPaddingH}px`,
+                paddingTop: `${displayPaddingV}px`,
+                paddingBottom: `${displayPaddingV}px`,
+              }}
+            >
+              <div className={`hc-text-box ${isMobilePreview ? '' : 'max-w-2xl'} mx-auto`} style={textBoxStyle}>
+                {slide.headerText && (
+                  <div className="hc-title" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.headerText) }} />
+                )}
+                {slide.subheadingText && (
+                  <div className="hc-subheading" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.subheadingText) }} />
+                )}
+                {slide.contentText && (
+                  <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
+                )}
+                {slide.ctaText && slide.ctaLink && (
+                  <div style={{ marginTop: '24px' }}>
+                    <a
+                      href={slide.ctaLink}
+                      className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
+                    >
+                      {slide.ctaText}
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
 
         {showArrows && slides.length > 1 && (
           <>
