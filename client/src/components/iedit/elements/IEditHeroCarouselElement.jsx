@@ -563,11 +563,24 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
                 className="w-full px-3 py-2 border border-slate-300 rounded-md"
                 data-testid="select-herocarousel-height"
               >
-                <option value="auto">Auto (Min 400px)</option>
+                <option value="auto">Auto (Min Height)</option>
                 <option value="full">Full Viewport</option>
                 <option value="custom">Custom</option>
               </select>
             </div>
+
+            {content.height_type === 'auto' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Minimum Height (px)</label>
+                <Input
+                  type="number"
+                  value={content.auto_min_height ?? 400}
+                  onChange={(e) => updateContent('auto_min_height', parseInt(e.target.value) || 200)}
+                  min="100"
+                  data-testid="input-herocarousel-auto-min-height"
+                />
+              </div>
+            )}
 
             {content.height_type === 'custom' && (
               <div>
@@ -770,6 +783,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     text_alignment = 'center',
     height_type = 'custom',
     custom_height = 500,
+    auto_min_height = 400,
     padding_vertical = 60,
     padding_horizontal = 16,
     text_offset_x = 0,
@@ -854,7 +868,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const getContainerHeight = () => {
     if (height_type === 'full') return { height: '100vh' };
     if (height_type === 'custom') return { height: `${custom_height}px` };
-    return { minHeight: '400px' };
+    return { minHeight: `${parseInt(auto_min_height) || 400}px` };
   };
   const containerHeight = getContainerHeight();
 
