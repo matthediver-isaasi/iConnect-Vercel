@@ -71,10 +71,15 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
   }
 
   try {
-    // Clean up scheduled_at - convert empty string to null
     const cleanedData = { ...campaignData };
     if (cleanedData.scheduled_at === '' || cleanedData.scheduled_at === undefined) {
       cleanedData.scheduled_at = null;
+    }
+    if (cleanedData.email_template_id === '' || cleanedData.email_template_id === 'none') {
+      cleanedData.email_template_id = null;
+    }
+    if (cleanedData.communication_category_id === '') {
+      cleanedData.communication_category_id = null;
     }
 
     const { data, error } = await supabase
@@ -102,10 +107,15 @@ export async function updateCampaign(campaignId, updates, tenantId) {
   }
 
   try {
-    // Clean up scheduled_at - convert empty string to null
     const cleanedUpdates = { ...updates };
     if (cleanedUpdates.scheduled_at === '' || cleanedUpdates.scheduled_at === undefined) {
       cleanedUpdates.scheduled_at = null;
+    }
+    if (cleanedUpdates.email_template_id === '' || cleanedUpdates.email_template_id === 'none') {
+      cleanedUpdates.email_template_id = null;
+    }
+    if (cleanedUpdates.communication_category_id === '') {
+      cleanedUpdates.communication_category_id = null;
     }
 
     const { data, error } = await supabase

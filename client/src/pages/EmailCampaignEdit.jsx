@@ -335,6 +335,9 @@ export default function EmailCampaignEdit() {
       if (saveData.communication_category_id === '') {
         saveData.communication_category_id = null;
       }
+      if (saveData.email_template_id === '' || saveData.email_template_id === 'none') {
+        saveData.email_template_id = null;
+      }
       if (saveData.design_json && typeof saveData.design_json === 'object' && saveData.design_json.blocks) {
         try {
           const fHtml = footerData?.hasFooter ? footerData.footer : null;
