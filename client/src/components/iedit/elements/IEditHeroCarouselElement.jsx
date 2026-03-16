@@ -1098,6 +1098,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
             overflow-wrap: break-word !important;
             word-wrap: break-word !important;
             box-sizing: border-box !important;
+            overflow: hidden !important;
           }
           .${instanceId} .hc-cta-wrap {
             margin-top: 16px !important;
