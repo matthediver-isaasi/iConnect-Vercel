@@ -80,7 +80,10 @@ export default async function handler(req, res) {
         is_public: tc.is_public,
         is_group_ticket: tc.is_group_ticket || false,
         group_size: tc.group_size || null,
-        group_cutoff_date: tc.group_cutoff_date || null
+        group_cutoff_date: tc.group_cutoff_date || null,
+        early_bird_enabled: tc.early_bird_enabled || false,
+        early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,
+        early_bird_deadline: tc.early_bird_deadline || null
       }));
 
     const publicEvent = {

@@ -1088,6 +1088,10 @@ export default function EditEvent() {
             toast.error(`Please set an early bird deadline for "${ticket.name}"`);
             return;
           }
+          if (new Date(ticket.early_bird_deadline) <= new Date()) {
+            toast.error(`Early bird deadline for "${ticket.name}" must be in the future`);
+            return;
+          }
         }
 
         // Validate ticket availability is not reduced below sold count
