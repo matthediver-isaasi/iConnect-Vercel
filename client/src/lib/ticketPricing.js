@@ -1,3 +1,4 @@
+// Returns effective price considering early bird deadlines
 export function getEffectiveTicketPrice(ticketClass) {
   if (!ticketClass) {
     return { price: 0, isEarlyBird: false, earlyBirdDeadline: null };
