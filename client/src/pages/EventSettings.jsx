@@ -24,6 +24,8 @@ export default function EventSettingsPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
+  const [allowTicketTransfer, setAllowTicketTransfer] = useState(true);
+  const [allowTicketCancellation, setAllowTicketCancellation] = useState(true);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
   const [xeroStripeBankAccountCode, setXeroStripeBankAccountCode] = useState("");
@@ -136,6 +138,16 @@ export default function EventSettingsPage() {
     const deadlineSetting = settings.find(s => s.setting_key === 'cancellation_deadline_hours');
     if (deadlineSetting) {
       setCancellationDeadlineHours(parseInt(deadlineSetting.setting_value) || 0);
+    }
+
+    const allowTransferSetting = settings.find(s => s.setting_key === 'allow_ticket_transfer');
+    if (allowTransferSetting) {
+      setAllowTicketTransfer(allowTransferSetting.setting_value !== 'false');
+    }
+
+    const allowCancellationSetting = settings.find(s => s.setting_key === 'allow_ticket_cancellation');
+    if (allowCancellationSetting) {
+      setAllowTicketCancellation(allowCancellationSetting.setting_value !== 'false');
     }
 
     const xeroSetting = settings.find(s => s.setting_key === 'xero_invoice_enabled');
@@ -282,6 +294,38 @@ export default function EventSettingsPage() {
           setting_key: 'cancellation_deadline_hours',
           setting_value: cancellationDeadlineHours.toString(),
           description: 'Number of hours before event start that cancellations are allowed'
+        });
+      }
+      
+      // Save allow ticket transfer setting
+      const allowTransferSetting = settings.find(s => s.setting_key === 'allow_ticket_transfer');
+      
+      if (allowTransferSetting) {
+        await base44.entities.SystemSettings.update(allowTransferSetting.id, {
+          setting_value: allowTicketTransfer.toString(),
+          description: 'Globally enable or disable ticket transfer feature'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'allow_ticket_transfer',
+          setting_value: allowTicketTransfer.toString(),
+          description: 'Globally enable or disable ticket transfer feature'
+        });
+      }
+      
+      // Save allow ticket cancellation setting
+      const allowCancellationSetting = settings.find(s => s.setting_key === 'allow_ticket_cancellation');
+      
+      if (allowCancellationSetting) {
+        await base44.entities.SystemSettings.update(allowCancellationSetting.id, {
+          setting_value: allowTicketCancellation.toString(),
+          description: 'Globally enable or disable ticket cancellation feature'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'allow_ticket_cancellation',
+          setting_value: allowTicketCancellation.toString(),
+          description: 'Globally enable or disable ticket cancellation feature'
         });
       }
       
@@ -1151,6 +1195,44 @@ export default function EventSettingsPage() {
           </CardHeader>
           <CardContent className="pt-6">
             <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="allow-cancellation-toggle">
+                    Allow ticket cancellation
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, members can submit cancellation requests for their tickets. When disabled, cancellation buttons are hidden across the platform.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="allow-cancellation-toggle"
+                    checked={allowTicketCancellation}
+                    onCheckedChange={setAllowTicketCancellation}
+                    data-testid="switch-allow-ticket-cancellation"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="allow-transfer-toggle">
+                    Allow ticket transfer
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    When enabled, members can request to transfer their tickets to another member. When disabled, transfer buttons are hidden across the platform.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="allow-transfer-toggle"
+                    checked={allowTicketTransfer}
+                    onCheckedChange={setAllowTicketTransfer}
+                    data-testid="switch-allow-ticket-transfer"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="cancellation-deadline">
                   Cancellation Deadline (Hours Before Event)

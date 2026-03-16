@@ -129,9 +129,13 @@ export default function MyTicketsPage({ hasBanner }) {
       const allSettings = await base44.entities.SystemSettings.list();
       const termsSetting = allSettings.find(s => s.setting_key === 'event_booking_terms');
       const deadlineSetting = allSettings.find(s => s.setting_key === 'cancellation_deadline_hours');
+      const allowTransferSetting = allSettings.find(s => s.setting_key === 'allow_ticket_transfer');
+      const allowCancellationSetting = allSettings.find(s => s.setting_key === 'allow_ticket_cancellation');
       return {
         termsContent: termsSetting?.setting_value || '',
         deadlineHours: parseInt(deadlineSetting?.setting_value) || 0,
+        allowTicketTransfer: allowTransferSetting ? allowTransferSetting.setting_value !== 'false' : true,
+        allowTicketCancellation: allowCancellationSetting ? allowCancellationSetting.setting_value !== 'false' : true,
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -139,6 +143,8 @@ export default function MyTicketsPage({ hasBanner }) {
 
   const bookingTermsContent = cancellationSettings?.termsContent || '';
   const cancellationDeadlineHours = cancellationSettings?.deadlineHours || 0;
+  const allowTicketTransfer = cancellationSettings?.allowTicketTransfer !== false;
+  const allowTicketCancellation = cancellationSettings?.allowTicketCancellation !== false;
 
   const pendingCancelBookingIds = React.useMemo(() => {
     return new Set(
@@ -649,25 +655,29 @@ export default function MyTicketsPage({ hasBanner }) {
                                 Add to Calendar
                               </Button>
                               
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleTransferClick(ticket)}
-                                data-testid={`button-transfer-ticket-${ticket.id}`}
-                              >
-                                <ArrowRightLeft className="w-4 h-4" />
-                              </Button>
+                              {allowTicketTransfer && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleTransferClick(ticket)}
+                                  data-testid={`button-transfer-ticket-${ticket.id}`}
+                                >
+                                  <ArrowRightLeft className="w-4 h-4" />
+                                </Button>
+                              )}
 
-                              <Button
-                                id={index === 0 ? "cancel-ticket-button" : undefined}
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleCancelClick(ticket)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                data-testid={`button-cancel-ticket-${ticket.id}`}
-                              >
-                                <XCircle className="w-4 h-4" />
-                              </Button>
+                              {allowTicketCancellation && (
+                                <Button
+                                  id={index === 0 ? "cancel-ticket-button" : undefined}
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleCancelClick(ticket)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  data-testid={`button-cancel-ticket-${ticket.id}`}
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </Button>
+                              )}
                             </div>
                             
                             {backstageEventUrl && (
