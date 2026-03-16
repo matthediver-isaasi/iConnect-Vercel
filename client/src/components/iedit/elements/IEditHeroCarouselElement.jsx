@@ -666,6 +666,33 @@ export function IEditHeroCarouselElementEditor({ element, onChange }) {
                 </div>
               </div>
             </div>
+
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <h4 className="text-sm font-semibold">Mobile Text Offset</h4>
+              <p className="text-xs text-slate-500">Leave at 0 to auto-calculate from desktop offset (50%).</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mobile X (px)</label>
+                  <input
+                    type="number"
+                    value={content.mobile_text_offset_x ?? 0}
+                    onChange={(e) => updateContent('mobile_text_offset_x', parseInt(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    data-testid="input-herocarousel-mobile-text-offset-x"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mobile Y (px)</label>
+                  <input
+                    type="number"
+                    value={content.mobile_text_offset_y ?? 0}
+                    onChange={(e) => updateContent('mobile_text_offset_y', parseInt(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    data-testid="input-herocarousel-mobile-text-offset-y"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -810,6 +837,8 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     padding_horizontal = 16,
     text_offset_x = 0,
     text_offset_y = 0,
+    mobile_text_offset_x,
+    mobile_text_offset_y,
     mobile_header_font_size,
     mobile_subheading_font_size,
     mobile_content_font_size,
@@ -852,8 +881,10 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const mobilePaddingH = Math.max(16, parseInt(padding_horizontal));
   const parsedOffsetX = parseInt(text_offset_x) || 0;
   const parsedOffsetY = parseInt(text_offset_y) || 0;
-  const mobileOffsetX = Math.round(parsedOffsetX * 0.5);
-  const mobileOffsetY = Math.round(parsedOffsetY * 0.5);
+  const parsedMobileOffsetX = parseInt(mobile_text_offset_x) || 0;
+  const parsedMobileOffsetY = parseInt(mobile_text_offset_y) || 0;
+  const mobileOffsetX = parsedMobileOffsetX !== 0 ? parsedMobileOffsetX : Math.round(parsedOffsetX * 0.5);
+  const mobileOffsetY = parsedMobileOffsetY !== 0 ? parsedMobileOffsetY : Math.round(parsedOffsetY * 0.5);
 
   const goToSlide = useCallback((newIndex) => {
     if (isTransitioning || slides.length <= 1) return;
@@ -1014,6 +1045,8 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           line-height: ${effectiveHeaderLineHeight};
           ${effectiveHeaderFontWeight ? `font-weight: ${effectiveHeaderFontWeight};` : ''}
           letter-spacing: ${effectiveHeaderLetterSpacing}px;
+          overflow-wrap: break-word;
+          word-wrap: break-word;
         }
         .${instanceId} .hc-subheading {
           font-family: ${effectiveSubheadingFontFamily};
@@ -1023,6 +1056,8 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           ${effectiveSubheadingFontWeight ? `font-weight: ${effectiveSubheadingFontWeight};` : 'font-weight: 400;'}
           letter-spacing: ${effectiveSubheadingLetterSpacing}px;
           margin-top: ${isMobilePreview ? '12px' : '16px'};
+          overflow-wrap: break-word;
+          word-wrap: break-word;
         }
         .${instanceId} .hc-body {
           font-family: ${effectiveContentFontFamily};
@@ -1032,6 +1067,8 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           ${effectiveContentFontWeight ? `font-weight: ${effectiveContentFontWeight};` : 'font-weight: 400;'}
           letter-spacing: ${effectiveContentLetterSpacing}px;
           margin-top: ${isMobilePreview ? '12px' : '16px'};
+          overflow-wrap: break-word;
+          word-wrap: break-word;
         }
         .${instanceId} .hc-subheading p,
         .${instanceId} .hc-body p {
@@ -1058,6 +1095,9 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
             transform: translate(${mobileOffsetX}px, ${mobileOffsetY}px) !important;
+            overflow-wrap: break-word !important;
+            word-wrap: break-word !important;
+            box-sizing: border-box !important;
           }
           .${instanceId} .hc-cta-wrap {
             margin-top: 16px !important;
