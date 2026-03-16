@@ -1057,7 +1057,7 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
-            ${(mobileOffsetX || mobileOffsetY) ? `transform: translate(${mobileOffsetX}px, ${mobileOffsetY}px) !important;` : ''}
+            transform: translate(${mobileOffsetX}px, ${mobileOffsetY}px) !important;
           }
           .${instanceId} .hc-cta-wrap {
             margin-top: 16px !important;
