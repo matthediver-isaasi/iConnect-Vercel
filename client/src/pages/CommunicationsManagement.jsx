@@ -523,6 +523,20 @@ export default function CommunicationsManagementPage() {
     return getSubscribersForCategory(categoryId).length;
   };
 
+  const getOptedOutForCategory = (categoryId) => {
+    const optedOutMemberIds = preferences
+      .filter(p => p.category_id === categoryId && p.is_subscribed === false)
+      .map(p => p.member_id);
+    return allMembers.filter(member =>
+      optedOutMemberIds.includes(member.id) &&
+      member.communications_opted_out_all !== true
+    );
+  };
+
+  const getOptedOutCount = (categoryId) => {
+    return getOptedOutForCategory(categoryId).length;
+  };
+
   const getExternalSubscriberCount = (categoryId) => {
     return externalSubscriberCounts[categoryId] || 0;
   };
@@ -537,6 +551,7 @@ export default function CommunicationsManagementPage() {
   const [externalSubscribersPage, setExternalSubscribersPage] = useState(1);
   const [loadingExternalSubscribers, setLoadingExternalSubscribers] = useState(false);
   const [removingSubscriberId, setRemovingSubscriberId] = useState(null);
+  const [optedOutPage, setOptedOutPage] = useState(1);
 
   const fetchExternalSubscribers = async (categoryId, page = 1) => {
     setLoadingExternalSubscribers(true);
@@ -581,12 +596,16 @@ export default function CommunicationsManagementPage() {
     }
   };
 
-  const openSubscribersView = (category) => {
+  const openSubscribersView = (category, initialTab = 'members') => {
     setViewingCategory(category);
     setSubscribersPage(1);
-    setSubscriberTab('members');
+    setOptedOutPage(1);
+    setSubscriberTab(initialTab);
     setExternalSubscribers([]);
     setExternalSubscribersTotal(0);
+    if (initialTab === 'external') {
+      fetchExternalSubscribers(category.id, 1);
+    }
     setShowSubscribersDialog(true);
   };
 
@@ -598,6 +617,16 @@ export default function CommunicationsManagementPage() {
     const start = (subscribersPage - 1) * SUBSCRIBERS_PER_PAGE;
     const subscribers = allSubscribers.slice(start, start + SUBSCRIBERS_PER_PAGE);
     return { subscribers, totalPages, total };
+  };
+
+  const getPaginatedOptedOut = () => {
+    if (!viewingCategory) return { optedOut: [], totalPages: 0, total: 0 };
+    const allOptedOut = getOptedOutForCategory(viewingCategory.id);
+    const total = allOptedOut.length;
+    const totalPages = Math.ceil(total / SUBSCRIBERS_PER_PAGE) || 1;
+    const start = (optedOutPage - 1) * SUBSCRIBERS_PER_PAGE;
+    const optedOut = allOptedOut.slice(start, start + SUBSCRIBERS_PER_PAGE);
+    return { optedOut, totalPages, total };
   };
 
   const globalOptOutMembers = useMemo(() => {
@@ -1196,6 +1225,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   const assignedRoles = getCategoryRoles(category.id);
                   const subscriberCount = getSubscriberCount(category.id);
                   const externalCount = getExternalSubscriberCount(category.id);
+                  const optedOutCount = getOptedOutCount(category.id);
                   const totalCount = subscriberCount + externalCount;
                   
                   return (
@@ -1277,6 +1307,21 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                     <span className="text-xs text-slate-400 ml-1">({subscriberCount} members, {externalCount} external)</span>
                                   )}
                                 </button>
+                                {optedOutCount > 0 && (
+                                  <>
+                                    <span className="text-xs text-slate-300">|</span>
+                                    <button
+                                      className="text-sm text-slate-500 hover:text-red-600 hover:underline cursor-pointer bg-transparent border-0 p-0 flex items-center gap-1"
+                                      onClick={() => openSubscribersView(category, 'opted-out')}
+                                      disabled={membersLoading}
+                                      title="View members who opted out of this category"
+                                      data-testid={`button-view-opted-out-${category.id}`}
+                                    >
+                                      <UserX className="w-3.5 h-3.5" />
+                                      <span className="font-medium">{optedOutCount}</span> opted out
+                                    </button>
+                                  </>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1689,9 +1734,14 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     {(() => {
                       const memberCount = viewingCategory ? getSubscriberCount(viewingCategory.id) : 0;
                       const extCount = viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0;
+                      const optCount = viewingCategory ? getOptedOutCount(viewingCategory.id) : 0;
                       const total = memberCount + extCount;
-                      if (extCount > 0) {
-                        return `${total} total subscribers (${memberCount} members, ${extCount} external)`;
+                      const parts = [];
+                      if (extCount > 0 || optCount > 0) {
+                        parts.push(`${memberCount} members`);
+                        if (extCount > 0) parts.push(`${extCount} external`);
+                        if (optCount > 0) parts.push(`${optCount} opted out`);
+                        return `${total} total subscribers (${parts.join(', ')})`;
                       }
                       return `${memberCount} member${memberCount !== 1 ? 's' : ''} subscribed to this category`;
                     })()}
@@ -1730,6 +1780,10 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   <TabsTrigger value="external" data-testid="tab-external">
                     <Globe className="w-4 h-4 mr-1" />
                     External ({viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="opted-out" data-testid="tab-opted-out">
+                    <UserX className="w-4 h-4 mr-1" />
+                    Opted Out ({viewingCategory ? getOptedOutCount(viewingCategory.id) : 0})
                   </TabsTrigger>
                 </TabsList>
 
@@ -1914,6 +1968,99 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               </Button>
                             </div>
                           </div>
+                        );
+                      })()}
+                    </>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="opted-out">
+                  {membersLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
+                      <span className="text-slate-600">Loading members...</span>
+                    </div>
+                  ) : (
+                    <>
+                      {(() => {
+                        const { optedOut, totalPages, total } = getPaginatedOptedOut();
+
+                        if (total === 0) {
+                          return (
+                            <div className="text-center py-12">
+                              <UserX className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                              <p className="text-slate-600">No members have opted out of this category</p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <>
+                            <p className="text-xs text-slate-500 mb-3">Members who have explicitly unsubscribed from this category. Click on a member to edit their details.</p>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Name</TableHead>
+                                  <TableHead>Organisation</TableHead>
+                                  <TableHead>Role</TableHead>
+                                  <TableHead>Email</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {optedOut.map((member) => (
+                                  <TableRow
+                                    key={member.id}
+                                    data-testid={`row-opted-out-${member.id}`}
+                                    className="cursor-pointer hover:bg-blue-50 transition-colors"
+                                    onClick={() => {
+                                      setShowSubscribersDialog(false);
+                                      navigate(`/members/${member.id}`);
+                                    }}
+                                  >
+                                    <TableCell className="font-medium text-blue-600 hover:text-blue-700">
+                                      {[member.first_name, member.last_name].filter(Boolean).join(' ') || 'N/A'}
+                                    </TableCell>
+                                    <TableCell>{(member.organization_id && orgLookup[member.organization_id]) || 'N/A'}</TableCell>
+                                    <TableCell>{(member.role_id && roleLookup[member.role_id]) || 'N/A'}</TableCell>
+                                    <TableCell className="text-slate-600">{member.email || 'N/A'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                                <div className="text-sm text-slate-600">
+                                  Showing {((optedOutPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(optedOutPage * SUBSCRIBERS_PER_PAGE, total)} of {total}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setOptedOutPage(p => Math.max(1, p - 1))}
+                                    disabled={optedOutPage === 1}
+                                    data-testid="button-opted-out-prev-page"
+                                  >
+                                    <ChevronLeft className="w-4 h-4" />
+                                    Previous
+                                  </Button>
+                                  <span className="text-sm text-slate-600 px-2">
+                                    Page {optedOutPage} of {totalPages}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setOptedOutPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={optedOutPage === totalPages}
+                                    data-testid="button-opted-out-next-page"
+                                  >
+                                    Next
+                                    <ChevronRight className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         );
                       })()}
                     </>
