@@ -1057,6 +1057,25 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           }
           .${instanceId} .hc-text-box {
             max-width: 100% !important;
+            ${(mobileOffsetX || mobileOffsetY) ? `transform: translate(${mobileOffsetX}px, ${mobileOffsetY}px) !important;` : ''}
+          }
+          .${instanceId} .hc-cta-wrap {
+            margin-top: 16px !important;
+          }
+          .${instanceId} .hc-cta {
+            padding: 10px 20px !important;
+            font-size: 14px !important;
+          }
+          .${instanceId} .hc-nav-arrow {
+            width: 40px !important;
+            height: 40px !important;
+          }
+          .${instanceId} .hc-nav-icon {
+            width: 20px !important;
+            height: 20px !important;
+          }
+          .${instanceId} .hc-dots {
+            bottom: 24px !important;
           }
         }`}
       `}</style>
@@ -1122,10 +1141,14 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
                   <div className="hc-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(slide.contentText) }} />
                 )}
                 {slide.ctaText && slide.ctaLink && (
-                  <div style={{ marginTop: '24px' }}>
+                  <div className="hc-cta-wrap" style={{ marginTop: isMobilePreview ? '16px' : '24px' }}>
                     <a
                       href={slide.ctaLink}
-                      className="inline-block px-8 py-4 bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
+                      className="hc-cta inline-block bg-white text-slate-900 font-semibold rounded-lg hover:bg-slate-100 transition-colors shadow-lg"
+                      style={{
+                        padding: isMobilePreview ? '10px 20px' : '16px 32px',
+                        fontSize: isMobilePreview ? '14px' : undefined,
+                      }}
                     >
                       {slide.ctaText}
                     </a>
@@ -1140,25 +1163,25 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           <>
             <button
               onClick={goToPrevious}
-              className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
+              className="hc-nav-arrow absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
               aria-label="Previous slide"
               data-testid="button-herocarousel-prev"
             >
-              <ChevronLeft className="w-6 h-6 text-white" />
+              <ChevronLeft className="hc-nav-icon w-6 h-6 text-white" />
             </button>
             <button
               onClick={goToNext}
-              className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
+              className="hc-nav-arrow absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
               aria-label="Next slide"
               data-testid="button-herocarousel-next"
             >
-              <ChevronRight className="w-6 h-6 text-white" />
+              <ChevronRight className="hc-nav-icon w-6 h-6 text-white" />
             </button>
           </>
         )}
 
         {showDots && slides.length > 1 && (
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+          <div className="hc-dots absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2 z-10">
             {slides.map((_, index) => (
               <button
                 key={index}
