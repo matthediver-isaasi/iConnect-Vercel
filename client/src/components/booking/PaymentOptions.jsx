@@ -18,6 +18,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
+import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -612,7 +613,7 @@ export default function PaymentOptions({
               ticketsRequired: savedPayload.ticketsRequired || ticketsRequired,
               totalCost: savedPayload.totalCost || totalCost,
               ticketClassName: savedPayload.ticketClassName || selectedTicketClass?.name || 'Standard',
-              ticketClassPrice: savedPayload.ticketClassPrice || selectedTicketClass?.price || ticketPrice,
+              ticketClassPrice: savedPayload.ticketClassPrice || ticketPrice,
               pricingDetails: savedPayload.pricingDetails || oneOffCostDetails
             });
           } else {
@@ -951,7 +952,7 @@ export default function PaymentOptions({
           stripePaymentIntentId: response.data.paymentIntentId,
           ticketClassId: selectedTicketClass?.id || null,
           ticketClassName: selectedTicketClass?.name || null,
-          ticketClassPrice: selectedTicketClass?.price || ticketPrice,
+          ticketClassPrice: ticketPrice,
           isGuestBooking: isGuestCheckout,
           discountCodeId: appliedDiscount?.discount_code_id || null,
           discountCodeAmount: discountCodeSavings || 0,
@@ -1014,7 +1015,7 @@ export default function PaymentOptions({
         stripePaymentIntentId: stripePaymentId,
         ticketClassId: selectedTicketClass?.id || null,
         ticketClassName: selectedTicketClass?.name || null,
-        ticketClassPrice: selectedTicketClass?.price || ticketPrice,
+        ticketClassPrice: ticketPrice,
         isGuestBooking: isGuestCheckout,
         discountCodeId: appliedDiscount?.discount_code_id || null,
         discountCodeAmount: discountCodeSavings || 0,
@@ -1065,7 +1066,7 @@ export default function PaymentOptions({
             ticketsRequired: ticketsRequired,
             totalCost: totalCost,
             ticketClassName: selectedTicketClass?.name || 'Standard',
-            ticketClassPrice: selectedTicketClass?.price || ticketPrice,
+            ticketClassPrice: ticketPrice,
             pricingDetails: oneOffCostDetails
           });
           toast.success("Booking confirmed!");
@@ -1166,8 +1167,18 @@ export default function PaymentOptions({
           
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-blue-700">Ticket Price:</span>
-              <span className="font-bold text-blue-900">£{ticketPrice.toFixed(2)}</span>
+              <span className="text-blue-700 flex items-center gap-1">
+                Ticket Price:
+                {getEffectiveTicketPrice(selectedTicketClass).isEarlyBird && (
+                  <span className="text-amber-600 text-xs font-medium">(Early Bird)</span>
+                )}
+              </span>
+              <span className="flex items-center gap-2">
+                {getEffectiveTicketPrice(selectedTicketClass).isEarlyBird && (
+                  <span className="text-xs text-slate-400 line-through">£{(Number(selectedTicketClass?.price) || 0).toFixed(2)}</span>
+                )}
+                <span className="font-bold text-blue-900">£{ticketPrice.toFixed(2)}</span>
+              </span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-blue-700">Attendees:</span>

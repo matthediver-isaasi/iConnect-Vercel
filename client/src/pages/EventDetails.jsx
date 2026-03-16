@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
@@ -14,7 +14,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn, Bird } from "lucide-react";
+import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
+import EarlyBirdCountdown from "@/components/EarlyBirdCountdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import DOMPurify from "dompurify";
@@ -49,6 +51,7 @@ export default function EventDetailsPage() {
   const [memberAttending, setMemberAttending] = useState(false);
   const [activeRegistrationPanel, setActiveRegistrationPanel] = useState(null); // 'team' | 'external' | null
   const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
+  const [earlyBirdExpiredTick, setEarlyBirdExpiredTick] = useState(0);
   const [paymentCanProceed, setPaymentCanProceed] = useState(false);
   
   // External attendee form state
@@ -438,7 +441,10 @@ export default function EventDetailsPage() {
           // Group ticket fields
           is_group_ticket: Boolean(tc.is_group_ticket),
           group_size: tc.group_size ? Number(tc.group_size) : null,
-          group_cutoff_date: tc.group_cutoff_date || null
+          group_cutoff_date: tc.group_cutoff_date || null,
+          early_bird_enabled: Boolean(tc.early_bird_enabled),
+          early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
+          early_bird_deadline: tc.early_bird_deadline || null
         };
       });
   }, [isOneOffEvent, pricingConfig]);
@@ -857,8 +863,11 @@ export default function EventDetailsPage() {
     ? (isGuestFormValid ? 1 : 0)
     : (registrationMode === 'links' ? 0 : attendees.filter((a) => a.isValid).length);
   
-  // Use selected ticket class price (or legacy price)
-  const ticketPrice = selectedTicketClass?.price || pricingConfig?.ticket_price || 0;
+  // Use effective ticket price (early bird or standard)
+  // earlyBirdExpiredTick forces recalc when countdown hits zero
+  const effectivePricing = useMemo(() => getEffectiveTicketPrice(selectedTicketClass), [selectedTicketClass, earlyBirdExpiredTick]);
+  const ticketPrice = effectivePricing.price || pricingConfig?.ticket_price || 0;
+  const handleEarlyBirdExpired = useCallback(() => setEarlyBirdExpiredTick(t => t + 1), []);
   
   // Calculate one-off event cost with offers based on selected ticket class
   const calculateOneOffCost = () => {
@@ -866,7 +875,7 @@ export default function EventDetailsPage() {
       return { totalCost: 0, ticketsToPay: ticketsRequired, freeTickets: 0, discount: 0, discountDescription: '' };
     }
     
-    const basePrice = selectedTicketClass.price || 0;
+    const basePrice = effectivePricing.price || 0;
     let ticketsToPay = ticketsRequired;
     let freeTickets = 0;
     let discount = 0;
@@ -1790,6 +1799,8 @@ export default function EventDetailsPage() {
                       const purchasable = isTicketPurchasable(tc);
                       const isSelected = String(selectedTicketClassId) === ticketId;
                       
+                      const tcPricing = getEffectiveTicketPrice(tc);
+                      
                       return (
                         <div 
                           key={ticketId}
@@ -1808,7 +1819,6 @@ export default function EventDetailsPage() {
                           data-testid={`ticket-class-${ticketId}`}
                         >
                           <div className="flex items-center gap-3">
-                            {/* Lock icon with tooltip for non-purchasable tickets, radio for purchasable */}
                             {!purchasable ? (
                               <TooltipProvider>
                                 <Tooltip delayDuration={0}>
@@ -1845,6 +1855,12 @@ export default function EventDetailsPage() {
                                       Group ({tc.group_size})
                                     </Badge>
                                   )}
+                                  {tcPricing.isEarlyBird && (
+                                    <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200" data-testid={`badge-early-bird-${ticketId}`}>
+                                      <Bird className="w-3 h-3 mr-1" />
+                                      Early Bird
+                                    </Badge>
+                                  )}
                                 </span>
                               </Label>
                               {tc.is_group_ticket && tc.group_size && (
@@ -1852,24 +1868,23 @@ export default function EventDetailsPage() {
                                   Covers {tc.group_size} participants — manage your group after booking
                                 </p>
                               )}
-                              {/* Hide offers for guest checkout - they can only purchase 1 ticket */}
+                              {tcPricing.isEarlyBird && tcPricing.earlyBirdDeadline && (
+                                <EarlyBirdCountdown deadline={tcPricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
+                              )}
                               {!isGuestCheckout && tc.offer_type && tc.offer_type !== 'none' && (
                                 <div className="text-xs text-green-600 mt-0.5">
                                   {tc.offer_type === 'bogo' && `Buy ${tc.bogo_buy_quantity || 0}, get ${tc.bogo_get_free_quantity || 0} free`}
                                   {tc.offer_type === 'bulk_discount' && `${tc.bulk_discount_percentage || 0}% off for ${tc.bulk_discount_threshold || 0}+ tickets`}
                                 </div>
                               )}
-                              {/* Show ticket availability if enabled - on its own line below ticket name */}
                               {event.show_ticket_availability && (() => {
                                 const realtimeAvail = getTicketClassAvailability(String(tc.id));
                                 const rawAvailCount = realtimeAvail?.available_count ?? tc.available_count;
-                                // Check if unlimited: explicit flag, null, undefined, or empty string all mean unlimited
                                 const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? tc.is_unlimited_tickets) || 
                                                     rawAvailCount === null || 
                                                     rawAvailCount === undefined ||
                                                     rawAvailCount === '';
                                 
-                                // Parse available_count safely - empty string is already handled above
                                 let availCount = null;
                                 if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
                                   const parsed = Number(rawAvailCount);
@@ -1889,9 +1904,17 @@ export default function EventDetailsPage() {
                               })()}
                             </div>
                           </div>
-                          <div className={`flex items-center gap-1 text-lg font-semibold flex-shrink-0 ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
-                            <PoundSterling className="h-4 w-4" />
-                            {ticketPrice.toFixed(2)}
+                          <div className="flex flex-col items-end flex-shrink-0">
+                            <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                              <PoundSterling className="h-4 w-4" />
+                              {tcPricing.price.toFixed(2)}
+                            </div>
+                            {tcPricing.isEarlyBird && (
+                              <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
+                                <PoundSterling className="h-3 w-3" />
+                                {(Number(tc.price) || 0).toFixed(2)}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -1914,10 +1937,10 @@ export default function EventDetailsPage() {
                 <CardContent>
                   {(() => {
                     const purchasable = isTicketPurchasable(selectedTicketClass);
+                    const singlePricing = getEffectiveTicketPrice(selectedTicketClass);
                     return (
                       <div className={`flex items-center justify-between p-4 rounded-lg border border-slate-200 ${purchasable ? 'bg-slate-50' : 'bg-slate-50 opacity-80'}`}>
                         <div className="flex items-center gap-3">
-                          {/* Lock icon with tooltip for non-purchasable tickets */}
                           {!purchasable && (
                             <TooltipProvider>
                               <Tooltip delayDuration={0}>
@@ -1936,25 +1959,32 @@ export default function EventDetailsPage() {
                             </TooltipProvider>
                           )}
                           <div>
-                            <div className={`font-medium ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>{String(selectedTicketClass.name || 'Ticket')}</div>
-                            {/* Hide offers for guest checkout - they can only purchase 1 ticket */}
+                            <div className={`font-medium flex items-center gap-2 flex-wrap ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                              {String(selectedTicketClass.name || 'Ticket')}
+                              {singlePricing.isEarlyBird && (
+                                <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200" data-testid="badge-early-bird-single">
+                                  <Bird className="w-3 h-3 mr-1" />
+                                  Early Bird
+                                </Badge>
+                              )}
+                            </div>
+                            {singlePricing.isEarlyBird && singlePricing.earlyBirdDeadline && (
+                              <EarlyBirdCountdown deadline={singlePricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
+                            )}
                             {!isGuestCheckout && selectedTicketClass.offer_type && selectedTicketClass.offer_type !== 'none' && (
                               <div className="text-xs text-green-600 mt-0.5">
                                 {selectedTicketClass.offer_type === 'bogo' && `Buy ${selectedTicketClass.bogo_buy_quantity || 0}, get ${selectedTicketClass.bogo_get_free_quantity || 0} free`}
                                 {selectedTicketClass.offer_type === 'bulk_discount' && `${selectedTicketClass.bulk_discount_percentage || 0}% off for ${selectedTicketClass.bulk_discount_threshold || 0}+ tickets`}
                               </div>
                             )}
-                            {/* Show ticket availability if enabled - on its own line below ticket name */}
                             {event.show_ticket_availability && (() => {
                               const realtimeAvail = getTicketClassAvailability(String(selectedTicketClass.id));
                               const rawAvailCount = realtimeAvail?.available_count ?? selectedTicketClass.available_count;
-                              // Check if unlimited: explicit flag, null, undefined, or empty string all mean unlimited
                               const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? selectedTicketClass.is_unlimited_tickets) || 
                                                   rawAvailCount === null || 
                                                   rawAvailCount === undefined ||
                                                   rawAvailCount === '';
                               
-                              // Parse available_count safely - empty string is already handled above
                               let availCount = null;
                               if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
                                 const parsed = Number(rawAvailCount);
@@ -1974,9 +2004,17 @@ export default function EventDetailsPage() {
                             })()}
                           </div>
                         </div>
-                        <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
-                          <PoundSterling className="h-4 w-4" />
-                          {(Number(selectedTicketClass.price) || 0).toFixed(2)}
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                            <PoundSterling className="h-4 w-4" />
+                            {singlePricing.price.toFixed(2)}
+                          </div>
+                          {singlePricing.isEarlyBird && (
+                            <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
+                              <PoundSterling className="h-3 w-3" />
+                              {(Number(selectedTicketClass.price) || 0).toFixed(2)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );

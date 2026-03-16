@@ -39,7 +39,8 @@ import {
   Download,
   Copy,
   ExternalLink,
-  Gift
+  Gift,
+  Bird
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -787,7 +788,10 @@ export default function EditEvent() {
               vat_rate_percentage: tc.vat_rate_percentage || null,
               is_group_ticket: tc.is_group_ticket || false,
               group_size: tc.group_size !== null && tc.group_size !== undefined ? String(tc.group_size) : "",
-              group_cutoff_date: tc.group_cutoff_date || ""
+              group_cutoff_date: tc.group_cutoff_date || "",
+              early_bird_enabled: tc.early_bird_enabled || false,
+              early_bird_price: tc.early_bird_price !== null && tc.early_bird_price !== undefined ? String(tc.early_bird_price) : "",
+              early_bird_deadline: tc.early_bird_deadline || ""
             };
           });
           setTicketClasses(loadedTickets);
@@ -1069,6 +1073,23 @@ export default function EditEvent() {
           }
         }
 
+        if (ticket.early_bird_enabled) {
+          const ebPrice = parseFloat(ticket.early_bird_price);
+          if (!ticket.early_bird_price || isNaN(ebPrice) || ebPrice <= 0) {
+            toast.error(`Early bird price for "${ticket.name}" must be greater than zero`);
+            return;
+          }
+          const stdPrice = parseFloat(ticket.price);
+          if (!isNaN(stdPrice) && ebPrice >= stdPrice) {
+            toast.error(`Early bird price for "${ticket.name}" must be less than the standard price (£${stdPrice})`);
+            return;
+          }
+          if (!ticket.early_bird_deadline) {
+            toast.error(`Please set an early bird deadline for "${ticket.name}"`);
+            return;
+          }
+        }
+
         // Validate ticket availability is not reduced below sold count
         if (!ticket.is_unlimited_tickets && ticket.available_count !== undefined && ticket.available_count !== "") {
           const soldCount = ticketClassSoldCounts[ticket.id] || 0;
@@ -1161,7 +1182,10 @@ export default function EditEvent() {
           vat_rate_percentage: ticket.vat_rate_percentage || null,
           is_group_ticket: ticket.is_group_ticket || false,
           group_size: ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
-          group_cutoff_date: ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null
+          group_cutoff_date: ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null,
+          early_bird_enabled: ticket.early_bird_enabled || false,
+          early_bird_price: ticket.early_bird_enabled && ticket.early_bird_price ? parseFloat(ticket.early_bird_price) : null,
+          early_bird_deadline: ticket.early_bird_enabled && ticket.early_bird_deadline ? ticket.early_bird_deadline : null
         };
 
         if (ticket.offer_type === "bogo") {
@@ -1997,6 +2021,12 @@ export default function EditEvent() {
                                 Group ({ticket.group_size || '?'})
                               </Badge>
                             )}
+                            {ticket.early_bird_enabled && ticket.early_bird_price && (
+                              <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                                <Bird className="h-3 w-3 mr-1" />
+                                Early Bird £{ticket.early_bird_price}
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 text-sm text-slate-500">
                             <span>£{ticket.price || "0.00"}</span>
@@ -2075,6 +2105,69 @@ export default function EditEvent() {
                             </div>
                           </div>
                         </div>
+
+                        {/* Early Bird Pricing */}
+                        {!ticket.is_free && (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                id={`ticket-early-bird-${ticket.id}`}
+                                checked={ticket.early_bird_enabled || false}
+                                onCheckedChange={(checked) => {
+                                  updateTicketClass(ticket.id, 'early_bird_enabled', checked);
+                                  if (!checked) {
+                                    updateTicketClass(ticket.id, 'early_bird_price', '');
+                                    updateTicketClass(ticket.id, 'early_bird_deadline', '');
+                                  }
+                                }}
+                                data-testid={`switch-early-bird-${ticket.id}`}
+                              />
+                              <Label htmlFor={`ticket-early-bird-${ticket.id}`} className="text-sm font-medium flex items-center gap-1.5">
+                                <Bird className="h-4 w-4 text-amber-500" />
+                                Early Bird Pricing
+                              </Label>
+                            </div>
+                            {ticket.early_bird_enabled && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-amber-200 ml-1">
+                                <div className="space-y-1.5">
+                                  <Label htmlFor={`ticket-early-bird-price-${ticket.id}`} className="text-sm">
+                                    Early Bird Price (£) *
+                                  </Label>
+                                  <div className="relative w-28">
+                                    <PoundSterling className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                    <Input
+                                      id={`ticket-early-bird-price-${ticket.id}`}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={ticket.early_bird_price || ''}
+                                      onChange={(e) => updateTicketClass(ticket.id, 'early_bird_price', e.target.value)}
+                                      placeholder="0.00"
+                                      className="pl-9"
+                                      data-testid={`input-early-bird-price-${ticket.id}`}
+                                    />
+                                  </div>
+                                  {ticket.early_bird_price && ticket.price && Number(ticket.early_bird_price) >= Number(ticket.price) && (
+                                    <p className="text-xs text-red-500">Must be less than standard price (£{ticket.price})</p>
+                                  )}
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label htmlFor={`ticket-early-bird-deadline-${ticket.id}`} className="text-sm">
+                                    Deadline *
+                                  </Label>
+                                  <Input
+                                    id={`ticket-early-bird-deadline-${ticket.id}`}
+                                    type="datetime-local"
+                                    value={ticket.early_bird_deadline ? ticket.early_bird_deadline.slice(0, 16) : ''}
+                                    onChange={(e) => updateTicketClass(ticket.id, 'early_bird_deadline', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                                    data-testid={`input-early-bird-deadline-${ticket.id}`}
+                                  />
+                                  <p className="text-xs text-slate-500">Price reverts to standard after this date/time</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Ticket Availability */}
                         <div className="space-y-2">
