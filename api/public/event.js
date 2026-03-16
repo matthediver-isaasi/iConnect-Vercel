@@ -63,8 +63,11 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
+
     const publicTicketClasses = (event.pricing_config?.ticket_classes || [])
       .filter(tc => {
+        if (allowGuestsToViewAllTickets) return true;
         if (tc.visibility_mode) {
           return tc.visibility_mode === 'members_and_public' || tc.visibility_mode === 'public_only';
         }
@@ -83,7 +86,18 @@ export default async function handler(req, res) {
         group_cutoff_date: tc.group_cutoff_date || null,
         early_bird_enabled: tc.early_bird_enabled || false,
         early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,
-        early_bird_deadline: tc.early_bird_deadline || null
+        early_bird_deadline: tc.early_bird_deadline || null,
+        offer_type: tc.offer_type || 'none',
+        bogo_logic_type: tc.bogo_logic_type || 'buy_x_get_y_free',
+        bogo_buy_quantity: tc.bogo_buy_quantity || 0,
+        bogo_get_free_quantity: tc.bogo_get_free_quantity || 0,
+        bulk_discount_threshold: tc.bulk_discount_threshold || 0,
+        bulk_discount_percentage: tc.bulk_discount_percentage || 0,
+        available_count: tc.available_count,
+        is_unlimited_tickets: tc.is_unlimited_tickets,
+        role_match_only: tc.role_match_only || false,
+        role_ids: tc.role_ids || [],
+        is_default: tc.is_default || false
       }));
 
     const publicEvent = {
@@ -103,7 +117,12 @@ export default async function handler(req, res) {
       available_seats: event.available_seats,
       show_seat_count: event.show_seat_count,
       timezone: event.timezone,
-      pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
+      pricing_config: event.pricing_config ? {
+        ticket_classes: publicTicketClasses,
+        allowGuestsToViewAllTickets: allowGuestsToViewAllTickets,
+        ticket_price: event.pricing_config.ticket_price,
+        offer_type: event.pricing_config.offer_type
+      } : null,
       donation_config: event.donation_config || null,
       event_state: event.event_state,
       program_tag: event.program_tag,
