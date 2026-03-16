@@ -1163,19 +1163,21 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
           <>
             <button
               onClick={goToPrevious}
-              className="hc-nav-arrow absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
+              className="hc-nav-arrow absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
+              style={{ width: isMobilePreview ? '40px' : '48px', height: isMobilePreview ? '40px' : '48px' }}
               aria-label="Previous slide"
               data-testid="button-herocarousel-prev"
             >
-              <ChevronLeft className="hc-nav-icon w-6 h-6 text-white" />
+              <ChevronLeft className="hc-nav-icon text-white" style={{ width: isMobilePreview ? '20px' : '24px', height: isMobilePreview ? '20px' : '24px' }} />
             </button>
             <button
               onClick={goToNext}
-              className="hc-nav-arrow absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
+              className="hc-nav-arrow absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-colors z-10"
+              style={{ width: isMobilePreview ? '40px' : '48px', height: isMobilePreview ? '40px' : '48px' }}
               aria-label="Next slide"
               data-testid="button-herocarousel-next"
             >
-              <ChevronRight className="hc-nav-icon w-6 h-6 text-white" />
+              <ChevronRight className="hc-nav-icon text-white" style={{ width: isMobilePreview ? '20px' : '24px', height: isMobilePreview ? '20px' : '24px' }} />
             </button>
           </>
         )}
