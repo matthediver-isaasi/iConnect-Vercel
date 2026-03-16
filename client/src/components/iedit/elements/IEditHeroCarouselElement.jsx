@@ -855,14 +855,12 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const mobileOffsetX = Math.round(parsedOffsetX * 0.5);
   const mobileOffsetY = Math.round(parsedOffsetY * 0.5);
 
-  const [settledIndex, setSettledIndex] = useState(0);
-
   const goToSlide = useCallback((newIndex) => {
     if (isTransitioning || slides.length <= 1) return;
     setIsTransitioning(true);
     setPreviousIndex(currentIndex);
     setCurrentIndex(newIndex);
-    setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); setSettledIndex(newIndex); }, transitionDuration);
+    setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); }, transitionDuration);
   }, [isTransitioning, slides.length, transitionDuration, currentIndex]);
 
   const goToNext = useCallback(() => {
@@ -882,25 +880,24 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
       setIsTransitioning(true);
       setCurrentIndex(prev => {
         setPreviousIndex(prev);
-        const next = (prev + 1) % slides.length;
-        setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); setSettledIndex(next); }, transitionDuration);
-        return next;
+        return (prev + 1) % slides.length;
       });
+      setTimeout(() => { setIsTransitioning(false); setPreviousIndex(null); }, transitionDuration);
     }, autoplayInterval * 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [slides.length, autoplayInterval, isPaused, transitionDuration]);
 
-  const settledSlideOriginal = slides[settledIndex]?.imageFit === 'original';
+  const activeSlideOriginal = slides[currentIndex]?.imageFit === 'original';
 
   const getDesktopHeightCSS = () => {
-    if (settledSlideOriginal) return '';
+    if (activeSlideOriginal) return '';
     if (height_type === 'full') return 'height: 100vh;';
     if (height_type === 'custom') return `height: ${custom_height}px;`;
     return `min-height: ${parseInt(auto_min_height) || 400}px;`;
   };
 
   const getMobileHeightCSS = () => {
-    if (settledSlideOriginal) return '';
+    if (activeSlideOriginal) return '';
     if (height_type === 'full') return 'height: 100vh;';
     if (height_type === 'custom') return `height: ${Math.round(parseInt(custom_height) * 0.6)}px;`;
     return `min-height: ${Math.round((parseInt(auto_min_height) || 400) * 0.6)}px;`;
@@ -1070,9 +1067,9 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
         onMouseEnter={pauseOnHover ? () => setIsPaused(true) : undefined}
         onMouseLeave={pauseOnHover ? () => setIsPaused(false) : undefined}
       >
-        {settledSlideOriginal && slides[settledIndex]?.backgroundImage && (
+        {activeSlideOriginal && slides[currentIndex]?.backgroundImage && (
           <img
-            src={slides[settledIndex].backgroundImage}
+            src={slides[currentIndex].backgroundImage}
             alt=""
             className="w-full h-auto block"
             style={{ visibility: 'hidden' }}
