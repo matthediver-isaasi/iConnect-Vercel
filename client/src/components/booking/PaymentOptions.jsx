@@ -434,7 +434,8 @@ export default function PaymentOptions({
   setTermsAccepted = null,
   onShowTermsModal = null,
   checkGuestEmailIsMember = null,
-  checkingMemberEmail = false
+  checkingMemberEmail = false,
+  guestEmailIsMember = false
 }) {
   // Payment state for one-off events
   const [selectedVouchers, setSelectedVouchers] = useState([]);
@@ -1853,7 +1854,7 @@ export default function PaymentOptions({
             <Button
               id="confirm-booking-button"
               onClick={handleSubmit}
-              disabled={!canProceed || checkingDuplicates || checkingMemberEmail}
+              disabled={!canProceed || checkingDuplicates || checkingMemberEmail || guestEmailIsMember}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               size="lg"
             >

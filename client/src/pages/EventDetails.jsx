@@ -97,6 +97,7 @@ export default function EventDetailsPage() {
 
   const [showMemberEmailModal, setShowMemberEmailModal] = useState(false);
   const [checkingMemberEmail, setCheckingMemberEmail] = useState(false);
+  const [guestEmailIsMember, setGuestEmailIsMember] = useState(false);
 
   // Check if user is a guest (not logged in)
   const isGuestCheckout = !currentMemberInfo;
@@ -993,15 +994,21 @@ export default function EventDetailsPage() {
   // Terms must be accepted if they exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
 
-  const checkGuestEmailIsMember = async () => {
-    if (!isGuestCheckout || !guestInfo?.email) return false;
+  const checkGuestEmailIsMember = async (emailToCheck) => {
+    const email = emailToCheck || guestInfo?.email;
+    if (!isGuestCheckout || !email) return false;
     try {
       setCheckingMemberEmail(true);
-      const result = await publicClient.checkMemberEmail(guestInfo.email);
+      const result = await publicClient.checkMemberEmail(email);
+      if (emailToCheck && guestInfo?.email !== emailToCheck) {
+        return false;
+      }
       if (result?.isMember) {
+        setGuestEmailIsMember(true);
         setShowMemberEmailModal(true);
         return true;
       }
+      setGuestEmailIsMember(false);
       return false;
     } catch (err) {
       console.error('[EventDetails] Member email check failed:', err);
@@ -1009,6 +1016,14 @@ export default function EventDetailsPage() {
     } finally {
       setCheckingMemberEmail(false);
     }
+  };
+
+  const handleGuestEmailBlur = async () => {
+    if (!isGuestCheckout || !guestInfo?.email || !guestInfo.email.includes('@')) {
+      setGuestEmailIsMember(false);
+      return;
+    }
+    await checkGuestEmailIsMember(guestInfo.email);
   };
 
   const handleConfirmBooking = async () => {
@@ -1472,11 +1487,21 @@ export default function EventDetailsPage() {
                         type="email"
                         placeholder="your.email@example.com"
                         value={guestInfo.email}
-                        onChange={(e) => setGuestInfo({...guestInfo, email: e.target.value})}
+                        onChange={(e) => {
+                          setGuestInfo({...guestInfo, email: e.target.value});
+                          if (guestEmailIsMember) setGuestEmailIsMember(false);
+                        }}
+                        onBlur={handleGuestEmailBlur}
                         disabled={isGuestFormDisabled}
-                        className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                        className={`${isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""} ${guestEmailIsMember ? "border-amber-500 focus-visible:ring-amber-500" : ""}`}
                         data-testid="input-guest-email"
                       />
+                      {guestEmailIsMember && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1 mt-1" data-testid="text-member-email-warning">
+                          <AlertTriangle className="h-3 w-3" />
+                          This email belongs to a member. Please log in to register.
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
@@ -1675,7 +1700,7 @@ export default function EventDetailsPage() {
                                 console.log('[EventDetails] Button disabled state:', !canConfirmBooking || !termsRequirementMet);
                                 handleConfirmBooking();
                               }}
-                              disabled={!canConfirmBooking || !termsRequirementMet || checkingMemberEmail}
+                              disabled={!canConfirmBooking || !termsRequirementMet || checkingMemberEmail || guestEmailIsMember}
                               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                               size="lg"
                               data-testid="button-confirm-booking"
@@ -1819,29 +1844,17 @@ export default function EventDetailsPage() {
                         >
                           <div className="flex items-center gap-3">
                             {!purchasable ? (
-                              <TooltipProvider>
-                                <Tooltip delayDuration={0}>
-                                  <TooltipTrigger asChild>
-                                    <div className="relative flex items-center justify-center w-5 h-5">
-                                      <div className="w-4 h-4 rounded-full border-2 border-slate-300 bg-slate-100"></div>
-                                      <Lock className="absolute h-3 w-3 text-slate-500" />
-                                    </div>
-                                  </TooltipTrigger>
-                                  <TooltipContent 
-                                    side="top" 
-                                    className="bg-slate-800 text-white text-sm px-3 py-2 rounded-md shadow-lg"
-                                  >
-                                    Available to members only
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
+                              <div className="relative flex items-center justify-center w-5 h-5 flex-shrink-0">
+                                <div className="w-4 h-4 rounded-full border-2 border-slate-300 bg-slate-100"></div>
+                                <Lock className="absolute h-3 w-3 text-slate-500" />
+                              </div>
                             ) : (
                               <RadioGroupItem 
                                 value={ticketId} 
                                 id={`ticket-${ticketId}`} 
                               />
                             )}
-                            <div>
+                            <div className="flex-1 min-w-0">
                               <Label 
                                 htmlFor={`ticket-${ticketId}`} 
                                 className={`font-medium ${purchasable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
@@ -1862,6 +1875,19 @@ export default function EventDetailsPage() {
                                   )}
                                 </span>
                               </Label>
+                              {!purchasable && !currentMemberInfo && tc.visibility_mode && tc.visibility_mode !== 'public_only' && tc.visibility_mode !== 'members_and_public' && (
+                                <p className="text-xs text-slate-500 mt-0.5" data-testid={`text-members-only-${ticketId}`}>
+                                  Members only —{' '}
+                                  <a
+                                    href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                                    className="text-blue-600 hover:underline font-medium"
+                                    data-testid={`link-login-ticket-${ticketId}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    log in to book
+                                  </a>
+                                </p>
+                              )}
                               {tc.is_group_ticket && tc.group_size && (
                                 <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-group-info-${ticketId}`}>
                                   Covers {tc.group_size} participants — manage your group after booking
@@ -1941,23 +1967,11 @@ export default function EventDetailsPage() {
                       <div className={`flex items-center justify-between p-4 rounded-lg border border-slate-200 ${purchasable ? 'bg-slate-50' : 'bg-slate-50 opacity-80'}`}>
                         <div className="flex items-center gap-3">
                           {!purchasable && (
-                            <TooltipProvider>
-                              <Tooltip delayDuration={0}>
-                                <TooltipTrigger asChild>
-                                  <div className="flex items-center justify-center w-5 h-5">
-                                    <Lock className="h-4 w-4 text-slate-500" />
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent 
-                                  side="top" 
-                                  className="bg-slate-800 text-white text-sm px-3 py-2 rounded-md shadow-lg"
-                                >
-                                  Available to members only
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <div className="flex items-center justify-center w-5 h-5 flex-shrink-0">
+                              <Lock className="h-4 w-4 text-slate-500" />
+                            </div>
                           )}
-                          <div>
+                          <div className="flex-1 min-w-0">
                             <div className={`font-medium flex items-center gap-2 flex-wrap ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
                               {String(selectedTicketClass.name || 'Ticket')}
                               {singlePricing.isEarlyBird && (
@@ -1967,6 +1981,18 @@ export default function EventDetailsPage() {
                                 </Badge>
                               )}
                             </div>
+                            {!purchasable && !currentMemberInfo && selectedTicketClass.visibility_mode && selectedTicketClass.visibility_mode !== 'public_only' && selectedTicketClass.visibility_mode !== 'members_and_public' && (
+                              <p className="text-xs text-slate-500 mt-0.5" data-testid="text-members-only-single">
+                                Members only —{' '}
+                                <a
+                                  href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                                  className="text-blue-600 hover:underline font-medium"
+                                  data-testid="link-login-ticket-single"
+                                >
+                                  log in to book
+                                </a>
+                              </p>
+                            )}
                             {singlePricing.isEarlyBird && singlePricing.earlyBirdDeadline && (
                               <EarlyBirdCountdown deadline={singlePricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
                             )}
@@ -2063,6 +2089,7 @@ export default function EventDetailsPage() {
               onShowTermsModal={() => setShowTermsModal(true)}
               checkGuestEmailIsMember={checkGuestEmailIsMember}
               checkingMemberEmail={checkingMemberEmail}
+              guestEmailIsMember={guestEmailIsMember}
             />
 
           </div>
