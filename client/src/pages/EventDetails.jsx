@@ -52,6 +52,7 @@ export default function EventDetailsPage() {
   const [activeRegistrationPanel, setActiveRegistrationPanel] = useState(null); // 'team' | 'external' | null
   const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
   const [earlyBirdExpiredTick, setEarlyBirdExpiredTick] = useState(0);
+  const handleEarlyBirdExpired = useCallback(() => setEarlyBirdExpiredTick(t => t + 1), []);
   const [paymentCanProceed, setPaymentCanProceed] = useState(false);
   
   // External attendee form state
@@ -864,10 +865,8 @@ export default function EventDetailsPage() {
     : (registrationMode === 'links' ? 0 : attendees.filter((a) => a.isValid).length);
   
   // Use effective ticket price (early bird or standard)
-  // earlyBirdExpiredTick forces recalc when countdown hits zero
-  const effectivePricing = useMemo(() => getEffectiveTicketPrice(selectedTicketClass), [selectedTicketClass, earlyBirdExpiredTick]);
+  const effectivePricing = getEffectiveTicketPrice(selectedTicketClass);
   const ticketPrice = effectivePricing.price || pricingConfig?.ticket_price || 0;
-  const handleEarlyBirdExpired = useCallback(() => setEarlyBirdExpiredTick(t => t + 1), []);
   
   // Calculate one-off event cost with offers based on selected ticket class
   const calculateOneOffCost = () => {
