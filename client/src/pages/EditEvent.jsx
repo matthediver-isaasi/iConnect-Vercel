@@ -84,7 +84,10 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   vat_rate_percentage: defaultVatRate?.effectiveRate || null, // Percentage value (e.g., 20)
   is_group_ticket: false,
   group_size: "",
-  group_cutoff_date: ""
+  group_cutoff_date: "",
+  early_bird_enabled: false,
+  early_bird_price: "",
+  early_bird_deadline: ""
 });
 
 export default function EditEvent() {
