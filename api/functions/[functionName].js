@@ -1545,7 +1545,7 @@ const functionHandlers = {
     };
   },
 
-  async createOneOffEventBooking(params) {
+  async createOneOffEventBooking(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
     const {
@@ -1921,8 +1921,22 @@ const functionHandlers = {
         const isMemberTargetedCode = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
         let targetEligible = true;
 
+        // SECURITY: For member-targeted codes, verify session identity matches the booking member
+        if (isMemberTargetedCode && member?.id && req) {
+          try {
+            const sessionMember = await getSessionMember(req);
+            if (!sessionMember || sessionMember.id !== member.id) {
+              console.warn(`[createOneOffEventBooking] Session member ${sessionMember?.id} does not match booking member ${member.id} for member-targeted discount`);
+              targetEligible = false;
+            }
+          } catch (e) {
+            console.warn(`[createOneOffEventBooking] Could not verify session for member-targeted discount: ${e.message}`);
+            targetEligible = false;
+          }
+        }
+
         // Validate organization-targeted restriction at booking time
-        if (discountCode.organization_id) {
+        if (discountCode.organization_id && targetEligible) {
           if (!org?.id || discountCode.organization_id !== org.id) {
             console.warn(`[createOneOffEventBooking] Discount code targeted to org ${discountCode.organization_id}, but booking org is ${org?.id}`);
             targetEligible = false;
