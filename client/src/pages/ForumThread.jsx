@@ -153,6 +153,14 @@ export default function ForumThreadPage() {
     }
   );
 
+  useRealtimeSubscription(
+    'forum_reaction',
+    [["forum-reactions", threadId]],
+    {
+      enabled: !!threadId && !isNewThread,
+    }
+  );
+
   const { data: reactions = [] } = useQuery({
     queryKey: ["forum-reactions", threadId],
     queryFn: async () => {
