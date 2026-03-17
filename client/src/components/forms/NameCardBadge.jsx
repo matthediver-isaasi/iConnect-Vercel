@@ -172,12 +172,15 @@ export default function NameCardBadge({ zones, cardStyle, value = {}, onChange, 
     return result;
   }, [value, mergedZones, prefillData]);
 
+  const syncedRef = useRef(false);
   useEffect(() => {
     if (!onChange || isPreview) return;
     const current = value || {};
+    let hasDerivedZones = false;
     let needsSync = false;
     for (const [zoneName, zone] of Object.entries(mergedZones)) {
       if (zone.source === 'static' || zone.source === 'prefill_readonly') {
+        hasDerivedZones = true;
         const derived = compositeValue[zoneName] || '';
         if (current[zoneName] !== derived) {
           needsSync = true;
@@ -185,7 +188,8 @@ export default function NameCardBadge({ zones, cardStyle, value = {}, onChange, 
         }
       }
     }
-    if (needsSync || Object.keys(current).length === 0) {
+    if (needsSync || (hasDerivedZones && !syncedRef.current)) {
+      syncedRef.current = true;
       onChange(compositeValue);
     }
   }, [compositeValue, isPreview]);
