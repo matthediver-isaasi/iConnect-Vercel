@@ -7,15 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import MemberProfileModal from "@/components/MemberProfileModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, ChevronLeft, ChevronRight, Building2, Briefcase, ChevronDown, ChevronUp, Linkedin, ArrowUpDown, Copy, Check } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, ChevronLeft, ChevronRight, Building2, Briefcase, Linkedin, ArrowUpDown } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isDeletedMember } from "@/utils";
-import { isVisibleOnFront, isVisibleOnBack, isCustomFieldVisibleOnBack, getOrderedCustomFields } from "@/utils/directorySettings";
+import { isVisibleOnFront, isVisibleOnBack } from "@/utils/directorySettings";
 
 export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -37,16 +36,11 @@ export default function MemberDirectoryPage() {
   // Check if user can see the "Show disabled accounts" toggle
   const canShowDisabledAccounts = !isFeatureExcluded('element_ShowDisabledAccounts');
   
-  // Check if user can view other members' biographies
-  const canViewMemberBiography = !isFeatureExcluded('view_member_biography');
-  
   const [searchQuery, setSearchQuery] = useState("");
   const [showDisabled, setShowDisabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(9);
   const [viewingMember, setViewingMember] = useState(null);
-  const [bioExpanded, setBioExpanded] = useState(false);
-  const [emailCopied, setEmailCopied] = useState(false);
   const [sortBy, setSortBy] = useState("name-asc");
   const [selectedOrganization, setSelectedOrganization] = useState(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -411,23 +405,6 @@ export default function MemberDirectoryPage() {
 
   const handleViewMember = (member) => {
     setViewingMember(member);
-    setBioExpanded(false);
-    setEmailCopied(false);
-  };
-
-  const handleEmailMember = (email) => {
-    window.location.href = `mailto:${email}`;
-  };
-
-  const handleCopyEmail = async (email) => {
-    try {
-      await navigator.clipboard.writeText(email);
-      setEmailCopied(true);
-      toast.success("Email address copied to clipboard");
-      setTimeout(() => setEmailCopied(false), 2000);
-    } catch (err) {
-      toast.error("Failed to copy email address");
-    }
   };
 
   const isLoading = membersLoading;
@@ -804,268 +781,11 @@ export default function MemberDirectoryPage() {
         </div>
       </div>
 
-      {/* View Member Dialog */}
-      <Dialog open={!!viewingMember} onOpenChange={(open) => !open && setViewingMember(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="sr-only">Member Information</DialogTitle>
-          </DialogHeader>
-
-          {viewingMember && (
-            <div className="space-y-6">
-              <div className="flex items-start gap-6">
-                <div className="flex-shrink-0">
-                  {isVisibleOnBack(displaySettings, 'show_profile_photo') && viewingMember.profile_photo_url ? (
-                    <img 
-                      src={viewingMember.profile_photo_url} 
-                      alt={`${viewingMember.first_name} ${viewingMember.last_name}`}
-                      className="w-24 h-24 rounded-full object-cover border-4 border-slate-200"
-                    />
-                  ) : (
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center border-4 border-slate-200">
-                      <User className="w-12 h-12 text-blue-600" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1">
-                  <h2 className="text-2xl font-bold text-slate-900 mb-2">
-                    {viewingMember.first_name} {viewingMember.last_name}
-                  </h2>
-                  {isVisibleOnBack(displaySettings, 'show_job_title') && viewingMember.job_title && (
-                    <div className="flex items-center gap-2 text-slate-600 mb-3">
-                      <Briefcase className="w-4 h-4" />
-                      <span>{viewingMember.job_title}</span>
-                    </div>
-                  )}
-                  {(() => {
-                    const role = roles.find(r => r.id === viewingMember.role_id);
-                    return role ? (
-                      <Badge 
-                        variant="secondary" 
-                        className="bg-blue-100 text-blue-700"
-                      >
-                        {role.name}
-                      </Badge>
-                    ) : null;
-                  })()}
-                </div>
-              </div>
-
-              {isVisibleOnBack(displaySettings, 'show_organization') && (() => {
-                const organization = organizations.find(o => o.id === viewingMember.organization_id);
-                return organization ? (
-                  <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                    <div className="flex items-center gap-2 text-slate-700">
-                      <Building2 className="w-5 h-5 text-blue-600" />
-                      <span className="font-semibold">{organization.name}</span>
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-
-              {isVisibleOnBack(displaySettings, 'show_bio_in_popup') && viewingMember.biography && canViewMemberBiography && (
-                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-2">
-                  <p className="text-xs font-medium text-slate-500">About</p>
-                  <p className={`text-sm text-slate-900 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>
-                    {viewingMember.biography}
-                  </p>
-                  {viewingMember.biography.length > 300 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setBioExpanded(!bioExpanded)}
-                      className="text-blue-600 hover:text-blue-700 p-0 h-auto font-medium"
-                    >
-                      {bioExpanded ? (
-                        <>
-                          <ChevronUp className="w-4 h-4 mr-1" />
-                          Show less
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="w-4 h-4 mr-1" />
-                          Read more
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                {isVisibleOnBack(displaySettings, 'show_events') && (
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Calendar className="w-5 h-5 text-green-600" />
-                      <span className="text-sm font-medium text-green-900">Events Attended</span>
-                    </div>
-                    <p className="text-2xl font-bold text-green-700">
-                      {memberStats[viewingMember.id]?.eventsAttended || 0}
-                    </p>
-                  </div>
-                )}
-
-                {isVisibleOnBack(displaySettings, 'show_articles') && (
-                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
-                    <div className="flex items-center gap-2 mb-1">
-                      <FileText className="w-5 h-5 text-purple-600" />
-                      <span className="text-sm font-medium text-purple-900">Articles Published</span>
-                    </div>
-                    <p className="text-2xl font-bold text-purple-700">
-                      {memberStats[viewingMember.id]?.publishedArticles || 0}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {isVisibleOnBack(displaySettings, 'show_awards') && memberStats[viewingMember.id]?.totalAwards > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-amber-600" />
-                    Awards & Recognition ({memberStats[viewingMember.id].totalAwards})
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {memberStats[viewingMember.id].onlineAwards.map(award => (
-                      <div key={award.id} className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg p-3 border border-amber-200">
-                        <div className="flex items-center gap-2">
-                          {award.image_url && (
-                            <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-amber-900 line-clamp-1">{award.name}</p>
-                            {award.description && (
-                              <p className="text-xs text-amber-700 line-clamp-1">{award.description}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {memberStats[viewingMember.id].offlineAwards.map(award => (
-                      <div key={award.id} className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
-                        <div className="flex items-center gap-2">
-                          {award.image_url && (
-                            <img src={award.image_url} alt={award.name} className="w-8 h-8 object-contain" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-purple-900 line-clamp-1">{award.name}</p>
-                            {award.period_text && (
-                              <p className="text-xs text-purple-700">{award.period_text}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(() => {
-                const orderedFields = getOrderedCustomFields(directoryCustomFields, displaySettings);
-                const enabledFields = orderedFields.filter(f =>
-                  isCustomFieldVisibleOnBack(displaySettings, f.id)
-                );
-                if (enabledFields.length === 0) return null;
-                const memberValues = memberPreferenceMap[viewingMember.id] || {};
-                const fieldsWithValues = enabledFields.filter(f => {
-                  const val = memberValues[f.id];
-                  return val !== undefined && val !== null && val !== '';
-                });
-                if (fieldsWithValues.length === 0) return null;
-                return (
-                  <div className="space-y-3 pt-4 border-t border-slate-200">
-                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Additional Information</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {fieldsWithValues.map(field => {
-                        let displayValue = memberValues[field.id];
-                        if (field.field_type === 'picklist' && displayValue) {
-                          const arr = Array.isArray(displayValue) ? displayValue : (() => {
-                            try { return JSON.parse(displayValue); } catch { return [displayValue]; }
-                          })();
-                          if (Array.isArray(arr) && field.options) {
-                            displayValue = arr
-                              .map(v => field.options.find(o => o.value === v)?.label || v)
-                              .join(', ');
-                          }
-                        } else if (field.field_type === 'dropdown' && displayValue && field.options) {
-                          const option = field.options.find(o => o.value === displayValue);
-                          if (option) displayValue = option.label;
-                        } else if (field.field_type === 'boolean') {
-                          displayValue = displayValue === true || displayValue === 'true' ? 'Yes' : 'No';
-                        } else if (field.field_type === 'date' && displayValue) {
-                          try {
-                            displayValue = new Date(displayValue).toLocaleDateString();
-                          } catch { /* keep as-is */ }
-                        }
-                        return (
-                          <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`custom-field-${field.id}`}>
-                            <p className="text-xs font-medium text-slate-500 mb-1">{field.label}</p>
-                            <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="pt-4 border-t border-slate-200 space-y-3">
-                {viewingMember.email && (
-                  <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <Mail className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                      <span className="text-sm text-slate-700 truncate" data-testid="text-member-email">
-                        {viewingMember.email}
-                      </span>
-                    </div>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 flex-shrink-0"
-                          onClick={() => handleCopyEmail(viewingMember.email)}
-                          data-testid="button-copy-email"
-                        >
-                          {emailCopied ? (
-                            <Check className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <Copy className="w-4 h-4 text-slate-500" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{emailCopied ? "Copied!" : "Copy"}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                )}
-
-                <Button
-                  onClick={() => handleEmailMember(viewingMember.email)}
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                  size="lg"
-                >
-                  <Mail className="w-5 h-5 mr-2" />
-                  Send Email to {viewingMember.first_name}
-                </Button>
-
-                {isVisibleOnBack(displaySettings, 'show_linkedin') && viewingMember.linkedin_url && (
-                  <Button
-                    onClick={() => window.open(viewingMember.linkedin_url, '_blank')}
-                    variant="outline"
-                    className="w-full"
-                    size="lg"
-                  >
-                    <Linkedin className="w-5 h-5 mr-2" />
-                    View LinkedIn Profile
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <MemberProfileModal
+        memberId={viewingMember?.id}
+        open={!!viewingMember}
+        onOpenChange={(open) => !open && setViewingMember(null)}
+      />
     </TooltipProvider>
   );
 }

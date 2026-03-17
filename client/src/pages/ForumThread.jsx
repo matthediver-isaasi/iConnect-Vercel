@@ -20,6 +20,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
+import MemberProfileModal from "@/components/MemberProfileModal";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 
@@ -113,6 +114,7 @@ export default function ForumThreadPage() {
   const [replyImages, setReplyImages] = useState([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [profileMemberId, setProfileMemberId] = useState(null);
   const newThreadFileRef = useRef(null);
   const replyFileRef = useRef(null);
   const bottomRef = useRef(null);
@@ -831,12 +833,20 @@ Respond with a JSON object containing exactly two fields:
         <Card className={post.is_hidden ? "opacity-60" : ""}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <Avatar className={`h-9 w-9 shrink-0 ${avatarColour.bg}`}>
+              <Avatar
+                className={`h-9 w-9 shrink-0 ${avatarColour.bg} cursor-pointer`}
+                onClick={() => setProfileMemberId(post.created_by)}
+                data-testid={`avatar-post-author-${post.id}`}
+              >
                 <AvatarFallback className={`text-xs ${avatarColour.bg} ${avatarColour.text}`}>{getInitials(authorName)}</AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm" data-testid={`text-post-author-${post.id}`}>
+                  <span
+                    className="font-medium text-sm cursor-pointer hover:underline"
+                    onClick={() => setProfileMemberId(post.created_by)}
+                    data-testid={`text-post-author-${post.id}`}
+                  >
                     {authorName}
                   </span>
                   {isOP && (
@@ -1100,7 +1110,11 @@ Respond with a JSON object containing exactly two fields:
                   {threadCategory.name}
                 </Badge>
               )}
-              <span data-testid="text-thread-author">
+              <span
+                className="cursor-pointer hover:underline"
+                onClick={() => setProfileMemberId(thread.created_by)}
+                data-testid="text-thread-author"
+              >
                 by {memberMap[thread.created_by] || "Unknown"}
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-date">
@@ -1441,6 +1455,12 @@ Respond with a JSON object containing exactly two fields:
           )}
         </DialogContent>
       </Dialog>
+
+      <MemberProfileModal
+        memberId={profileMemberId}
+        open={!!profileMemberId}
+        onOpenChange={(open) => !open && setProfileMemberId(null)}
+      />
     </div>
   );
 }
