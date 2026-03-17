@@ -7,11 +7,41 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MessageSquare, Pin, Lock, Clock, ChevronLeft, Plus, Search, Users, Eye, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
+
+const AVATAR_COLOURS = [
+  { bg: "bg-blue-100 dark:bg-blue-900/60", text: "text-blue-700 dark:text-blue-300" },
+  { bg: "bg-emerald-100 dark:bg-emerald-900/60", text: "text-emerald-700 dark:text-emerald-300" },
+  { bg: "bg-violet-100 dark:bg-violet-900/60", text: "text-violet-700 dark:text-violet-300" },
+  { bg: "bg-amber-100 dark:bg-amber-900/60", text: "text-amber-700 dark:text-amber-300" },
+  { bg: "bg-rose-100 dark:bg-rose-900/60", text: "text-rose-700 dark:text-rose-300" },
+  { bg: "bg-cyan-100 dark:bg-cyan-900/60", text: "text-cyan-700 dark:text-cyan-300" },
+  { bg: "bg-fuchsia-100 dark:bg-fuchsia-900/60", text: "text-fuchsia-700 dark:text-fuchsia-300" },
+  { bg: "bg-teal-100 dark:bg-teal-900/60", text: "text-teal-700 dark:text-teal-300" },
+  { bg: "bg-indigo-100 dark:bg-indigo-900/60", text: "text-indigo-700 dark:text-indigo-300" },
+  { bg: "bg-orange-100 dark:bg-orange-900/60", text: "text-orange-700 dark:text-orange-300" },
+];
+
+function getAvatarColour(name) {
+  if (!name) return AVATAR_COLOURS[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLOURS[Math.abs(hash) % AVATAR_COLOURS.length];
+}
+
+function getInitials(name) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return (parts[0][0] || "?").toUpperCase();
+}
 
 const THREADS_PER_PAGE = 15;
 
@@ -336,6 +366,15 @@ export default function ForumPage() {
                     >
                       <TableCell>
                         <div className="flex items-start gap-2">
+                          {(() => {
+                            const authorName = memberMap[thread.created_by] || "Unknown";
+                            const colour = getAvatarColour(authorName);
+                            return (
+                              <Avatar className={`h-8 w-8 shrink-0 ${colour.bg}`}>
+                                <AvatarFallback className={`text-xs ${colour.bg} ${colour.text}`}>{getInitials(authorName)}</AvatarFallback>
+                              </Avatar>
+                            );
+                          })()}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {thread.is_pinned && (
