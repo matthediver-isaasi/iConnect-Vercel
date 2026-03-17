@@ -5945,7 +5945,8 @@ export default function FormBuilderPage() {
                   ) : (
                     <div className="space-y-2">
                       {formData.pages.map((page, index) => (
-                        <div key={page.id} className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                        <React.Fragment key={page.id}>
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
                           <div className="flex flex-col">
                             <Button
                               variant="ghost"
@@ -6117,6 +6118,7 @@ export default function FormBuilderPage() {
                             </div>
                           );
                         })()}
+                        </React.Fragment>
                       ))}
                     </div>
                   )}
