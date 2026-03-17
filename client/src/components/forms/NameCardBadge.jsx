@@ -1,5 +1,13 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Printer } from "lucide-react";
 
 const FONT_SIZE_MAP = {
@@ -13,11 +21,11 @@ const FONT_SIZE_MAP = {
 };
 
 const ZONE_DEFAULTS = {
-  header:    { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'sm', font_weight: 'normal' },
-  primary:   { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: '2xl', font_weight: 'bold' },
-  secondary: { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'lg', font_weight: 'normal' },
-  tertiary:  { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'base', font_weight: 'normal' },
-  footer:    { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'sm', font_weight: 'normal' },
+  header:    { source: 'static', static_text: '', font_size: 'sm', font_weight: 'normal' },
+  primary:   { source: 'static', static_text: '', font_size: '2xl', font_weight: 'bold' },
+  secondary: { source: 'static', static_text: '', font_size: 'lg', font_weight: 'normal' },
+  tertiary:  { source: 'static', static_text: '', font_size: 'base', font_weight: 'normal' },
+  footer:    { source: 'static', static_text: '', font_size: 'sm', font_weight: 'normal' },
 };
 
 const STYLE_DEFAULTS = {
@@ -28,53 +36,31 @@ const STYLE_DEFAULTS = {
   height: 220,
 };
 
-function resolveZoneValue(zone, formValues, formFields, prefillData) {
-  if (!zone) return '';
-  const source = zone.source || 'static';
-
-  if (source === 'static') {
-    return zone.static_text || '';
+function resolvePrefillValue(prefillField, prefillData) {
+  if (!prefillField || !prefillData) return '';
+  if (prefillField.startsWith('booking:')) {
+    return prefillData.booking?.[prefillField.replace('booking:', '')] || '';
   }
-
-  if (source === 'field') {
-    const fieldId = zone.field_id;
-    if (!fieldId) return '';
-    const val = formValues?.[fieldId];
-    if (val !== undefined && val !== null && val !== '' && typeof val !== 'object') return String(val);
-    return '';
+  if (prefillField.startsWith('member:')) {
+    return prefillData.member?.[prefillField.replace('member:', '')] || '';
   }
-
-  if (source === 'prefill') {
-    const prefillField = zone.prefill_field;
-    if (!prefillField || !prefillData) return '';
-
-    if (prefillField.startsWith('booking:')) {
-      return prefillData.booking?.[prefillField.replace('booking:', '')] || '';
-    }
-    if (prefillField.startsWith('member:')) {
-      return prefillData.member?.[prefillField.replace('member:', '')] || '';
-    }
-    if (prefillField.startsWith('org:')) {
-      return prefillData.organization?.[prefillField.replace('org:', '')] || '';
-    }
-    if (prefillField.startsWith('member_custom:')) {
-      const cfId = prefillField.replace('member_custom:', '');
-      const cfv = prefillData.memberCustomValues?.find(v => v.field_id === cfId);
-      return cfv?.value || '';
-    }
-    if (prefillField.startsWith('org_custom:')) {
-      const cfId = prefillField.replace('org_custom:', '');
-      const cfv = prefillData.orgCustomValues?.find(v => v.field_id === cfId);
-      return cfv?.value || '';
-    }
-    return '';
+  if (prefillField.startsWith('org:')) {
+    return prefillData.organization?.[prefillField.replace('org:', '')] || '';
   }
-
+  if (prefillField.startsWith('member_custom:')) {
+    const cfId = prefillField.replace('member_custom:', '');
+    const cfv = prefillData.memberCustomValues?.find(v => v.field_id === cfId);
+    return cfv?.value || '';
+  }
+  if (prefillField.startsWith('org_custom:')) {
+    const cfId = prefillField.replace('org_custom:', '');
+    const cfv = prefillData.orgCustomValues?.find(v => v.field_id === cfId);
+    return cfv?.value || '';
+  }
   return '';
 }
 
-function BadgeZone({ zone, formValues, formFields, prefillData, accentColor, isPreview }) {
-  const text = resolveZoneValue(zone, formValues, formFields, prefillData);
+function BadgeZoneDisplay({ text, zone, isPreview }) {
   const fontSize = FONT_SIZE_MAP[zone?.font_size] || FONT_SIZE_MAP.base;
   const fontWeight = zone?.font_weight || 'normal';
   const isEmpty = !text;
@@ -93,26 +79,115 @@ function BadgeZone({ zone, formValues, formFields, prefillData, accentColor, isP
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
         padding: '0 12px',
+        width: '100%',
       }}
     >
-      {isEmpty && isPreview ? `[${zone?.source === 'field' ? 'Form Field' : zone?.source === 'prefill' ? 'Prefill Data' : 'Static Text'}]` : text || '\u00A0'}
+      {isEmpty && isPreview
+        ? `[${zone?.source === 'input' ? (zone.input_label || 'Input') : zone?.source === 'prefill_readonly' ? 'Prefill' : 'Static'}]`
+        : text || '\u00A0'}
     </div>
   );
 }
 
-export default function NameCardBadge({ zones, cardStyle, formValues = {}, formFields = [], prefillData = null, isPreview = false, showPrint = true }) {
+function BadgeZoneInput({ zone, zoneName, value, onZoneChange, isPreview }) {
+  const fontSize = FONT_SIZE_MAP[zone?.font_size] || FONT_SIZE_MAP.base;
+  const fontWeight = zone?.font_weight || 'normal';
+  const inputType = zone.input_type || 'text';
+
+  if (isPreview) {
+    return (
+      <BadgeZoneDisplay
+        text={value || ''}
+        zone={zone}
+        isPreview={true}
+      />
+    );
+  }
+
+  if (inputType === 'select') {
+    const options = zone.input_options || [];
+    const normalizedValue = (value && options.includes(value)) ? value : '';
+    return (
+      <div style={{ width: '100%', padding: '0 12px' }}>
+        <Select
+          value={normalizedValue}
+          onValueChange={(val) => onZoneChange(zoneName, val)}
+        >
+          <SelectTrigger
+            className="border-slate-200 bg-white/80"
+            style={{ fontSize, fontWeight, textAlign: 'center', height: 'auto', minHeight: '2rem' }}
+            data-testid={`select-badge-${zoneName}`}
+          >
+            <SelectValue placeholder={zone.input_placeholder || zone.input_label || 'Select...'} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: '100%', padding: '0 12px' }}>
+      <Input
+        value={value || ''}
+        onChange={(e) => onZoneChange(zoneName, e.target.value)}
+        placeholder={zone.input_placeholder || zone.input_label || ''}
+        className="border-slate-200 bg-white/80 text-center"
+        style={{ fontSize, fontWeight, height: 'auto', minHeight: '2rem', padding: '2px 8px' }}
+        data-testid={`input-badge-${zoneName}`}
+      />
+    </div>
+  );
+}
+
+export default function NameCardBadge({ zones, cardStyle, value = {}, onChange, prefillData = null, isPreview = false, showPrint = true, disabled = false }) {
   const badgeRef = useRef(null);
   const mergedZones = {};
   for (const key of Object.keys(ZONE_DEFAULTS)) {
-    mergedZones[key] = { ...ZONE_DEFAULTS[key], ...(zones?.[key] || {}) };
+    const raw = { ...ZONE_DEFAULTS[key], ...(zones?.[key] || {}) };
+    if (raw.source === 'prefill') {
+      raw.source = 'prefill_readonly';
+    }
+    if (raw.source === 'field') {
+      raw.source = 'static';
+      raw.static_text = raw.static_text || '';
+    }
+    mergedZones[key] = raw;
   }
   const style = { ...STYLE_DEFAULTS, ...(cardStyle || {}) };
 
+  const compositeValue = useMemo(() => {
+    const result = { ...(value || {}) };
+    for (const [zoneName, zone] of Object.entries(mergedZones)) {
+      if (zone.source === 'static') {
+        result[zoneName] = zone.static_text || '';
+      } else if (zone.source === 'prefill_readonly') {
+        result[zoneName] = resolvePrefillValue(zone.prefill_field, prefillData);
+      }
+    }
+    return result;
+  }, [value, mergedZones, prefillData]);
+
+  const handleZoneChange = useCallback((zoneName, val) => {
+    const updated = { ...compositeValue, [zoneName]: val };
+    onChange?.(updated);
+  }, [compositeValue, onChange]);
+
   const handlePrint = useCallback(() => {
     if (!badgeRef.current) return;
+    const clone = badgeRef.current.cloneNode(true);
+    clone.querySelectorAll('input, select, button').forEach(el => {
+      const span = document.createElement('span');
+      span.textContent = el.value || el.textContent || '';
+      span.style.cssText = el.style.cssText;
+      el.parentNode.replaceChild(span, el);
+    });
     const printWindow = window.open('', '_blank', 'width=600,height=400');
     if (!printWindow) return;
-    const badgeHtml = badgeRef.current.outerHTML;
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -120,18 +195,40 @@ export default function NameCardBadge({ zones, cardStyle, formValues = {}, formF
           <title>Name Badge</title>
           <style>
             body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #fff; }
-            @media print {
-              body { margin: 0; padding: 0; }
-              @page { size: auto; margin: 10mm; }
-            }
+            @media print { body { margin: 0; padding: 0; } @page { size: auto; margin: 10mm; } }
           </style>
         </head>
-        <body>${badgeHtml}</body>
+        <body>${clone.outerHTML}</body>
       </html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); }, 250);
   }, []);
+
+  const renderZone = (zoneName) => {
+    const zone = mergedZones[zoneName];
+    const zoneValue = compositeValue[zoneName] || '';
+
+    if (zone.source === 'input' && !disabled) {
+      return (
+        <BadgeZoneInput
+          zone={zone}
+          zoneName={zoneName}
+          value={zoneValue}
+          onZoneChange={handleZoneChange}
+          isPreview={isPreview}
+        />
+      );
+    }
+
+    return (
+      <BadgeZoneDisplay
+        text={zoneValue}
+        zone={zone}
+        isPreview={isPreview}
+      />
+    );
+  };
 
   return (
     <div className="flex flex-col items-center gap-3" data-testid="name-card-badge-wrapper">
@@ -140,7 +237,7 @@ export default function NameCardBadge({ zones, cardStyle, formValues = {}, formF
         data-testid="name-card-badge"
         style={{
           width: `${style.width}px`,
-          height: `${style.height}px`,
+          minHeight: `${style.height}px`,
           backgroundColor: style.background_color,
           border: `2px solid ${style.border_color}`,
           borderRadius: '12px',
@@ -170,12 +267,12 @@ export default function NameCardBadge({ zones, cardStyle, formValues = {}, formF
             padding: '12px 8px',
           }}
         >
-          <BadgeZone zone={mergedZones.header} formValues={formValues} formFields={formFields} prefillData={prefillData} accentColor={style.accent_color} isPreview={isPreview} />
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-            <BadgeZone zone={mergedZones.primary} formValues={formValues} formFields={formFields} prefillData={prefillData} accentColor={style.accent_color} isPreview={isPreview} />
+          {renderZone('header')}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', width: '100%', justifyContent: 'center' }}>
+            {renderZone('primary')}
           </div>
-          <BadgeZone zone={mergedZones.secondary} formValues={formValues} formFields={formFields} prefillData={prefillData} accentColor={style.accent_color} isPreview={isPreview} />
-          <BadgeZone zone={mergedZones.tertiary} formValues={formValues} formFields={formFields} prefillData={prefillData} accentColor={style.accent_color} isPreview={isPreview} />
+          {renderZone('secondary')}
+          {renderZone('tertiary')}
         </div>
 
         <div
@@ -189,7 +286,7 @@ export default function NameCardBadge({ zones, cardStyle, formValues = {}, formF
             backgroundColor: `${style.accent_color}10`,
           }}
         >
-          <BadgeZone zone={mergedZones.footer} formValues={formValues} formFields={formFields} prefillData={prefillData} accentColor={style.accent_color} isPreview={isPreview} />
+          {renderZone('footer')}
         </div>
       </div>
 

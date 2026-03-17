@@ -481,6 +481,23 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   }, [field.type, customFieldDef?.field_type]);
 
+  useEffect(() => {
+    if (field.type === 'name_card' && field.name_card_zones) {
+      const zones = field.name_card_zones;
+      const compositeVal = value || {};
+      let allValid = true;
+      for (const [zoneName, zone] of Object.entries(zones)) {
+        if (zone.source === 'input' && zone.input_required) {
+          if (!compositeVal[zoneName] || !String(compositeVal[zoneName]).trim()) {
+            allValid = false;
+            break;
+          }
+        }
+      }
+      onValidityChange?.(field.id, allValid);
+    }
+  }, [field.type, field.name_card_zones, value, onValidityChange, field.id]);
+
   // Revalidate email domain when dependencies change
   useEffect(() => {
     if (field.type === 'email') {
@@ -1619,11 +1636,12 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       <NameCardBadge
         zones={field.name_card_zones}
         cardStyle={field.name_card_style}
-        formValues={allFormValues}
-        formFields={allFields}
+        value={value || {}}
+        onChange={onChange}
         prefillData={prefillData}
         isPreview={false}
         showPrint={true}
+        disabled={isFieldDisabled}
       />
     );
   }

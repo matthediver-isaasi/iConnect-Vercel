@@ -14,11 +14,20 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 const isFieldValueFilled = (field, value) => {
   if (!value) return false;
   
-  // Handle Contact composite field type - check required sub-fields
   if (field.type === 'contact') {
     if (typeof value !== 'object') return false;
-    // Contact requires firstName, lastName, and email when the field is required
     return !!(value.firstName?.trim() && value.lastName?.trim() && value.email?.trim());
+  }
+
+  if (field.type === 'name_card') {
+    if (typeof value !== 'object') return false;
+    const zones = field.name_card_zones || {};
+    for (const [zoneName, zone] of Object.entries(zones)) {
+      if (zone.source === 'input' && zone.input_required) {
+        if (!value[zoneName] || !String(value[zoneName]).trim()) return false;
+      }
+    }
+    return true;
   }
   
   // For arrays (checkbox, list, etc.)
@@ -1996,7 +2005,7 @@ export default function FormViewPage() {
     }
 
     const displayOnlyFieldIds = new Set(
-      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image' || f.type === 'name_card').map(f => f.id)
+      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
     );
     const filteredFormValues = Object.fromEntries(
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))

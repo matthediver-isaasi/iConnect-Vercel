@@ -35,11 +35,11 @@ import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
 
 const NAME_CARD_ZONE_DEFAULTS = {
-  header:    { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'sm', font_weight: 'normal' },
-  primary:   { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: '2xl', font_weight: 'bold' },
-  secondary: { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'lg', font_weight: 'normal' },
-  tertiary:  { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'base', font_weight: 'normal' },
-  footer:    { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'sm', font_weight: 'normal' },
+  header:    { source: 'static', static_text: '', font_size: 'sm', font_weight: 'normal' },
+  primary:   { source: 'input', input_type: 'text', input_label: 'Full Name', input_placeholder: 'Enter your name', input_required: false, font_size: '2xl', font_weight: 'bold' },
+  secondary: { source: 'static', static_text: '', font_size: 'lg', font_weight: 'normal' },
+  tertiary:  { source: 'static', static_text: '', font_size: 'base', font_weight: 'normal' },
+  footer:    { source: 'static', static_text: '', font_size: 'sm', font_weight: 'normal' },
 };
 
 const NAME_CARD_STYLE_DEFAULTS = {
@@ -49,8 +49,6 @@ const NAME_CARD_STYLE_DEFAULTS = {
   width: 350,
   height: 220,
 };
-
-const NAME_CARD_SCALAR_TYPES = new Set(['text', 'textarea', 'email', 'url', 'number', 'tel', 'select', 'radio', 'date', 'time', 'country', 'percentage', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_dropdown']);
 
 const STANDARD_FIELD_TYPES = [
   { value: 'text', label: 'Text (Single Line)' },
@@ -3619,37 +3617,43 @@ function FieldCard({
               )}
 
               {/* Name Card Badge Configuration */}
-              {field.type === 'name_card' && (
+              {field.type === 'name_card' && (() => {
+                const ncZones = field.name_card_zones || NAME_CARD_ZONE_DEFAULTS;
+                const ncUpdateZone = (zoneName, updates) => {
+                  const zone = ncZones[zoneName] || NAME_CARD_ZONE_DEFAULTS[zoneName];
+                  const updatedZones = { ...ncZones, [zoneName]: { ...zone, ...updates } };
+                  updateField(originalIndex, { name_card_zones: updatedZones });
+                };
+                const ncStyle = field.name_card_style || NAME_CARD_STYLE_DEFAULTS;
+
+                return (
                 <div className="space-y-4">
                   <Label className="text-xs font-medium">Name Card (Badge) Configuration</Label>
-                  <p className="text-xs text-slate-500">Configure each zone of the badge. Each zone can show static text, pull from a form field, or use prefill data.</p>
+                  <p className="text-xs text-slate-500">Configure each zone of the badge. Zones can show static text, contain an input field (text or dropdown), or auto-populate from prefill data.</p>
 
                   {['header', 'primary', 'secondary', 'tertiary', 'footer'].map((zoneName) => {
-                    const zones = field.name_card_zones || NAME_CARD_ZONE_DEFAULTS;
-                    const zone = zones[zoneName] || NAME_CARD_ZONE_DEFAULTS[zoneName];
-                    const updateZone = (updates) => {
-                      const updatedZones = { ...zones, [zoneName]: { ...zone, ...updates } };
-                      updateField(originalIndex, { name_card_zones: updatedZones });
-                    };
-                    const otherFields = allFields.filter(f => f.id !== field.id && NAME_CARD_SCALAR_TYPES.has(f.type));
+                    const rawZone = ncZones[zoneName] || NAME_CARD_ZONE_DEFAULTS[zoneName];
+                    const zone = { ...rawZone };
+                    if (zone.source === 'prefill') zone.source = 'prefill_readonly';
+                    if (zone.source === 'field') zone.source = 'static';
 
                     return (
                       <div key={zoneName} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                         <Label className="text-xs font-semibold capitalize">{zoneName} Zone</Label>
                         <div className="grid grid-cols-2 gap-2">
                           <div className="space-y-1">
-                            <Label className="text-xs">Source</Label>
+                            <Label className="text-xs">Type</Label>
                             <Select
                               value={zone.source || 'static'}
-                              onValueChange={(val) => updateZone({ source: val })}
+                              onValueChange={(val) => ncUpdateZone(zoneName, { source: val })}
                             >
                               <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-source-${zoneName}-${field.id}`}>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="static">Static Text</SelectItem>
-                                <SelectItem value="field">Form Field</SelectItem>
-                                <SelectItem value="prefill">Prefill Data</SelectItem>
+                                <SelectItem value="input">Input Field</SelectItem>
+                                <SelectItem value="prefill_readonly">Prefill (Read-only)</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
@@ -3657,7 +3661,7 @@ function FieldCard({
                             <Label className="text-xs">Font Size</Label>
                             <Select
                               value={zone.font_size || 'base'}
-                              onValueChange={(val) => updateZone({ font_size: val })}
+                              onValueChange={(val) => ncUpdateZone(zoneName, { font_size: val })}
                             >
                               <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-fontsize-${zoneName}-${field.id}`}>
                                 <SelectValue />
@@ -3678,33 +3682,82 @@ function FieldCard({
                         {zone.source === 'static' && (
                           <Input
                             value={zone.static_text || ''}
-                            onChange={(e) => updateZone({ static_text: e.target.value })}
+                            onChange={(e) => ncUpdateZone(zoneName, { static_text: e.target.value })}
                             placeholder={`Enter ${zoneName} text...`}
                             className="h-8 text-xs"
                             data-testid={`input-nc-static-${zoneName}-${field.id}`}
                           />
                         )}
 
-                        {zone.source === 'field' && (
-                          <Select
-                            value={zone.field_id || ''}
-                            onValueChange={(val) => updateZone({ field_id: val })}
-                          >
-                            <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-field-${zoneName}-${field.id}`}>
-                              <SelectValue placeholder="Select a form field..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {otherFields.map(f => (
-                                <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                        {zone.source === 'input' && (
+                          <div className="space-y-2 p-2 bg-white border border-slate-200 rounded">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Input Type</Label>
+                                <Select
+                                  value={zone.input_type || 'text'}
+                                  onValueChange={(val) => ncUpdateZone(zoneName, { input_type: val })}
+                                >
+                                  <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-inputtype-${zoneName}-${field.id}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="text">Text</SelectItem>
+                                    <SelectItem value="select">Dropdown</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Label</Label>
+                                <Input
+                                  value={zone.input_label || ''}
+                                  onChange={(e) => ncUpdateZone(zoneName, { input_label: e.target.value })}
+                                  placeholder="Field label..."
+                                  className="h-8 text-xs"
+                                  data-testid={`input-nc-inputlabel-${zoneName}-${field.id}`}
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Placeholder</Label>
+                              <Input
+                                value={zone.input_placeholder || ''}
+                                onChange={(e) => ncUpdateZone(zoneName, { input_placeholder: e.target.value })}
+                                placeholder="Placeholder text..."
+                                className="h-8 text-xs"
+                                data-testid={`input-nc-placeholder-${zoneName}-${field.id}`}
+                              />
+                            </div>
+                            {(zone.input_type || 'text') === 'select' && (
+                              <div className="space-y-1">
+                                <Label className="text-xs">Options (one per line)</Label>
+                                <textarea
+                                  value={(zone.input_options || []).join('\n')}
+                                  onChange={(e) => {
+                                    const options = e.target.value.split('\n').filter(o => o.trim());
+                                    ncUpdateZone(zoneName, { input_options: options });
+                                  }}
+                                  placeholder={"Mr\nMrs\nMs\nDr\nProf"}
+                                  className="w-full min-h-[60px] text-xs p-2 border border-slate-200 rounded resize-y"
+                                  data-testid={`textarea-nc-options-${zoneName}-${field.id}`}
+                                />
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs">Required</Label>
+                              <Switch
+                                checked={zone.input_required || false}
+                                onCheckedChange={(checked) => ncUpdateZone(zoneName, { input_required: checked })}
+                                data-testid={`switch-nc-required-${zoneName}-${field.id}`}
+                              />
+                            </div>
+                          </div>
                         )}
 
-                        {zone.source === 'prefill' && (
+                        {zone.source === 'prefill_readonly' && (
                           <Select
                             value={zone.prefill_field || ''}
-                            onValueChange={(val) => updateZone({ prefill_field: val })}
+                            onValueChange={(val) => ncUpdateZone(zoneName, { prefill_field: val })}
                           >
                             <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-prefill-${zoneName}-${field.id}`}>
                               <SelectValue placeholder="Select prefill field..." />
@@ -3730,7 +3783,7 @@ function FieldCard({
                           <Label className="text-xs">Bold</Label>
                           <Switch
                             checked={zone.font_weight === 'bold'}
-                            onCheckedChange={(checked) => updateZone({ font_weight: checked ? 'bold' : 'normal' })}
+                            onCheckedChange={(checked) => ncUpdateZone(zoneName, { font_weight: checked ? 'bold' : 'normal' })}
                             data-testid={`switch-nc-bold-${zoneName}-${field.id}`}
                           />
                         </div>
@@ -3746,14 +3799,14 @@ function FieldCard({
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
-                            value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).accent_color}
+                            value={ncStyle.accent_color}
                             onChange={(e) => updateField(originalIndex, {
-                              name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), accent_color: e.target.value }
+                              name_card_style: { ...ncStyle, accent_color: e.target.value }
                             })}
                             className="w-8 h-8 rounded cursor-pointer border border-slate-200"
                             data-testid={`input-nc-accent-${field.id}`}
                           />
-                          <span className="text-xs text-slate-500">{(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).accent_color}</span>
+                          <span className="text-xs text-slate-500">{ncStyle.accent_color}</span>
                         </div>
                       </div>
                       <div className="space-y-1">
@@ -3761,14 +3814,14 @@ function FieldCard({
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
-                            value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).background_color}
+                            value={ncStyle.background_color}
                             onChange={(e) => updateField(originalIndex, {
-                              name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), background_color: e.target.value }
+                              name_card_style: { ...ncStyle, background_color: e.target.value }
                             })}
                             className="w-8 h-8 rounded cursor-pointer border border-slate-200"
                             data-testid={`input-nc-bg-${field.id}`}
                           />
-                          <span className="text-xs text-slate-500">{(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).background_color}</span>
+                          <span className="text-xs text-slate-500">{ncStyle.background_color}</span>
                         </div>
                       </div>
                       <div className="space-y-1">
@@ -3776,14 +3829,14 @@ function FieldCard({
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
-                            value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).border_color}
+                            value={ncStyle.border_color}
                             onChange={(e) => updateField(originalIndex, {
-                              name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), border_color: e.target.value }
+                              name_card_style: { ...ncStyle, border_color: e.target.value }
                             })}
                             className="w-8 h-8 rounded cursor-pointer border border-slate-200"
                             data-testid={`input-nc-border-${field.id}`}
                           />
-                          <span className="text-xs text-slate-500">{(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).border_color}</span>
+                          <span className="text-xs text-slate-500">{ncStyle.border_color}</span>
                         </div>
                       </div>
                     </div>
@@ -3792,9 +3845,9 @@ function FieldCard({
                         <Label className="text-xs">Width (px)</Label>
                         <Input
                           type="number"
-                          value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).width}
+                          value={ncStyle.width}
                           onChange={(e) => updateField(originalIndex, {
-                            name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), width: parseInt(e.target.value) || 350 }
+                            name_card_style: { ...ncStyle, width: parseInt(e.target.value) || 350 }
                           })}
                           min={200}
                           max={600}
@@ -3806,9 +3859,9 @@ function FieldCard({
                         <Label className="text-xs">Height (px)</Label>
                         <Input
                           type="number"
-                          value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).height}
+                          value={ncStyle.height}
                           onChange={(e) => updateField(originalIndex, {
-                            name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), height: parseInt(e.target.value) || 220 }
+                            name_card_style: { ...ncStyle, height: parseInt(e.target.value) || 220 }
                           })}
                           min={150}
                           max={500}
@@ -3822,17 +3875,17 @@ function FieldCard({
                   <div className="p-3 bg-white border border-slate-200 rounded-lg">
                     <Label className="text-xs font-semibold mb-2 block">Preview</Label>
                     <NameCardBadge
-                      zones={field.name_card_zones || NAME_CARD_ZONE_DEFAULTS}
-                      cardStyle={field.name_card_style || NAME_CARD_STYLE_DEFAULTS}
-                      formValues={{}}
-                      formFields={allFields.filter(f => f.id !== field.id)}
+                      zones={ncZones}
+                      cardStyle={ncStyle}
+                      value={{}}
                       prefillData={null}
                       isPreview={true}
                       showPrint={false}
                     />
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Contact Field - Contract Template Selection */}
               {field.type === 'contact' && (
