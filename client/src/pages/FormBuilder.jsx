@@ -3631,7 +3631,7 @@ function FieldCard({
                       const updatedZones = { ...zones, [zoneName]: { ...zone, ...updates } };
                       updateField(originalIndex, { name_card_zones: updatedZones });
                     };
-                    const otherFields = formData.fields.filter(f => f.id !== field.id && NAME_CARD_SCALAR_TYPES.has(f.type));
+                    const otherFields = allFields.filter(f => f.id !== field.id && NAME_CARD_SCALAR_TYPES.has(f.type));
 
                     return (
                       <div key={zoneName} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
@@ -3825,7 +3825,7 @@ function FieldCard({
                       zones={field.name_card_zones || NAME_CARD_ZONE_DEFAULTS}
                       cardStyle={field.name_card_style || NAME_CARD_STYLE_DEFAULTS}
                       formValues={{}}
-                      formFields={formData.fields.filter(f => f.id !== field.id)}
+                      formFields={allFields.filter(f => f.id !== field.id)}
                       prefillData={null}
                       isPreview={true}
                       showPrint={false}
