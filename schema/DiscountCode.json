@@ -53,6 +53,18 @@
       "organization_id": {
         "type": "string",
         "description": "Optional: Reference to Organization entity if this discount is exclusive to one organization. If null, it's a global discount available to all organizations."
+      },
+      "member_id": {
+        "type": "string",
+        "description": "Optional: Reference to Member entity if this discount is exclusive to one member. Mutually exclusive with organization_id, role_id, member_group_id."
+      },
+      "role_id": {
+        "type": "string",
+        "description": "Optional: Reference to Role entity if this discount is restricted to members with this role. Mutually exclusive with organization_id, member_id, member_group_id."
+      },
+      "member_group_id": {
+        "type": "string",
+        "description": "Optional: Reference to MemberGroup entity if this discount is restricted to members in this group. Mutually exclusive with organization_id, member_id, role_id."
       }
     },
     "required": [

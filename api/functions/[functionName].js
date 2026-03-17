@@ -1918,10 +1918,59 @@ const functionHandlers = {
       if (discountCodeError || !discountCode) {
         console.warn(`[createOneOffEventBooking] Discount code validation failed: ${discountCodeError?.message || 'Not found or inactive'}`);
       } else {
+        const isMemberTargetedCode = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
+        let targetEligible = true;
+
+        // Validate member-targeted restrictions at booking time
+        if (discountCode.member_id) {
+          if (!member?.id || discountCode.member_id !== member.id) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to member ${discountCode.member_id}, but booking member is ${member?.id}`);
+            targetEligible = false;
+          }
+        }
+        if (discountCode.role_id && targetEligible) {
+          if (!member?.role_id || member.role_id !== discountCode.role_id) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to role ${discountCode.role_id}, but member role is ${member?.role_id}`);
+            targetEligible = false;
+          }
+        }
+        if (discountCode.member_group_id && targetEligible) {
+          if (!member?.id) {
+            targetEligible = false;
+          } else {
+            const { data: grpAssignment } = await supabase
+              .from('member_group_assignment')
+              .select('id')
+              .eq('member_id', member.id)
+              .eq('group_id', discountCode.member_group_id)
+              .maybeSingle();
+            if (!grpAssignment) {
+              console.warn(`[createOneOffEventBooking] Member ${member.id} not in group ${discountCode.member_group_id}`);
+              targetEligible = false;
+            }
+          }
+        }
+
+        // For member-targeted codes, check per-member max usage
+        if (isMemberTargetedCode && targetEligible && member?.id && discountCode.max_usage_count) {
+          const { data: perMemberUsage } = await supabase
+            .from('discount_code_usage')
+            .select('usage_count')
+            .eq('discount_code_id', discountCode.id)
+            .eq('member_id', member.id)
+            .maybeSingle();
+          if (perMemberUsage && perMemberUsage.usage_count >= discountCode.max_usage_count) {
+            console.warn(`[createOneOffEventBooking] Member ${member.id} has reached max uses for discount code`);
+            targetEligible = false;
+          }
+        }
+
         // Check if discount code has expired (use correct column name: expires_at)
-        if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
+        if (!targetEligible) {
+          console.warn(`[createOneOffEventBooking] Discount code target eligibility check failed`);
+        } else if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
           console.warn(`[createOneOffEventBooking] Discount code has expired`);
-        } else if (discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
+        } else if (!isMemberTargetedCode && discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
           console.warn(`[createOneOffEventBooking] Discount code has reached maximum uses`);
         } else {
           // Compute discount amount server-side based on remaining cost after vouchers and training fund
@@ -1940,12 +1989,15 @@ const functionHandlers = {
           validatedDiscountCodeId = discountCode.id;
           console.log(`[createOneOffEventBooking] Discount code validated: ${discountCode.code}, type=${discountCode.type}, value=${discountCode.value}, computed amount=${validatedDiscountAmount}`);
           
-          // Increment current_usage_count for the discount code (tenant-scoped for safety)
-          await supabase
-            .from('discount_code')
-            .update({ current_usage_count: (discountCode.current_usage_count || 0) + 1 })
-            .eq('id', discountCode.id)
-            .eq('tenant_id', event.tenant_id);
+          // Increment current_usage_count for non-member-targeted codes (tenant-scoped for safety)
+          // Member-targeted codes use per-member tracking in discount_code_usage instead
+          if (!isMemberTargetedCode) {
+            await supabase
+              .from('discount_code')
+              .update({ current_usage_count: (discountCode.current_usage_count || 0) + 1 })
+              .eq('id', discountCode.id)
+              .eq('tenant_id', event.tenant_id);
+          }
           
           // Track usage in discount_code_usage table for reporting (requires organization)
           if (org?.id) {
@@ -1955,6 +2007,7 @@ const functionHandlers = {
               .select('id, usage_count')
               .eq('discount_code_id', discountCode.id)
               .eq('organization_id', org.id)
+              .is('member_id', null)
               .maybeSingle();
             
             if (existingUsage) {
@@ -1982,6 +2035,40 @@ const functionHandlers = {
             }
           } else {
             console.log(`[createOneOffEventBooking] Skipping discount_code_usage tracking - no organization (guest booking)`);
+          }
+
+          // Track per-member usage for member/role/group-targeted codes
+          const isMemberTargeted = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
+          if (isMemberTargeted && member?.id) {
+            const { data: existingMemberUsage } = await supabase
+              .from('discount_code_usage')
+              .select('id, usage_count')
+              .eq('discount_code_id', discountCode.id)
+              .eq('member_id', member.id)
+              .maybeSingle();
+
+            if (existingMemberUsage) {
+              await supabase
+                .from('discount_code_usage')
+                .update({ usage_count: (existingMemberUsage.usage_count || 0) + 1 })
+                .eq('id', existingMemberUsage.id);
+              console.log(`[createOneOffEventBooking] Updated per-member discount_code_usage for member ${member.id}: count=${(existingMemberUsage.usage_count || 0) + 1}`);
+            } else {
+              const { error: memberUsageError } = await supabase
+                .from('discount_code_usage')
+                .insert({
+                  discount_code_id: discountCode.id,
+                  member_id: member.id,
+                  organization_id: org?.id || null,
+                  usage_count: 1,
+                  tenant_id: event.tenant_id
+                });
+              if (memberUsageError) {
+                console.error('[createOneOffEventBooking] Failed to create per-member discount_code_usage:', memberUsageError.message);
+              } else {
+                console.log(`[createOneOffEventBooking] Created per-member discount_code_usage for member ${member.id}`);
+              }
+            }
           }
         }
       }
@@ -3141,6 +3228,17 @@ const functionHandlers = {
       return { valid: false, error: 'Unable to validate discount code - please try again' };
     }
 
+    // SECURITY: Derive memberId from authenticated session, never trust client-supplied value
+    let authenticatedMemberId = null;
+    if (req) {
+      try {
+        const sessionMember = await getSessionMember(req);
+        authenticatedMemberId = sessionMember?.id || null;
+      } catch (e) {
+        console.warn('[applyDiscountCode] Could not get session member:', e.message);
+      }
+    }
+
     // Query discount codes with required tenant filter for multi-tenant security
     const { data: discountCodes } = await supabase
       .from('discount_code')
@@ -3154,14 +3252,77 @@ const functionHandlers = {
     }
 
     const discountCode = discountCodes[0];
+    const isMemberTargeted = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
 
     // Use correct column names from database: expires_at, max_usage_count, current_usage_count, type, value
     if (discountCode.expires_at && new Date(discountCode.expires_at) < new Date()) {
       return { valid: false, error: 'Discount code has expired' };
     }
 
-    if (discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
-      return { valid: false, error: 'Discount code has reached maximum uses' };
+    // For non-member-targeted codes, check global usage count
+    if (!isMemberTargeted) {
+      if (discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
+        return { valid: false, error: 'Discount code has reached maximum uses' };
+      }
+    }
+
+    // Validate member-targeted restrictions using server-derived memberId
+    if (discountCode.member_id) {
+      if (!authenticatedMemberId) {
+        console.log('[applyDiscountCode] Code is member-targeted but no authenticated member session');
+        return { valid: false, error: 'This discount code is not available to you' };
+      }
+      if (discountCode.member_id !== authenticatedMemberId) {
+        console.log('[applyDiscountCode] Code is targeted to member', discountCode.member_id, 'but requester is', authenticatedMemberId);
+        return { valid: false, error: 'This discount code is not available to you' };
+      }
+    }
+
+    if (discountCode.role_id) {
+      if (!authenticatedMemberId) {
+        console.log('[applyDiscountCode] Code is role-targeted but no authenticated member session');
+        return { valid: false, error: 'This discount code is not available to you' };
+      }
+      const { data: memberRecord } = await supabase
+        .from('member')
+        .select('role_id')
+        .eq('id', authenticatedMemberId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (!memberRecord || memberRecord.role_id !== discountCode.role_id) {
+        console.log('[applyDiscountCode] Member role', memberRecord?.role_id, 'does not match code role', discountCode.role_id);
+        return { valid: false, error: 'This discount code is not available for your role' };
+      }
+    }
+
+    if (discountCode.member_group_id) {
+      if (!authenticatedMemberId) {
+        console.log('[applyDiscountCode] Code is group-targeted but no authenticated member session');
+        return { valid: false, error: 'This discount code is not available to you' };
+      }
+      const { data: groupAssignment } = await supabase
+        .from('member_group_assignment')
+        .select('id')
+        .eq('member_id', authenticatedMemberId)
+        .eq('group_id', discountCode.member_group_id)
+        .maybeSingle();
+      if (!groupAssignment) {
+        console.log('[applyDiscountCode] Member', authenticatedMemberId, 'is not in group', discountCode.member_group_id);
+        return { valid: false, error: 'This discount code is not available for your group' };
+      }
+    }
+
+    // For member/role/group-targeted codes, check per-member usage against max_usage_count
+    if (authenticatedMemberId && isMemberTargeted && discountCode.max_usage_count) {
+      const { data: memberUsage } = await supabase
+        .from('discount_code_usage')
+        .select('usage_count')
+        .eq('discount_code_id', discountCode.id)
+        .eq('member_id', authenticatedMemberId)
+        .maybeSingle();
+      if (memberUsage && memberUsage.usage_count >= discountCode.max_usage_count) {
+        return { valid: false, error: 'You have reached the maximum uses for this discount code' };
+      }
     }
 
     let discountAmount = 0;
