@@ -1611,10 +1611,6 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   };
 
-  if (field.type === 'name_card') {
-    return null;
-  }
-
   if (field.type === 'image') {
     return (
       <div 

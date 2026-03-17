@@ -4409,7 +4409,8 @@ export default function FormBuilderPage() {
     const newPage = {
       id: `page_${Date.now()}`,
       title: `Page ${pageNumber}`,
-      column_count: 1 // 1, 2, or 3 columns
+      column_count: 1,
+      page_style: 'standard'
     };
     setFormData({ ...formData, pages: [...formData.pages, newPage] });
   };
