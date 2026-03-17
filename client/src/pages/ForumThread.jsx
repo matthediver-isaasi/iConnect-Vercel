@@ -56,6 +56,28 @@ function getInitials(name) {
   return (parts[0][0] || "?").toUpperCase();
 }
 
+const AVATAR_COLOURS = [
+  { bg: "bg-blue-100 dark:bg-blue-900/60", text: "text-blue-700 dark:text-blue-300" },
+  { bg: "bg-emerald-100 dark:bg-emerald-900/60", text: "text-emerald-700 dark:text-emerald-300" },
+  { bg: "bg-violet-100 dark:bg-violet-900/60", text: "text-violet-700 dark:text-violet-300" },
+  { bg: "bg-amber-100 dark:bg-amber-900/60", text: "text-amber-700 dark:text-amber-300" },
+  { bg: "bg-rose-100 dark:bg-rose-900/60", text: "text-rose-700 dark:text-rose-300" },
+  { bg: "bg-cyan-100 dark:bg-cyan-900/60", text: "text-cyan-700 dark:text-cyan-300" },
+  { bg: "bg-fuchsia-100 dark:bg-fuchsia-900/60", text: "text-fuchsia-700 dark:text-fuchsia-300" },
+  { bg: "bg-teal-100 dark:bg-teal-900/60", text: "text-teal-700 dark:text-teal-300" },
+  { bg: "bg-indigo-100 dark:bg-indigo-900/60", text: "text-indigo-700 dark:text-indigo-300" },
+  { bg: "bg-orange-100 dark:bg-orange-900/60", text: "text-orange-700 dark:text-orange-300" },
+];
+
+function getAvatarColour(name) {
+  if (!name) return AVATAR_COLOURS[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLOURS[Math.abs(hash) % AVATAR_COLOURS.length];
+}
+
 export default function ForumThreadPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -601,6 +623,8 @@ Respond with a JSON object containing exactly two fields:
 
   const renderPost = (post, depth = 0) => {
     const authorName = memberMap[post.created_by] || "Unknown";
+    const avatarColour = getAvatarColour(authorName);
+    const isOP = thread && post.created_by === thread.created_by;
     const postReactions = reactionsByPost[post.id] || [];
     const likeCount = postReactions.filter(r => r.reaction_type === "like").length;
     const dislikeCount = postReactions.filter(r => r.reaction_type === "dislike").length;
@@ -615,12 +639,12 @@ Respond with a JSON object containing exactly two fields:
     if (post.is_deleted) {
       return (
         <div key={post.id} data-testid={`post-${post.id}`}>
-          <div className={effectiveDepth > 0 ? "border-l-2 border-muted-foreground/20 pl-4 sm:pl-6" : ""}>
+          <div className={effectiveDepth > 0 ? "border-l-2 border-indigo-300/40 dark:border-indigo-600/40 pl-4 sm:pl-6" : ""}>
             <Card className="opacity-50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-9 w-9 shrink-0">
-                    <AvatarFallback className="text-xs">
+                    <AvatarFallback className="text-xs bg-muted">
                       <Trash2 className="w-4 h-4" />
                     </AvatarFallback>
                   </Avatar>
@@ -661,18 +685,23 @@ Respond with a JSON object containing exactly two fields:
 
     return (
       <div key={post.id} data-testid={`post-${post.id}`}>
-        <div className={effectiveDepth > 0 ? "border-l-2 border-muted-foreground/20 pl-4 sm:pl-6" : ""}>
+        <div className={effectiveDepth > 0 ? "border-l-2 border-indigo-300/40 dark:border-indigo-600/40 pl-4 sm:pl-6" : ""}>
         <Card className={post.is_hidden ? "opacity-60" : ""}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <Avatar className="h-9 w-9 shrink-0">
-                <AvatarFallback className="text-xs">{getInitials(authorName)}</AvatarFallback>
+              <Avatar className={`h-9 w-9 shrink-0 ${avatarColour.bg}`}>
+                <AvatarFallback className={`text-xs ${avatarColour.bg} ${avatarColour.text}`}>{getInitials(authorName)}</AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium text-sm" data-testid={`text-post-author-${post.id}`}>
                     {authorName}
                   </span>
+                  {isOP && (
+                    <Badge className="text-[10px] px-1.5 py-0 bg-teal-100 text-teal-700 dark:bg-teal-900/60 dark:text-teal-300 border-teal-200 dark:border-teal-700/50 no-default-hover-elevate no-default-active-elevate" variant="outline" data-testid={`badge-op-${post.id}`}>
+                      OP
+                    </Badge>
+                  )}
                   <span className="text-xs text-muted-foreground" data-testid={`text-post-date-${post.id}`}>
                     {formatDate(post.created_at)}
                   </span>
@@ -880,28 +909,33 @@ Respond with a JSON object containing exactly two fields:
                 <BookmarkButton entityType="forum_thread" entityId={thread.id} />
               )}
               {thread.is_pinned && (
-                <Badge variant="secondary" className="text-xs" data-testid="badge-thread-pinned">
+                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700/50 no-default-hover-elevate no-default-active-elevate" data-testid="badge-thread-pinned">
                   <Pin className="w-3 h-3 mr-0.5" />
                   Pinned
                 </Badge>
               )}
               {thread.is_locked && (
-                <Badge variant="outline" className="text-xs" data-testid="badge-thread-locked">
+                <Badge variant="outline" className="text-xs bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/40 dark:text-rose-300 dark:border-rose-700/50 no-default-hover-elevate no-default-active-elevate" data-testid="badge-thread-locked">
                   <Lock className="w-3 h-3 mr-0.5" />
                   Locked
                 </Badge>
               )}
             </div>
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">
+              {threadCategory && (
+                <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-600 border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-700/50 no-default-hover-elevate no-default-active-elevate" data-testid="badge-thread-category">
+                  {threadCategory.name}
+                </Badge>
+              )}
               <span data-testid="text-thread-author">
                 by {memberMap[thread.created_by] || "Unknown"}
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-date">
-                <Clock className="w-3.5 h-3.5" />
+                <Clock className="w-3.5 h-3.5 text-amber-400 dark:text-amber-500" />
                 {formatDate(thread.created_at)}
               </span>
               <span className="flex items-center gap-1" data-testid="text-thread-views">
-                <Eye className="w-3.5 h-3.5" />
+                <Eye className="w-3.5 h-3.5 text-indigo-400 dark:text-indigo-500" />
                 {thread.view_count || 0} views
               </span>
             </div>
@@ -979,9 +1013,9 @@ Respond with a JSON object containing exactly two fields:
             const parentAuthor = parentPost ? (memberMap[parentPost.created_by] || "Unknown") : "a post";
             const parentSnippet = parentPost?.content?.substring(0, 120) || "";
             return (
-              <div className="flex items-start justify-between gap-2 rounded-md bg-muted/50 p-3">
+              <div className="flex items-start justify-between gap-2 rounded-md bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/50 dark:border-indigo-700/30 p-3">
                 <div className="flex items-start gap-2 min-w-0">
-                  <Reply className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                  <Reply className="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-400" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Replying to {parentAuthor}</p>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -1036,8 +1070,8 @@ Respond with a JSON object containing exactly two fields:
       )}
 
       {thread.is_locked && (
-        <Card>
-          <CardContent className="flex items-center justify-center gap-2 py-4 text-muted-foreground">
+        <Card className="border-rose-200/50 dark:border-rose-700/30">
+          <CardContent className="flex items-center justify-center gap-2 py-4 text-rose-600 dark:text-rose-400">
             <Lock className="w-4 h-4" />
             <span className="text-sm">This thread is locked. No new replies can be posted.</span>
           </CardContent>
