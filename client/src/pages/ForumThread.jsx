@@ -268,6 +268,7 @@ export default function ForumThreadPage() {
     },
     onSuccess: (newThread) => {
       queryClient.invalidateQueries({ queryKey: ["forum-threads-browse"] });
+      newThreadImages.forEach(img => URL.revokeObjectURL(img.preview));
       setNewThreadImages([]);
       toast.success("Thread created");
       navigate(createPageUrl("ForumThread") + "?threadId=" + newThread.id);
@@ -303,6 +304,7 @@ export default function ForumThreadPage() {
       queryClient.invalidateQueries({ queryKey: ["forum-thread", threadId] });
       setReplyContent("");
       setReplyingToPost(null);
+      replyImages.forEach(img => URL.revokeObjectURL(img.preview));
       setReplyImages([]);
       toast.success("Reply posted");
     },
@@ -659,28 +661,30 @@ Respond with a JSON object containing exactly two fields:
               </div>
             )}
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <input
-                  ref={newThreadFileRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => handleImageSelect(e, 'thread')}
-                  className="hidden"
-                  data-testid="input-thread-images"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => newThreadFileRef.current?.click()}
-                  disabled={isUploadingImages}
-                  data-testid="button-attach-thread-image"
-                >
-                  <ImagePlus className="w-4 h-4 mr-1" />
-                  Add Images
-                </Button>
-              </div>
+              {canCreateThread && (
+                <div>
+                  <input
+                    ref={newThreadFileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleImageSelect(e, 'thread')}
+                    className="hidden"
+                    data-testid="input-thread-images"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => newThreadFileRef.current?.click()}
+                    disabled={isUploadingImages}
+                    data-testid="button-attach-thread-image"
+                  >
+                    <ImagePlus className="w-4 h-4 mr-1" />
+                    Add Images
+                  </Button>
+                </div>
+              )}
               <Button
                 onClick={async () => {
                   const safe = await moderateContent(newContent.trim());
@@ -1195,7 +1199,7 @@ Respond with a JSON object containing exactly two fields:
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={() => { setReplyingToPost(null); setReplyContent(""); setReplyImages([]); }}
+                  onClick={() => { setReplyingToPost(null); setReplyContent(""); replyImages.forEach(img => URL.revokeObjectURL(img.preview)); setReplyImages([]); }}
                   data-testid="button-cancel-reply-to"
                 >
                   <X className="w-3.5 h-3.5" />
