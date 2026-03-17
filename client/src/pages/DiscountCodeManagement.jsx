@@ -628,7 +628,7 @@ export default function DiscountCodeManagementPage() {
                             return (
                               <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">
                                 <Calendar className="w-3 h-3 mr-1" />
-                                {ev?.name || 'Event'}
+                                {ev?.title || ev?.name || 'Event'}
                               </Badge>
                             );
                           })()}
@@ -1051,7 +1051,7 @@ export default function DiscountCodeManagementPage() {
                       <SelectContent>
                         <SelectItem value={null}>All events</SelectItem>
                         {events.map(ev => (
-                          <SelectItem key={ev.id} value={ev.id}>{ev.name}</SelectItem>
+                          <SelectItem key={ev.id} value={ev.id}>{ev.title || ev.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
