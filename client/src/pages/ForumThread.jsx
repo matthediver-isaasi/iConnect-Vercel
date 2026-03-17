@@ -19,6 +19,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 
 function generateSlug(name) {
   return name
@@ -111,6 +112,24 @@ export default function ForumThreadPage() {
       }),
     enabled: !!threadId && !isNewThread,
   });
+
+  useRealtimeSubscription(
+    'forum_post',
+    [["forum-posts", threadId], ["forum-reactions", threadId]],
+    {
+      enabled: !!threadId && !isNewThread,
+      filter: `thread_id=eq.${threadId}`,
+    }
+  );
+
+  useRealtimeSubscription(
+    'forum_thread',
+    [["forum-thread", threadId]],
+    {
+      enabled: !!threadId && !isNewThread,
+      filter: `id=eq.${threadId}`,
+    }
+  );
 
   const { data: reactions = [] } = useQuery({
     queryKey: ["forum-reactions", threadId],
