@@ -65,6 +65,10 @@
       "member_group_id": {
         "type": "string",
         "description": "Optional: Reference to MemberGroup entity if this discount is restricted to members in this group. Mutually exclusive with organization_id, member_id, role_id."
+      },
+      "event_id": {
+        "type": "string",
+        "description": "Optional: Reference to Event entity if this discount is restricted to a specific event. Independent of program_tag and target type restrictions."
       }
     },
     "required": [

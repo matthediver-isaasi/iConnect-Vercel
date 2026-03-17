@@ -1943,6 +1943,14 @@ const functionHandlers = {
           }
         }
 
+        // Validate event-targeted restriction at booking time
+        if (discountCode.event_id && targetEligible) {
+          if (!eventId || discountCode.event_id !== eventId) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to event ${discountCode.event_id}, but booking event is ${eventId}`);
+            targetEligible = false;
+          }
+        }
+
         // Validate member-targeted restrictions at booking time
         if (discountCode.member_id && targetEligible) {
           if (!member?.id || discountCode.member_id !== member.id) {
@@ -3358,6 +3366,14 @@ const functionHandlers = {
       if (!groupAssignment) {
         console.log('[applyDiscountCode] Member', authenticatedMemberId, 'is not in group', discountCode.member_group_id);
         return { valid: false, error: 'This discount code is not available for your group' };
+      }
+    }
+
+    // Validate event-targeted restriction
+    if (discountCode.event_id) {
+      if (!eventId || discountCode.event_id !== eventId) {
+        console.log('[applyDiscountCode] Code is event-targeted to', discountCode.event_id, 'but applied to event', eventId);
+        return { valid: false, error: 'This discount code is not valid for this event' };
       }
     }
 

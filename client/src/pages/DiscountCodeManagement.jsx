@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Ticket, Plus, Pencil, Copy, Trash2, AlertCircle, Building2, Globe, Search, ChevronLeft, ChevronRight, EyeOff, Eye, User, Shield, Users, X, Loader2 } from "lucide-react";
+import { Ticket, Plus, Pencil, Copy, Trash2, AlertCircle, Building2, Globe, Search, ChevronLeft, ChevronRight, EyeOff, Eye, User, Shield, Users, X, Loader2, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -75,6 +75,12 @@ export default function DiscountCodeManagementPage() {
     queryFn: () => base44.entities.Program.list(),
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: events = [] } = useQuery({
+    queryKey: ['events-for-discount'],
+    queryFn: () => base44.entities.Event.list('-start_date'),
+    staleTime: 60000,
   });
 
   const { data: usageRecords = [] } = useQuery({
@@ -275,6 +281,7 @@ export default function DiscountCodeManagementPage() {
       min_purchase_amount: 0,
       max_usage_count: null,
       program_tag: "",
+      event_id: "",
       organization_id: "",
       member_id: "",
       role_id: "",
@@ -297,6 +304,7 @@ export default function DiscountCodeManagementPage() {
       role_id: code.role_id || "",
       member_group_id: code.member_group_id || "",
       program_tag: code.program_tag || "",
+      event_id: code.event_id || "",
       max_usage_count: code.max_usage_count || null,
       _targetType: targetType
     };
@@ -328,6 +336,7 @@ export default function DiscountCodeManagementPage() {
       role_id: code.role_id || "",
       member_group_id: code.member_group_id || "",
       program_tag: code.program_tag || "",
+      event_id: code.event_id || "",
       _targetType: targetType
     });
     if (targetType === 'member' && code.member_id) {
@@ -421,6 +430,7 @@ export default function DiscountCodeManagementPage() {
       min_purchase_amount: parseFloat(editingCode.min_purchase_amount) || 0,
       max_usage_count: editingCode.max_usage_count ? parseInt(editingCode.max_usage_count) : null,
       program_tag: editingCode.program_tag || null,
+      event_id: editingCode.event_id || null,
       organization_id: targetType === 'organization' ? editingCode.organization_id : null,
       member_id: targetType === 'member' ? editingCode.member_id : null,
       role_id: targetType === 'role' ? editingCode.role_id : null,
@@ -613,6 +623,15 @@ export default function DiscountCodeManagementPage() {
                               {code.program_tag}
                             </Badge>
                           )}
+                          {code.event_id && (() => {
+                            const ev = events.find(e => e.id === code.event_id);
+                            return (
+                              <Badge variant="outline" className="bg-sky-50 text-sky-700 border-sky-200">
+                                <Calendar className="w-3 h-3 mr-1" />
+                                {ev?.name || 'Event'}
+                              </Badge>
+                            );
+                          })()}
                         </div>
                       </div>
                       
@@ -1020,6 +1039,26 @@ export default function DiscountCodeManagementPage() {
                     </Select>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="event">Event (Optional)</Label>
+                    <Select
+                      value={editingCode.event_id}
+                      onValueChange={(value) => setEditingCode({ ...editingCode, event_id: value })}
+                    >
+                      <SelectTrigger data-testid="select-event">
+                        <SelectValue placeholder="All events" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={null}>All events</SelectItem>
+                        {events.map(ev => (
+                          <SelectItem key={ev.id} value={ev.id}>{ev.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="min-purchase">Minimum Purchase (£)</Label>
                     <Input
