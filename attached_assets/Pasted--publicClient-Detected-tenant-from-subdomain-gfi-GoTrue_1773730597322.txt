@@ -1,0 +1,293 @@
+ [publicClient] Detected tenant from subdomain: gfi
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-03-16T18:03:25.743Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+qN @ index-XrQir3x5.js:1326
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Layout] Fetching organization from API (forceRefresh: true )
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [usePendingPurchaseOrders] Fetched bookings count: 4
+ [usePendingPurchaseOrders] Pending PO bookings: 1
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [Layout] Matched banners for Events : 1
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Layout] Server session found: sharon@onlinem.co.uk
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Layout] Fetched and cached organization: Graduate Futures Institute balances: Object
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] hasPendingPOs: true count: 1 isLoading: false
+ [Layout] currentPageName: Events currentPortalPageId: portal_events
+ [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+ [PortalHeroBanner] Rendering as hero element: Events
+ [Events] Debug - accessibleEvents count: 0
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Debug - filteredEvents count: 0
+ [Events] Debug - accessibleEvents count: 31
+ [Events] Debug - searchQuery: 
+ [Events] Debug - showPastEvents: false
+ [Events] Debug - memberInfo exists: true
+ [Events] Debug - memberInfo source: context
+ [Events] Filtered out: "Leadership Conference 2026" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: false), time:false, isPast:true, start_date:2026-01-05T15:00:00+00:00
+ [Events] Filtered out: "Skills and Employer Engagement: Unpacked" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-01-27T10:00:00+00:00
+ [Events] Filtered out: "*Co-Creation in Action: Building Inclusive Careers Services with Students" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-01-28T14:00:00+00:00
+ [Events] Filtered out: "The future of work and the evolving role of careers services in HE – opportunity to publish your research and case studies" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-01-29T14:00:00+00:00
+ [Events] Filtered out: "Skills and Employer Engagement: Unpacked - sponsored by Gradconsult" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-02-23T13:00:00+00:00
+ [Events] Filtered out: "Demo Day: Career Management Platforms" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-02-26T14:00:00+00:00
+ [Events] Filtered out: "Annual General Meeting" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-03-03T11:00:00+00:00
+ [Events] Filtered out: "*Supporting Neurodivergent Students into Employment" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: true), time:false, isPast:true, start_date:2026-03-04T09:30:00+00:00
+ [Events] Filtered out: "Recognising Third Space Expertise: How Fellowship Accreditation Supports Influence, Recognition, and Pedagogic Partnership" - search:true, filterTag:true, eventType:true, deliveryMode:true (is_online: false), time:false, isPast:true, start_date:2026-03-11T13:00:00+00:00
+ [Events] Debug - filteredEvents count: 22
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: Events currentPortalPageId: portal_events
+index-XrQir3x5.js:1596 [PortalHeroBanner] Rendering banner: Events type: hero hasHeroContent: true hasImageUrl: false
+index-XrQir3x5.js:1596 [PortalHeroBanner] Rendering as hero element: Events
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-XrQir3x5.js:1634 [Layout] Server session found: sharon@onlinem.co.uk
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-XrQir3x5.js:1634 [Layout] Server session found: sharon@onlinem.co.uk
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-XrQir3x5.js:1634 [Layout] Server session found: sharon@onlinem.co.uk
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-XrQir3x5.js:1634 [Layout] Server session found: sharon@onlinem.co.uk
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-XrQir3x5.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-XrQir3x5.js:1634 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-XrQir3x5.js:1985 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image","previewViewport":"desktop"}
+index-XrQir3x5.js:1985 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-XrQir3x5.js:1985 [PageHeaderHero] About to render: Object
+index-XrQir3x5.js:1985 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image","previewViewport":"desktop"}
+index-XrQir3x5.js:1985 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-XrQir3x5.js:1985 [PageHeaderHero] About to render: Object
+index-XrQir3x5.js:1985 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image","previewViewport":"desktop"}
+index-XrQir3x5.js:1985 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-XrQir3x5.js:1985 [PageHeaderHero] About to render: Object
+index-XrQir3x5.js:1985 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image","previewViewport":"desktop"}
+index-XrQir3x5.js:1985 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-XrQir3x5.js:1985 [PageHeaderHero] About to render: Object
+index-XrQir3x5.js:1985 [PageHeaderHero] RENDER START - content: {"hasContent":true,"contentType":"object","contentKeys":["anchor","image_fit","image_url","header_text","height_type","header_color","line_spacing","background_type","header_position","subheading_text"],"header_text_preview":"<p>Shaping futures, together</","background_type":"image","previewViewport":"desktop"}
+index-XrQir3x5.js:1985 [PageHeaderHero] Typography hook called, getStyleById type: function
+index-XrQir3x5.js:1985 [PageHeaderHero] About to render: Object
+index-XrQir3x5.js:40 Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at su (index-XrQir3x5.js:38:17648)
+    at E3 (index-XrQir3x5.js:38:17902)
+    at Object.useState (index-XrQir3x5.js:38:24772)
+    at or.useState (index-XrQir3x5.js:9:6427)
+    at CJe (index-XrQir3x5.js:2312:368420)
+    at I6 (index-XrQir3x5.js:38:17050)
+    at hF (index-XrQir3x5.js:40:3150)
+    at Yte (index-XrQir3x5.js:40:44967)
+    at Wte (index-XrQir3x5.js:40:39894)
+    at pwe (index-XrQir3x5.js:40:39817)
+mF @ index-XrQir3x5.js:40
+index-XrQir3x5.js:38 Uncaught Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at su (index-XrQir3x5.js:38:17648)
+    at E3 (index-XrQir3x5.js:38:17902)
+    at Object.useState (index-XrQir3x5.js:38:24772)
+    at or.useState (index-XrQir3x5.js:9:6427)
+    at CJe (index-XrQir3x5.js:2312:368420)
+    at I6 (index-XrQir3x5.js:38:17050)
+    at hF (index-XrQir3x5.js:40:3150)
+    at Yte (index-XrQir3x5.js:40:44967)
+    at Wte (index-XrQir3x5.js:40:39894)
+    at pwe (index-XrQir3x5.js:40:39817)

@@ -993,6 +993,16 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
     };
   };
 
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    if (isMobilePreview) return;
+    const mql = window.matchMedia('(max-width: 767px)');
+    setIsMobileViewport(mql.matches);
+    const handler = (e) => setIsMobileViewport(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, [isMobilePreview]);
+
   if (!slides || slides.length === 0) {
     return (
       <div className="bg-slate-100 py-24 text-center">
@@ -1012,16 +1022,6 @@ export function IEditHeroCarouselElementRenderer({ element, content: contentProp
   const displayContentFS = isMobilePreview ? mobileContentFS : safeContentFS;
   const displayPaddingV = isMobilePreview ? mobilePaddingV : parseInt(padding_vertical);
   const displayPaddingH = isMobilePreview ? mobilePaddingH : parseInt(padding_horizontal);
-
-  const [isMobileViewport, setIsMobileViewport] = useState(false);
-  useEffect(() => {
-    if (isMobilePreview) return;
-    const mql = window.matchMedia('(max-width: 767px)');
-    setIsMobileViewport(mql.matches);
-    const handler = (e) => setIsMobileViewport(e.matches);
-    mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
-  }, [isMobilePreview]);
 
   const effOffsetX = (isMobilePreview || isMobileViewport) ? mobileOffsetX : parsedOffsetX;
   const effOffsetY = (isMobilePreview || isMobileViewport) ? mobileOffsetY : parsedOffsetY;
