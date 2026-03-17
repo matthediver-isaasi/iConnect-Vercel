@@ -10,9 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip, ImageIcon, Upload, CreditCard } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip, ImageIcon, Upload } from "lucide-react";
 import { uploadFileWithProgress, UPLOAD_TYPES } from '@/lib/tenantUpload';
-import NameCardBadge from "@/components/forms/NameCardBadge";
 import {
   Select,
   SelectContent,
@@ -34,15 +33,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
 
-const NAME_CARD_ZONE_DEFAULTS = {
-  header:    { source: 'static', static_text: '', font_size: 'sm', font_weight: 'normal' },
-  primary:   { source: 'input', input_type: 'text', input_label: 'Full Name', input_placeholder: 'Enter your name', input_required: false, font_size: '2xl', font_weight: 'bold' },
-  secondary: { source: 'static', static_text: '', font_size: 'lg', font_weight: 'normal' },
-  tertiary:  { source: 'static', static_text: '', font_size: 'base', font_weight: 'normal' },
-  footer:    { source: 'static', static_text: '', font_size: 'sm', font_weight: 'normal' },
-};
-
-const NAME_CARD_STYLE_DEFAULTS = {
+const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
   border_color: '#e2e8f0',
   accent_color: '#3b82f6',
@@ -72,7 +63,6 @@ const STANDARD_FIELD_TYPES = [
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
   { value: 'image', label: 'Image (Display Only)' },
-  { value: 'name_card', label: 'Name Card (Badge)' },
   { value: 'signature', label: 'Signature' },
 ];
 
@@ -2552,8 +2542,6 @@ function FieldCard({
                 <img src={field.image_url} alt={field.image_alt || ''} className="w-8 h-8 object-cover rounded flex-shrink-0" />
               ) : field.type === 'image' ? (
                 <ImageIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              ) : field.type === 'name_card' ? (
-                <CreditCard className="w-4 h-4 text-blue-500 flex-shrink-0" />
               ) : null}
               <span className="text-sm font-medium text-slate-700 truncate">
                 {field.label || 'Untitled Field'}
@@ -2621,12 +2609,6 @@ function FieldCard({
                       onValueChange={(value) => {
                         if (value) {
                           const updates = { type: value };
-                          if (value === 'name_card') {
-                            updates.name_card_zones = { ...NAME_CARD_ZONE_DEFAULTS };
-                            updates.name_card_style = { ...NAME_CARD_STYLE_DEFAULTS };
-                            updates.label = 'Name Badge';
-                            updates.required = false;
-                          }
                           updateField(originalIndex, updates);
                         }
                       }}
@@ -3616,276 +3598,6 @@ function FieldCard({
                 </div>
               )}
 
-              {/* Name Card Badge Configuration */}
-              {field.type === 'name_card' && (() => {
-                const ncZones = field.name_card_zones || NAME_CARD_ZONE_DEFAULTS;
-                const ncUpdateZone = (zoneName, updates) => {
-                  const zone = ncZones[zoneName] || NAME_CARD_ZONE_DEFAULTS[zoneName];
-                  const updatedZones = { ...ncZones, [zoneName]: { ...zone, ...updates } };
-                  updateField(originalIndex, { name_card_zones: updatedZones });
-                };
-                const ncStyle = field.name_card_style || NAME_CARD_STYLE_DEFAULTS;
-
-                return (
-                <div className="space-y-4">
-                  <Label className="text-xs font-medium">Name Card (Badge) Configuration</Label>
-                  <p className="text-xs text-slate-500">Configure each zone of the badge. Zones can show static text, contain an input field (text or dropdown), or auto-populate from prefill data.</p>
-
-                  {['header', 'primary', 'secondary', 'tertiary', 'footer'].map((zoneName) => {
-                    const rawZone = ncZones[zoneName] || NAME_CARD_ZONE_DEFAULTS[zoneName];
-                    const zone = { ...rawZone };
-                    if (zone.source === 'prefill') zone.source = 'prefill_readonly';
-                    if (zone.source === 'field') zone.source = 'static';
-
-                    return (
-                      <div key={zoneName} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                        <Label className="text-xs font-semibold capitalize">{zoneName} Zone</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Type</Label>
-                            <Select
-                              value={zone.source || 'static'}
-                              onValueChange={(val) => ncUpdateZone(zoneName, { source: val })}
-                            >
-                              <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-source-${zoneName}-${field.id}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="static">Static Text</SelectItem>
-                                <SelectItem value="input">Input Field</SelectItem>
-                                <SelectItem value="prefill_readonly">Prefill (Read-only)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Font Size</Label>
-                            <Select
-                              value={zone.font_size || 'base'}
-                              onValueChange={(val) => ncUpdateZone(zoneName, { font_size: val })}
-                            >
-                              <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-fontsize-${zoneName}-${field.id}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="xs">Extra Small</SelectItem>
-                                <SelectItem value="sm">Small</SelectItem>
-                                <SelectItem value="base">Medium</SelectItem>
-                                <SelectItem value="lg">Large</SelectItem>
-                                <SelectItem value="xl">X-Large</SelectItem>
-                                <SelectItem value="2xl">2X-Large</SelectItem>
-                                <SelectItem value="3xl">3X-Large</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        {zone.source === 'static' && (
-                          <Input
-                            value={zone.static_text || ''}
-                            onChange={(e) => ncUpdateZone(zoneName, { static_text: e.target.value })}
-                            placeholder={`Enter ${zoneName} text...`}
-                            className="h-8 text-xs"
-                            data-testid={`input-nc-static-${zoneName}-${field.id}`}
-                          />
-                        )}
-
-                        {zone.source === 'input' && (
-                          <div className="space-y-2 p-2 bg-white border border-slate-200 rounded">
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Input Type</Label>
-                                <Select
-                                  value={zone.input_type || 'text'}
-                                  onValueChange={(val) => ncUpdateZone(zoneName, { input_type: val })}
-                                >
-                                  <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-inputtype-${zoneName}-${field.id}`}>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="text">Text</SelectItem>
-                                    <SelectItem value="select">Dropdown</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Label</Label>
-                                <Input
-                                  value={zone.input_label || ''}
-                                  onChange={(e) => ncUpdateZone(zoneName, { input_label: e.target.value })}
-                                  placeholder="Field label..."
-                                  className="h-8 text-xs"
-                                  data-testid={`input-nc-inputlabel-${zoneName}-${field.id}`}
-                                />
-                              </div>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Placeholder</Label>
-                              <Input
-                                value={zone.input_placeholder || ''}
-                                onChange={(e) => ncUpdateZone(zoneName, { input_placeholder: e.target.value })}
-                                placeholder="Placeholder text..."
-                                className="h-8 text-xs"
-                                data-testid={`input-nc-placeholder-${zoneName}-${field.id}`}
-                              />
-                            </div>
-                            {(zone.input_type || 'text') === 'select' && (
-                              <div className="space-y-1">
-                                <Label className="text-xs">Options (one per line)</Label>
-                                <textarea
-                                  value={(zone.input_options || []).join('\n')}
-                                  onChange={(e) => {
-                                    const options = e.target.value.split('\n').filter(o => o.trim());
-                                    ncUpdateZone(zoneName, { input_options: options });
-                                  }}
-                                  placeholder={"Mr\nMrs\nMs\nDr\nProf"}
-                                  className="w-full min-h-[60px] text-xs p-2 border border-slate-200 rounded resize-y"
-                                  data-testid={`textarea-nc-options-${zoneName}-${field.id}`}
-                                />
-                              </div>
-                            )}
-                            <div className="flex items-center gap-2">
-                              <Label className="text-xs">Required</Label>
-                              <Switch
-                                checked={zone.input_required || false}
-                                onCheckedChange={(checked) => ncUpdateZone(zoneName, { input_required: checked })}
-                                data-testid={`switch-nc-required-${zoneName}-${field.id}`}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {zone.source === 'prefill_readonly' && (
-                          <Select
-                            value={zone.prefill_field || ''}
-                            onValueChange={(val) => ncUpdateZone(zoneName, { prefill_field: val })}
-                          >
-                            <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-prefill-${zoneName}-${field.id}`}>
-                              <SelectValue placeholder="Select prefill field..." />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-60 overflow-y-auto">
-                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">Member Fields</div>
-                              {MEMBER_PREFILL_FIELDS.map(f => (
-                                <SelectItem key={`member:${f.value}`} value={`member:${f.value}`}>{f.label}</SelectItem>
-                              ))}
-                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">Organisation Fields</div>
-                              {ORG_PREFILL_FIELDS.map(f => (
-                                <SelectItem key={`org:${f.value}`} value={`org:${f.value}`}>{f.label}</SelectItem>
-                              ))}
-                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">Booking Fields</div>
-                              {BOOKING_PREFILL_FIELDS.map(f => (
-                                <SelectItem key={`booking:${f.value}`} value={`booking:${f.value}`}>{f.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs">Bold</Label>
-                          <Switch
-                            checked={zone.font_weight === 'bold'}
-                            onCheckedChange={(checked) => ncUpdateZone(zoneName, { font_weight: checked ? 'bold' : 'normal' })}
-                            data-testid={`switch-nc-bold-${zoneName}-${field.id}`}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-                    <Label className="text-xs font-semibold">Badge Style</Label>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Accent Colour</Label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={ncStyle.accent_color}
-                            onChange={(e) => updateField(originalIndex, {
-                              name_card_style: { ...ncStyle, accent_color: e.target.value }
-                            })}
-                            className="w-8 h-8 rounded cursor-pointer border border-slate-200"
-                            data-testid={`input-nc-accent-${field.id}`}
-                          />
-                          <span className="text-xs text-slate-500">{ncStyle.accent_color}</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Background</Label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={ncStyle.background_color}
-                            onChange={(e) => updateField(originalIndex, {
-                              name_card_style: { ...ncStyle, background_color: e.target.value }
-                            })}
-                            className="w-8 h-8 rounded cursor-pointer border border-slate-200"
-                            data-testid={`input-nc-bg-${field.id}`}
-                          />
-                          <span className="text-xs text-slate-500">{ncStyle.background_color}</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Border</Label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={ncStyle.border_color}
-                            onChange={(e) => updateField(originalIndex, {
-                              name_card_style: { ...ncStyle, border_color: e.target.value }
-                            })}
-                            className="w-8 h-8 rounded cursor-pointer border border-slate-200"
-                            data-testid={`input-nc-border-${field.id}`}
-                          />
-                          <span className="text-xs text-slate-500">{ncStyle.border_color}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Width (px)</Label>
-                        <Input
-                          type="number"
-                          value={ncStyle.width}
-                          onChange={(e) => updateField(originalIndex, {
-                            name_card_style: { ...ncStyle, width: parseInt(e.target.value) || 350 }
-                          })}
-                          min={200}
-                          max={600}
-                          className="h-8 text-xs"
-                          data-testid={`input-nc-width-${field.id}`}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Height (px)</Label>
-                        <Input
-                          type="number"
-                          value={ncStyle.height}
-                          onChange={(e) => updateField(originalIndex, {
-                            name_card_style: { ...ncStyle, height: parseInt(e.target.value) || 220 }
-                          })}
-                          min={150}
-                          max={500}
-                          className="h-8 text-xs"
-                          data-testid={`input-nc-height-${field.id}`}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-white border border-slate-200 rounded-lg">
-                    <Label className="text-xs font-semibold mb-2 block">Preview</Label>
-                    <NameCardBadge
-                      zones={ncZones}
-                      cardStyle={ncStyle}
-                      value={{}}
-                      prefillData={null}
-                      isPreview={true}
-                      showPrint={false}
-                    />
-                  </div>
-                </div>
-                );
-              })()}
 
               {/* Contact Field - Contract Template Selection */}
               {field.type === 'contact' && (
@@ -6291,6 +6003,29 @@ export default function FormBuilderPage() {
                               <Columns3 className="w-3 h-3" />
                             </Button>
                           </div>
+                          <div className="flex items-center gap-1 border border-slate-200 rounded bg-white p-0.5">
+                            <Button
+                              variant={(page.page_style || 'standard') === 'standard' ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => updatePage(page.id, { page_style: 'standard' })}
+                              title="Standard Layout"
+                            >
+                              Standard
+                            </Button>
+                            <Button
+                              variant={page.page_style === 'name_badge' ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => updatePage(page.id, { 
+                                page_style: 'name_badge',
+                                badge_style: page.badge_style || { ...BADGE_STYLE_DEFAULTS }
+                              })}
+                              title="Name Badge Layout"
+                            >
+                              Badge
+                            </Button>
+                          </div>
                           <span className="text-xs text-slate-400 px-2">
                             {formData.fields.filter(f => f.page_id === page.id).length} fields
                           </span>
@@ -6303,6 +6038,84 @@ export default function FormBuilderPage() {
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
+                        {page.page_style === 'name_badge' && (() => {
+                          const bs = page.badge_style || BADGE_STYLE_DEFAULTS;
+                          const updateBadgeStyle = (updates) => {
+                            updatePage(page.id, { badge_style: { ...bs, ...updates } });
+                          };
+                          return (
+                            <div className="ml-8 mt-2 p-3 bg-white border border-slate-200 rounded-lg space-y-3">
+                              <Label className="text-xs font-semibold">Badge Style</Label>
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Accent Colour</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={bs.accent_color}
+                                      onChange={(e) => updateBadgeStyle({ accent_color: e.target.value })}
+                                      className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                                      data-testid={`input-badge-accent-${page.id}`}
+                                    />
+                                    <span className="text-xs text-slate-500">{bs.accent_color}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Background</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={bs.background_color}
+                                      onChange={(e) => updateBadgeStyle({ background_color: e.target.value })}
+                                      className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                                      data-testid={`input-badge-bg-${page.id}`}
+                                    />
+                                    <span className="text-xs text-slate-500">{bs.background_color}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Border</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={bs.border_color}
+                                      onChange={(e) => updateBadgeStyle({ border_color: e.target.value })}
+                                      className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                                      data-testid={`input-badge-border-${page.id}`}
+                                    />
+                                    <span className="text-xs text-slate-500">{bs.border_color}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Width (px)</Label>
+                                  <Input
+                                    type="number"
+                                    value={bs.width}
+                                    onChange={(e) => updateBadgeStyle({ width: parseInt(e.target.value) || 350 })}
+                                    min={200}
+                                    max={600}
+                                    className="h-8 text-xs"
+                                    data-testid={`input-badge-width-${page.id}`}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Height (px)</Label>
+                                  <Input
+                                    type="number"
+                                    value={bs.height}
+                                    onChange={(e) => updateBadgeStyle({ height: parseInt(e.target.value) || 220 })}
+                                    min={150}
+                                    max={500}
+                                    className="h-8 text-xs"
+                                    data-testid={`input-badge-height-${page.id}`}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       ))}
                     </div>
                   )}

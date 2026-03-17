@@ -11,7 +11,6 @@ import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
 import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import SignatureField from "@/components/forms/SignatureField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
-import NameCardBadge from "@/components/forms/NameCardBadge";
 import {
   Select,
   SelectContent,
@@ -481,22 +480,6 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   }, [field.type, customFieldDef?.field_type]);
 
-  useEffect(() => {
-    if (field.type === 'name_card' && field.name_card_zones) {
-      const zones = field.name_card_zones;
-      const compositeVal = value || {};
-      let allValid = true;
-      for (const [zoneName, zone] of Object.entries(zones)) {
-        if (zone.source === 'input' && zone.input_required) {
-          if (!compositeVal[zoneName] || !String(compositeVal[zoneName]).trim()) {
-            allValid = false;
-            break;
-          }
-        }
-      }
-      onValidityChange?.(field.id, allValid);
-    }
-  }, [field.type, field.name_card_zones, value, onValidityChange, field.id]);
 
   // Revalidate email domain when dependencies change
   useEffect(() => {
@@ -1623,27 +1606,13 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           />
         );
 
-      case 'name_card':
-        return null;
-
       default:
         return <p className="text-sm text-slate-500">Unsupported field type: {field.type}</p>;
     }
   };
 
   if (field.type === 'name_card') {
-    return (
-      <NameCardBadge
-        zones={field.name_card_zones}
-        cardStyle={field.name_card_style}
-        value={value || {}}
-        onChange={onChange}
-        prefillData={prefillData}
-        isPreview={false}
-        showPrint={true}
-        disabled={isFieldDisabled}
-      />
-    );
+    return null;
   }
 
   if (field.type === 'image') {

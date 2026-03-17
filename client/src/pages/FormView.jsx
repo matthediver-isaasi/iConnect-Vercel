@@ -4,7 +4,7 @@ import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle, Printer } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -19,17 +19,6 @@ const isFieldValueFilled = (field, value) => {
     return !!(value.firstName?.trim() && value.lastName?.trim() && value.email?.trim());
   }
 
-  if (field.type === 'name_card') {
-    if (typeof value !== 'object') return false;
-    const zones = field.name_card_zones || {};
-    for (const [zoneName, zone] of Object.entries(zones)) {
-      if (zone.source === 'input' && zone.input_required) {
-        if (!value[zoneName] || !String(value[zoneName]).trim()) return false;
-      }
-    }
-    return true;
-  }
-  
   // For arrays (checkbox, list, etc.)
   if (Array.isArray(value)) {
     return value.length > 0;
@@ -2345,93 +2334,149 @@ export default function FormViewPage() {
             )}
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Render fields in columns if page has column_count > 1 */}
+            {/* Render fields - badge page or standard layout */}
             {(() => {
+              const isBadgePage = currentPage?.page_style === 'name_badge';
               const columnCount = currentPage?.column_count || 1;
               
-              // Separate unassigned fields (shown on first page for backwards compatibility)
               const unassignedFields = currentPageIndex === 0 
                 ? displayFields.filter(f => !f.page_id) 
                 : [];
               const pageAssignedFields = displayFields.filter(f => 
                 f.page_id === currentPage?.id
               );
-              
+
+              const renderField = (field) => (
+                <FormRenderer
+                  key={field.id}
+                  field={field}
+                  value={formValues[field.id]}
+                  onChange={(value) => handleFieldChange(field.id, value)}
+                  memberInfo={memberData}
+                  organizationInfo={effectiveOrganizationInfo}
+                  disabled={disabledFieldIds.has(field.id)}
+                  onValidityChange={handleValidityChange}
+                  formId={form?.id}
+                  formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                  allFormValues={formValues}
+                  prefillData={nameCardPrefillData}
+                  allFields={form?.fields || []}
+                />
+              );
+
+              if (isBadgePage) {
+                const bs = currentPage.badge_style || {};
+                const badgeWidth = bs.width || 350;
+                const badgeHeight = bs.height || 220;
+                const accentColor = bs.accent_color || '#3b82f6';
+                const bgColor = bs.background_color || '#ffffff';
+                const borderColor = bs.border_color || '#e2e8f0';
+                const badgeRef = `badge-page-${currentPage.id}`;
+
+                const handlePrintBadge = () => {
+                  const el = document.querySelector(`[data-badge-id="${badgeRef}"]`);
+                  if (!el) return;
+                  const clone = el.cloneNode(true);
+                  clone.querySelectorAll('input, select, button, textarea').forEach(ctrl => {
+                    const span = document.createElement('span');
+                    span.textContent = ctrl.value || ctrl.textContent || '';
+                    span.style.cssText = ctrl.style.cssText;
+                    ctrl.parentNode.replaceChild(span, ctrl);
+                  });
+                  const printWindow = window.open('', '_blank', 'width=600,height=400');
+                  if (!printWindow) return;
+                  printWindow.document.write(`<!DOCTYPE html><html><head><title>Name Badge</title><style>body{margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#fff}@media print{body{margin:0;padding:0}@page{size:auto;margin:10mm}}</style></head><body>${clone.outerHTML}</body></html>`);
+                  printWindow.document.close();
+                  setTimeout(() => { printWindow.print(); }, 250);
+                };
+
+                const badgeFields = columnCount > 1 ? pageAssignedFields : displayFields;
+                const gridClass = columnCount === 2
+                  ? 'grid grid-cols-1 md:grid-cols-2 gap-4'
+                  : columnCount === 3
+                    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+                    : null;
+
+                return (
+                  <div className="flex flex-col items-center gap-4" data-testid="badge-page-wrapper">
+                    {unassignedFields.length > 0 && (
+                      <div className="w-full space-y-4 mb-2">
+                        {unassignedFields.map(renderField)}
+                      </div>
+                    )}
+                    <div
+                      data-badge-id={badgeRef}
+                      data-testid="badge-page-container"
+                      style={{
+                        width: `${badgeWidth}px`,
+                        minHeight: `${badgeHeight}px`,
+                        backgroundColor: bgColor,
+                        border: `2px solid ${borderColor}`,
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <div style={{ height: '6px', backgroundColor: accentColor, flexShrink: 0 }} />
+                      <div style={{ flex: 1, padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {gridClass ? (
+                          <div className={gridClass}>
+                            {Array.from({ length: columnCount }).map((_, colIndex) => {
+                              const colFields = badgeFields.filter(f => (f.column_index || 0) === colIndex);
+                              return (
+                                <div key={colIndex} className="space-y-3">
+                                  {colFields.map(renderField)}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {displayFields.map(renderField)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePrintBadge}
+                      data-testid="button-print-badge"
+                    >
+                      <Printer className="w-4 h-4 mr-2" />
+                      Print Badge
+                    </Button>
+                  </div>
+                );
+              }
+
               if (columnCount === 1) {
-                return displayFields.map(field => (
-                  <FormRenderer
-                    key={field.id}
-                    field={field}
-                    value={formValues[field.id]}
-                    onChange={(value) => handleFieldChange(field.id, value)}
-                    memberInfo={memberData}
-                    organizationInfo={effectiveOrganizationInfo}
-                    disabled={disabledFieldIds.has(field.id)}
-                    onValidityChange={handleValidityChange}
-                    formId={form?.id}
-                    formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
-                    allFormValues={formValues}
-                    prefillData={nameCardPrefillData}
-                    allFields={form?.fields || []}
-                  />
-                ));
+                return displayFields.map(renderField);
               }
               
-              // Multi-column layout
               const gridClass = columnCount === 2 
                 ? 'grid grid-cols-1 md:grid-cols-2 gap-4' 
                 : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4';
               
               return (
                 <>
-                  {/* Render unassigned fields in full-width first (backwards compat) */}
                   {unassignedFields.length > 0 && (
                     <div className="space-y-4 mb-4">
-                      {unassignedFields.map(field => (
-                        <FormRenderer
-                          key={field.id}
-                          field={field}
-                          value={formValues[field.id]}
-                          onChange={(value) => handleFieldChange(field.id, value)}
-                          memberInfo={memberData}
-                          organizationInfo={effectiveOrganizationInfo}
-                          disabled={disabledFieldIds.has(field.id)}
-                          onValidityChange={handleValidityChange}
-                          formId={form?.id}
-                          formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
-                          allFormValues={formValues}
-                          prefillData={nameCardPrefillData}
-                          allFields={form?.fields || []}
-                        />
-                      ))}
+                      {unassignedFields.map(renderField)}
                     </div>
                   )}
-                  {/* Render page-assigned fields in columns */}
                   <div className={gridClass}>
                     {Array.from({ length: columnCount }).map((_, colIndex) => {
                       const columnFields = pageAssignedFields.filter(f => 
                         (f.column_index || 0) === colIndex
                       );
-                      
                       return (
                         <div key={colIndex} className="space-y-4">
-                          {columnFields.map(field => (
-                            <FormRenderer
-                              key={field.id}
-                              field={field}
-                              value={formValues[field.id]}
-                              onChange={(value) => handleFieldChange(field.id, value)}
-                              memberInfo={memberData}
-                              organizationInfo={effectiveOrganizationInfo}
-                              disabled={disabledFieldIds.has(field.id)}
-                              onValidityChange={handleValidityChange}
-                              formId={form?.id}
-                              formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
-                              allFormValues={formValues}
-                              prefillData={nameCardPrefillData}
-                              allFields={form?.fields || []}
-                            />
-                          ))}
+                          {columnFields.map(renderField)}
                         </div>
                       );
                     })}
