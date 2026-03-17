@@ -304,6 +304,20 @@ export default function FormViewPage() {
     return null;
   }, [prefillOrg, prefillMemberOrg]);
 
+  const { data: prefillBookingData, isLoading: bookingPrefillLoading } = useQuery({
+    queryKey: ['prefill-booking', prefillBookingId, formSlug],
+    queryFn: async () => {
+      return publicClient.getPrefillBooking(prefillBookingId, formSlug);
+    },
+    enabled: !!prefillBookingId && form?.prefill_source === 'booking'
+  });
+
+  const prefillBooking = prefillBookingData?.booking || null;
+  const prefillBookingMember = prefillBookingData?.member || null;
+  const prefillBookingMemberCustomValues = prefillBookingData?.memberCustomValues || [];
+  const prefillBookingOrg = prefillBookingData?.organization || null;
+  const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || [];
+
   // Effective org ID for capacity checking - works for both prefill cases:
   // 1. Direct org prefill via organization_id URL param
   // 2. Member prefill where org comes from member's organization_id
@@ -451,20 +465,6 @@ export default function FormViewPage() {
     orgCustomValuesLoading,
     orgCustomValuesError: orgCustomValuesError?.message
   });
-
-  const { data: prefillBookingData, isLoading: bookingPrefillLoading } = useQuery({
-    queryKey: ['prefill-booking', prefillBookingId, formSlug],
-    queryFn: async () => {
-      return publicClient.getPrefillBooking(prefillBookingId, formSlug);
-    },
-    enabled: !!prefillBookingId && form?.prefill_source === 'booking'
-  });
-
-  const prefillBooking = prefillBookingData?.booking || null;
-  const prefillBookingMember = prefillBookingData?.member || null;
-  const prefillBookingMemberCustomValues = prefillBookingData?.memberCustomValues || [];
-  const prefillBookingOrg = prefillBookingData?.organization || null;
-  const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || [];
 
   // Track if prefill has been applied to prevent overwriting user edits
   const [prefillApplied, setPrefillApplied] = useState(false);
