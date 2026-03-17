@@ -299,6 +299,11 @@ class PublicClient {
     if (!memberId || !formSlug) return null;
     return this._fetch(`/api/public/form/prefill-member?member_id=${encodeURIComponent(memberId)}&form_slug=${encodeURIComponent(formSlug)}`);
   }
+
+  async getPrefillBooking(bookingId, formSlug) {
+    if (!bookingId || !formSlug) return null;
+    return this._fetch(`/api/public/form/prefill-booking?booking_id=${encodeURIComponent(bookingId)}&form_slug=${encodeURIComponent(formSlug)}`);
+  }
   
   // Categories
   async listCategories() {

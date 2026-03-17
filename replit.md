@@ -18,7 +18,7 @@ The application is deployed on Vercel, using `iconn.app` for tenant owner manage
 
 ## Key Features
 -   **Core Data Model:** Includes Member, Organization, Role, and TeamMember entities.
--   **Content Management:** Features event/booking management (with phone, Zoom, Microsoft Teams, and in-person meeting types), general content management, a dynamic page builder with advanced timeline elements, custom forms with conditional logic and uniqueness validation, and blog posts.
+-   **Content Management:** Features event/booking management (with phone, Zoom, Microsoft Teams, and in-person meeting types), general content management, a dynamic page builder with advanced timeline elements, custom forms with conditional logic and uniqueness validation, and blog posts. Forms support three prefill sources: Member Data, Organisation Data, and Event Attendee (Booking). Booking prefill (`?booking_id=xxx`) populates from attendee fields (name, email, phone, job title, guest org name, event name, ticket class, booking reference) with automatic fallback to linked member and organisation data. API: `api/public/form/prefill-booking.js`.
 -   **Membership Payment:** Integrates Stripe for membership fees, supporting auto-submission, year 2 rollover logic, Xero invoice attachment, and configurable invoice address sourcing.
 -   **Communication:** Includes an email template system, communication preferences, and email campaigns with list-based targeting.
 -   **Workflow Automation:** Provides tenant-scoped workflows for automating actions like sending emails, updating fields, and managing memberships.

@@ -123,6 +123,18 @@ const ORG_CORE_FIELDS = [
   { value: 'website_url', label: 'Website URL' },
 ];
 
+const BOOKING_CORE_FIELDS = [
+  { value: 'attendee_first_name', label: 'Attendee First Name' },
+  { value: 'attendee_last_name', label: 'Attendee Last Name' },
+  { value: 'attendee_email', label: 'Attendee Email' },
+  { value: 'attendee_phone', label: 'Attendee Phone' },
+  { value: 'attendee_job_title', label: 'Attendee Job Title' },
+  { value: 'guest_organisation_name', label: 'Guest Organisation Name' },
+  { value: 'event_name', label: 'Event Name' },
+  { value: 'ticket_class_name', label: 'Ticket Class' },
+  { value: 'booking_reference', label: 'Booking Reference' },
+];
+
 const COMPARISON_MODES = [
   { value: 'equals', label: 'Equals (exact match)', forEmail: true, forText: true },
   { value: 'equals_lowercase', label: 'Equals (case insensitive)', forEmail: true, forText: true },
@@ -965,6 +977,18 @@ function LogicRulesSection({
   
   const getPrefillFields = () => {
     if (prefillSource === 'none') return [];
+    
+    if (prefillSource === 'booking') {
+      const memberCustomFields = customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member');
+      const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
+      return [
+        ...BOOKING_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Booking Fields' })),
+        ...MEMBER_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Member Fields (if linked)' })),
+        ...memberCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Member Custom Fields (if linked)' })),
+        ...ORG_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Org Fields (if linked)' })),
+        ...orgCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Org Custom Fields (if linked)' })),
+      ];
+    }
     
     const coreFields = prefillSource === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
     const entityCustomFields = customFields.filter(cf => cf.entity_scope === (prefillSource === 'member' ? 'member' : 'organization'));
@@ -1817,6 +1841,18 @@ const ORG_PREFILL_FIELDS = [
   { value: 'phone', label: 'Phone' },
   { value: 'invoicing_address', label: 'Invoicing Address' },
   { value: 'website_url', label: 'Website URL' },
+];
+
+const BOOKING_PREFILL_FIELDS = [
+  { value: 'attendee_first_name', label: 'Attendee First Name' },
+  { value: 'attendee_last_name', label: 'Attendee Last Name' },
+  { value: 'attendee_email', label: 'Attendee Email' },
+  { value: 'attendee_phone', label: 'Attendee Phone' },
+  { value: 'attendee_job_title', label: 'Attendee Job Title' },
+  { value: 'guest_organisation_name', label: 'Guest Organisation Name' },
+  { value: 'event_name', label: 'Event Name' },
+  { value: 'ticket_class_name', label: 'Ticket Class' },
+  { value: 'booking_reference', label: 'Booking Reference' },
 ];
 
 // EmailCard component for configuring individual email notifications
@@ -2699,7 +2735,7 @@ function FieldCard({
               {/* Pre-fill Field Selection - When prefill is enabled */}
               {prefillSource !== "none" && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
-                  <Label className="text-xs font-medium text-blue-800">Pre-fill from Member or Organisation data</Label>
+                  <Label className="text-xs font-medium text-blue-800">Pre-fill from {prefillSource === 'booking' ? 'Booking, Member or Organisation' : 'Member or Organisation'} data</Label>
                   <Select
                     value={field.prefill_field || "_none"}
                     onValueChange={(value) => updateField(originalIndex, { prefill_field: value === "_none" ? null : value })}
@@ -2709,8 +2745,18 @@ function FieldCard({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_none">No pre-fill</SelectItem>
+                      {prefillSource === 'booking' && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Booking Fields
+                          </div>
+                          {BOOKING_PREFILL_FIELDS.map(f => (
+                            <SelectItem key={`booking:${f.value}`} value={`booking:${f.value}`}>{f.label}</SelectItem>
+                          ))}
+                        </>
+                      )}
                       <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                        Member Core Fields
+                        {prefillSource === 'booking' ? 'Member Core Fields (if linked)' : 'Member Core Fields'}
                       </div>
                       {MEMBER_PREFILL_FIELDS.map(f => (
                         <SelectItem key={`member:${f.value}`} value={`member:${f.value}`}>{f.label}</SelectItem>
@@ -2718,7 +2764,7 @@ function FieldCard({
                       {customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member').length > 0 && (
                         <>
                           <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Member Custom Fields
+                            {prefillSource === 'booking' ? 'Member Custom Fields (if linked)' : 'Member Custom Fields'}
                           </div>
                           {customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member').map(cf => (
                             <SelectItem key={`member_custom:${cf.id}`} value={`member_custom:${cf.id}`}>{cf.label}</SelectItem>
@@ -2726,7 +2772,7 @@ function FieldCard({
                         </>
                       )}
                       <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                        Organisation Core Fields
+                        {prefillSource === 'booking' ? 'Organisation Core Fields (if linked)' : 'Organisation Core Fields'}
                       </div>
                       {ORG_PREFILL_FIELDS.map(f => (
                         <SelectItem key={`org:${f.value}`} value={`org:${f.value}`}>{f.label}</SelectItem>
@@ -2734,7 +2780,7 @@ function FieldCard({
                       {customFields.filter(cf => cf.entity_scope === 'organization').length > 0 && (
                         <>
                           <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Organisation Custom Fields
+                            {prefillSource === 'booking' ? 'Organisation Custom Fields (if linked)' : 'Organisation Custom Fields'}
                           </div>
                           {customFields.filter(cf => cf.entity_scope === 'organization').map(cf => (
                             <SelectItem key={`org_custom:${cf.id}`} value={`org_custom:${cf.id}`}>{cf.label}</SelectItem>
@@ -5384,12 +5430,13 @@ export default function FormBuilderPage() {
                       <SelectItem value="none">None (No Pre-fill)</SelectItem>
                       <SelectItem value="member">Member Data</SelectItem>
                       <SelectItem value="organization">Organisation Data</SelectItem>
+                      <SelectItem value="booking">Event Attendee (Booking)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 {formData.prefill_source !== "none" && (
                   <p className="text-xs text-slate-500 self-end pb-2">
-                    Form URL will accept ?{formData.prefill_source === "member" ? "member_id" : "organization_id"}=xxx to pre-populate fields
+                    Form URL will accept ?{formData.prefill_source === "member" ? "member_id" : formData.prefill_source === "booking" ? "booking_id" : "organization_id"}=xxx to pre-populate fields
                   </p>
                 )}
               </div>

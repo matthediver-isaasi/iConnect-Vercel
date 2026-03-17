@@ -72,6 +72,7 @@ export default function FormViewPage() {
   const formSlug = urlParams.get('slug');
   const prefillMemberId = urlParams.get('member_id');
   const prefillOrgId = urlParams.get('organization_id');
+  const prefillBookingId = urlParams.get('booking_id');
   const draftToken = urlParams.get('draft');
   const contractInstanceId = urlParams.get('contract_instance');
   const signerEmail = urlParams.get('signer_email');
@@ -307,18 +308,22 @@ export default function FormViewPage() {
   // 1. Direct org prefill via organization_id URL param
   // 2. Member prefill where org comes from member's organization_id
   const effectiveOrgIdForCapacity = useMemo(() => {
-    // Priority 1: Direct org prefill from URL
     if (prefillOrgId) {
       console.log('[FormView] Using prefillOrgId for capacity:', prefillOrgId);
       return prefillOrgId;
     }
-    // Priority 2: Member's organization (for member-prefill flows)
     if (prefillMember?.organization_id) {
       console.log('[FormView] Using prefillMember.organization_id for capacity:', prefillMember.organization_id);
       return prefillMember.organization_id;
     }
+    if (prefillBooking?.organization_id) {
+      return prefillBooking.organization_id;
+    }
+    if (prefillBookingMember?.organization_id) {
+      return prefillBookingMember.organization_id;
+    }
     return null;
-  }, [prefillOrgId, prefillMember?.organization_id]);
+  }, [prefillOrgId, prefillMember?.organization_id, prefillBooking?.organization_id, prefillBookingMember?.organization_id]);
 
   // Check role capacity before allowing form submission
   // Role capacity is ALWAYS per-organization - no global fallback
@@ -447,6 +452,20 @@ export default function FormViewPage() {
     orgCustomValuesError: orgCustomValuesError?.message
   });
 
+  const { data: prefillBookingData, isLoading: bookingPrefillLoading } = useQuery({
+    queryKey: ['prefill-booking', prefillBookingId, formSlug],
+    queryFn: async () => {
+      return publicClient.getPrefillBooking(prefillBookingId, formSlug);
+    },
+    enabled: !!prefillBookingId && form?.prefill_source === 'booking'
+  });
+
+  const prefillBooking = prefillBookingData?.booking || null;
+  const prefillBookingMember = prefillBookingData?.member || null;
+  const prefillBookingMemberCustomValues = prefillBookingData?.memberCustomValues || [];
+  const prefillBookingOrg = prefillBookingData?.organization || null;
+  const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || [];
+
   // Track if prefill has been applied to prevent overwriting user edits
   const [prefillApplied, setPrefillApplied] = useState(false);
   
@@ -545,18 +564,14 @@ export default function FormViewPage() {
   
   useEffect(() => {
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
-    if (!defaultsInitialized) return; // Wait for boolean defaults to be set first
-    if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
+    if (!defaultsInitialized) return;
+    if (prefillApplied) return;
     
-    // If there's a draft token in URL, wait for draft to be loaded before allowing prefill
-    // This prevents prefill from running and overwriting draft data
     if (draftToken && !draftLoaded) {
       console.log('[FormView Prefill] Waiting for draft to load before prefill...');
       return;
     }
     
-    // Wait for org custom values to finish loading before attempting prefill
-    // This prevents the race condition where prefill runs with empty custom values
     if (form.prefill_source === 'organization' && orgCustomValuesLoading) {
       console.log('[FormView Prefill] Waiting for org custom values to load...');
       return;
@@ -567,24 +582,40 @@ export default function FormViewPage() {
       return;
     }
     
-    // Primary entity based on prefill source
-    const memberEntity = prefillMember;
-    const orgEntity = effectiveOrgEntity;
+    if (form.prefill_source === 'booking' && bookingPrefillLoading) {
+      console.log('[FormView Prefill] Waiting for booking prefill data to load...');
+      return;
+    }
     
-    // For member prefill, we need the member entity; for org prefill, we need the org entity
-    const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
+    // Resolve entities based on prefill source
+    let memberEntity, orgEntity, activeMemberCustomValues, activeOrgCustomValues;
+    
+    if (form.prefill_source === 'booking') {
+      if (!prefillBooking) return;
+      memberEntity = prefillBookingMember;
+      orgEntity = prefillBookingOrg;
+      activeMemberCustomValues = prefillBookingMemberCustomValues;
+      activeOrgCustomValues = prefillBookingOrgCustomValues;
+    } else {
+      memberEntity = prefillMember;
+      orgEntity = effectiveOrgEntity;
+      activeMemberCustomValues = prefillMemberCustomValues;
+      activeOrgCustomValues = prefillOrgCustomValues;
+    }
+    
+    const primaryEntity = form.prefill_source === 'member' ? memberEntity 
+      : form.prefill_source === 'organization' ? orgEntity 
+      : prefillBooking;
     if (!primaryEntity) return;
     
     console.log('[FormView Prefill] ========== PREFILL DEBUG START ==========');
     console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
+    console.log('[FormView Prefill] Booking entity:', prefillBooking);
     console.log('[FormView Prefill] Member entity:', memberEntity);
     console.log('[FormView Prefill] Org entity:', orgEntity);
-    console.log('[FormView Prefill] prefillMemberCustomValues:', prefillMemberCustomValues);
-    console.log('[FormView Prefill] prefillOrgCustomValues:', prefillOrgCustomValues);
     console.log('[FormView Prefill] Fields with prefill_field configured:', 
       form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field})));
     
-    // Helper to parse custom field value for list fields
     const parseCustomFieldValue = (cfv, fieldType) => {
       if (!cfv || cfv.value === undefined || cfv.value === null) return null;
       let parsedValue = cfv.value;
@@ -601,12 +632,14 @@ export default function FormViewPage() {
     
     const newValues = {};
     for (const field of (form.fields || [])) {
-      // Special handling for organisation_dropdown: always use the entity's ID
       if (field.type === 'organisation_dropdown') {
         if (form.prefill_source === 'organization' && prefillOrgId) {
           newValues[field.id] = prefillOrgId;
         } else if (form.prefill_source === 'member' && memberEntity?.organization_id) {
           newValues[field.id] = memberEntity.organization_id;
+        } else if (form.prefill_source === 'booking') {
+          const orgId = prefillBooking?.organization_id || prefillBookingMember?.organization_id;
+          if (orgId) newValues[field.id] = orgId;
         }
         continue;
       }
@@ -616,41 +649,35 @@ export default function FormViewPage() {
       const prefillField = field.prefill_field;
       let value = null;
       
-      // Handle new prefixed format: member:, org:, member_custom:, org_custom:
-      if (prefillField.startsWith('member:')) {
-        // Member core field
+      if (prefillField.startsWith('booking:')) {
+        const fieldName = prefillField.replace('booking:', '');
+        value = prefillBooking?.[fieldName];
+        console.log(`[FormView Prefill] ${field.label}: booking:${fieldName} = "${value}"`);
+      } else if (prefillField.startsWith('member:')) {
         const fieldName = prefillField.replace('member:', '');
         value = memberEntity?.[fieldName];
         console.log(`[FormView Prefill] ${field.label}: member:${fieldName} = "${value}"`);
       } else if (prefillField.startsWith('org:')) {
-        // Organisation core field
         const fieldName = prefillField.replace('org:', '');
         value = orgEntity?.[fieldName];
         console.log(`[FormView Prefill] ${field.label}: org:${fieldName} = "${value}"`);
       } else if (prefillField.startsWith('member_custom:')) {
-        // Member custom field
         const customFieldId = prefillField.replace('member_custom:', '');
-        const cfv = prefillMemberCustomValues.find(v => v.field_id === customFieldId);
+        const cfv = activeMemberCustomValues.find(v => v.field_id === customFieldId);
         value = parseCustomFieldValue(cfv, field.type);
         console.log(`[FormView Prefill] ${field.label}: member_custom:${customFieldId} = "${value}"`);
       } else if (prefillField.startsWith('org_custom:')) {
-        // Organisation custom field
         const customFieldId = prefillField.replace('org_custom:', '');
-        console.log(`[FormView Prefill DEBUG] Looking for org_custom field_id: "${customFieldId}"`);
-        console.log(`[FormView Prefill DEBUG] Available prefillOrgCustomValues:`, prefillOrgCustomValues.map(v => ({ field_id: v.field_id, value: v.value })));
-        const cfv = prefillOrgCustomValues.find(v => v.field_id === customFieldId);
-        console.log(`[FormView Prefill DEBUG] Found match:`, cfv);
+        const cfv = activeOrgCustomValues.find(v => v.field_id === customFieldId);
         value = parseCustomFieldValue(cfv, field.type);
         console.log(`[FormView Prefill] ${field.label}: org_custom:${customFieldId} = "${value}"`);
       } else if (prefillField.startsWith('custom:')) {
-        // Legacy format: custom field from primary entity
         const customFieldId = prefillField.replace('custom:', '');
-        const customValues = form.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const customValues = form.prefill_source === 'member' ? activeMemberCustomValues : activeOrgCustomValues;
         const cfv = customValues.find(v => v.field_id === customFieldId);
         value = parseCustomFieldValue(cfv, field.type);
         console.log(`[FormView Prefill] ${field.label}: custom:${customFieldId} (legacy) = "${value}"`);
       } else {
-        // Legacy format: core field from primary entity
         value = primaryEntity?.[prefillField];
         console.log(`[FormView Prefill] ${field.label}: ${prefillField} (legacy) = "${value}"`);
       }
@@ -680,7 +707,7 @@ export default function FormViewPage() {
     } else {
       console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
-  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded]);
+  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
@@ -1380,11 +1407,19 @@ export default function FormViewPage() {
       const prefillField = action.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
         const coreFieldName = prefillField.replace('core.', '');
+        if (form?.prefill_source === 'booking') {
+          const val = prefillBooking?.[coreFieldName];
+          if (val !== undefined && val !== null) return val;
+          const memberVal = prefillBookingMember?.[coreFieldName];
+          if (memberVal !== undefined && memberVal !== null) return memberVal;
+          return prefillBookingOrg?.[coreFieldName];
+        }
         return prefillEntity[coreFieldName];
       } else if (prefillField.startsWith('custom.')) {
         const customFieldId = prefillField.replace('custom.', '');
-        // Use appropriate custom values based on prefill source
-        const customValues = form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const customValues = form?.prefill_source === 'booking' 
+          ? [...prefillBookingMemberCustomValues, ...prefillBookingOrgCustomValues]
+          : form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
         const cfv = customValues.find(v => v.field_id === customFieldId);
         return cfv?.value;
       }
@@ -1392,7 +1427,6 @@ export default function FormViewPage() {
     return null;
   };
   
-  // Helper to compute the value for a legacy set_value rule
   const computeLegacySetValue = (rule, prefillEntity) => {
     const sourceType = rule.set_value_source || 'static';
     
@@ -1404,11 +1438,19 @@ export default function FormViewPage() {
       const prefillField = rule.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
         const coreFieldName = prefillField.replace('core.', '');
+        if (form?.prefill_source === 'booking') {
+          const val = prefillBooking?.[coreFieldName];
+          if (val !== undefined && val !== null) return val;
+          const memberVal = prefillBookingMember?.[coreFieldName];
+          if (memberVal !== undefined && memberVal !== null) return memberVal;
+          return prefillBookingOrg?.[coreFieldName];
+        }
         return prefillEntity[coreFieldName];
       } else if (prefillField.startsWith('custom.')) {
         const customFieldId = prefillField.replace('custom.', '');
-        // Use appropriate custom values based on prefill source
-        const customValues = form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const customValues = form?.prefill_source === 'booking'
+          ? [...prefillBookingMemberCustomValues, ...prefillBookingOrgCustomValues]
+          : form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
         const cfv = customValues.find(v => v.field_id === customFieldId);
         return cfv?.value;
       }
@@ -1423,7 +1465,9 @@ export default function FormViewPage() {
     console.log('[SetValue Debug] Current formValues:', formValues);
     console.log('[SetValue Debug] Previously active actions:', Array.from(activeSetValueActionsRef.current));
     
-    const prefillEntity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
+    const prefillEntity = form.prefill_source === 'member' ? prefillMember 
+      : form.prefill_source === 'booking' ? prefillBooking
+      : prefillOrg;
     const updates = {};
     
     // Track which actions are now active and which fields they target
