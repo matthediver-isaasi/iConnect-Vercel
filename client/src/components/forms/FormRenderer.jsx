@@ -11,6 +11,7 @@ import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
 import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import SignatureField from "@/components/forms/SignatureField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
+import NameCardBadge from "@/components/forms/NameCardBadge";
 import {
   Select,
   SelectContent,
@@ -297,7 +298,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {} }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [] }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -1605,10 +1606,27 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           />
         );
 
+      case 'name_card':
+        return null;
+
       default:
         return <p className="text-sm text-slate-500">Unsupported field type: {field.type}</p>;
     }
   };
+
+  if (field.type === 'name_card') {
+    return (
+      <NameCardBadge
+        zones={field.name_card_zones}
+        cardStyle={field.name_card_style}
+        formValues={allFormValues}
+        formFields={allFields}
+        prefillData={prefillData}
+        isPreview={false}
+        showPrint={true}
+      />
+    );
+  }
 
   if (field.type === 'image') {
     return (

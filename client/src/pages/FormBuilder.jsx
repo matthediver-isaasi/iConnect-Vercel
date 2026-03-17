@@ -10,8 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip, ImageIcon, Upload } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip, ImageIcon, Upload, CreditCard } from "lucide-react";
 import { uploadFileWithProgress, UPLOAD_TYPES } from '@/lib/tenantUpload';
+import NameCardBadge from "@/components/forms/NameCardBadge";
 import {
   Select,
   SelectContent,
@@ -32,6 +33,24 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
+
+const NAME_CARD_ZONE_DEFAULTS = {
+  header:    { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'sm', font_weight: 'normal' },
+  primary:   { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: '2xl', font_weight: 'bold' },
+  secondary: { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'lg', font_weight: 'normal' },
+  tertiary:  { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'base', font_weight: 'normal' },
+  footer:    { source: 'static', static_text: '', field_id: '', prefill_field: '', font_size: 'sm', font_weight: 'normal' },
+};
+
+const NAME_CARD_STYLE_DEFAULTS = {
+  background_color: '#ffffff',
+  border_color: '#e2e8f0',
+  accent_color: '#3b82f6',
+  width: 350,
+  height: 220,
+};
+
+const NAME_CARD_SCALAR_TYPES = new Set(['text', 'textarea', 'email', 'url', 'number', 'tel', 'select', 'radio', 'date', 'time', 'country', 'percentage', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_dropdown']);
 
 const STANDARD_FIELD_TYPES = [
   { value: 'text', label: 'Text (Single Line)' },
@@ -55,6 +74,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
   { value: 'image', label: 'Image (Display Only)' },
+  { value: 'name_card', label: 'Name Card (Badge)' },
   { value: 'signature', label: 'Signature' },
 ];
 
@@ -2534,6 +2554,8 @@ function FieldCard({
                 <img src={field.image_url} alt={field.image_alt || ''} className="w-8 h-8 object-cover rounded flex-shrink-0" />
               ) : field.type === 'image' ? (
                 <ImageIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              ) : field.type === 'name_card' ? (
+                <CreditCard className="w-4 h-4 text-blue-500 flex-shrink-0" />
               ) : null}
               <span className="text-sm font-medium text-slate-700 truncate">
                 {field.label || 'Untitled Field'}
@@ -2599,7 +2621,16 @@ function FieldCard({
                     <Select
                       value={getFieldTypeCategory(field.type) === 'standard' ? field.type : ''}
                       onValueChange={(value) => {
-                        if (value) updateField(originalIndex, { type: value });
+                        if (value) {
+                          const updates = { type: value };
+                          if (value === 'name_card') {
+                            updates.name_card_zones = { ...NAME_CARD_ZONE_DEFAULTS };
+                            updates.name_card_style = { ...NAME_CARD_STYLE_DEFAULTS };
+                            updates.label = 'Name Badge';
+                            updates.required = false;
+                          }
+                          updateField(originalIndex, updates);
+                        }
                       }}
                     >
                       <SelectTrigger className="h-9" data-testid={`select-standard-type-${field.id}`}>
@@ -3587,6 +3618,222 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Name Card Badge Configuration */}
+              {field.type === 'name_card' && (
+                <div className="space-y-4">
+                  <Label className="text-xs font-medium">Name Card (Badge) Configuration</Label>
+                  <p className="text-xs text-slate-500">Configure each zone of the badge. Each zone can show static text, pull from a form field, or use prefill data.</p>
+
+                  {['header', 'primary', 'secondary', 'tertiary', 'footer'].map((zoneName) => {
+                    const zones = field.name_card_zones || NAME_CARD_ZONE_DEFAULTS;
+                    const zone = zones[zoneName] || NAME_CARD_ZONE_DEFAULTS[zoneName];
+                    const updateZone = (updates) => {
+                      const updatedZones = { ...zones, [zoneName]: { ...zone, ...updates } };
+                      updateField(originalIndex, { name_card_zones: updatedZones });
+                    };
+                    const otherFields = formData.fields.filter(f => f.id !== field.id && NAME_CARD_SCALAR_TYPES.has(f.type));
+
+                    return (
+                      <div key={zoneName} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                        <Label className="text-xs font-semibold capitalize">{zoneName} Zone</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Source</Label>
+                            <Select
+                              value={zone.source || 'static'}
+                              onValueChange={(val) => updateZone({ source: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-source-${zoneName}-${field.id}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="static">Static Text</SelectItem>
+                                <SelectItem value="field">Form Field</SelectItem>
+                                <SelectItem value="prefill">Prefill Data</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Font Size</Label>
+                            <Select
+                              value={zone.font_size || 'base'}
+                              onValueChange={(val) => updateZone({ font_size: val })}
+                            >
+                              <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-fontsize-${zoneName}-${field.id}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="xs">Extra Small</SelectItem>
+                                <SelectItem value="sm">Small</SelectItem>
+                                <SelectItem value="base">Medium</SelectItem>
+                                <SelectItem value="lg">Large</SelectItem>
+                                <SelectItem value="xl">X-Large</SelectItem>
+                                <SelectItem value="2xl">2X-Large</SelectItem>
+                                <SelectItem value="3xl">3X-Large</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {zone.source === 'static' && (
+                          <Input
+                            value={zone.static_text || ''}
+                            onChange={(e) => updateZone({ static_text: e.target.value })}
+                            placeholder={`Enter ${zoneName} text...`}
+                            className="h-8 text-xs"
+                            data-testid={`input-nc-static-${zoneName}-${field.id}`}
+                          />
+                        )}
+
+                        {zone.source === 'field' && (
+                          <Select
+                            value={zone.field_id || ''}
+                            onValueChange={(val) => updateZone({ field_id: val })}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-field-${zoneName}-${field.id}`}>
+                              <SelectValue placeholder="Select a form field..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {otherFields.map(f => (
+                                <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+
+                        {zone.source === 'prefill' && (
+                          <Select
+                            value={zone.prefill_field || ''}
+                            onValueChange={(val) => updateZone({ prefill_field: val })}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-nc-prefill-${zoneName}-${field.id}`}>
+                              <SelectValue placeholder="Select prefill field..." />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60 overflow-y-auto">
+                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">Member Fields</div>
+                              {MEMBER_PREFILL_FIELDS.map(f => (
+                                <SelectItem key={`member:${f.value}`} value={`member:${f.value}`}>{f.label}</SelectItem>
+                              ))}
+                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">Organisation Fields</div>
+                              {ORG_PREFILL_FIELDS.map(f => (
+                                <SelectItem key={`org:${f.value}`} value={`org:${f.value}`}>{f.label}</SelectItem>
+                              ))}
+                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">Booking Fields</div>
+                              {BOOKING_PREFILL_FIELDS.map(f => (
+                                <SelectItem key={`booking:${f.value}`} value={`booking:${f.value}`}>{f.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs">Bold</Label>
+                          <Switch
+                            checked={zone.font_weight === 'bold'}
+                            onCheckedChange={(checked) => updateZone({ font_weight: checked ? 'bold' : 'normal' })}
+                            data-testid={`switch-nc-bold-${zoneName}-${field.id}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                    <Label className="text-xs font-semibold">Badge Style</Label>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Accent Colour</Label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).accent_color}
+                            onChange={(e) => updateField(originalIndex, {
+                              name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), accent_color: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                            data-testid={`input-nc-accent-${field.id}`}
+                          />
+                          <span className="text-xs text-slate-500">{(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).accent_color}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Background</Label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).background_color}
+                            onChange={(e) => updateField(originalIndex, {
+                              name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), background_color: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                            data-testid={`input-nc-bg-${field.id}`}
+                          />
+                          <span className="text-xs text-slate-500">{(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).background_color}</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Border</Label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).border_color}
+                            onChange={(e) => updateField(originalIndex, {
+                              name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), border_color: e.target.value }
+                            })}
+                            className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                            data-testid={`input-nc-border-${field.id}`}
+                          />
+                          <span className="text-xs text-slate-500">{(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).border_color}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Width (px)</Label>
+                        <Input
+                          type="number"
+                          value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).width}
+                          onChange={(e) => updateField(originalIndex, {
+                            name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), width: parseInt(e.target.value) || 350 }
+                          })}
+                          min={200}
+                          max={600}
+                          className="h-8 text-xs"
+                          data-testid={`input-nc-width-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Height (px)</Label>
+                        <Input
+                          type="number"
+                          value={(field.name_card_style || NAME_CARD_STYLE_DEFAULTS).height}
+                          onChange={(e) => updateField(originalIndex, {
+                            name_card_style: { ...(field.name_card_style || NAME_CARD_STYLE_DEFAULTS), height: parseInt(e.target.value) || 220 }
+                          })}
+                          min={150}
+                          max={500}
+                          className="h-8 text-xs"
+                          data-testid={`input-nc-height-${field.id}`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white border border-slate-200 rounded-lg">
+                    <Label className="text-xs font-semibold mb-2 block">Preview</Label>
+                    <NameCardBadge
+                      zones={field.name_card_zones || NAME_CARD_ZONE_DEFAULTS}
+                      cardStyle={field.name_card_style || NAME_CARD_STYLE_DEFAULTS}
+                      formValues={{}}
+                      formFields={formData.fields.filter(f => f.id !== field.id)}
+                      prefillData={null}
+                      isPreview={true}
+                      showPrint={false}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Contact Field - Contract Template Selection */}
               {field.type === 'contact' && (
                 <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -4386,7 +4633,7 @@ export default function FormBuilderPage() {
       options: [],
       allow_other: false,
       page_id: pageId,
-      column_index: columnIndex // 0, 1, or 2 (for 1, 2, or 3 columns)
+      column_index: columnIndex
     };
     setFormData({ ...formData, fields: [...formData.fields, newField] });
   };

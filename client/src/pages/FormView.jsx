@@ -318,6 +318,31 @@ export default function FormViewPage() {
   const prefillBookingOrg = prefillBookingData?.organization || null;
   const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || [];
 
+  const nameCardPrefillData = useMemo(() => {
+    const source = form?.prefill_source;
+    if (source === 'booking') {
+      return {
+        booking: prefillBooking,
+        member: prefillBookingMember,
+        organization: prefillBookingOrg,
+        memberCustomValues: prefillBookingMemberCustomValues,
+        orgCustomValues: prefillBookingOrgCustomValues,
+      };
+    }
+    if (source === 'member') {
+      return {
+        member: prefillMember,
+        organization: prefillMemberOrg || prefillOrg,
+      };
+    }
+    if (source === 'organization') {
+      return {
+        organization: prefillOrg,
+      };
+    }
+    return null;
+  }, [form?.prefill_source, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, prefillMember, prefillMemberOrg, prefillOrg]);
+
   // Effective org ID for capacity checking - works for both prefill cases:
   // 1. Direct org prefill via organization_id URL param
   // 2. Member prefill where org comes from member's organization_id
@@ -1970,9 +1995,8 @@ export default function FormViewPage() {
       }
     }
 
-    // Filter out display-only fields (instructions, image) - not stored
     const displayOnlyFieldIds = new Set(
-      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
+      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image' || f.type === 'name_card').map(f => f.id)
     );
     const filteredFormValues = Object.fromEntries(
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
@@ -2089,6 +2113,8 @@ export default function FormViewPage() {
                 formId={form?.id}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                 allFormValues={formValues}
+                prefillData={nameCardPrefillData}
+                allFields={form?.fields || []}
               />
             )}
           </CardContent>
@@ -2323,7 +2349,6 @@ export default function FormViewPage() {
               );
               
               if (columnCount === 1) {
-                // Single column - render all fields in order
                 return displayFields.map(field => (
                   <FormRenderer
                     key={field.id}
@@ -2337,6 +2362,8 @@ export default function FormViewPage() {
                     formId={form?.id}
                     formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                     allFormValues={formValues}
+                    prefillData={nameCardPrefillData}
+                    allFields={form?.fields || []}
                   />
                 ));
               }
@@ -2364,6 +2391,8 @@ export default function FormViewPage() {
                           formId={form?.id}
                           formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                           allFormValues={formValues}
+                          prefillData={nameCardPrefillData}
+                          allFields={form?.fields || []}
                         />
                       ))}
                     </div>
@@ -2390,6 +2419,8 @@ export default function FormViewPage() {
                               formId={form?.id}
                               formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                               allFormValues={formValues}
+                              prefillData={nameCardPrefillData}
+                              allFields={form?.fields || []}
                             />
                           ))}
                         </div>
