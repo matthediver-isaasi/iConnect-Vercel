@@ -1176,7 +1176,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const currentPage = hasPages ? pages[currentPageIndex] : null;
   const displayFields = filterVisibleFields(getCurrentPageFields());
 
-  const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']), []);
+  const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']), []);
 
   const autoSubmitTimerRef = useRef(null);
   const lastPaymentFieldRef = useRef(null);

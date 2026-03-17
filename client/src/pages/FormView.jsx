@@ -1109,7 +1109,7 @@ export default function FormViewPage() {
 
   // Handler for field value changes that clears dependent fields when a trigger field changes
   // This ensures conditional logic paths are properly reset when navigating backwards
-  const NON_INPUT_FIELD_TYPES = new Set(['instructions', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']);
+  const NON_INPUT_FIELD_TYPES = new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']);
 
   const autoSubmitTimerRef = useRef(null);
   const lastPaymentFieldRef = useRef(null);
@@ -1926,12 +1926,12 @@ export default function FormViewPage() {
       }
     }
 
-    // Filter out instructions fields (display-only, not stored)
-    const instructionsFieldIds = new Set(
-      (form.fields || []).filter(f => f.type === 'instructions').map(f => f.id)
+    // Filter out display-only fields (instructions, image) - not stored
+    const displayOnlyFieldIds = new Set(
+      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
     );
     const filteredFormValues = Object.fromEntries(
-      Object.entries(formValues).filter(([key]) => !instructionsFieldIds.has(key))
+      Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
     );
 
     // Determine organization ID to include with submission

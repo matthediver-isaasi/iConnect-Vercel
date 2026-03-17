@@ -1579,6 +1579,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       case 'instructions':
         return null;
 
+      case 'image':
+        return null;
+
       case 'signature':
         return (
           <SignatureField
@@ -1606,6 +1609,31 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         return <p className="text-sm text-slate-500">Unsupported field type: {field.type}</p>;
     }
   };
+
+  if (field.type === 'image') {
+    return (
+      <div 
+        className="w-full rounded-lg overflow-hidden"
+        data-testid={`image-display-${field.id}`}
+      >
+        {field.image_url ? (
+          <img 
+            src={field.image_url} 
+            alt={field.image_alt || ''} 
+            className="w-full rounded-lg"
+            style={{ 
+              maxHeight: `${field.image_max_height || 300}px`,
+              objectFit: field.image_fit || 'cover'
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center p-8 bg-slate-100 border border-slate-200 rounded-lg text-slate-400 text-sm">
+            No image configured
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (field.type === 'instructions') {
     return (

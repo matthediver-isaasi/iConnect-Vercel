@@ -10,7 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip, ImageIcon, Upload } from "lucide-react";
+import { uploadFileWithProgress, UPLOAD_TYPES } from '@/lib/tenantUpload';
 import {
   Select,
   SelectContent,
@@ -53,6 +54,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'percentage', label: 'Percentage' },
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
+  { value: 'image', label: 'Image (Display Only)' },
   { value: 'signature', label: 'Signature' },
 ];
 
@@ -321,7 +323,7 @@ function FieldMappingSection({
                           <SelectValue placeholder="Select field..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {fields.map(field => (
+                          {fields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
                             <SelectItem key={field.id} value={field.id}>
                               {field.label || field.type}
                             </SelectItem>
@@ -1453,7 +1455,7 @@ function LogicRulesSection({
                               <SelectValue placeholder="Select field..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {fields.filter(f => f.type !== 'instructions').map(field => (
+                              {fields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
                                 <SelectItem key={field.id} value={field.id}>
                                   {field.label || field.type}
                                 </SelectItem>
@@ -2280,7 +2282,7 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
     updateField(originalIndex, { field_mappings: newMappings });
   };
 
-  const mappableFormFields = allFields.filter(f => f.id !== field.id && f.type !== 'membership_payment' && f.type !== 'instructions');
+  const mappableFormFields = allFields.filter(f => f.id !== field.id && f.type !== 'membership_payment' && f.type !== 'instructions' && f.type !== 'image');
 
   return (
     <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -2492,6 +2494,11 @@ function FieldCard({
               <GripVertical className="w-4 h-4 text-slate-400" />
             </div>
             <div className="flex-1 min-w-0 flex items-center gap-2">
+              {field.type === 'image' && field.image_url ? (
+                <img src={field.image_url} alt={field.image_alt || ''} className="w-8 h-8 object-cover rounded flex-shrink-0" />
+              ) : field.type === 'image' ? (
+                <ImageIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              ) : null}
               <span className="text-sm font-medium text-slate-700 truncate">
                 {field.label || 'Untitled Field'}
               </span>
@@ -3433,6 +3440,107 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Image Display - Upload and settings for display-only image */}
+              {field.type === 'image' && (
+                <div className="space-y-3">
+                  <Label className="text-xs font-medium">Image Settings</Label>
+                  <p className="text-xs text-slate-500 mb-2">Upload an image to display on the form (not editable by users)</p>
+                  
+                  {field.image_url ? (
+                    <div className="space-y-2">
+                      <div className="relative rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                        <img 
+                          src={field.image_url} 
+                          alt={field.image_alt || 'Form image'} 
+                          className="w-full max-h-48 object-contain"
+                          data-testid={`img-preview-${field.id}`}
+                        />
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateField(originalIndex, { image_url: null })}
+                        data-testid={`button-remove-image-${field.id}`}
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" />
+                        Remove Image
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <label 
+                        className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                        data-testid={`label-upload-image-${field.id}`}
+                      >
+                        <Upload className="w-6 h-6 text-slate-400" />
+                        <span className="text-sm text-slate-500">Click to upload an image</span>
+                        <span className="text-xs text-slate-400">PNG, JPG, GIF, SVG, WebP</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          data-testid={`input-upload-image-${field.id}`}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const result = await uploadFileWithProgress(file, {
+                                type: UPLOAD_TYPES.PAGE,
+                                onProgress: null
+                              });
+                              updateField(originalIndex, { image_url: result.file_url });
+                              toast.success('Image uploaded successfully');
+                            } catch (err) {
+                              toast.error(err.message || 'Failed to upload image');
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Alt Text</Label>
+                    <Input
+                      value={field.image_alt || ''}
+                      onChange={(e) => updateField(originalIndex, { image_alt: e.target.value })}
+                      placeholder="Describe the image for accessibility..."
+                      data-testid={`input-image-alt-${field.id}`}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Image Fit</Label>
+                    <Select
+                      value={field.image_fit || 'cover'}
+                      onValueChange={(value) => updateField(originalIndex, { image_fit: value })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-image-fit-${field.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cover">Cover (fill area, crop if needed)</SelectItem>
+                        <SelectItem value="contain">Contain (fit entire image)</SelectItem>
+                        <SelectItem value="fill">Fill (stretch to fit)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Max Height (px)</Label>
+                    <Input
+                      type="number"
+                      value={field.image_max_height || 300}
+                      onChange={(e) => updateField(originalIndex, { image_max_height: parseInt(e.target.value) || 300 })}
+                      min={50}
+                      max={800}
+                      placeholder="300"
+                      data-testid={`input-image-max-height-${field.id}`}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Contact Field - Contract Template Selection */}
               {field.type === 'contact' && (
                 <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -3488,7 +3596,7 @@ function FieldCard({
               )}
 
               {/* Default Value Section - for non-boolean fields */}
-              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'signature'].includes(field.type) && (
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'signature'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
@@ -5045,7 +5153,7 @@ export default function FormBuilderPage() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="_none">-- None --</SelectItem>
-                                      {sourceFormFields.filter(f => f.type !== 'instructions').map(field => (
+                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
                                         <SelectItem key={field.id} value={field.id}>
                                           {field.label || field.id}
                                         </SelectItem>
@@ -5070,7 +5178,7 @@ export default function FormBuilderPage() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="_none">-- None --</SelectItem>
-                                      {sourceFormFields.filter(f => f.type !== 'instructions').map(field => (
+                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
                                         <SelectItem key={field.id} value={field.id}>
                                           {field.label || field.id}
                                         </SelectItem>
