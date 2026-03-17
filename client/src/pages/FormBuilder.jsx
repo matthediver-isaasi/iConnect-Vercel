@@ -985,8 +985,8 @@ function LogicRulesSection({
         ...BOOKING_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Booking Fields' })),
         ...MEMBER_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Member Fields (if linked)' })),
         ...memberCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Member Custom Fields (if linked)' })),
-        ...ORG_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Org Fields (if linked)' })),
-        ...orgCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Org Custom Fields (if linked)' })),
+        ...ORG_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Organisation Fields (if linked)' })),
+        ...orgCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Organisation Custom Fields (if linked)' })),
       ];
     }
     

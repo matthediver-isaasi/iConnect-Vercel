@@ -120,6 +120,7 @@ export default async function handler(req, res) {
         .from('event')
         .select('title')
         .eq('id', booking.event_id)
+        .eq('tenant_id', tenantId)
         .single();
 
       if (event) {
