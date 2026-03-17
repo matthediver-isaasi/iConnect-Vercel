@@ -1,4 +1,4 @@
-import { useRef, useCallback, useMemo } from "react";
+import { useRef, useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -171,6 +171,24 @@ export default function NameCardBadge({ zones, cardStyle, value = {}, onChange, 
     }
     return result;
   }, [value, mergedZones, prefillData]);
+
+  useEffect(() => {
+    if (!onChange || isPreview) return;
+    const current = value || {};
+    let needsSync = false;
+    for (const [zoneName, zone] of Object.entries(mergedZones)) {
+      if (zone.source === 'static' || zone.source === 'prefill_readonly') {
+        const derived = compositeValue[zoneName] || '';
+        if (current[zoneName] !== derived) {
+          needsSync = true;
+          break;
+        }
+      }
+    }
+    if (needsSync || Object.keys(current).length === 0) {
+      onChange(compositeValue);
+    }
+  }, [compositeValue, isPreview]);
 
   const handleZoneChange = useCallback((zoneName, val) => {
     const updated = { ...compositeValue, [zoneName]: val };
