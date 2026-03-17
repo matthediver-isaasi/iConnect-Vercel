@@ -1,9 +1,15 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const tenantUser = await getSessionTenantUser(req);
+  if (!tenantUser) {
+    return res.status(401).json({ error: 'Unauthorized - admin access required' });
   }
 
   const tenantContext = await getTenantContext(req);

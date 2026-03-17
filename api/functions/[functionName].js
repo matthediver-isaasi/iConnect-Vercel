@@ -1921,8 +1921,16 @@ const functionHandlers = {
         const isMemberTargetedCode = discountCode.member_id || discountCode.role_id || discountCode.member_group_id;
         let targetEligible = true;
 
+        // Validate organization-targeted restriction at booking time
+        if (discountCode.organization_id) {
+          if (!org?.id || discountCode.organization_id !== org.id) {
+            console.warn(`[createOneOffEventBooking] Discount code targeted to org ${discountCode.organization_id}, but booking org is ${org?.id}`);
+            targetEligible = false;
+          }
+        }
+
         // Validate member-targeted restrictions at booking time
-        if (discountCode.member_id) {
+        if (discountCode.member_id && targetEligible) {
           if (!member?.id || discountCode.member_id !== member.id) {
             console.warn(`[createOneOffEventBooking] Discount code targeted to member ${discountCode.member_id}, but booking member is ${member?.id}`);
             targetEligible = false;
@@ -3263,6 +3271,24 @@ const functionHandlers = {
     if (!isMemberTargeted) {
       if (discountCode.max_usage_count && discountCode.current_usage_count >= discountCode.max_usage_count) {
         return { valid: false, error: 'Discount code has reached maximum uses' };
+      }
+    }
+
+    // Validate organization-targeted restriction
+    if (discountCode.organization_id) {
+      if (!authenticatedMemberId) {
+        console.log('[applyDiscountCode] Code is org-targeted but no authenticated member session');
+        return { valid: false, error: 'This discount code is not available to you' };
+      }
+      const { data: memberForOrg } = await supabase
+        .from('member')
+        .select('organization_id')
+        .eq('id', authenticatedMemberId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (!memberForOrg || memberForOrg.organization_id !== discountCode.organization_id) {
+        console.log('[applyDiscountCode] Member org', memberForOrg?.organization_id, 'does not match code org', discountCode.organization_id);
+        return { valid: false, error: 'This discount code is not available for your organisation' };
       }
     }
 
