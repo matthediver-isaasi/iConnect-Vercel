@@ -3275,19 +3275,28 @@ const functionHandlers = {
     }
 
     // Validate organization-targeted restriction
+    // Supports both authenticated members and guests (lookup by email)
     if (discountCode.organization_id) {
-      if (!authenticatedMemberId) {
-        console.log('[applyDiscountCode] Code is org-targeted but no authenticated member session');
-        return { valid: false, error: 'This discount code is not available to you' };
+      let memberOrgId = null;
+      if (authenticatedMemberId) {
+        const { data: memberForOrg } = await supabase
+          .from('member')
+          .select('organization_id')
+          .eq('id', authenticatedMemberId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        memberOrgId = memberForOrg?.organization_id;
+      } else if (memberEmail) {
+        const { data: memberByEmail } = await supabase
+          .from('member')
+          .select('organization_id')
+          .ilike('email', memberEmail)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        memberOrgId = memberByEmail?.organization_id;
       }
-      const { data: memberForOrg } = await supabase
-        .from('member')
-        .select('organization_id')
-        .eq('id', authenticatedMemberId)
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-      if (!memberForOrg || memberForOrg.organization_id !== discountCode.organization_id) {
-        console.log('[applyDiscountCode] Member org', memberForOrg?.organization_id, 'does not match code org', discountCode.organization_id);
+      if (!memberOrgId || memberOrgId !== discountCode.organization_id) {
+        console.log('[applyDiscountCode] Member org', memberOrgId, 'does not match code org', discountCode.organization_id);
         return { valid: false, error: 'This discount code is not available for your organisation' };
       }
     }
