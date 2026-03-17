@@ -83,6 +83,13 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Add image_urls column if it doesn't exist (for existing installations)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'forum_post' AND column_name = 'image_urls') THEN
+    ALTER TABLE forum_post ADD COLUMN image_urls JSONB DEFAULT NULL;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_forum_post_tenant ON forum_post(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_forum_post_thread ON forum_post(thread_id);
 CREATE INDEX IF NOT EXISTS idx_forum_post_created_by ON forum_post(created_by);

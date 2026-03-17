@@ -12,7 +12,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   MessageSquare, Pin, Lock, ThumbsUp, ThumbsDown, Flag, Pencil, Trash2,
   ChevronLeft, Send, MoreVertical, Reply, Eye, Clock,
-  Loader2, X, EyeOff, ArrowRightLeft, ShieldAlert, ChevronsDown, ChevronDown, ChevronUp
+  Loader2, X, EyeOff, ArrowRightLeft, ShieldAlert, ChevronsDown, ChevronDown, ChevronUp,
+  ImagePlus
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -20,6 +21,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
+import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 
 function generateSlug(name) {
   return name
@@ -107,6 +109,12 @@ export default function ForumThreadPage() {
   const [showMoreActions, setShowMoreActions] = useState(null);
   const [isCheckingContent, setIsCheckingContent] = useState(false);
   const [collapsedReplies, setCollapsedReplies] = useState({});
+  const [newThreadImages, setNewThreadImages] = useState([]);
+  const [replyImages, setReplyImages] = useState([]);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState(null);
+  const newThreadFileRef = useRef(null);
+  const replyFileRef = useRef(null);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -232,6 +240,10 @@ export default function ForumThreadPage() {
 
   const createThreadMutation = useMutation({
     mutationFn: async () => {
+      let imageUrls = null;
+      if (newThreadImages.length > 0) {
+        imageUrls = await uploadImages(newThreadImages);
+      }
       const newThread = await base44.entities.ForumThread.create({
         category_id: categoryId,
         title: newTitle.trim(),
@@ -242,16 +254,21 @@ export default function ForumThreadPage() {
         last_post_at: new Date().toISOString(),
         last_post_by: memberInfo.id,
       });
-      await base44.entities.ForumPost.create({
+      const postData = {
         thread_id: newThread.id,
         content: newContent.trim(),
         created_by: memberInfo.id,
         created_by_type: "member",
-      });
+      };
+      if (imageUrls && imageUrls.length > 0) {
+        postData.image_urls = imageUrls;
+      }
+      await base44.entities.ForumPost.create(postData);
       return newThread;
     },
     onSuccess: (newThread) => {
       queryClient.invalidateQueries({ queryKey: ["forum-threads-browse"] });
+      setNewThreadImages([]);
       toast.success("Thread created");
       navigate(createPageUrl("ForumThread") + "?threadId=" + newThread.id);
     },
@@ -260,13 +277,21 @@ export default function ForumThreadPage() {
 
   const replyMutation = useMutation({
     mutationFn: async () => {
-      await base44.entities.ForumPost.create({
+      let imageUrls = null;
+      if (replyImages.length > 0) {
+        imageUrls = await uploadImages(replyImages);
+      }
+      const postData = {
         thread_id: threadId,
         content: replyContent.trim(),
         created_by: memberInfo.id,
         created_by_type: "member",
         parent_post_id: replyingToPost || null,
-      });
+      };
+      if (imageUrls && imageUrls.length > 0) {
+        postData.image_urls = imageUrls;
+      }
+      await base44.entities.ForumPost.create(postData);
       await base44.entities.ForumThread.update(threadId, {
         post_count: (thread.post_count || 0) + 1,
         last_post_at: new Date().toISOString(),
@@ -278,6 +303,7 @@ export default function ForumThreadPage() {
       queryClient.invalidateQueries({ queryKey: ["forum-thread", threadId] });
       setReplyContent("");
       setReplyingToPost(null);
+      setReplyImages([]);
       toast.success("Reply posted");
     },
     onError: (err) => toast.error("Failed to post reply: " + err.message),
@@ -494,9 +520,70 @@ Respond with a JSON object containing exactly two fields:
     }
   };
 
+  const handleImageSelect = async (e, target) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const validFiles = files.filter(f => {
+      if (!f.type.startsWith('image/')) {
+        toast.error(`${f.name} is not an image file`);
+        return false;
+      }
+      if (f.size > 10 * 1024 * 1024) {
+        toast.error(`${f.name} exceeds 10MB limit`);
+        return false;
+      }
+      return true;
+    });
+
+    if (!validFiles.length) return;
+
+    const setter = target === 'thread' ? setNewThreadImages : setReplyImages;
+    const previews = validFiles.map(f => ({
+      file: f,
+      preview: URL.createObjectURL(f),
+      name: f.name,
+    }));
+    setter(prev => [...prev, ...previews]);
+
+    if (e.target) e.target.value = '';
+  };
+
+  const removeImage = (target, index) => {
+    const setter = target === 'thread' ? setNewThreadImages : setReplyImages;
+    setter(prev => {
+      const updated = [...prev];
+      URL.revokeObjectURL(updated[index].preview);
+      updated.splice(index, 1);
+      return updated;
+    });
+  };
+
+  const uploadImages = async (images) => {
+    if (!images.length) return [];
+    setIsUploadingImages(true);
+    try {
+      const urls = [];
+      for (const img of images) {
+        const result = await uploadFileWithProgress(img.file, {
+          type: UPLOAD_TYPES.FORUM,
+          isPrivate: false,
+        });
+        urls.push(result.file_url);
+      }
+      return urls;
+    } catch (err) {
+      toast.error('Failed to upload image: ' + err.message);
+      throw err;
+    } finally {
+      setIsUploadingImages(false);
+    }
+  };
+
   const handleReplyTo = (post) => {
     setReplyingToPost(post.id);
     setReplyContent("");
+    setReplyImages([]);
     setTimeout(() => replyRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
@@ -550,21 +637,64 @@ Respond with a JSON object containing exactly two fields:
                 data-testid="input-thread-content"
               />
             </div>
-            <div className="flex justify-end">
+            {newThreadImages.length > 0 && (
+              <div className="flex flex-wrap gap-2" data-testid="thread-image-previews">
+                {newThreadImages.map((img, idx) => (
+                  <div key={idx} className="relative group w-20 h-20">
+                    <img
+                      src={img.preview}
+                      alt={img.name}
+                      className="w-20 h-20 object-cover rounded-md border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage('thread', idx)}
+                      className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                      data-testid={`button-remove-thread-image-${idx}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <input
+                  ref={newThreadFileRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => handleImageSelect(e, 'thread')}
+                  className="hidden"
+                  data-testid="input-thread-images"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => newThreadFileRef.current?.click()}
+                  disabled={isUploadingImages}
+                  data-testid="button-attach-thread-image"
+                >
+                  <ImagePlus className="w-4 h-4 mr-1" />
+                  Add Images
+                </Button>
+              </div>
               <Button
                 onClick={async () => {
                   const safe = await moderateContent(newContent.trim());
                   if (safe) createThreadMutation.mutate();
                 }}
-                disabled={!newTitle.trim() || !newContent.trim() || createThreadMutation.isPending || isCheckingContent || !canCreateThread}
+                disabled={!newTitle.trim() || !newContent.trim() || createThreadMutation.isPending || isCheckingContent || isUploadingImages || !canCreateThread}
                 data-testid="button-submit-thread"
               >
-                {(createThreadMutation.isPending || isCheckingContent) ? (
+                {(createThreadMutation.isPending || isCheckingContent || isUploadingImages) ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-1" />
                 ) : (
                   <Send className="w-4 h-4 mr-1" />
                 )}
-                {isCheckingContent ? "Checking..." : "Create Thread"}
+                {isCheckingContent ? "Checking..." : isUploadingImages ? "Uploading..." : "Create Thread"}
               </Button>
             </div>
           </CardContent>
@@ -755,12 +885,43 @@ Respond with a JSON object containing exactly two fields:
                     </div>
                   </div>
                 ) : (
-                  <div
-                    className="mt-2 text-sm whitespace-pre-wrap break-words"
-                    data-testid={`text-post-content-${post.id}`}
-                  >
-                    {post.content}
-                  </div>
+                  <>
+                    <div
+                      className="mt-2 text-sm whitespace-pre-wrap break-words"
+                      data-testid={`text-post-content-${post.id}`}
+                    >
+                      {post.content}
+                    </div>
+                    {post.image_urls && Array.isArray(post.image_urls) && post.image_urls.length > 0 && (
+                      <div
+                        className={`mt-3 gap-2 ${
+                          post.image_urls.length === 1
+                            ? 'flex'
+                            : 'grid grid-cols-2'
+                        }`}
+                        data-testid={`gallery-${post.id}`}
+                      >
+                        {post.image_urls.map((url, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setLightboxImage(url)}
+                            className="relative overflow-hidden rounded-md border focus:outline-none focus:ring-2 focus:ring-primary"
+                            data-testid={`img-post-${post.id}-${idx}`}
+                          >
+                            <img
+                              src={url}
+                              alt={`Attachment ${idx + 1}`}
+                              className={`w-full object-cover ${
+                                post.image_urls.length === 1 ? 'max-h-96' : 'h-48'
+                              }`}
+                              loading="lazy"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {!isEditing && (
@@ -1034,7 +1195,7 @@ Respond with a JSON object containing exactly two fields:
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={() => { setReplyingToPost(null); setReplyContent(""); }}
+                  onClick={() => { setReplyingToPost(null); setReplyContent(""); setReplyImages([]); }}
                   data-testid="button-cancel-reply-to"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -1051,25 +1212,68 @@ Respond with a JSON object containing exactly two fields:
                 rows={4}
                 data-testid="input-reply-content"
               />
+              {replyImages.length > 0 && (
+                <div className="flex flex-wrap gap-2" data-testid="reply-image-previews">
+                  {replyImages.map((img, idx) => (
+                    <div key={idx} className="relative group w-20 h-20">
+                      <img
+                        src={img.preview}
+                        alt={img.name}
+                        className="w-20 h-20 object-cover rounded-md border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage('reply', idx)}
+                        className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                        data-testid={`button-remove-reply-image-${idx}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <ShieldAlert className="w-3 h-3" />
                 Comments are automatically checked for inappropriate content
               </p>
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <input
+                    ref={replyFileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleImageSelect(e, 'reply')}
+                    className="hidden"
+                    data-testid="input-reply-images"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => replyFileRef.current?.click()}
+                    disabled={isUploadingImages}
+                    data-testid="button-attach-reply-image"
+                  >
+                    <ImagePlus className="w-4 h-4 mr-1" />
+                    Add Images
+                  </Button>
+                </div>
                 <Button
                   onClick={async () => {
                     const safe = await moderateContent(replyContent.trim());
                     if (safe) replyMutation.mutate();
                   }}
-                  disabled={!replyContent.trim() || replyMutation.isPending || isCheckingContent}
+                  disabled={!replyContent.trim() || replyMutation.isPending || isCheckingContent || isUploadingImages}
                   data-testid="button-submit-reply"
                 >
-                  {(replyMutation.isPending || isCheckingContent) ? (
+                  {(replyMutation.isPending || isCheckingContent || isUploadingImages) ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-1" />
                   ) : (
                     <Send className="w-4 h-4 mr-1" />
                   )}
-                  {isCheckingContent ? "Checking..." : "Reply"}
+                  {isCheckingContent ? "Checking..." : isUploadingImages ? "Uploading..." : "Reply"}
                 </Button>
               </div>
             </CardContent>
@@ -1214,6 +1418,23 @@ Respond with a JSON object containing exactly two fields:
               Move
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!lightboxImage} onOpenChange={() => setLightboxImage(null)}>
+        <DialogContent className="max-w-4xl p-2" data-testid="dialog-lightbox">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Image Preview</DialogTitle>
+            <DialogDescription>Full size image preview</DialogDescription>
+          </DialogHeader>
+          {lightboxImage && (
+            <img
+              src={lightboxImage}
+              alt="Full size preview"
+              className="w-full h-auto max-h-[80vh] object-contain rounded-md"
+              data-testid="img-lightbox"
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

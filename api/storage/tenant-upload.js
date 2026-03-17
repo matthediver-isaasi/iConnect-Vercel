@@ -138,6 +138,8 @@ function buildStoragePath(tenantId, uploadType, entityId, fileName) {
       return `${tenantId}/attachments/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     case 'document':
       return `${tenantId}/documents/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
+    case 'forum':
+      return `${tenantId}/forum/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     default:
       return `${tenantId}/uploads/${uniqueId}-${sanitizedName}`;
   }
@@ -181,8 +183,17 @@ export default async function handler(req, res) {
     }
 
     // Get upload parameters
-    const uploadType = fields.type || 'upload'; // branding, page, form-submission, attachment, document
+    const uploadType = fields.type || 'upload'; // branding, page, form-submission, attachment, document, forum
     const entityId = fields.entityId || null;
+
+    const IMAGE_ONLY_TYPES = ['forum'];
+    if (IMAGE_ONLY_TYPES.includes(uploadType)) {
+      const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      if (!file.mimetype || !ALLOWED_IMAGE_MIMES.includes(file.mimetype.toLowerCase())) {
+        return res.status(400).json({ error: 'Only image files (JPEG, PNG, GIF, WebP, SVG) are allowed for this upload type' });
+      }
+    }
+
     const isPrivate = fields.private === 'true' || getBucketForType(uploadType) === BUCKETS.PRIVATE;
 
     // Select bucket based on upload type

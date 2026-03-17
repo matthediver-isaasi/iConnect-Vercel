@@ -21,7 +21,8 @@ export const UPLOAD_TYPES = {
   FORM_SUBMISSION: 'form-submission', // Form file uploads (private)
   ATTACHMENT: 'attachment',   // General attachments (private)
   DOCUMENT: 'document',       // Documents (private)
-  UPLOAD: 'upload'            // Generic uploads
+  UPLOAD: 'upload',           // Generic uploads
+  FORUM: 'forum'              // Forum post images
 };
 
 /**
