@@ -200,7 +200,7 @@ export default function NextEventCountdown({ memberEmail }) {
         </div>
         
         <Link 
-          to={`/EventDetails/${nextEvent.id}`}
+          to={nextEvent.slug ? `/events/${encodeURIComponent(nextEvent.slug)}` : `/EventDetails?id=${nextEvent.id}`}
           className="block hover:opacity-80 transition-opacity"
           data-testid="link-next-event"
         >

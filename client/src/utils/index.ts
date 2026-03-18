@@ -5,6 +5,13 @@ export function createPageUrl(pageName: string) {
     return '/' + pageName.replace(/ /g, '-');
 }
 
+export function getEventUrl(event: { id: string; slug?: string | null }) {
+    if (event.slug) {
+        return `/events/${encodeURIComponent(event.slug)}`;
+    }
+    return createPageUrl('EventDetails') + '?id=' + event.id;
+}
+
 export function isDeletedMember(member: { email?: string | null }): boolean {
     if (!member?.email) return false;
     return /^deleted_.*@deleted\.local$/.test(member.email);

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, getEventUrl } from "@/utils";
 import { formatEventTime, formatEventDate, is24HourFormat } from "@/utils/timeFormat";
 import { base44 } from "@/api/base44Client";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
@@ -757,7 +757,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                         if (event.cta_override_url) {
                           window.location.href = event.cta_override_url;
                         } else {
-                          window.location.href = createPageUrl('EventDetails') + '?id=' + event.id;
+                          window.location.href = getEventUrl(event);
                         }
                       }}
                       data-testid={`button-register-event-${event.id}`}

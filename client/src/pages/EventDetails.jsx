@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
-import { useEventData } from "@/hooks/useEventsData";
+import { useEventData, useEventDataBySlug } from "@/hooks/useEventsData";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import { format } from "date-fns";
 import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
 import { formatEventTime, getTimezoneAbbreviation } from "@/utils/timeFormat";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import AttendeeList from "../components/booking/AttendeeList";
 import PaymentOptions from "../components/booking/PaymentOptions";
@@ -73,6 +73,7 @@ export default function EventDetailsPage() {
   const [showTermsModal, setShowTermsModal] = useState(false);
   
   // Get eventId for terms reset tracking
+  const routeParams = useParams();
   const urlParams2 = new URLSearchParams(window.location.search);
   const currentEventId = urlParams2.get('id');
 
@@ -106,10 +107,17 @@ export default function EventDetailsPage() {
   const hasInitialized = useRef(null);
 
   const urlParams = new URLSearchParams(window.location.search);
-  const eventId = urlParams.get('id');
+  const eventIdFromQuery = urlParams.get('id');
+  const eventSlugFromQuery = urlParams.get('slug');
+  const eventSlugFromRoute = routeParams.eventSlug;
   const debugMode = urlParams.get('debugZoom') === '1';
   const isEmbedMode = urlParams.get('embed') === 'true';
   const embedTenant = urlParams.get('tenant');
+
+  const slugToResolve = eventSlugFromRoute || eventSlugFromQuery;
+  const isSlugLookup = !!slugToResolve && !eventIdFromQuery;
+  const { data: slugResolvedEvent, isLoading: isSlugLoading } = useEventDataBySlug(isSlugLookup ? slugToResolve : null);
+  const eventId = eventIdFromQuery || (slugResolvedEvent?.id) || null;
 
   // Notify parent iframe of height changes for embed mode
   const notifyParentResize = () => {
@@ -828,7 +836,7 @@ export default function EventDetailsPage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isSlugLoading) {
     return (
       <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading event...</div>

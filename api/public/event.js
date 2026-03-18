@@ -18,9 +18,10 @@ export default async function handler(req, res) {
 
   try {
     const eventId = req.query.id;
+    const eventSlug = req.query.slug;
 
-    if (!eventId) {
-      return res.status(400).json({ error: 'Event ID not specified' });
+    if (!eventId && !eventSlug) {
+      return res.status(400).json({ error: 'Event ID or slug not specified' });
     }
 
     const tenant = await resolveTenantFromRequest(req);
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data: event, error } = await supabase
+    let query = supabase
       .from('event')
       .select(`
         id,
@@ -52,12 +53,19 @@ export default async function handler(req, res) {
         donation_config,
         event_state,
         program_tag,
-        registration_closes_at
+        registration_closes_at,
+        slug
       `)
-      .eq('id', eventId)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc'])
-      .single();
+      .in('status', ['published', 'tbc']);
+
+    if (eventSlug) {
+      query = query.eq('slug', eventSlug.toLowerCase().trim());
+    } else {
+      query = query.eq('id', eventId);
+    }
+
+    const { data: event, error } = await query.single();
 
     if (error || !event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -126,7 +134,8 @@ export default async function handler(req, res) {
       donation_config: event.donation_config || null,
       event_state: event.event_state,
       program_tag: event.program_tag,
-      registration_closes_at: event.registration_closes_at
+      registration_closes_at: event.registration_closes_at,
+      slug: event.slug || null
     };
 
     return res.status(200).json(publicEvent);

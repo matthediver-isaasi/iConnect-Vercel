@@ -636,6 +636,10 @@ function _getCurrentPage(url) {
         return 'MemberDetail';
     }
     
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'events') {
+        return 'EventDetails';
+    }
+    
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
         urlLastPart = urlLastPart.split('?')[0];
@@ -674,6 +678,7 @@ function PagesContent() {
                 <Route path="/AdminSetup" element={<AdminSetup />} />
                 
                 <Route path="/EventDetails" element={<EventDetails />} />
+                <Route path="/events/:eventSlug" element={<EventDetails />} />
                 
                 <Route path="/BuyProgramTickets" element={<BuyProgramTickets />} />
                 
@@ -993,6 +998,7 @@ function StandaloneRoutes() {
             <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
+            <Route path="/events/:eventSlug" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
             <Route path="/email-preferences" element={<EmailPreferences />} />
         </Routes>

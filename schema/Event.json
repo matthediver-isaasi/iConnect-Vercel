@@ -71,6 +71,10 @@
       "show_ticket_availability": {
         "type": "boolean",
         "description": "If true, show ticket class availability counts to users on the event details page"
+      },
+      "slug": {
+        "type": "string",
+        "description": "URL-friendly slug for the event. Must be unique per tenant. Used for friendly URLs like /events/my-event-name"
       }
     },
     "required": [

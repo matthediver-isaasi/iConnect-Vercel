@@ -35,6 +35,7 @@ export default async function handler(req, res) {
       .select(`
         id,
         title,
+        slug,
         description,
         summary,
         start_date,
@@ -81,6 +82,7 @@ export default async function handler(req, res) {
       return {
         id: event.id,
         title: event.title,
+        slug: event.slug || null,
         description: event.description,
         summary: event.summary,
         start_date: event.start_date,

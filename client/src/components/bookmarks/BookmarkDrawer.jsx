@@ -76,7 +76,7 @@ const SECTION_MAP = {
     icon: Calendar,
     color: "text-emerald-600 dark:text-emerald-400",
     headerBg: "bg-emerald-50 dark:bg-emerald-950/30",
-    getUrl: (item) => createPageUrl("EventDetails") + "?id=" + item.entity_id,
+    getUrl: (item) => item.entity?.slug ? `/events/${encodeURIComponent(item.entity.slug)}` : createPageUrl("EventDetails") + "?id=" + item.entity_id,
     getTitle: (item) => item.entity?.title || "Untitled Event",
     getSubtitle: (item) => item.entity?.start_date ? format(new Date(item.entity.start_date), "d MMM yyyy") : null,
   },

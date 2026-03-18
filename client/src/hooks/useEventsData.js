@@ -106,3 +106,38 @@ export function useEventData(eventId, { forcePublic = false } = {}) {
     staleTime: 30 * 1000,
   });
 }
+
+export function useEventDataBySlug(slug, { forcePublic = false } = {}) {
+  const { memberInfo, forcePublicLayout, sessionValidated } = useLayoutContext();
+  
+  const isAuthenticated = !!memberInfo && !!sessionValidated && !forcePublicLayout && !forcePublic;
+  
+  return useQuery({
+    queryKey: ['event-by-slug', slug, isAuthenticated ? 'authenticated' : 'public'],
+    enabled: !!slug,
+    queryFn: async () => {
+      try {
+        if (isAuthenticated) {
+          const allEvents = await base44.entities.Event.list();
+          const event = allEvents.find(e => e.slug === slug);
+          if (!event) throw new Error('Event not found');
+          return event;
+        } else {
+          const data = await publicClient.getEventBySlug(slug);
+          return data;
+        }
+      } catch (error) {
+        console.error('[useEventDataBySlug] Error loading event:', error);
+        if (isAuthenticated) {
+          try {
+            return await publicClient.getEventBySlug(slug);
+          } catch (fallbackError) {
+            throw fallbackError;
+          }
+        }
+        throw error;
+      }
+    },
+    staleTime: 30 * 1000,
+  });
+}

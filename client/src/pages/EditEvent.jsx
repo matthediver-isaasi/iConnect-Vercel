@@ -40,7 +40,8 @@ import {
   Copy,
   ExternalLink,
   Gift,
-  Bird
+  Bird,
+  AlertCircle
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -48,7 +49,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -153,6 +154,11 @@ export default function EditEvent() {
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
   const [emailCodeViewMode, setEmailCodeViewMode] = useState({}); // Track code view mode per email
+
+  // Slug state
+  const [slug, setSlug] = useState("");
+  const [slugError, setSlugError] = useState(null);
+  const [checkingSlug, setCheckingSlug] = useState(false);
 
   const [donationConfig, setDonationConfig] = useState({
     enabled: false,
@@ -418,6 +424,37 @@ export default function EditEvent() {
       }));
     }
   }, [summaryMaxLength, formData.summary]);
+
+  useEffect(() => {
+    if (!slug) {
+      setSlugError(null);
+      return;
+    }
+
+    const checkSlugUniqueness = async () => {
+      setCheckingSlug(true);
+      try {
+        const response = await fetch(`/api/public/check-event-slug?slug=${encodeURIComponent(slug)}&excludeEventId=${eventId}`);
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data.available) {
+          setSlugError("This URL slug is already in use. Please choose a different one.");
+        } else {
+          setSlugError(null);
+        }
+      } catch (error) {
+        console.error('Error checking slug uniqueness:', error);
+        setSlugError("Unable to verify slug availability. Please try again.");
+      } finally {
+        setCheckingSlug(false);
+      }
+    };
+
+    const timer = setTimeout(checkSlugUniqueness, 500);
+    return () => clearTimeout(timer);
+  }, [slug, eventId]);
 
   // Get categories that have 'Events' in their applies_to_content_types - with subcategories
   const eventCategories = useMemo(() => {
@@ -728,6 +765,7 @@ export default function EditEvent() {
       // Set per-event ticket availability visibility (default to false if not set)
       setShowTicketAvailability(event.show_ticket_availability === true);
       
+      setSlug(event.slug || "");
       setInitialDataLoaded(true);
 
       if (event.donation_config) {
@@ -1129,8 +1167,14 @@ export default function EditEvent() {
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventTiming === 'tbc';
     
+    if (slugError || checkingSlug) {
+      toast.error(slugError || 'Please wait while the URL slug is being verified');
+      return;
+    }
+
     const eventData = {
       title: formData.title,
+      slug: slug || null,
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
@@ -1538,6 +1582,40 @@ export default function EditEvent() {
                   required
                   data-testid="input-title"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="slug">URL Slug</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500 whitespace-nowrap">/events/</span>
+                  <Input
+                    id="slug"
+                    value={slug}
+                    onChange={(e) => {
+                      const value = e.target.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9-]/g, '');
+                      setSlug(value);
+                    }}
+                    placeholder="my-event-name"
+                    data-testid="input-slug"
+                  />
+                  {checkingSlug && (
+                    <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                  )}
+                  {!checkingSlug && slug && !slugError && (
+                    <Check className="h-4 w-4 text-green-500" />
+                  )}
+                </div>
+                {slugError && (
+                  <p className="text-xs text-red-600 flex items-center gap-1" data-testid="text-slug-error">
+                    <AlertCircle className="h-3 w-3" />
+                    {slugError}
+                  </p>
+                )}
+                <p className="text-xs text-slate-500">
+                  Friendly URL for sharing. Leave empty to use the default URL format.
+                </p>
               </div>
 
               <div className="space-y-2">

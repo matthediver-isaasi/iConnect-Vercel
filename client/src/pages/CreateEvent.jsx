@@ -44,7 +44,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, getEventUrl } from "@/utils";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
@@ -135,6 +135,12 @@ export default function CreateEvent() {
   const [expandedTickets, setExpandedTickets] = useState({});
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
   
+  // Slug state
+  const [slug, setSlug] = useState("");
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [slugError, setSlugError] = useState(null);
+  const [checkingSlug, setCheckingSlug] = useState(false);
+
   // Validation error dialog state
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
@@ -313,6 +319,47 @@ export default function CreateEvent() {
       }));
     }
   }, [summaryMaxLength, formData.summary]);
+
+  useEffect(() => {
+    if (formData.title && !slugManuallyEdited) {
+      const generatedSlug = formData.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      setSlug(generatedSlug);
+    }
+  }, [formData.title, slugManuallyEdited]);
+
+  useEffect(() => {
+    if (!slug) {
+      setSlugError(null);
+      return;
+    }
+
+    const checkSlugUniqueness = async () => {
+      setCheckingSlug(true);
+      try {
+        const response = await fetch(`/api/public/check-event-slug?slug=${encodeURIComponent(slug)}`);
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data.available) {
+          setSlugError("This URL slug is already in use. Please choose a different one.");
+        } else {
+          setSlugError(null);
+        }
+      } catch (error) {
+        console.error('Error checking slug uniqueness:', error);
+        setSlugError("Unable to verify slug availability. Please try again.");
+      } finally {
+        setCheckingSlug(false);
+      }
+    };
+
+    const timer = setTimeout(checkSlugUniqueness, 500);
+    return () => clearTimeout(timer);
+  }, [slug]);
 
   // Get categories that have 'Events' in their applies_to_content_types - with subcategories
   const eventCategories = useMemo(() => {
@@ -659,6 +706,12 @@ export default function CreateEvent() {
       return;
     }
 
+    if (slugError || checkingSlug) {
+      setValidationErrors([slugError || 'Please wait while the URL slug is being verified']);
+      setShowValidationDialog(true);
+      return;
+    }
+
     // Build event data - only include fields that exist in the event table
     // For online events: location should be null (is_online field indicates it's online)
     let locationValue = isOnline ? null : (formData.location || null);
@@ -668,6 +721,7 @@ export default function CreateEvent() {
     
     const eventData = {
       title: formData.title,
+      slug: slug || null,
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
@@ -1180,6 +1234,41 @@ export default function CreateEvent() {
                 {isOnline && selectedWebinar && (
                   <p className="text-xs text-slate-500">Pre-filled from Zoom webinar (editable)</p>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="slug">URL Slug</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500 whitespace-nowrap">/events/</span>
+                  <Input
+                    id="slug"
+                    value={slug}
+                    onChange={(e) => {
+                      const value = e.target.value
+                        .toLowerCase()
+                        .replace(/[^a-z0-9-]/g, '');
+                      setSlug(value);
+                      setSlugManuallyEdited(true);
+                    }}
+                    placeholder="my-event-name"
+                    data-testid="input-slug"
+                  />
+                  {checkingSlug && (
+                    <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                  )}
+                  {!checkingSlug && slug && !slugError && (
+                    <Check className="h-4 w-4 text-green-500" />
+                  )}
+                </div>
+                {slugError && (
+                  <p className="text-xs text-red-600 flex items-center gap-1" data-testid="text-slug-error">
+                    <AlertCircle className="h-3 w-3" />
+                    {slugError}
+                  </p>
+                )}
+                <p className="text-xs text-slate-500">
+                  Friendly URL for sharing. Auto-generated from title, or enter your own.
+                </p>
               </div>
 
               <div className="space-y-2">
