@@ -564,15 +564,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   useEffect(() => {
     if (!items.length) return;
 
-    const effectiveOffset = isExpanded ? 16 : header_offset;
-
     const handleScroll = () => {
       if (isClickScrolling.current) return;
 
       const container = isExpanded ? scrollContainerRef.current : null;
-      const scrollTop = container ? container.scrollTop : window.scrollY;
       const containerTop = container ? container.getBoundingClientRect().top : 0;
-      const threshold = effectiveOffset + 40;
+      const visibleHeight = container ? container.clientHeight : window.innerHeight;
+      const fallbackThreshold = visibleHeight / 2;
+      const nav = navRef.current;
 
       let bestYear = null;
       let bestDistance = Infinity;
@@ -580,6 +579,21 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       for (const year of Object.keys(sectionRefs.current)) {
         const el = sectionRefs.current[year];
         if (!el) continue;
+
+        let threshold = fallbackThreshold;
+        if (nav) {
+          const markerEl = nav.querySelector(`[data-testid="timeline-marker-${year}"]`);
+          if (markerEl) {
+            const markerRect = markerEl.getBoundingClientRect();
+            const markerCenterY = container
+              ? markerRect.top + markerRect.height / 2 - containerTop
+              : markerRect.top + markerRect.height / 2;
+            if (markerCenterY >= 0 && markerCenterY <= visibleHeight) {
+              threshold = markerCenterY;
+            }
+          }
+        }
+
         const rect = el.getBoundingClientRect();
         const topRelative = container
           ? rect.top - containerTop
@@ -754,16 +768,36 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     const behavior = prefersReducedMotion.current ? 'auto' : 'smooth';
     const container = scrollContainerRef.current;
-    const effectiveOffset = isExpanded ? 16 : header_offset;
+
+    const markerEl = navRef.current?.querySelector(`[data-testid="timeline-marker-${year}"]`);
 
     if (container && isExpanded) {
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const top = container.scrollTop + (elRect.top - containerRect.top) - effectiveOffset;
-      container.scrollTo({ top, behavior });
+      const viewH = container.clientHeight;
+      let targetY = viewH / 2;
+      if (markerEl) {
+        const markerRect = markerEl.getBoundingClientRect();
+        const markerCenterY = markerRect.top + markerRect.height / 2 - containerRect.top;
+        if (markerCenterY >= 0 && markerCenterY <= viewH) {
+          targetY = markerCenterY;
+        }
+      }
+      const top = container.scrollTop + (elRect.top - containerRect.top) - targetY;
+      container.scrollTo({ top: Math.max(0, top), behavior });
     } else {
-      const top = el.getBoundingClientRect().top + window.scrollY - effectiveOffset;
-      window.scrollTo({ top, behavior });
+      const elRect = el.getBoundingClientRect();
+      const viewH = window.innerHeight;
+      let targetY = viewH / 2;
+      if (markerEl) {
+        const markerRect = markerEl.getBoundingClientRect();
+        const markerCenterY = markerRect.top + markerRect.height / 2;
+        if (markerCenterY >= 0 && markerCenterY <= viewH) {
+          targetY = markerCenterY;
+        }
+      }
+      const top = elRect.top + window.scrollY - targetY;
+      window.scrollTo({ top: Math.max(0, top), behavior });
     }
 
     if (!isExpanded && typeof window !== 'undefined' && window.history) {
