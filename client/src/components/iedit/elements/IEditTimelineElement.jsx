@@ -771,6 +771,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const nav = navRef.current;
     if (!container || !nav || !items.length || isMobile) return;
     const containerRect = container.getBoundingClientRect();
+    const viewportH = isExpanded && scrollContainerRef.current
+      ? scrollContainerRef.current.clientHeight
+      : window.innerHeight;
     const lines = [];
 
     const allYears = [];
@@ -787,17 +790,25 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       if (!dotEl || !sectionEl) continue;
 
       const dotRect = dotEl.getBoundingClientRect();
+      const sectionRect = sectionEl.getBoundingClientRect();
+
+      const dotViewportY = dotRect.top + dotRect.height / 2;
+      const sectionViewportTop = sectionRect.top;
+      const minY = Math.min(dotViewportY, sectionViewportTop);
+      const maxY = Math.max(dotViewportY, sectionViewportTop + 24);
+      if (maxY < -100 || minY > viewportH + 100) continue;
+
       const dotCenterY = dotRect.top + dotRect.height / 2 - containerRect.top;
       const dotRightX = dotRect.right - containerRect.left;
 
       const headingEl = sectionEl.querySelector('[data-year-heading]');
-      const sectionLeftX = sectionEl.getBoundingClientRect().left - containerRect.left;
+      const sectionLeftX = sectionRect.left - containerRect.left;
       let sectionTargetY;
       if (headingEl) {
         const headingRect = headingEl.getBoundingClientRect();
         sectionTargetY = headingRect.top + headingRect.height / 2 - containerRect.top;
       } else {
-        sectionTargetY = sectionEl.getBoundingClientRect().top + 12 - containerRect.top;
+        sectionTargetY = sectionRect.top + 12 - containerRect.top;
       }
 
       lines.push({
@@ -819,7 +830,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       connectorLinesRef.current = lines;
       setConnectorLines(lines);
     }
-  }, [items, activeYear, isMobile]);
+  }, [items, activeYear, isMobile, isExpanded]);
 
   const scheduleConnectorUpdate = useCallback(() => {
     if (connectorTickingRef.current) return;
@@ -840,6 +851,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     target.addEventListener('scroll', scheduleConnectorUpdate, { passive: true });
     const ro = new ResizeObserver(scheduleConnectorUpdate);
     if (timelineContainerRef.current) ro.observe(timelineContainerRef.current);
+    if (navRef.current) ro.observe(navRef.current);
+    if (contentPanelRef.current) ro.observe(contentPanelRef.current);
     return () => {
       target.removeEventListener('scroll', scheduleConnectorUpdate);
       ro.disconnect();
