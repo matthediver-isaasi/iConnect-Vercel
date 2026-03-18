@@ -1,14 +1,19 @@
 import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import TransferTicketDialog from "@/components/TransferTicketDialog";
+import { toast } from "sonner";
 
 const ITEMS_PER_PAGE = 25;
 
@@ -42,11 +47,18 @@ function PaymentMethodBadge({ method, totalCost }) {
 
 export default function EventRegistrationReport() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState("date_desc");
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [submittingCancel, setSubmittingCancel] = useState(false);
+  const [transferTarget, setTransferTarget] = useState(null);
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -212,6 +224,86 @@ export default function EventRegistrationReport() {
     link.download = `registration_report_${eventTitle}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleCancelClick = (attendee) => {
+    setCancelTarget(attendee);
+    setCancelReason("");
+    setShowCancelDialog(true);
+  };
+
+  const handleCancelSubmit = async () => {
+    if (!cancelTarget?.id) return;
+    setSubmittingCancel(true);
+    try {
+      const response = await fetch('/api/booking-cancellation-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          booking_ids: [cancelTarget.id],
+          request_type: 'individual',
+          reason: cancelReason.trim() || null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit cancellation request');
+      }
+      toast.success('Cancellation request submitted');
+      setShowCancelDialog(false);
+      setCancelTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['event-registration-report', selectedEventId] });
+    } catch (error) {
+      toast.error(error.message || 'Failed to submit cancellation request');
+    } finally {
+      setSubmittingCancel(false);
+    }
+  };
+
+  const handleTransferClick = (attendee) => {
+    setTransferTarget(attendee);
+    setShowTransferDialog(true);
+  };
+
+  const handleTransferSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ['event-registration-report', selectedEventId] });
+  };
+
+  const renderActionIcons = (attendee) => {
+    const isCancelled = attendee.status === 'cancelled';
+    return (
+      <div className="flex items-center gap-0.5 mr-1" style={{ visibility: isCancelled ? 'hidden' : 'visible' }}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={(e) => { e.stopPropagation(); handleCancelClick(attendee); }}
+              data-testid={`button-cancel-${attendee.id}`}
+            >
+              <XCircle className="w-3.5 h-3.5 text-destructive" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Request cancellation</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={(e) => { e.stopPropagation(); handleTransferClick(attendee); }}
+              data-testid={`button-transfer-${attendee.id}`}
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Request transfer</TooltipContent>
+        </Tooltip>
+      </div>
+    );
   };
 
   if (!accessChecked) {
@@ -389,9 +481,10 @@ export default function EventRegistrationReport() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
+                          <th className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap w-[68px]"></th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Name</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Organisation</th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Ticket</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '120px' }}>Ticket</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Discount</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Total</th>
@@ -414,6 +507,9 @@ export default function EventRegistrationReport() {
 
                             return (
                               <tr key={attendee.id} className="border-b last:border-0" data-testid={`row-booking-${attendee.id}`}>
+                                <td className="py-3 pr-1">
+                                  {renderActionIcons(attendee)}
+                                </td>
                                 <td className="py-3 pr-3">
                                   <div className="font-medium whitespace-nowrap">
                                     {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
@@ -423,7 +519,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
                                 </td>
-                                <td className="py-3 pr-3 whitespace-nowrap">{attendee.ticket_class_name || '-'}</td>
+                                <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '120px' }} title={attendee.ticket_class_name || ''}>{attendee.ticket_class_name || '-'}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
@@ -470,6 +566,9 @@ export default function EventRegistrationReport() {
                                 style={isFirst ? { borderTopWidth: '2px' } : undefined}
                                 data-testid={`row-booking-${attendee.id}`}
                               >
+                                <td className="py-2 pr-1">
+                                  {renderActionIcons(attendee)}
+                                </td>
                                 <td className="py-2 pr-3">
                                   <div className="flex items-center gap-2">
                                     {isFirst && (
@@ -488,7 +587,7 @@ export default function EventRegistrationReport() {
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
                                 </td>
-                                <td className="py-2 pr-3 whitespace-nowrap">{attendee.ticket_class_name || '-'}</td>
+                                <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '120px' }} title={attendee.ticket_class_name || ''}>{attendee.ticket_class_name || '-'}</td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
                                 {isFirst ? (
                                   <>
@@ -532,7 +631,7 @@ export default function EventRegistrationReport() {
                       {filteredGroups.length > 0 && (
                         <tfoot>
                           <tr className="border-t-2 font-medium">
-                            <td className="pt-3 pr-3" colSpan={3}>
+                            <td className="pt-3 pr-3" colSpan={4}>
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
@@ -607,6 +706,51 @@ export default function EventRegistrationReport() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request Cancellation</DialogTitle>
+            <DialogDescription>
+              Submit a cancellation request for{' '}
+              <span className="font-medium">
+                {cancelTarget ? `${cancelTarget.attendee_first_name || ''} ${cancelTarget.attendee_last_name || ''}`.trim() || cancelTarget.attendee_email : ''}
+              </span>
+              {cancelTarget?.ticket_class_name ? ` (${cancelTarget.ticket_class_name})` : ''}.
+              This will be added to the cancellation review queue.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Reason (optional)</label>
+              <Textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Enter a reason for cancellation..."
+                className="resize-none"
+                rows={3}
+                data-testid="input-cancel-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setShowCancelDialog(false); setCancelTarget(null); }} data-testid="button-cancel-dialog-close">
+              Close
+            </Button>
+            <Button variant="destructive" onClick={handleCancelSubmit} disabled={submittingCancel} data-testid="button-cancel-submit">
+              {submittingCancel && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Submit Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <TransferTicketDialog
+        open={showTransferDialog}
+        onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); } }}
+        booking={transferTarget}
+        onSuccess={handleTransferSuccess}
+      />
     </div>
   );
 }

@@ -28,14 +28,23 @@ export default async function handler(req, res) {
 }
 
 async function handlePost(req, res) {
-  const member = await getSessionMember(req);
-  if (!member) {
-    return res.status(401).json({ error: 'Not authenticated' });
+  let member = await getSessionMember(req);
+  let isAdmin = false;
+  let tenantId = null;
+
+  const ctx = await getTenantContext(req);
+  if (ctx?.isAuthenticated) {
+    isAdmin = await hasAdminAccess(ctx);
   }
 
-  const tenantId = member.organization?.tenant_id || member.tenant_id;
+  if (member) {
+    tenantId = member.organization?.tenant_id || member.tenant_id;
+  } else if (isAdmin) {
+    tenantId = ctx.tenantId;
+  }
+
   if (!tenantId) {
-    return res.status(400).json({ error: 'Could not determine tenant' });
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
   const { booking_ids, booking_group_reference, request_type, reason } = req.body;
@@ -68,12 +77,14 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'Some booking IDs are invalid or do not belong to your tenant' });
     }
 
-    const memberEmail = member.email?.toLowerCase();
-    const unauthorizedBookings = bookings.filter(b =>
-      b.member_id !== member.id && (b.attendee_email || '').toLowerCase() !== memberEmail
-    );
-    if (unauthorizedBookings.length > 0) {
-      return res.status(403).json({ error: 'You can only request cancellation for your own bookings' });
+    if (!isAdmin) {
+      const memberEmail = member.email?.toLowerCase();
+      const unauthorizedBookings = bookings.filter(b =>
+        b.member_id !== member.id && (b.attendee_email || '').toLowerCase() !== memberEmail
+      );
+      if (unauthorizedBookings.length > 0) {
+        return res.status(403).json({ error: 'You can only request cancellation for your own bookings' });
+      }
     }
 
     const alreadyCancelled = bookings.filter(b => b.status === 'cancelled');
@@ -102,7 +113,7 @@ async function handlePost(req, res) {
         booking_id: bookingId,
         booking_group_reference: booking_group_reference || booking?.booking_group_reference || null,
         event_id: booking?.event_id || null,
-        member_id: member.id,
+        member_id: isAdmin ? (booking?.member_id || null) : member.id,
         request_type,
         reason: reason || null,
         status: 'pending',
@@ -119,7 +130,7 @@ async function handlePost(req, res) {
       return res.status(500).json({ error: 'Failed to create cancellation request' });
     }
 
-    console.log(`[CancellationRequest] Created ${created.length} request(s) for member ${member.id}`);
+    console.log(`[CancellationRequest] Created ${created.length} request(s)${isAdmin ? ' (admin-initiated)' : ` for member ${member.id}`}`);
     return res.status(201).json({ requests: created, skipped: alreadyRequested.length });
   } catch (err) {
     console.error('[CancellationRequest] Error:', err);

@@ -28,14 +28,23 @@ export default async function handler(req, res) {
 }
 
 async function handlePost(req, res) {
-  const member = await getSessionMember(req);
-  if (!member) {
-    return res.status(401).json({ error: 'Not authenticated' });
+  let member = await getSessionMember(req);
+  let isAdmin = false;
+  let tenantId = null;
+
+  const ctx = await getTenantContext(req);
+  if (ctx?.isAuthenticated) {
+    isAdmin = await hasAdminAccess(ctx);
   }
 
-  const tenantId = member.organization?.tenant_id || member.tenant_id;
+  if (member) {
+    tenantId = member.organization?.tenant_id || member.tenant_id;
+  } else if (isAdmin) {
+    tenantId = ctx.tenantId;
+  }
+
   if (!tenantId) {
-    return res.status(400).json({ error: 'Could not determine tenant' });
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
   const { booking_id, target_member_id, reason } = req.body;
@@ -60,12 +69,14 @@ async function handlePost(req, res) {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    const memberEmail = member.email?.toLowerCase();
-    const isOwner = booking.member_id === member.id ||
-      (booking.attendee_email || '').toLowerCase() === memberEmail;
+    if (!isAdmin) {
+      const memberEmail = member.email?.toLowerCase();
+      const isOwner = booking.member_id === member.id ||
+        (booking.attendee_email || '').toLowerCase() === memberEmail;
 
-    if (!isOwner) {
-      return res.status(403).json({ error: 'You can only request transfers for your own bookings' });
+      if (!isOwner) {
+        return res.status(403).json({ error: 'You can only request transfers for your own bookings' });
+      }
     }
 
     if (booking.status === 'cancelled') {
@@ -108,7 +119,7 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'Target member not found' });
     }
 
-    if (target_member_id === member.id) {
+    if (!isAdmin && target_member_id === member.id) {
       return res.status(400).json({ error: 'Cannot transfer a booking to yourself' });
     }
 
@@ -189,7 +200,7 @@ async function handlePost(req, res) {
       tenant_id: tenantId,
       booking_id: booking_id,
       event_id: booking.event_id || null,
-      member_id: member.id,
+      member_id: isAdmin ? (booking.member_id || null) : member.id,
       target_member_id: target_member_id,
       reason: reason || null,
       status: 'pending',
@@ -206,7 +217,7 @@ async function handlePost(req, res) {
       return res.status(500).json({ error: 'Failed to create transfer request' });
     }
 
-    console.log(`[TransferRequest] Created transfer request ${created.id} for booking ${booking_id} by member ${member.id}`);
+    console.log(`[TransferRequest] Created transfer request ${created.id} for booking ${booking_id}${isAdmin ? ' (admin-initiated)' : ` by member ${member.id}`}`);
     return res.status(201).json({ request: created });
   } catch (err) {
     console.error('[TransferRequest] Error:', err);

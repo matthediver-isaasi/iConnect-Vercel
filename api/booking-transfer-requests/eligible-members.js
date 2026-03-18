@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -19,14 +20,23 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const member = await getSessionMember(req);
-  if (!member) {
-    return res.status(401).json({ error: 'Not authenticated' });
+  let member = await getSessionMember(req);
+  let isAdmin = false;
+  let tenantId = null;
+
+  const ctx = await getTenantContext(req);
+  if (ctx?.isAuthenticated) {
+    isAdmin = await hasAdminAccess(ctx);
   }
 
-  const tenantId = member.organization?.tenant_id || member.tenant_id;
+  if (member) {
+    tenantId = member.organization?.tenant_id || member.tenant_id;
+  } else if (isAdmin) {
+    tenantId = ctx.tenantId;
+  }
+
   if (!tenantId) {
-    return res.status(400).json({ error: 'Could not determine tenant' });
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
   const { booking_id, q: query } = req.query;
@@ -52,12 +62,14 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    const memberEmail = member.email?.toLowerCase();
-    const isOwner = booking.member_id === member.id ||
-      (booking.attendee_email || '').toLowerCase() === memberEmail;
+    if (!isAdmin) {
+      const memberEmail = member.email?.toLowerCase();
+      const isOwner = booking.member_id === member.id ||
+        (booking.attendee_email || '').toLowerCase() === memberEmail;
 
-    if (!isOwner) {
-      return res.status(403).json({ error: 'You can only transfer your own bookings' });
+      if (!isOwner) {
+        return res.status(403).json({ error: 'You can only transfer your own bookings' });
+      }
     }
 
     const { data: transferRoleSetting } = await supabase
@@ -77,9 +89,12 @@ export default async function handler(req, res) {
       .select('id, first_name, last_name, email')
       .eq('tenant_id', tenantId)
       .not('email', 'ilike', 'deleted_%@deleted.local')
-      .neq('id', member.id)
       .or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern},email.ilike.${searchPattern}`)
       .limit(20);
+
+    if (member?.id) {
+      membersQuery = membersQuery.neq('id', member.id);
+    }
 
     if (booking.organization_id) {
       membersQuery = membersQuery.eq('organization_id', booking.organization_id);
