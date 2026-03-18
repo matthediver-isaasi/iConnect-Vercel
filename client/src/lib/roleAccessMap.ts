@@ -103,6 +103,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "events.zoom-webinars",
         label: "Zoom Webinar Provisioning"
+      },
+      {
+        id: "events.event-report",
+        label: "Event Registration Report"
       }
     ]
   },
@@ -838,6 +842,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_MemberGroupManagement": "membership.member-groups",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
+  "page_EventRegistrationReport": "events.event-report",
+  "page_admin_EventRegistrationReport": "events.event-report",
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
   "page_admin_MemberPreferences": "membership.member-field-permissions",
   "page_Dashboard": "system.dashboard",

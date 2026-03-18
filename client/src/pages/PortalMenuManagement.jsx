@@ -79,6 +79,7 @@ const builtInPages = [
   { value: "EmailCampaignEdit", label: "Email Campaign Editor" },
   { value: "EmailTemplateManagement", label: "Email Templates" },
   { value: "EventDetails", label: "Event Details" },
+  { value: "EventRegistrationReport", label: "Event Registration Report" },
   { value: "Events", label: "Events" },
   { value: "EventSettings", label: "Event Settings" },
   { value: "FileManagement", label: "File Management" },

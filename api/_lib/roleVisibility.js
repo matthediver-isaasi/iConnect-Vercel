@@ -63,6 +63,8 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_admin_MemberGroupManagement": "membership.member-groups",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
+  "page_EventRegistrationReport": "events.event-report",
+  "page_admin_EventRegistrationReport": "events.event-report",
   "page_admin_OrganisationPreferences": "membership.organisation-preferences",
   "page_Dashboard": "system.dashboard",
   "page_EventDetails": "events.event-details",
