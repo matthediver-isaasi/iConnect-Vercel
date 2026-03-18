@@ -2435,7 +2435,7 @@ export default function FormViewPage() {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            {displayFields.map(renderField)}
+                            {badgeFields.map(renderField)}
                           </div>
                         )}
                       </div>
