@@ -57,6 +57,7 @@ import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
+import SEOSettings from "@/components/blog/SEOSettings";
 
 function toLocalDatetimeString(isoOrLocal) {
   if (!isoOrLocal) return '';
@@ -170,6 +171,10 @@ export default function EditEvent() {
   const [slug, setSlug] = useState("");
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
+
+  // SEO state
+  const [seoTitle, setSeoTitle] = useState("");
+  const [seoDescription, setSeoDescription] = useState("");
 
   const [donationConfig, setDonationConfig] = useState({
     enabled: false,
@@ -777,6 +782,8 @@ export default function EditEvent() {
       setShowTicketAvailability(event.show_ticket_availability === true);
       
       setSlug(event.slug || "");
+      setSeoTitle(event.seo_title || "");
+      setSeoDescription(event.seo_description || "");
       setInitialDataLoaded(true);
 
       if (event.donation_config) {
@@ -1220,7 +1227,9 @@ export default function EditEvent() {
       status: eventTiming,
       event_state: eventState,
       timezone: eventTimezone,
-      donation_config: isDonationGloballyEnabled ? donationConfig : undefined
+      donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
+      seo_title: seoTitle || null,
+      seo_description: seoDescription || null
     };
 
     // Add ticket classes for one-off events
@@ -1628,6 +1637,15 @@ export default function EditEvent() {
                   Friendly URL for sharing. Leave empty to use the default URL format.
                 </p>
               </div>
+
+              <SEOSettings
+                seoTitle={seoTitle}
+                onSeoTitleChange={setSeoTitle}
+                seoDescription={seoDescription}
+                onSeoDescriptionChange={setSeoDescription}
+                defaultTitle={formData.title}
+                defaultDescription={formData.summary}
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="summary">Summary</Label>

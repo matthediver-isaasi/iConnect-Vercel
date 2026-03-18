@@ -237,6 +237,58 @@ export default function EventDetailsPage() {
   // Use hybrid hook (authenticated: base44, public: publicClient)
   const { data: event, isLoading } = useEventData(eventId);
 
+  useEffect(() => {
+    if (event) {
+      document.title = event.seo_title || event.title || 'Event';
+
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = event.seo_description || event.summary || '';
+
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (!ogTitle) {
+        ogTitle = document.createElement('meta');
+        ogTitle.setAttribute('property', 'og:title');
+        document.head.appendChild(ogTitle);
+      }
+      ogTitle.content = event.seo_title || event.title || '';
+
+      let ogDescription = document.querySelector('meta[property="og:description"]');
+      if (!ogDescription) {
+        ogDescription = document.createElement('meta');
+        ogDescription.setAttribute('property', 'og:description');
+        document.head.appendChild(ogDescription);
+      }
+      ogDescription.content = event.seo_description || event.summary || '';
+
+      if (event.image_url) {
+        let ogImage = document.querySelector('meta[property="og:image"]');
+        if (!ogImage) {
+          ogImage = document.createElement('meta');
+          ogImage.setAttribute('property', 'og:image');
+          document.head.appendChild(ogImage);
+        }
+        ogImage.content = event.image_url;
+      }
+
+      let ogType = document.querySelector('meta[property="og:type"]');
+      if (!ogType) {
+        ogType = document.createElement('meta');
+        ogType.setAttribute('property', 'og:type');
+        document.head.appendChild(ogType);
+      }
+      ogType.content = 'event';
+    }
+
+    return () => {
+      document.title = 'Portal';
+    };
+  }, [event]);
+
   // Query for speakers assigned to this event
   const { data: eventSpeakers = [] } = useQuery({
     queryKey: ['event-speakers', event?.speaker_ids],

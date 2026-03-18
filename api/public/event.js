@@ -54,7 +54,9 @@ export default async function handler(req, res) {
         event_state,
         program_tag,
         registration_closes_at,
-        slug
+        slug,
+        seo_title,
+        seo_description
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc']);
@@ -135,7 +137,9 @@ export default async function handler(req, res) {
       event_state: event.event_state,
       program_tag: event.program_tag,
       registration_closes_at: event.registration_closes_at,
-      slug: event.slug || null
+      slug: event.slug || null,
+      seo_title: event.seo_title || null,
+      seo_description: event.seo_description || null
     };
 
     return res.status(200).json(publicEvent);
