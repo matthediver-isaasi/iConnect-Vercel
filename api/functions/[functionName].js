@@ -301,6 +301,7 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
 
     // Build booking data for placeholders
     const bookingData = {
+      id: booking?.id || '',
       attendee_first_name: attendee?.first_name || booking?.attendee_first_name || '',
       attendee_last_name: attendee?.last_name || booking?.attendee_last_name || '',
       attendee_email: attendee?.email || booking?.attendee_email || '',
@@ -371,6 +372,8 @@ function replacePlaceholders(template, data) {
   result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
   
   // Handle booking/pricing placeholders
+  result = result.replace(/\{\{booking_id\}\}/gi, booking?.id || '');
+  result = result.replace(/\[\[booking\.id\]\]/gi, booking?.id || '');
   result = result.replace(/\{\{booking_reference\}\}/gi, booking?.booking_reference || '');
   result = result.replace(/\[\[booking\.reference\]\]/gi, booking?.booking_reference || '');
   result = result.replace(/\[\[booking\.booking_reference\]\]/gi, booking?.booking_reference || '');
