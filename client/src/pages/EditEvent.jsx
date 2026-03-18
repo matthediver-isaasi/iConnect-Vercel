@@ -58,6 +58,17 @@ import { useEventTypes } from "@/hooks/useEventTypes";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
+function toLocalDatetimeString(isoOrLocal) {
+  if (!isoOrLocal) return '';
+  if (!isoOrLocal.includes('Z') && !isoOrLocal.includes('+')) {
+    return isoOrLocal.slice(0, 16);
+  }
+  const d = new Date(isoOrLocal);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // Helper function to create a new ticket class with unique ID
 // visibility_mode options:
 // - 'members_only': Only visible to logged-in members (respects role_ids if set)
@@ -832,7 +843,7 @@ export default function EditEvent() {
               group_cutoff_date: tc.group_cutoff_date || "",
               early_bird_enabled: tc.early_bird_enabled || false,
               early_bird_price: tc.early_bird_price !== null && tc.early_bird_price !== undefined ? String(tc.early_bird_price) : "",
-              early_bird_deadline: tc.early_bird_deadline || ""
+              early_bird_deadline: tc.early_bird_deadline ? toLocalDatetimeString(tc.early_bird_deadline) : ""
             };
           });
           setTicketClasses(loadedTickets);
@@ -2244,7 +2255,7 @@ export default function EditEvent() {
                                     id={`ticket-early-bird-deadline-${ticket.id}`}
                                     type="datetime-local"
                                     value={ticket.early_bird_deadline ? ticket.early_bird_deadline.slice(0, 16) : ''}
-                                    onChange={(e) => updateTicketClass(ticket.id, 'early_bird_deadline', e.target.value ? new Date(e.target.value).toISOString() : '')}
+                                    onChange={(e) => updateTicketClass(ticket.id, 'early_bird_deadline', e.target.value || '')}
                                     data-testid={`input-early-bird-deadline-${ticket.id}`}
                                   />
                                   <p className="text-xs text-slate-500">Price reverts to standard after this date/time</p>
