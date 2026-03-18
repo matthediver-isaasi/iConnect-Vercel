@@ -379,6 +379,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const [navLinePath, setNavLinePath] = useState('');
   const subDotCorrectionRef = useRef(0);
   const [subDotCorrection, setSubDotCorrection] = useState(0);
+  const timelineContainerRef = useRef(null);
+  const connectorLinesRef = useRef([]);
+  const [connectorLines, setConnectorLines] = useState([]);
   const {
     title,
     items = [],
@@ -759,6 +762,91 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     return () => observer.disconnect();
   }, [computeNavLine, measureSubDotCorrection]);
 
+  const connectorRafRef = useRef(null);
+  const connectorTickingRef = useRef(false);
+
+  const computeConnectors = useCallback(() => {
+    connectorTickingRef.current = false;
+    const container = timelineContainerRef.current;
+    const nav = navRef.current;
+    if (!container || !nav || !items.length || isMobile) return;
+    const containerRect = container.getBoundingClientRect();
+    const lines = [];
+
+    const allYears = [];
+    items.forEach((item) => {
+      allYears.push(item.year);
+      (item.sub_items || []).forEach((sub, sIdx) => {
+        allYears.push(`${item.year}-sub${sIdx}-${sub.year}`);
+      });
+    });
+
+    for (const year of allYears) {
+      const dotEl = nav.querySelector(`[data-dot-key="${year}"]`);
+      const sectionEl = sectionRefs.current[year];
+      if (!dotEl || !sectionEl) continue;
+
+      const dotRect = dotEl.getBoundingClientRect();
+      const dotCenterY = dotRect.top + dotRect.height / 2 - containerRect.top;
+      const dotRightX = dotRect.right - containerRect.left;
+
+      const headingEl = sectionEl.querySelector('[data-year-heading]');
+      const sectionLeftX = sectionEl.getBoundingClientRect().left - containerRect.left;
+      let sectionTargetY;
+      if (headingEl) {
+        const headingRect = headingEl.getBoundingClientRect();
+        sectionTargetY = headingRect.top + headingRect.height / 2 - containerRect.top;
+      } else {
+        sectionTargetY = sectionEl.getBoundingClientRect().top + 12 - containerRect.top;
+      }
+
+      lines.push({
+        year,
+        x1: dotRightX + 4,
+        y1: dotCenterY,
+        x2: sectionLeftX - 4,
+        y2: sectionTargetY,
+        isActive: activeYear === year,
+      });
+    }
+
+    const prev = connectorLinesRef.current;
+    const changed = prev.length !== lines.length || lines.some((l, i) => {
+      const p = prev[i];
+      return !p || p.year !== l.year || Math.abs(p.y1 - l.y1) > 0.5 || Math.abs(p.y2 - l.y2) > 0.5 || p.isActive !== l.isActive || Math.abs(p.x1 - l.x1) > 0.5 || Math.abs(p.x2 - l.x2) > 0.5;
+    });
+    if (changed) {
+      connectorLinesRef.current = lines;
+      setConnectorLines(lines);
+    }
+  }, [items, activeYear, isMobile]);
+
+  const scheduleConnectorUpdate = useCallback(() => {
+    if (connectorTickingRef.current) return;
+    connectorTickingRef.current = true;
+    connectorRafRef.current = requestAnimationFrame(computeConnectors);
+  }, [computeConnectors]);
+
+  useEffect(() => {
+    if (isMobile || !items.length) return;
+    const t = setTimeout(computeConnectors, 100);
+    return () => clearTimeout(t);
+  }, [computeConnectors, isMobile, items, activeYear]);
+
+  useEffect(() => {
+    if (isMobile || !items.length) return;
+    const target = isExpanded ? scrollContainerRef.current : window;
+    if (!target) return;
+    target.addEventListener('scroll', scheduleConnectorUpdate, { passive: true });
+    const ro = new ResizeObserver(scheduleConnectorUpdate);
+    if (timelineContainerRef.current) ro.observe(timelineContainerRef.current);
+    return () => {
+      target.removeEventListener('scroll', scheduleConnectorUpdate);
+      ro.disconnect();
+      if (connectorRafRef.current) cancelAnimationFrame(connectorRafRef.current);
+    };
+  }, [scheduleConnectorUpdate, isMobile, isExpanded, items]);
+
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
     if (!el) return;
@@ -995,7 +1083,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const mediaOnRight = itemMediaSide === 'right';
 
     const headingBlock = (
-      <div className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+      <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
         <span
           className="font-bold transition-colors duration-200"
           style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
@@ -1140,7 +1228,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         data-testid={`timeline-section-${subKey}`}
       >
         <div className="border-l-2 pl-4 ml-2" style={{ borderColor: isActive ? active_color : line_color }}>
-          <div className="flex items-baseline gap-2 mb-2">
+          <div data-year-heading className="flex items-baseline gap-2 mb-2">
             <span
               className="font-semibold transition-colors duration-200"
               style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || parentItem.label_color || label_color) }}
@@ -1421,7 +1509,28 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const bgFixedBase = { position: 'fixed', top: 0, left: `${contentBgLeft}px`, right: 0, bottom: 0 };
     const railBgBase = { position: 'fixed', top: 0, left: 0, width: `${bgLeft}px`, bottom: 0 };
     return (
-      <div className="flex gap-8 lg:gap-12 w-full">
+      <div ref={timelineContainerRef} className="flex gap-8 lg:gap-12 w-full" style={{ position: 'relative' }}>
+        {connectorLines.length > 0 && (
+          <svg
+            className="pointer-events-none"
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0, overflow: 'visible' }}
+            aria-hidden="true"
+          >
+            {connectorLines.map((line) => (
+              <line
+                key={`connector-${line.year}`}
+                x1={line.x1}
+                y1={line.y1}
+                x2={line.x2}
+                y2={line.y2}
+                stroke={line.isActive ? active_color : line_color}
+                strokeWidth={line.isActive ? 1.5 : 1}
+                strokeDasharray={line.isActive ? '6 3' : '4 4'}
+                strokeOpacity={line.isActive ? 0.7 : 0.25}
+              />
+            ))}
+          </svg>
+        )}
         <div
           ref={railRef}
           data-timeline-rail
