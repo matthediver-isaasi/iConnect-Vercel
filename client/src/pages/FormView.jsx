@@ -316,7 +316,7 @@ export default function FormViewPage() {
   const prefillBookingOrg = prefillBookingData?.organization || null;
   const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || [];
 
-  const nameCardPrefillData = useMemo(() => {
+  const prefillData = useMemo(() => {
     const source = form?.prefill_source;
     if (source === 'booking') {
       return {
@@ -2111,7 +2111,7 @@ export default function FormViewPage() {
                 formId={form?.id}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                 allFormValues={formValues}
-                prefillData={nameCardPrefillData}
+                prefillData={prefillData}
                 allFields={form?.fields || []}
               />
             )}
@@ -2359,15 +2359,15 @@ export default function FormViewPage() {
                   formId={form?.id}
                   formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                   allFormValues={formValues}
-                  prefillData={nameCardPrefillData}
+                  prefillData={prefillData}
                   allFields={form?.fields || []}
                 />
               );
 
               if (isBadgePage) {
                 const bs = currentPage.badge_style || {};
-                const badgeWidth = bs.width || 350;
-                const badgeHeight = bs.height || 220;
+                const badgeWidth = bs.width || 400;
+                const badgeHeight = bs.height || 280;
                 const accentColor = bs.accent_color || '#3b82f6';
                 const bgColor = bs.background_color || '#ffffff';
                 const borderColor = bs.border_color || '#e2e8f0';
@@ -2390,7 +2390,7 @@ export default function FormViewPage() {
                   setTimeout(() => { printWindow.print(); }, 250);
                 };
 
-                const badgeFields = columnCount > 1 ? pageAssignedFields : displayFields;
+                const badgeFields = pageAssignedFields;
                 const gridClass = columnCount === 2
                   ? 'grid grid-cols-1 md:grid-cols-2 gap-4'
                   : columnCount === 3

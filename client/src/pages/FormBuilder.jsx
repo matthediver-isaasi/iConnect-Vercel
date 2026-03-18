@@ -37,8 +37,8 @@ const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
   border_color: '#e2e8f0',
   accent_color: '#3b82f6',
-  width: 350,
-  height: 220,
+  width: 400,
+  height: 280,
 };
 
 const STANDARD_FIELD_TYPES = [
@@ -6095,7 +6095,7 @@ export default function FormBuilderPage() {
                                   <Input
                                     type="number"
                                     value={bs.width}
-                                    onChange={(e) => updateBadgeStyle({ width: parseInt(e.target.value) || 350 })}
+                                    onChange={(e) => updateBadgeStyle({ width: parseInt(e.target.value) || 400 })}
                                     min={200}
                                     max={600}
                                     className="h-8 text-xs"
@@ -6107,7 +6107,7 @@ export default function FormBuilderPage() {
                                   <Input
                                     type="number"
                                     value={bs.height}
-                                    onChange={(e) => updateBadgeStyle({ height: parseInt(e.target.value) || 220 })}
+                                    onChange={(e) => updateBadgeStyle({ height: parseInt(e.target.value) || 280 })}
                                     min={150}
                                     max={500}
                                     className="h-8 text-xs"
