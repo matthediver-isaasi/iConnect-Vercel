@@ -607,14 +607,13 @@ export default async function handler(req, res) {
           console.log(`[Role Delete] Reassigned ${memberCount} members from role ${id} to default role ${defaultRole.name} (${defaultRole.id})`);
         }
 
-        const roleFkTables = [
-          'role_access_item',
+        const roleFkDeleteTables = [
           'role_organization_field_permission',
           'role_member_field_permission',
           'communication_category_role',
         ];
 
-        for (const table of roleFkTables) {
+        for (const table of roleFkDeleteTables) {
           const { error: fkError } = await supabase
             .from(table)
             .delete()
@@ -624,6 +623,26 @@ export default async function handler(req, res) {
             console.error(`[Role Delete] Error deleting ${table} records for role ${id}:`, fkError.message);
           } else {
             console.log(`[Role Delete] Deleted ${table} records for role ${id}`);
+          }
+        }
+
+        const roleNullifyTables = [
+          { table: 'discount_code', column: 'role_id' },
+          { table: 'form', column: 'default_member_role_id' },
+          { table: 'fundraising_campaign', column: 'member_role_id' },
+          { table: 'team_member', column: 'role_id' },
+        ];
+
+        for (const { table, column } of roleNullifyTables) {
+          const { error: nullError } = await supabase
+            .from(table)
+            .update({ [column]: null })
+            .eq(column, id);
+
+          if (nullError) {
+            console.error(`[Role Delete] Error nullifying ${table}.${column} for role ${id}:`, nullError.message);
+          } else {
+            console.log(`[Role Delete] Nullified ${table}.${column} references to role ${id}`);
           }
         }
       }
