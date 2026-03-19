@@ -709,3 +709,8 @@
 .panel-rich-text-content s {
   text-decoration: line-through;
 }
+
+.prose strong,
+.prose b {
+  color: inherit;
+}
