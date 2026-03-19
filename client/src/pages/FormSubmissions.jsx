@@ -53,6 +53,8 @@ export default function FormSubmissionsPage() {
   }, [isFeatureExcluded, isAccessReady]);
   const [selectedForm, setSelectedForm] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [viewingSubmission, setViewingSubmission] = useState(null);
@@ -218,6 +220,16 @@ export default function FormSubmissionsPage() {
       filtered = filtered.filter(s => (s.status || 'new') === selectedStatus);
     }
 
+    if (dateFrom) {
+      const fromDate = moment(dateFrom).startOf('day');
+      filtered = filtered.filter(s => moment(s.created_date).isSameOrAfter(fromDate));
+    }
+
+    if (dateTo) {
+      const toDate = moment(dateTo).endOf('day');
+      filtered = filtered.filter(s => moment(s.created_date).isSameOrBefore(toDate));
+    }
+
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter(s => 
@@ -229,7 +241,7 @@ export default function FormSubmissionsPage() {
     }
 
     return filtered;
-  }, [submissions, selectedForm, selectedStatus, searchQuery, formsById]);
+  }, [submissions, selectedForm, selectedStatus, dateFrom, dateTo, searchQuery, formsById]);
 
   const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
   const paginatedSubmissions = useMemo(() => {
@@ -443,7 +455,12 @@ export default function FormSubmissionsPage() {
       const formName = formsById[selectedForm]?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'form';
       fileNameParts.push(formName);
     }
-    fileNameParts.push(moment().format('YYYY-MM-DD'));
+    if (dateFrom || dateTo) {
+      fileNameParts.push(dateFrom || 'start');
+      fileNameParts.push(dateTo || 'end');
+    } else {
+      fileNameParts.push(moment().format('YYYY-MM-DD'));
+    }
     link.download = `${fileNameParts.join('_')}.csv`;
 
     link.click();
@@ -626,10 +643,40 @@ export default function FormSubmissionsPage() {
                   <SelectItem value="actioned">Actioned</SelectItem>
                 </SelectContent>
               </Select>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-slate-500 whitespace-nowrap">From</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }}
+                  className="w-[150px]"
+                  data-testid="input-date-from"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-slate-500 whitespace-nowrap">To</Label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }}
+                  className="w-[150px]"
+                  data-testid="input-date-to"
+                />
+              </div>
+              {(dateFrom || dateTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setDateFrom(""); setDateTo(""); setCurrentPage(1); }}
+                  data-testid="button-clear-dates"
+                >
+                  Clear dates
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={handleOpenExportModal}
-                disabled={filteredSubmissions.length === 0}
+                disabled={selectedForm === "all" || filteredSubmissions.length === 0}
                 data-testid="button-export-csv"
               >
                 <Download className="w-4 h-4 mr-2" />
@@ -645,7 +692,7 @@ export default function FormSubmissionsPage() {
               <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No submissions found</h3>
               <p className="text-slate-600">
-                {searchQuery || selectedForm !== "all" || selectedStatus !== "all" ? 'Try adjusting your filters' : 'No form submissions yet'}
+                {searchQuery || selectedForm !== "all" || selectedStatus !== "all" || dateFrom || dateTo ? 'Try adjusting your filters' : 'No form submissions yet'}
               </p>
             </CardContent>
           </Card>
