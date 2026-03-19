@@ -1145,7 +1145,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
-  const buildColumnContent = (colData, item, isAnchorCol, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor) => {
+  const buildColumnContent = (colData, item, isAnchorCol, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, colIndex) => {
     const isActive = activeYear === item.year;
     const headingEl = isAnchorCol ? (
       <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
@@ -1191,16 +1191,58 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       </div>
     ) : null;
 
+    const colSubItems = (colData.sub_items || []).length > 0 && typeof colIndex === 'number' ? (
+      <div style={{ marginTop: '24px' }}>
+        {(colData.sub_items || []).map((sub, sIdx) => {
+          const subKey = `${item.year}-col${colIndex}-sub${sIdx}-${sub.year}`;
+          const isSubActive = activeYear === subKey;
+          return (
+            <div
+              key={subKey}
+              ref={(el) => setSectionRef(subKey, el)}
+              data-year={subKey}
+              style={{ scrollMarginTop: `${(isExpanded ? 16 : header_offset) + 8}px`, marginBottom: '24px' }}
+              data-testid={`timeline-section-${subKey}`}
+            >
+              <div className="border-l-2 pl-4 ml-2" style={{ borderColor: isSubActive ? active_color : line_color }}>
+                <div data-year-heading className="flex items-baseline gap-2 mb-2">
+                  <span
+                    className="font-semibold transition-colors duration-200"
+                    style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}
+                  >
+                    {sub.year}
+                  </span>
+                  {sub.heading && (
+                    <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b' }}>{sub.heading}</h4>
+                  )}
+                </div>
+                {sub.body && (
+                  <div
+                    className="prose prose-sm max-w-none"
+                    style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    ) : null;
+
     const mediaCol = <div className="w-2/5 shrink-0">{colMediaBlock}</div>;
     const textCol = <div className="flex-1 min-w-0">{headingEl}{colBodyBlock}</div>;
     const bodyCol = <div className="flex-1 min-w-0">{colBodyBlock}</div>;
 
     if (isInline && colMediaBlock) {
       return (
-        <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
-          {mediaCol}
-          {textCol}
-        </div>
+        <>
+          <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
+            {mediaCol}
+            {textCol}
+          </div>
+          {colSubItems}
+        </>
       );
     } else if (isSideBySide && colMediaBlock) {
       return (
@@ -1210,6 +1252,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {mediaCol}
             {bodyCol}
           </div>
+          {colSubItems}
         </>
       );
     }
@@ -1218,6 +1261,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         {headingEl}
         {colMediaBlock}
         {colBodyBlock}
+        {colSubItems}
       </>
     );
   };
@@ -1256,7 +1300,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             const isAnchor = hasAnyAnchor ? col.has_year_anchor : cIdx === 0;
             return (
               <div key={cIdx}>
-                {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor)}
+                {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx)}
               </div>
             );
           })}
@@ -1825,14 +1869,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {items.flatMap((item, idx) => {
               const sections = [contentSection(item, idx, inOverlay)];
               const numCols = item.columns || 1;
-              if (numCols > 1 && item.column_content) {
-                item.column_content.slice(0, numCols).forEach((col, cIdx) => {
-                  (col.sub_items || []).forEach((sub, sIdx) => {
-                    const subKey = `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`;
-                    sections.push(subContentSection(sub, subKey, inOverlay, item));
-                  });
-                });
-              } else {
+              if (numCols <= 1 || !item.column_content) {
                 (item.sub_items || []).forEach((sub, sIdx) => {
                   const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
                   sections.push(subContentSection(sub, subKey, inOverlay, item));
