@@ -4,6 +4,21 @@ import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 const BATCH_SIZE = 100;
+const SUPABASE_PAGE_SIZE = 1000;
+
+async function fetchAllRows(queryBuilder) {
+  const allRows = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await queryBuilder(offset, SUPABASE_PAGE_SIZE);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < SUPABASE_PAGE_SIZE) break;
+    offset += SUPABASE_PAGE_SIZE;
+  }
+  return allRows;
+}
 
 export function getTenantBaseUrl(tenantSlug, requestHost = null) {
   if (requestHost && !requestHost.includes('localhost') && !requestHost.includes('127.0.0.1')) {
@@ -827,7 +842,7 @@ export async function processSendingCampaigns() {
           .from('email_campaign_recipient')
           .select('*', { count: 'exact', head: true })
           .eq('campaign_id', sc.id)
-          .eq('status', 'sent');
+          .in('status', ['sent', 'delivered', 'opened', 'clicked']);
 
         await updateCampaign(sc.id, {
           status: 'sent',
@@ -1067,7 +1082,7 @@ async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost
     .from('email_campaign_recipient')
     .select('*', { count: 'exact', head: true })
     .eq('campaign_id', campaignId)
-    .eq('status', 'sent');
+    .in('status', ['sent', 'delivered', 'opened', 'clicked']);
 
   await updateCampaign(campaignId, {
     sent_count: totalSentCount || 0
@@ -1206,51 +1221,43 @@ export async function getCampaignStats(campaignId, tenantId) {
 
     if (campaignError) throw campaignError;
 
-    const { data: recipients, error: recipientsError } = await supabase
-      .from('email_campaign_recipient')
-      .select('status, open_count, click_count')
-      .eq('campaign_id', campaignId);
-
-    if (recipientsError) throw recipientsError;
+    const [
+      totalCount,
+      statusSentCount,
+      statusDeliveredCount,
+      statusOpenedCount,
+      statusClickedCount,
+      statusBouncedCount,
+      statusFailedCount,
+      statusUnsubscribedCount,
+      statusComplainedCount,
+      hasOpensCount,
+      hasClicksCount
+    ] = await Promise.all([
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'sent').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'delivered').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'opened').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'clicked').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'bounced').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'failed').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'unsubscribed').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'complained').then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).gt('open_count', 0).then(r => { if (r.error) throw r.error; return r.count || 0; }),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true }).eq('campaign_id', campaignId).gt('click_count', 0).then(r => { if (r.error) throw r.error; return r.count || 0; }),
+    ]);
 
     const stats = {
-      total: recipients?.length || 0,
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      bounced: 0,
-      failed: 0,
-      unsubscribed: 0,
-      complained: 0
+      total: totalCount,
+      sent: statusSentCount + statusDeliveredCount + statusOpenedCount + statusClickedCount,
+      delivered: statusDeliveredCount + statusOpenedCount + statusClickedCount,
+      opened: hasOpensCount,
+      clicked: hasClicksCount,
+      bounced: statusBouncedCount,
+      failed: statusFailedCount,
+      unsubscribed: statusUnsubscribedCount,
+      complained: statusComplainedCount
     };
-
-    for (const r of recipients || []) {
-      if (r.status === 'sent' || r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked') {
-        stats.sent++;
-      }
-      if (r.status === 'delivered' || r.status === 'opened' || r.status === 'clicked') {
-        stats.delivered++;
-      }
-      if (r.status === 'opened' || r.status === 'clicked' || r.open_count > 0) {
-        stats.opened++;
-      }
-      if (r.status === 'clicked' || r.click_count > 0) {
-        stats.clicked++;
-      }
-      if (r.status === 'bounced') {
-        stats.bounced++;
-      }
-      if (r.status === 'failed') {
-        stats.failed++;
-      }
-      if (r.status === 'unsubscribed') {
-        stats.unsubscribed++;
-      }
-      if (r.status === 'complained') {
-        stats.complained++;
-      }
-    }
 
     stats.openRate = stats.delivered > 0 ? ((stats.opened / stats.delivered) * 100).toFixed(1) : 0;
     stats.clickRate = stats.opened > 0 ? ((stats.clicked / stats.opened) * 100).toFixed(1) : 0;
@@ -1269,12 +1276,14 @@ export async function getClickHeatmapData(campaignId, tenantId) {
   }
 
   try {
-    const { data: clicks, error } = await supabase
-      .from('email_link_click')
-      .select('original_url, link_position, link_index, link_text')
-      .eq('campaign_id', campaignId);
-
-    if (error) throw error;
+    const clicks = await fetchAllRows((offset, limit) =>
+      supabase
+        .from('email_link_click')
+        .select('original_url, link_position, link_index, link_text')
+        .eq('campaign_id', campaignId)
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
+    );
 
     const heatmapData = {};
     for (const click of clicks || []) {
@@ -1315,21 +1324,28 @@ export async function getCampaignRecipients(campaignId, tenantId) {
 
     if (campaignError) throw campaignError;
 
-    const { data: recipients, error: recipientsError } = await supabase
-      .from('email_campaign_recipient')
-      .select('id, email, status, open_count, click_count, error_message, sent_at')
-      .eq('campaign_id', campaignId)
-      .order('email', { ascending: true });
+    const recipients = await fetchAllRows((offset, limit) =>
+      supabase
+        .from('email_campaign_recipient')
+        .select('id, email, status, open_count, click_count, error_message, sent_at')
+        .eq('campaign_id', campaignId)
+        .order('email', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
+    );
 
-    if (recipientsError) throw recipientsError;
-
-    const { data: linkClicks, error: clicksError } = await supabase
-      .from('email_link_click')
-      .select('recipient_id, original_url, link_text, link_index, created_at')
-      .eq('campaign_id', campaignId)
-      .order('created_at', { ascending: true });
-
-    if (clicksError) {
+    let linkClicks = [];
+    try {
+      linkClicks = await fetchAllRows((offset, limit) =>
+        supabase
+          .from('email_link_click')
+          .select('recipient_id, original_url, link_text, link_index, created_at')
+          .eq('campaign_id', campaignId)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1)
+      );
+    } catch (clicksError) {
       console.warn('[Campaign Service] Error fetching link clicks, continuing without:', clicksError.message);
     }
 
