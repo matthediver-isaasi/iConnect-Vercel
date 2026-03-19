@@ -4,7 +4,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, XCircle, ArrowRightLeft } from "lucide-react";
+import { Calendar, MapPin, Clock, User, Ticket, AlertCircle, Pencil, Send, Loader2, FileText, Download, Eye, XCircle, ArrowRightLeft, Search, ArrowUpDown } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -53,6 +53,8 @@ export default function BookingsPage() {
   const [creditNoteModalOpen, setCreditNoteModalOpen] = React.useState(false);
   const [currentCreditNoteUrl, setCurrentCreditNoteUrl] = React.useState(null);
   const [currentCreditNoteNumber, setCurrentCreditNoteNumber] = React.useState(null);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [sortOrder, setSortOrder] = React.useState('desc');
   
   // Add ref to track if tour has been auto-started in this session
   const hasAutoStartedTour = React.useRef(false);
@@ -497,16 +499,51 @@ export default function BookingsPage() {
 
   const isLoading = loadingBookings || loadingEvents;
 
-  // Group bookings by booking_group_reference (for multi-attendee bookings) 
-  // or fallback to booking_reference for single-attendee/legacy bookings
-  const bookingsByReference = bookings.reduce((acc, booking) => {
-    const ref = booking.booking_group_reference || booking.booking_reference || 'unknown';
-    if (!acc[ref]) {
-      acc[ref] = [];
+  const filteredAndSortedGroups = React.useMemo(() => {
+    const grouped = bookings.reduce((acc, booking) => {
+      const ref = booking.booking_group_reference || booking.booking_reference || 'unknown';
+      if (!acc[ref]) acc[ref] = [];
+      acc[ref].push(booking);
+      return acc;
+    }, {});
+
+    let entries = Object.entries(grouped);
+
+    const query = searchQuery.toLowerCase().trim();
+    if (query) {
+      entries = entries.filter(([ref, groupBookings]) => {
+        const firstBooking = groupBookings[0];
+        const event = events.find(e => e.id === firstBooking.event_id);
+        const eventTitle = event?.title || firstBooking.event_name || '';
+        const eventLocation = event?.location || '';
+        return (
+          eventTitle.toLowerCase().includes(query) ||
+          eventLocation.toLowerCase().includes(query) ||
+          ref.toLowerCase().includes(query) ||
+          groupBookings.some(b =>
+            (b.booking_reference || '').toLowerCase().includes(query) ||
+            (b.attendee_email || '').toLowerCase().includes(query) ||
+            (b.attendee_first_name || '').toLowerCase().includes(query) ||
+            (b.attendee_last_name || '').toLowerCase().includes(query) ||
+            (b.ticket_class || '').toLowerCase().includes(query) ||
+            (b.status || '').toLowerCase().includes(query)
+          )
+        );
+      });
     }
-    acc[ref].push(booking);
-    return acc;
-  }, {});
+
+    entries.sort((a, b) => {
+      const aFirst = a[1][0];
+      const bFirst = b[1][0];
+      const eventA = events.find(e => e.id === aFirst.event_id);
+      const eventB = events.find(e => e.id === bFirst.event_id);
+      const dateA = eventA?.start_date ? new Date(eventA.start_date).getTime() : (aFirst.created_date ? new Date(aFirst.created_date).getTime() : 0);
+      const dateB = eventB?.start_date ? new Date(eventB.start_date).getTime() : (bFirst.created_date ? new Date(bFirst.created_date).getTime() : 0);
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+
+    return entries;
+  }, [bookings, events, searchQuery, sortOrder]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -551,6 +588,35 @@ export default function BookingsPage() {
           </div>
         )}
 
+        {!isLoading && bookings.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by event, location, reference, attendee..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+                data-testid="input-search-bookings"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="default"
+                onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                data-testid="button-toggle-sort"
+              >
+                <ArrowUpDown className="h-4 w-4 mr-2" />
+                Date {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+              </Button>
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                {filteredAndSortedGroups.length} booking{filteredAndSortedGroups.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="grid md:grid-cols-2 gap-6">
             {Array(4).fill(0).map((_, i) => (
@@ -587,7 +653,20 @@ export default function BookingsPage() {
           </Card>
         ) : (
           <div className="space-y-6">
-            {Object.entries(bookingsByReference).map(([bookingRef, groupBookings], index) => {
+            {filteredAndSortedGroups.length === 0 && searchQuery ? (
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="p-12 text-center">
+                  <Search className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                    No matching bookings
+                  </h3>
+                  <p className="text-slate-600">
+                    No bookings match "{searchQuery}". Try a different search term.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
+            {filteredAndSortedGroups.map(([bookingRef, groupBookings], index) => {
               const firstBooking = groupBookings[0];
               const event = events.find(e => e.id === firstBooking.event_id);
               
