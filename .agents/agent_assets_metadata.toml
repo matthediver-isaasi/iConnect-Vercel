@@ -11,4 +11,10 @@ title = "MailChimp Member Lookup Results (Corrected)"
 id = "axW6smhLqW0Do65uDwzr1"
 uri = "file://.local/wordpress-integration-proposal.md"
 type = "text"
-title = "WordPress Content Sync Integration — Client Proposal"
+title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal"
+
+[[outputs]]
+id = "N2B6mBZOqqmKvuZjHrXnS"
+uri = "file://.local/wordpress-integration-proposal.docx"
+type = "word_document"
+title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal (Word)"
