@@ -86,7 +86,7 @@ function getMarkerShapeIcon(shape) {
 }
 
 function emptyColumn() {
-  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false, vertical_align: 'top' };
+  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false, vertical_align: 'top', horizontal_align: 'left' };
 }
 
 function isEmptyHtml(html) {
@@ -105,6 +105,7 @@ function migrateToColumns(item, numCols) {
     sub_items: item.sub_items || [],
     has_year_anchor: true,
     vertical_align: 'top',
+    horizontal_align: 'left',
   });
   for (let i = 1; i < numCols; i++) {
     cols.push(emptyColumn());
@@ -1199,18 +1200,18 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               style={{ scrollMarginTop: `${(isExpanded ? 16 : header_offset) + 8}px`, marginBottom: '24px' }}
               data-testid={`timeline-section-${subKey}`}
             >
-              <div className="border-l-2 pl-4 ml-2" style={{ borderColor: isSubActive ? active_color : line_color }}>
-                <div data-year-heading className="flex items-baseline gap-2 mb-2">
+              <div className="border-l-2 pl-4" style={{ borderColor: isSubActive ? active_color : line_color }}>
+                <div data-year-heading style={{ marginBottom: '4px' }}>
                   <span
                     className="font-semibold transition-colors duration-200"
                     style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}
                   >
                     {sub.year}
                   </span>
-                  {sub.heading && (
-                    <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b' }}>{sub.heading}</h4>
-                  )}
                 </div>
+                {sub.heading && (
+                  <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>
+                )}
                 {!isEmptyHtml(sub.body) && (
                   <div
                     className="prose prose-sm max-w-none"
@@ -1303,8 +1304,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {visibleCols.map((col, cIdx) => {
               const isAnchor = hasAnyAnchor ? col.has_year_anchor : cIdx === 0;
               const colVAlign = vAlignMap[col.vertical_align || 'top'] || 'flex-start';
+              const colTextAlign = col.horizontal_align || 'left';
               return (
-                <div key={cIdx} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign }}>
+                <div key={cIdx} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign, textAlign: colTextAlign }}>
                   {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx)}
                 </div>
               );
@@ -1458,18 +1460,18 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         }}
         data-testid={`timeline-section-${subKey}`}
       >
-        <div className="border-l-2 pl-4 ml-2" style={{ borderColor: isActive ? active_color : line_color }}>
-          <div data-year-heading className="flex items-baseline gap-2 mb-2">
+        <div className="border-l-2 pl-4" style={{ borderColor: isActive ? active_color : line_color }}>
+          <div data-year-heading style={{ marginBottom: '4px' }}>
             <span
               className="font-semibold transition-colors duration-200"
               style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || parentItem.label_color || label_color) }}
             >
               {sub.year}
             </span>
-            {sub.heading && (
-              <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b' }}>{sub.heading}</h4>
-            )}
           </div>
+          {sub.heading && (
+            <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>
+          )}
           {!isEmptyHtml(sub.body) && (
             <div
               className="prose prose-sm max-w-none"
@@ -2794,8 +2796,9 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numCols}, 1fr)`, gap: '1rem' }}>
           {cols.map((col, ci) => {
             const colVAlign = pvAlignMap[col.vertical_align || 'top'] || 'flex-start';
+            const colTextAlign = col.horizontal_align || 'left';
             return (
-              <div key={ci} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign }}>
+              <div key={ci} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign, textAlign: colTextAlign }}>
                 {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
                 {!isEmptyHtml(col.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
                 {renderMediaItems(getColumnMediaItems(col))}
@@ -3878,7 +3881,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                   <span className="text-xs text-slate-600">Year Anchor</span>
                                 </label>
                                 <div className="flex items-center gap-1.5">
-                                  <span className="text-xs text-slate-600">Align:</span>
+                                  <span className="text-xs text-slate-600">V:</span>
                                   <select
                                     value={col.vertical_align || 'top'}
                                     onChange={(e) => updateColumnContent(index, cIdx, 'vertical_align', e.target.value)}
@@ -3888,6 +3891,19 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     <option value="top">Top</option>
                                     <option value="middle">Middle</option>
                                     <option value="bottom">Bottom</option>
+                                  </select>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-slate-600">H:</span>
+                                  <select
+                                    value={col.horizontal_align || 'left'}
+                                    onChange={(e) => updateColumnContent(index, cIdx, 'horizontal_align', e.target.value)}
+                                    className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white"
+                                    data-testid={`select-col-halign-${index}-${cIdx}`}
+                                  >
+                                    <option value="left">Left</option>
+                                    <option value="center">Centre</option>
+                                    <option value="right">Right</option>
                                   </select>
                                 </div>
                               </div>
