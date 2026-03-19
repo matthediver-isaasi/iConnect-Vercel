@@ -55,7 +55,14 @@ export default function EmailCampaigns() {
       if (!response.ok) throw new Error('Failed to fetch campaigns');
       return response.json();
     },
-    staleTime: 30000
+    staleTime: 30000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (Array.isArray(data) && data.some(c => c.status === 'sending')) {
+        return 5000;
+      }
+      return false;
+    }
   });
 
   const { data: categories = [] } = useQuery({
@@ -271,7 +278,11 @@ export default function EmailCampaigns() {
       }
 
       const result = await response.json();
-      toast.success(`Campaign sent to ${result.sent} recipients`);
+      if (result.status === 'sending') {
+        toast.success(`Campaign sending started — ${result.sent} of ${result.totalRecipients} sent so far. The rest will be sent automatically.`);
+      } else {
+        toast.success(`Campaign sent to ${result.sent || result.totalRecipients} recipients`);
+      }
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
       setShowPreviewDialog(false);
     } catch (error) {
@@ -689,6 +700,11 @@ export default function EmailCampaigns() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             {getStatusBadge(campaign.status)}
+                            {campaign.status === 'sending' && campaign.total_recipients > 0 && (
+                              <span className="text-xs text-amber-600" data-testid={`text-sending-progress-${campaign.id}`}>
+                                {campaign.sent_count || 0} / {campaign.total_recipients} sent
+                              </span>
+                            )}
                             {campaign.status === 'scheduled' && campaign.scheduled_at && (
                               <span className="text-xs text-muted-foreground">
                                 {formatDate(campaign.scheduled_at)}
@@ -710,7 +726,9 @@ export default function EmailCampaigns() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium">
-                          {campaign.sent_count || '-'}
+                          {campaign.status === 'sending' && campaign.total_recipients > 0
+                            ? `${campaign.sent_count || 0} / ${campaign.total_recipients}`
+                            : (campaign.sent_count || '-')}
                         </TableCell>
                         <TableCell className="text-right">
                           {campaign.status === 'sent' ? (

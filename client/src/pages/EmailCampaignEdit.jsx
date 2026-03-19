@@ -447,8 +447,10 @@ export default function EmailCampaignEdit() {
 
       if (scheduleMode === 'scheduled') {
         toast.success('Campaign scheduled successfully');
+      } else if (result.status === 'sending') {
+        toast.success(`Campaign sending started — ${result.sent} of ${result.totalRecipients} sent so far. The rest will be sent automatically.`);
       } else {
-        toast.success(`Campaign sent to ${result.sentCount || recipientPreviewCount || 0} recipients`);
+        toast.success(`Campaign sent to ${result.sent || result.sentCount || recipientPreviewCount || 0} recipients`);
       }
 
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });

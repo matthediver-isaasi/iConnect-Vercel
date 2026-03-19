@@ -3,6 +3,7 @@ import { sendEmail } from './emailService.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+const BATCH_SIZE = 100;
 
 export function getTenantBaseUrl(tenantSlug, requestHost = null) {
   if (requestHost && !requestHost.includes('localhost') && !requestHost.includes('127.0.0.1')) {
@@ -763,30 +764,316 @@ export async function processScheduledCampaigns() {
       throw fetchError;
     }
 
-    if (!dueCampaigns || dueCampaigns.length === 0) {
-      return { success: true, processed: 0, campaigns: [] };
+    const scheduledResults = [];
+    if (dueCampaigns && dueCampaigns.length > 0) {
+      for (const campaign of dueCampaigns) {
+        console.log(`[Campaign Service] Processing scheduled campaign: ${campaign.id} (${campaign.name})`);
+        const result = await sendCampaign(campaign.id, campaign.tenant_id);
+        scheduledResults.push({
+          campaignId: campaign.id,
+          name: campaign.name,
+          ...result
+        });
+      }
     }
 
-    const results = [];
-    for (const campaign of dueCampaigns) {
-      console.log(`[Campaign Service] Processing scheduled campaign: ${campaign.id} (${campaign.name})`);
-      const result = await sendCampaign(campaign.id, campaign.tenant_id);
-      results.push({
-        campaignId: campaign.id,
-        name: campaign.name,
-        ...result
-      });
-    }
+    const sendingResult = await processSendingCampaigns();
 
     return { 
       success: true, 
-      processed: dueCampaigns.length,
-      campaigns: results
+      processed: (dueCampaigns?.length || 0),
+      campaigns: scheduledResults,
+      sendingCampaigns: sendingResult
     };
   } catch (err) {
     console.error('[Campaign Service] Error processing scheduled campaigns:', err);
     return { success: false, error: err.message };
   }
+}
+
+export async function processSendingCampaigns() {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { data: sendingCampaigns, error: fetchError } = await supabase
+      .from('email_campaign')
+      .select('id, tenant_id, name, updated_at')
+      .eq('status', 'sending');
+
+    if (fetchError) throw fetchError;
+
+    if (!sendingCampaigns || sendingCampaigns.length === 0) {
+      return { success: true, processed: 0, campaigns: [] };
+    }
+
+    const results = [];
+    for (const sc of sendingCampaigns) {
+      const { count: pendingCount } = await supabase
+        .from('email_campaign_recipient')
+        .select('*', { count: 'exact', head: true })
+        .eq('campaign_id', sc.id)
+        .eq('status', 'pending');
+
+      const { count: processingCount } = await supabase
+        .from('email_campaign_recipient')
+        .select('*', { count: 'exact', head: true })
+        .eq('campaign_id', sc.id)
+        .eq('status', 'processing');
+
+      if ((!pendingCount || pendingCount === 0) && (!processingCount || processingCount === 0)) {
+        const { count: sentCount } = await supabase
+          .from('email_campaign_recipient')
+          .select('*', { count: 'exact', head: true })
+          .eq('campaign_id', sc.id)
+          .eq('status', 'sent');
+
+        await updateCampaign(sc.id, {
+          status: 'sent',
+          completed_at: new Date().toISOString(),
+          sent_count: sentCount || 0
+        }, sc.tenant_id);
+
+        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) completed - no pending recipients`);
+        results.push({ campaignId: sc.id, name: sc.name, status: 'sent', sent: sentCount || 0, remaining: 0 });
+        continue;
+      }
+
+      if ((!pendingCount || pendingCount === 0) && processingCount > 0) {
+        const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+        const lastUpdate = sc.updated_at ? new Date(sc.updated_at).getTime() : 0;
+        const isStale = (Date.now() - lastUpdate) > STALE_THRESHOLD_MS;
+
+        if (isStale) {
+          console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) has ${processingCount} stale processing recipients - resetting to pending`);
+          await supabase
+            .from('email_campaign_recipient')
+            .update({ status: 'pending' })
+            .eq('campaign_id', sc.id)
+            .eq('status', 'processing');
+        } else {
+          console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) has ${processingCount} processing recipients - skipping (another worker active)`);
+          results.push({ campaignId: sc.id, name: sc.name, status: 'processing', processing: processingCount });
+          continue;
+        }
+      }
+
+      console.log(`[Campaign Service] Continuing campaign ${sc.id} (${sc.name}) - ${pendingCount} pending`);
+
+      const campaignResult = await getCampaign(sc.id, sc.tenant_id);
+      if (!campaignResult.success || !campaignResult.campaign) {
+        console.error(`[Campaign Service] Could not load campaign ${sc.id}`);
+        continue;
+      }
+
+      const campaign = campaignResult.campaign;
+
+      const { data: tenant } = await supabase
+        .from('tenant')
+        .select('slug')
+        .eq('id', sc.tenant_id)
+        .single();
+
+      const tenantSlug = tenant?.slug || '';
+
+      const batchResult = await sendBatch(sc.id, sc.tenant_id, campaign, tenantSlug, null);
+
+      if (batchResult.remaining === 0) {
+        const freshCampaign = await getCampaign(sc.id, sc.tenant_id);
+        await updateCampaign(sc.id, {
+          status: 'sent',
+          completed_at: new Date().toISOString(),
+          sent_count: freshCampaign.campaign?.sent_count || 0
+        }, sc.tenant_id);
+        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) fully sent`);
+      }
+
+      results.push({
+        campaignId: sc.id,
+        name: sc.name,
+        sent: batchResult.sent,
+        failed: batchResult.failed,
+        remaining: batchResult.remaining
+      });
+    }
+
+    return { success: true, processed: sendingCampaigns.length, campaigns: results };
+  } catch (err) {
+    console.error('[Campaign Service] Error processing sending campaigns:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+function parseCampaignDesign(campaign) {
+  let skipFooter = false;
+  let hasUnsubscribeBlock = false;
+  let contentWidth = null;
+  if (campaign.design_json) {
+    skipFooter = true;
+    try {
+      const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
+      if (designData?.globalStyles?.contentWidth) {
+        contentWidth = designData.globalStyles.contentWidth;
+      }
+      const checkForUnsubscribe = (blocks) => {
+        if (!Array.isArray(blocks)) return false;
+        for (const block of blocks) {
+          if (block.type === 'unsubscribe') return true;
+          if (block.children && checkForUnsubscribe(block.children)) return true;
+          if (block.columns) {
+            for (const col of block.columns) {
+              if (checkForUnsubscribe(col.blocks)) return true;
+            }
+          }
+        }
+        return false;
+      };
+      if (designData?.blocks) {
+        hasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
+      }
+    } catch (e) {}
+  }
+  return { skipFooter, hasUnsubscribeBlock, contentWidth };
+}
+
+async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo) {
+  try {
+    let html = campaign.html_content || '';
+    let subject = campaign.subject || '';
+
+    const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || '';
+    html = html.replace(/\{\{recipient_name\}\}/gi, recipientName);
+    html = html.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
+    html = html.replace(/\{\{last_name\}\}/gi, recipient.last_name || '');
+    html = html.replace(/\{\{email\}\}/gi, recipient.email || '');
+    subject = subject.replace(/\{\{recipient_name\}\}/gi, recipientName);
+    subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
+
+    const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
+    const trackingToken = generateTrackingToken(campaign.id, recipient.id, 0);
+    const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
+    const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
+    const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
+
+    const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
+
+    html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
+    html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
+    
+    const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
+    html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
+    html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
+
+    html = rewriteLinksForTracking(html, campaign.id, recipient.id, tenantSlug, requestHost);
+
+    if (!hasUnsubscribePlaceholder && !designInfo.hasUnsubscribeBlock) {
+      html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
+            <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
+          </p>`;
+    }
+
+    const result = await sendEmail({
+      to: recipient.email,
+      subject: subject,
+      html: html,
+      from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
+      tenantId: tenantId,
+      skipFooter: designInfo.skipFooter,
+      contentWidth: designInfo.contentWidth,
+      enableTracking: true,
+      unsubscribeUrl: oneClickUnsubscribeUrl
+    });
+
+    if (result.success) {
+      await supabase
+        .from('email_campaign_recipient')
+        .update({
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          mailgun_message_id: result.messageId ? result.messageId.replace(/^<|>$/g, '') : result.messageId
+        })
+        .eq('id', recipient.id);
+      return 'sent';
+    } else {
+      await supabase
+        .from('email_campaign_recipient')
+        .update({
+          status: 'failed',
+          error_message: result.error
+        })
+        .eq('id', recipient.id);
+      return 'failed';
+    }
+  } catch (err) {
+    console.error(`[Campaign Service] Error sending to ${recipient.email}:`, err);
+    await supabase
+      .from('email_campaign_recipient')
+      .update({
+        status: 'failed',
+        error_message: err.message
+      })
+      .eq('id', recipient.id);
+    return 'failed';
+  }
+}
+
+async function claimPendingRecipients(campaignId, batchSize = BATCH_SIZE) {
+  const { data: pendingIds } = await supabase
+    .from('email_campaign_recipient')
+    .select('id')
+    .eq('campaign_id', campaignId)
+    .eq('status', 'pending')
+    .order('id', { ascending: true })
+    .limit(batchSize);
+
+  if (!pendingIds || pendingIds.length === 0) return [];
+
+  const ids = pendingIds.map(r => r.id);
+  const { data: claimed } = await supabase
+    .from('email_campaign_recipient')
+    .update({ status: 'processing' })
+    .in('id', ids)
+    .eq('status', 'pending')
+    .select();
+
+  return claimed || [];
+}
+
+async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost, batchSize = BATCH_SIZE) {
+  const claimedRecipients = await claimPendingRecipients(campaignId, batchSize);
+
+  if (claimedRecipients.length === 0) {
+    return { sent: 0, failed: 0, remaining: 0 };
+  }
+
+  const designInfo = parseCampaignDesign(campaign);
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const recipient of claimedRecipients) {
+    const result = await sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo);
+    if (result === 'sent') sentCount++;
+    else failedCount++;
+  }
+
+  const { count: remainingCount } = await supabase
+    .from('email_campaign_recipient')
+    .select('*', { count: 'exact', head: true })
+    .eq('campaign_id', campaignId)
+    .in('status', ['pending', 'processing']);
+
+  const { count: totalSentCount } = await supabase
+    .from('email_campaign_recipient')
+    .select('*', { count: 'exact', head: true })
+    .eq('campaign_id', campaignId)
+    .eq('status', 'sent');
+
+  await updateCampaign(campaignId, {
+    sent_count: totalSentCount || 0
+  }, tenantId);
+
+  return { sent: sentCount, failed: failedCount, remaining: remainingCount || 0 };
 }
 
 export async function sendCampaign(campaignId, tenantId, requestHost = null) {
@@ -804,19 +1091,44 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       return { success: false, error: `Cannot send campaign with status: ${campaign.status}` };
     }
 
-    const recipientsResult = await getTargetRecipients(campaign, tenantId);
+    const { data: claimedCampaign, error: claimError } = await supabase
+      .from('email_campaign')
+      .update({
+        status: 'sending',
+        sent_at: new Date().toISOString(),
+        sent_count: 0,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .in('status', ['draft', 'scheduled'])
+      .select()
+      .single();
+
+    if (claimError || !claimedCampaign) {
+      return { success: false, error: 'Campaign is already being sent or has been sent' };
+    }
+
+    let recipientsResult;
+    try {
+      recipientsResult = await getTargetRecipients(campaign, tenantId);
+    } catch (recipientErr) {
+      await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
+      return { success: false, error: recipientErr.message || 'Failed to resolve recipients' };
+    }
+
     if (!recipientsResult.success) {
+      await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
       return recipientsResult;
     }
 
     const recipients = recipientsResult.recipients;
     if (recipients.length === 0) {
+      await updateCampaign(campaignId, { status: 'failed' }, tenantId).catch(() => {});
       return { success: false, error: 'No recipients found for this campaign' };
     }
 
     await updateCampaign(campaignId, {
-      status: 'sending',
-      sent_at: new Date().toISOString(),
       total_recipients: recipients.length
     }, tenantId);
 
@@ -829,10 +1141,9 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
       status: 'pending'
     }));
 
-    const { data: insertedRecipients, error: insertError } = await supabase
+    const { error: insertError } = await supabase
       .from('email_campaign_recipient')
-      .insert(recipientRecords)
-      .select();
+      .insert(recipientRecords);
 
     if (insertError) throw insertError;
 
@@ -844,133 +1155,34 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
 
     const tenantSlug = tenant?.slug || '';
 
-    let sentCount = 0;
-    let failedCount = 0;
+    const updatedCampaignResult = await getCampaign(campaignId, tenantId);
+    const updatedCampaign = updatedCampaignResult.campaign || campaign;
 
-    let campaignSkipFooter = false;
-    let designHasUnsubscribeBlock = false;
-    let campaignContentWidth = null;
-    if (campaign.design_json) {
-      campaignSkipFooter = true;
-      try {
-        const designData = typeof campaign.design_json === 'string' ? JSON.parse(campaign.design_json) : campaign.design_json;
-        if (designData?.globalStyles?.contentWidth) {
-          campaignContentWidth = designData.globalStyles.contentWidth;
-        }
-        const checkForUnsubscribe = (blocks) => {
-          if (!Array.isArray(blocks)) return false;
-          for (const block of blocks) {
-            if (block.type === 'unsubscribe') return true;
-            if (block.children && checkForUnsubscribe(block.children)) return true;
-            if (block.columns) {
-              for (const col of block.columns) {
-                if (checkForUnsubscribe(col.blocks)) return true;
-              }
-            }
-          }
-          return false;
-        };
-        if (designData?.blocks) {
-          designHasUnsubscribeBlock = checkForUnsubscribe(designData.blocks);
-        }
-      } catch (e) {}
+    const batchResult = await sendBatch(campaignId, tenantId, updatedCampaign, tenantSlug, requestHost);
+
+    if (batchResult.remaining === 0) {
+      await updateCampaign(campaignId, {
+        status: 'sent',
+        completed_at: new Date().toISOString()
+      }, tenantId);
+
+      return {
+        success: true,
+        status: 'sent',
+        totalRecipients: recipients.length,
+        sent: batchResult.sent,
+        failed: batchResult.failed,
+        remaining: 0
+      };
     }
-
-    for (const recipient of insertedRecipients || []) {
-      try {
-        let html = campaign.html_content || '';
-        let subject = campaign.subject || '';
-
-        const recipientName = `${recipient.first_name || ''} ${recipient.last_name || ''}`.trim() || '';
-        html = html.replace(/\{\{recipient_name\}\}/gi, recipientName);
-        html = html.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
-        html = html.replace(/\{\{last_name\}\}/gi, recipient.last_name || '');
-        html = html.replace(/\{\{email\}\}/gi, recipient.email || '');
-        subject = subject.replace(/\{\{recipient_name\}\}/gi, recipientName);
-        subject = subject.replace(/\{\{first_name\}\}/gi, recipient.first_name || '');
-
-        const tenantBaseUrl = getTenantBaseUrl(tenantSlug, requestHost);
-        const trackingToken = generateTrackingToken(campaignId, recipient.id, 0);
-        const preferencesUrl = `${tenantBaseUrl}/email-preferences?t=${trackingToken}`;
-        const oneClickUnsubscribeUrl = `${tenantBaseUrl}/api/email-campaigns/unsubscribe?t=${trackingToken}&confirm=true`;
-        const unsubscribeLink = `<a href="${preferencesUrl}" style="color: #666;">Unsubscribe</a>`;
-
-        const hasUnsubscribePlaceholder = /\{\{unsubscribe_link\}\}/i.test(html) || /\{\{unsubscribe_url\}\}/i.test(html);
-
-        html = html.replace(/\{\{unsubscribe_link\}\}/gi, unsubscribeLink);
-        html = html.replace(/\{\{unsubscribe_url\}\}/gi, preferencesUrl);
-        
-        const commPreferencesLink = `<a href="${preferencesUrl}" style="color: #666;">Manage communication preferences</a>`;
-        html = html.replace(/\{\{communication_preferences_link\}\}/gi, commPreferencesLink);
-        html = html.replace(/\{\{communication_preferences_url\}\}/gi, preferencesUrl);
-
-        html = rewriteLinksForTracking(html, campaignId, recipient.id, tenantSlug, requestHost);
-
-        if (!hasUnsubscribePlaceholder && !designHasUnsubscribeBlock) {
-          html += `<p style="margin-top: 20px; font-size: 12px; color: #666; text-align: center;">
-            <a href="${preferencesUrl}" style="color: #666;">Manage email preferences</a>
-          </p>`;
-        }
-
-        const result = await sendEmail({
-          to: recipient.email,
-          subject: subject,
-          html: html,
-          from: campaign.from_name ? `${campaign.from_name} <${campaign.from_email}>` : campaign.from_email,
-          tenantId: tenantId,
-          skipFooter: campaignSkipFooter,
-          contentWidth: campaignContentWidth,
-          enableTracking: true,
-          unsubscribeUrl: oneClickUnsubscribeUrl
-        });
-
-        if (result.success) {
-          await supabase
-            .from('email_campaign_recipient')
-            .update({
-              status: 'sent',
-              sent_at: new Date().toISOString(),
-              mailgun_message_id: result.messageId ? result.messageId.replace(/^<|>$/g, '') : result.messageId
-            })
-            .eq('id', recipient.id);
-
-          sentCount++;
-        } else {
-          await supabase
-            .from('email_campaign_recipient')
-            .update({
-              status: 'failed',
-              error_message: result.error
-            })
-            .eq('id', recipient.id);
-
-          failedCount++;
-        }
-      } catch (err) {
-        console.error(`[Campaign Service] Error sending to ${recipient.email}:`, err);
-        await supabase
-          .from('email_campaign_recipient')
-          .update({
-            status: 'failed',
-            error_message: err.message
-          })
-          .eq('id', recipient.id);
-
-        failedCount++;
-      }
-    }
-
-    await updateCampaign(campaignId, {
-      status: 'sent',
-      completed_at: new Date().toISOString(),
-      sent_count: sentCount
-    }, tenantId);
 
     return {
       success: true,
+      status: 'sending',
       totalRecipients: recipients.length,
-      sent: sentCount,
-      failed: failedCount
+      sent: batchResult.sent,
+      failed: batchResult.failed,
+      remaining: batchResult.remaining
     };
   } catch (err) {
     console.error('[Campaign Service] Error sending campaign:', err);
