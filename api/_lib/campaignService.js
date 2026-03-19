@@ -30,6 +30,62 @@ export function getTenantBaseUrl(tenantSlug, requestHost = null) {
   return `https://${tenantSlug}.${APP_DOMAIN}`;
 }
 
+async function enrichCampaignCounts(campaign) {
+  if (!supabase || !campaign || !campaign.id) return campaign;
+  if (!['sent', 'sending'].includes(campaign.status)) return campaign;
+
+  try {
+    const [sentResult, openedResult, clickedResult, deliveredResult] = await Promise.all([
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).in('status', ['sent', 'delivered', 'opened', 'clicked']),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).gt('open_count', 0),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).gt('click_count', 0),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).in('status', ['delivered', 'opened', 'clicked']),
+    ]);
+
+    if (sentResult.error) throw sentResult.error;
+    if (openedResult.error) throw openedResult.error;
+    if (clickedResult.error) throw clickedResult.error;
+    if (deliveredResult.error) throw deliveredResult.error;
+
+    const liveSentCount = sentResult.count || 0;
+    const liveOpenedCount = openedResult.count || 0;
+    const liveClickedCount = clickedResult.count || 0;
+    const liveDeliveredCount = deliveredResult.count || 0;
+
+    const needsUpdate = campaign.sent_count !== liveSentCount ||
+      campaign.opened_count !== liveOpenedCount ||
+      campaign.clicked_count !== liveClickedCount ||
+      campaign.delivered_count !== liveDeliveredCount;
+
+    if (needsUpdate) {
+      supabase.from('email_campaign').update({
+        sent_count: liveSentCount,
+        opened_count: liveOpenedCount,
+        clicked_count: liveClickedCount,
+        delivered_count: liveDeliveredCount
+      }).eq('id', campaign.id).eq('tenant_id', campaign.tenant_id)
+        .then(({ error }) => {
+          if (error) console.warn('[Campaign Service] Failed to persist enriched counts for campaign', campaign.id, error.message);
+        });
+    }
+
+    return {
+      ...campaign,
+      sent_count: liveSentCount,
+      opened_count: liveOpenedCount,
+      clicked_count: liveClickedCount,
+      delivered_count: liveDeliveredCount
+    };
+  } catch (err) {
+    console.warn('[Campaign Service] Failed to enrich campaign counts:', campaign.id, err.message);
+    return campaign;
+  }
+}
+
 export async function getCampaigns(tenantId, options = {}) {
   if (!supabase || !tenantId) {
     return { success: false, error: 'Database not configured or missing tenant' };
@@ -53,7 +109,11 @@ export async function getCampaigns(tenantId, options = {}) {
     const { data, error } = await query;
 
     if (error) throw error;
-    return { success: true, campaigns: data || [] };
+
+    const campaigns = data || [];
+    const enriched = await Promise.all(campaigns.map(c => enrichCampaignCounts(c)));
+
+    return { success: true, campaigns: enriched };
   } catch (err) {
     console.error('[Campaign Service] Error fetching campaigns:', err);
     return { success: false, error: err.message };
@@ -74,7 +134,8 @@ export async function getCampaign(campaignId, tenantId) {
       .single();
 
     if (error) throw error;
-    return { success: true, campaign: data };
+    const enriched = await enrichCampaignCounts(data);
+    return { success: true, campaign: enriched };
   } catch (err) {
     console.error('[Campaign Service] Error fetching campaign:', err);
     return { success: false, error: err.message };
