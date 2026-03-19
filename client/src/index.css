@@ -711,6 +711,10 @@
 }
 
 .prose strong,
-.prose b {
+.prose b,
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
   color: inherit;
 }
