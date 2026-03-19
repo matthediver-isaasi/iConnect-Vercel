@@ -6,3 +6,9 @@ id = "tQsX-aQ3iKoUUe1yU_gzl"
 uri = "file://attached_assets/mailchimp_member_lookup_results.xlsx"
 type = "table"
 title = "MailChimp Member Lookup Results (Corrected)"
+
+[[outputs]]
+id = "axW6smhLqW0Do65uDwzr1"
+uri = "file://.local/wordpress-integration-proposal.md"
+type = "text"
+title = "WordPress Content Sync Integration — Client Proposal"

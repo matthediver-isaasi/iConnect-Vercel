@@ -86,7 +86,7 @@ function getMarkerShapeIcon(shape) {
 }
 
 function emptyColumn() {
-  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false, vertical_align: 'top', horizontal_align: 'left' };
+  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false, vertical_align: 'top', horizontal_align: 'left', background_color: '' };
 }
 
 function isEmptyHtml(html) {
@@ -106,6 +106,7 @@ function migrateToColumns(item, numCols) {
     has_year_anchor: true,
     vertical_align: 'top',
     horizontal_align: 'left',
+    background_color: '',
   });
   for (let i = 1; i < numCols; i++) {
     cols.push(emptyColumn());
@@ -1192,6 +1193,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         {(colData.sub_items || []).map((sub, sIdx) => {
           const subKey = `${item.year}-col${colIndex}-sub${sIdx}-${sub.year}`;
           const isSubActive = activeYear === subKey;
+          const subDecoration = sub.decoration || 'line';
+          const SubIcon = subDecoration !== 'line' ? getMarkerShapeIcon(subDecoration) : null;
+          const subIconColor = sub.icon_color || (isSubActive ? active_color : line_color);
           return (
             <div
               key={subKey}
@@ -1200,26 +1204,26 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               style={{ scrollMarginTop: `${(isExpanded ? 16 : header_offset) + 8}px`, marginBottom: '24px' }}
               data-testid={`timeline-section-${subKey}`}
             >
-              <div className="border-l-2 pl-4" style={{ borderColor: isSubActive ? active_color : line_color }}>
-                <div data-year-heading style={{ marginBottom: '4px' }}>
-                  <span
-                    className="font-semibold transition-colors duration-200"
-                    style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}
-                  >
-                    {sub.year}
-                  </span>
+              {SubIcon ? (
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <SubIcon style={{ width: 18, height: 18, color: subIconColor, flexShrink: 0, marginTop: '2px' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div data-year-heading style={{ marginBottom: '4px' }}>
+                      <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}>{sub.year}</span>
+                    </div>
+                    {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
+                    {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+                  </div>
                 </div>
-                {sub.heading && (
-                  <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>
-                )}
-                {!isEmptyHtml(sub.body) && (
-                  <div
-                    className="prose prose-sm max-w-none"
-                    style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }}
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
-                  />
-                )}
-              </div>
+              ) : (
+                <div className="border-l-2 pl-4" style={{ borderColor: isSubActive ? active_color : line_color }}>
+                  <div data-year-heading style={{ marginBottom: '4px' }}>
+                    <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}>{sub.year}</span>
+                  </div>
+                  {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
+                  {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+                </div>
+              )}
             </div>
           );
         })}
@@ -1305,8 +1309,11 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               const isAnchor = hasAnyAnchor ? col.has_year_anchor : cIdx === 0;
               const colVAlign = vAlignMap[col.vertical_align || 'top'] || 'flex-start';
               const colTextAlign = col.horizontal_align || 'left';
+              const colBg = col.background_color || '';
+              const colStyle = { display: 'flex', flexDirection: 'column', justifyContent: colVAlign, textAlign: colTextAlign };
+              if (colBg) { colStyle.backgroundColor = colBg; colStyle.padding = '1rem'; colStyle.borderRadius = '8px'; }
               return (
-                <div key={cIdx} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign, textAlign: colTextAlign }}>
+                <div key={cIdx} style={colStyle}>
                   {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx)}
                 </div>
               );
@@ -1447,39 +1454,38 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const isActive = activeYear === subKey;
     const effectiveOffset = isExpanded ? 16 : header_offset;
     const widthStyle = getContentWidthStyle(content, inOverlay);
+    const subDecoration = sub.decoration || 'line';
+    const SubIcon = subDecoration !== 'line' ? getMarkerShapeIcon(subDecoration) : null;
+    const subIconColor = sub.icon_color || (isActive ? active_color : line_color);
+
+    const subInner = (
+      <>
+        <div data-year-heading style={{ marginBottom: '4px' }}>
+          <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || parentItem.label_color || label_color) }}>{sub.year}</span>
+        </div>
+        {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
+        {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+      </>
+    );
 
     return (
       <div
         key={subKey}
         ref={(el) => setSectionRef(subKey, el)}
         data-year={subKey}
-        style={{
-          scrollMarginTop: `${effectiveOffset + 8}px`,
-          marginBottom: '32px',
-          ...widthStyle,
-        }}
+        style={{ scrollMarginTop: `${effectiveOffset + 8}px`, marginBottom: '32px', ...widthStyle }}
         data-testid={`timeline-section-${subKey}`}
       >
-        <div className="border-l-2 pl-4" style={{ borderColor: isActive ? active_color : line_color }}>
-          <div data-year-heading style={{ marginBottom: '4px' }}>
-            <span
-              className="font-semibold transition-colors duration-200"
-              style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || parentItem.label_color || label_color) }}
-            >
-              {sub.year}
-            </span>
+        {SubIcon ? (
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <SubIcon style={{ width: 18, height: 18, color: subIconColor, flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>{subInner}</div>
           </div>
-          {sub.heading && (
-            <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>
-          )}
-          {!isEmptyHtml(sub.body) && (
-            <div
-              className="prose prose-sm max-w-none"
-              style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }}
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
-            />
-          )}
-        </div>
+        ) : (
+          <div className="border-l-2 pl-4" style={{ borderColor: isActive ? active_color : line_color }}>
+            {subInner}
+          </div>
+        )}
       </div>
     );
   };
@@ -2304,7 +2310,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     const parent = items[parentIndex];
     const subs = parent.sub_items || [];
     const nextLabel = `${parent.year || '????'}.${subs.length + 1}`;
-    const newSubs = [...subs, { year: nextLabel, heading: '', body: '', media_items: [] }];
+    const newSubs = [...subs, { year: nextLabel, heading: '', body: '', media_items: [], decoration: 'line' }];
     updateItem(parentIndex, 'sub_items', newSubs);
   };
 
@@ -2333,7 +2339,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     const col = { ...cols[colIndex] };
     const subs = col.sub_items || [];
     const nextLabel = `${newItems[parentIndex].year || '????'}.${subs.length + 1}`;
-    col.sub_items = [...subs, { year: nextLabel, heading: '', body: '', media_items: [] }];
+    col.sub_items = [...subs, { year: nextLabel, heading: '', body: '', media_items: [], decoration: 'line' }];
     cols[colIndex] = col;
     newItems[parentIndex] = { ...newItems[parentIndex], column_content: cols };
     updateContent('items', newItems);
@@ -2781,11 +2787,41 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       );
     };
 
+    const renderSubYearPreview = (sub) => {
+      const deco = sub.decoration || 'line';
+      const DecoIcon = deco !== 'line' ? getMarkerShapeIcon(deco) : null;
+      const iconClr = sub.icon_color || lineColor;
+      const inner = (
+        <>
+          {sub.year && <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#94a3b8' }}>{sub.year}</span>}
+          {sub.heading && <span style={{ fontSize: '0.7rem', color: headingColor || '#64748b' }}> {sub.heading}</span>}
+        </>
+      );
+      if (DecoIcon) {
+        return (
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', marginTop: '4px' }}>
+            <DecoIcon style={{ width: 12, height: 12, color: iconClr, flexShrink: 0, marginTop: '1px' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>{inner}</div>
+          </div>
+        );
+      }
+      return (
+        <div style={{ borderLeft: `2px solid ${lineColor}`, paddingLeft: '8px', marginTop: '4px' }}>
+          {inner}
+        </div>
+      );
+    };
+
     const renderSingleColumn = () => (
       <div>
         {item.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{item.heading}</div>}
         {!isEmptyHtml(item.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
         {renderMediaItems(getItemMediaItems(item))}
+        {(item.sub_items || []).length > 0 && (
+          <div style={{ marginTop: '0.5rem' }}>
+            {(item.sub_items || []).map((sub, si) => <div key={si}>{renderSubYearPreview(sub)}</div>)}
+          </div>
+        )}
       </div>
     );
 
@@ -2797,14 +2833,17 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           {cols.map((col, ci) => {
             const colVAlign = pvAlignMap[col.vertical_align || 'top'] || 'flex-start';
             const colTextAlign = col.horizontal_align || 'left';
+            const pvColBg = col.background_color || '';
+            const pvColStyle = { display: 'flex', flexDirection: 'column', justifyContent: colVAlign, textAlign: colTextAlign };
+            if (pvColBg) { pvColStyle.backgroundColor = pvColBg; pvColStyle.padding = '0.5rem'; pvColStyle.borderRadius = '6px'; }
             return (
-              <div key={ci} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign, textAlign: colTextAlign }}>
+              <div key={ci} style={pvColStyle}>
                 {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
                 {!isEmptyHtml(col.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
                 {renderMediaItems(getColumnMediaItems(col))}
                 {(col.sub_items || []).length > 0 && (
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
-                    {(col.sub_items || []).length} sub-year{(col.sub_items || []).length !== 1 ? 's' : ''}
+                  <div style={{ marginTop: '0.5rem' }}>
+                    {(col.sub_items || []).map((sub, si) => <div key={si}>{renderSubYearPreview(sub)}</div>)}
                   </div>
                 )}
               </div>
@@ -3906,6 +3945,26 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     <option value="right">Right</option>
                                   </select>
                                 </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-slate-600">Bg:</span>
+                                  <input
+                                    type="color"
+                                    value={col.background_color || '#ffffff'}
+                                    onChange={(e) => updateColumnContent(index, cIdx, 'background_color', e.target.value)}
+                                    className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                    data-testid={`input-col-bg-color-${index}-${cIdx}`}
+                                  />
+                                  {col.background_color && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateColumnContent(index, cIdx, 'background_color', '')}
+                                      className="text-[10px] text-slate-400 hover:text-slate-600"
+                                      data-testid={`button-clear-col-bg-${index}-${cIdx}`}
+                                    >
+                                      clear
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <div>
                                 <Label className="text-xs text-slate-600">Heading</Label>
@@ -3989,6 +4048,50 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                               <Label className="text-[10px] text-slate-500">Heading</Label>
                                               <Input value={sub.heading || ''} onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'heading', e.target.value)} placeholder="e.g., Q1 Update" className="mt-0.5 h-7 text-xs" data-testid={`input-col-sub-heading-${index}-${cIdx}-${sIdx}`} />
                                             </div>
+                                          </div>
+                                          <div>
+                                            <Label className="text-[10px] text-slate-500">Decoration</Label>
+                                            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                              <button
+                                                type="button"
+                                                onClick={() => updateColSubItem(index, cIdx, sIdx, 'decoration', 'line')}
+                                                className={`p-1 rounded border text-xs ${(!sub.decoration || sub.decoration === 'line') ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                                                data-testid={`button-col-sub-deco-line-${index}-${cIdx}-${sIdx}`}
+                                                title="Vertical line"
+                                              >
+                                                <div style={{ width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ width: 2, height: 12, backgroundColor: 'currentColor', borderRadius: 1 }} /></div>
+                                              </button>
+                                              {MARKER_SHAPES.map(s => {
+                                                const isSelected = sub.decoration === s.value;
+                                                return (
+                                                  <button
+                                                    key={s.value}
+                                                    type="button"
+                                                    onClick={() => updateColSubItem(index, cIdx, sIdx, 'decoration', s.value)}
+                                                    className={`p-1 rounded border ${isSelected ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                                                    data-testid={`button-col-sub-deco-${s.value}-${index}-${cIdx}-${sIdx}`}
+                                                    title={s.label}
+                                                  >
+                                                    <s.Icon className="w-3.5 h-3.5" />
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                            {sub.decoration && sub.decoration !== 'line' && (
+                                              <div className="flex items-center gap-1.5 mt-1">
+                                                <span className="text-[10px] text-slate-500">Icon colour:</span>
+                                                <input
+                                                  type="color"
+                                                  value={sub.icon_color || '#6b7280'}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'icon_color', e.target.value)}
+                                                  className="w-4 h-4 rounded border border-slate-200 cursor-pointer"
+                                                  data-testid={`input-col-sub-icon-color-${index}-${cIdx}-${sIdx}`}
+                                                />
+                                                {sub.icon_color && (
+                                                  <button type="button" onClick={() => updateColSubItem(index, cIdx, sIdx, 'icon_color', '')} className="text-[10px] text-slate-400 hover:text-slate-600">clear</button>
+                                                )}
+                                              </div>
+                                            )}
                                           </div>
                                           <div>
                                             <Label className="text-[10px] text-slate-500">Body</Label>
@@ -4078,6 +4181,50 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       data-testid={`input-sub-heading-${index}-${sIdx}`}
                                     />
                                   </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-slate-500">Decoration</Label>
+                                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateSubItem(index, sIdx, 'decoration', 'line')}
+                                      className={`p-1 rounded border text-xs ${(!sub.decoration || sub.decoration === 'line') ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                                      data-testid={`button-sub-deco-line-${index}-${sIdx}`}
+                                      title="Vertical line"
+                                    >
+                                      <div style={{ width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ width: 2, height: 12, backgroundColor: 'currentColor', borderRadius: 1 }} /></div>
+                                    </button>
+                                    {MARKER_SHAPES.map(s => {
+                                      const isSelected = sub.decoration === s.value;
+                                      return (
+                                        <button
+                                          key={s.value}
+                                          type="button"
+                                          onClick={() => updateSubItem(index, sIdx, 'decoration', s.value)}
+                                          className={`p-1 rounded border ${isSelected ? 'border-blue-400 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                                          data-testid={`button-sub-deco-${s.value}-${index}-${sIdx}`}
+                                          title={s.label}
+                                        >
+                                          <s.Icon className="w-3.5 h-3.5" />
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {sub.decoration && sub.decoration !== 'line' && (
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                      <span className="text-[10px] text-slate-500">Icon colour:</span>
+                                      <input
+                                        type="color"
+                                        value={sub.icon_color || '#6b7280'}
+                                        onChange={(e) => updateSubItem(index, sIdx, 'icon_color', e.target.value)}
+                                        className="w-4 h-4 rounded border border-slate-200 cursor-pointer"
+                                        data-testid={`input-sub-icon-color-${index}-${sIdx}`}
+                                      />
+                                      {sub.icon_color && (
+                                        <button type="button" onClick={() => updateSubItem(index, sIdx, 'icon_color', '')} className="text-[10px] text-slate-400 hover:text-slate-600">clear</button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="grid grid-cols-3 gap-2">
                                   <div>
