@@ -20,19 +20,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
-
-const TIMEZONES = [
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Berlin',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'Asia/Tokyo',
-  'Asia/Shanghai',
-  'Australia/Sydney'
-];
+import TimezoneSelect from '@/components/TimezoneSelect';
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -247,19 +235,11 @@ export default function BookingAvailabilitySettings() {
               <Globe className="h-4 w-4" />
               Timezone
             </Label>
-            <Select
+            <TimezoneSelect
+              id="timezone"
               value={formData.timezone}
-              onValueChange={(value) => setFormData({ ...formData, timezone: value })}
-            >
-              <SelectTrigger id="timezone" data-testid="select-timezone">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMEZONES.map(tz => (
-                  <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(value) => setFormData({ ...formData, timezone: value })}
+            />
           </div>
         </div>
 
