@@ -606,6 +606,26 @@ export default async function handler(req, res) {
           
           console.log(`[Role Delete] Reassigned ${memberCount} members from role ${id} to default role ${defaultRole.name} (${defaultRole.id})`);
         }
+
+        const roleFkTables = [
+          'role_access_item',
+          'role_organization_field_permission',
+          'role_member_field_permission',
+          'communication_category_role',
+        ];
+
+        for (const table of roleFkTables) {
+          const { error: fkError } = await supabase
+            .from(table)
+            .delete()
+            .eq('role_id', id);
+
+          if (fkError) {
+            console.error(`[Role Delete] Error deleting ${table} records for role ${id}:`, fkError.message);
+          } else {
+            console.log(`[Role Delete] Deleted ${table} records for role ${id}`);
+          }
+        }
       }
 
       if (entity === 'Event') {
