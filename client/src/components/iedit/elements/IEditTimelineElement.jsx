@@ -89,6 +89,12 @@ function emptyColumn() {
   return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false, vertical_align: 'top' };
 }
 
+function isEmptyHtml(html) {
+  if (!html) return true;
+  const stripped = html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  return stripped.length === 0;
+}
+
 function migrateToColumns(item, numCols) {
   const cols = [];
   cols.push({
@@ -1166,7 +1172,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       ) : null;
     })();
 
-    const colBodyBlock = colData.body ? (
+    const hasColBody = !isEmptyHtml(colData.body);
+    const colBodyBlock = hasColBody ? (
       <div>
         <div
           className="prose max-w-none"
@@ -1180,7 +1187,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     ) : null;
 
     const colSubItems = (colData.sub_items || []).length > 0 && typeof colIndex === 'number' ? (
-      <div style={{ marginTop: '24px' }}>
+      <div>
         {(colData.sub_items || []).map((sub, sIdx) => {
           const subKey = `${item.year}-col${colIndex}-sub${sIdx}-${sub.year}`;
           const isSubActive = activeYear === subKey;
@@ -1204,7 +1211,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b' }}>{sub.heading}</h4>
                   )}
                 </div>
-                {sub.body && (
+                {!isEmptyHtml(sub.body) && (
                   <div
                     className="prose prose-sm max-w-none"
                     style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }}
@@ -1342,7 +1349,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const isTextExpanded = !!expandedTexts[item.year];
       const shouldClamp = hlTextLines > 0 && !isTextExpanded;
 
-      const bodyBlock = item.body ? (
+      const bodyBlock = !isEmptyHtml(item.body) ? (
         <div>
           <div
             className="prose max-w-none"
@@ -1463,7 +1470,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b' }}>{sub.heading}</h4>
             )}
           </div>
-          {sub.body && (
+          {!isEmptyHtml(sub.body) && (
             <div
               className="prose prose-sm max-w-none"
               style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }}
@@ -1551,7 +1558,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           const mobileHlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
           const mobileIsTextExpanded = !!expandedTexts[item.year];
           const mobileShouldClamp = mobileHlTextLines > 0 && !mobileIsTextExpanded;
-          return item.body ? (
+          return !isEmptyHtml(item.body) ? (
             <div>
               <div
                 className="prose prose-sm max-w-none"
@@ -2775,7 +2782,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     const renderSingleColumn = () => (
       <div>
         {item.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{item.heading}</div>}
-        {item.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
+        {!isEmptyHtml(item.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
         {renderMediaItems(getItemMediaItems(item))}
       </div>
     );
@@ -2790,7 +2797,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
             return (
               <div key={ci} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign }}>
                 {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
-                {col.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
+                {!isEmptyHtml(col.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
                 {renderMediaItems(getColumnMediaItems(col))}
                 {(col.sub_items || []).length > 0 && (
                   <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
