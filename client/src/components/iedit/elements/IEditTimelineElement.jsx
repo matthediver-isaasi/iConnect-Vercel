@@ -86,7 +86,7 @@ function getMarkerShapeIcon(shape) {
 }
 
 function emptyColumn() {
-  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false };
+  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false, vertical_align: 'top' };
 }
 
 function migrateToColumns(item, numCols) {
@@ -98,6 +98,7 @@ function migrateToColumns(item, numCols) {
     media_items: item.media_items || [],
     sub_items: item.sub_items || [],
     has_year_anchor: true,
+    vertical_align: 'top',
   });
   for (let i = 1; i < numCols; i++) {
     cols.push(emptyColumn());
@@ -1146,20 +1147,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   };
 
   const buildColumnContent = (colData, item, isAnchorCol, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, colIndex) => {
-    const isActive = activeYear === item.year;
-    const headingEl = isAnchorCol ? (
-      <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
-        <span
-          className="font-bold transition-colors duration-200"
-          style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
-        >
-          {item.year}
-        </span>
-        {colData.heading && (
-          <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{colData.heading}</h3>
-        )}
-      </div>
-    ) : colData.heading ? (
+    const headingEl = colData.heading ? (
       <div className={`${isSideLayout ? 'mb-2' : 'mb-3'}`}>
         <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{colData.heading}</h3>
       </div>
@@ -1291,20 +1279,31 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     let innerContent;
 
     if (numCols > 1 && item.column_content && item.column_content.length > 0) {
-      const gridClass = numCols === 3 ? 'grid grid-cols-3 gap-6' : 'grid grid-cols-2 gap-6';
       const visibleCols = item.column_content.slice(0, numCols);
       const hasAnyAnchor = visibleCols.some(c => c.has_year_anchor);
+      const vAlignMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
       innerContent = (
-        <div className={gridClass}>
-          {visibleCols.map((col, cIdx) => {
-            const isAnchor = hasAnyAnchor ? col.has_year_anchor : cIdx === 0;
-            return (
-              <div key={cIdx}>
-                {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx)}
-              </div>
-            );
-          })}
-        </div>
+        <>
+          <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+            <span
+              className="font-bold transition-colors duration-200"
+              style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
+            >
+              {item.year}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numCols}, 1fr)`, gap: '1.5rem' }}>
+            {visibleCols.map((col, cIdx) => {
+              const isAnchor = hasAnyAnchor ? col.has_year_anchor : cIdx === 0;
+              const colVAlign = vAlignMap[col.vertical_align || 'top'] || 'flex-start';
+              return (
+                <div key={cIdx} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign }}>
+                  {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor, cIdx)}
+                </div>
+              );
+            })}
+          </div>
+        </>
       );
     } else {
       const headingBlock = (
@@ -2783,20 +2782,24 @@ export function IEditTimelineElementEditor({ element, onChange }) {
 
     const renderMultiColumn = () => {
       const cols = (item.column_content || []).slice(0, numCols);
+      const pvAlignMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
       return (
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numCols}, 1fr)`, gap: '1rem' }}>
-          {cols.map((col, ci) => (
-            <div key={ci}>
-              {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
-              {col.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
-              {renderMediaItems(getColumnMediaItems(col))}
-              {(col.sub_items || []).length > 0 && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
-                  {(col.sub_items || []).length} sub-year{(col.sub_items || []).length !== 1 ? 's' : ''}
-                </div>
-              )}
-            </div>
-          ))}
+          {cols.map((col, ci) => {
+            const colVAlign = pvAlignMap[col.vertical_align || 'top'] || 'flex-start';
+            return (
+              <div key={ci} style={{ display: 'flex', flexDirection: 'column', justifyContent: colVAlign }}>
+                {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
+                {col.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
+                {renderMediaItems(getColumnMediaItems(col))}
+                {(col.sub_items || []).length > 0 && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+                    {(col.sub_items || []).length} sub-year{(col.sub_items || []).length !== 1 ? 's' : ''}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       );
     };
@@ -3855,7 +3858,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           const colMediaItems = getColumnMediaItems(col);
                           return (
                             <div key={cIdx} className="p-3 space-y-3">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-3 flex-wrap">
                                 <label className="flex items-center gap-1.5 cursor-pointer">
                                   <input
                                     type="radio"
@@ -3867,6 +3870,19 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                   />
                                   <span className="text-xs text-slate-600">Year Anchor</span>
                                 </label>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-slate-600">Align:</span>
+                                  <select
+                                    value={col.vertical_align || 'top'}
+                                    onChange={(e) => updateColumnContent(index, cIdx, 'vertical_align', e.target.value)}
+                                    className="text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white"
+                                    data-testid={`select-col-valign-${index}-${cIdx}`}
+                                  >
+                                    <option value="top">Top</option>
+                                    <option value="middle">Middle</option>
+                                    <option value="bottom">Bottom</option>
+                                  </select>
+                                </div>
                               </div>
                               <div>
                                 <Label className="text-xs text-slate-600">Heading</Label>
