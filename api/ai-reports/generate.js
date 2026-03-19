@@ -236,10 +236,26 @@ function validateRelationToken(token, table) {
   return null;
 }
 
+function selectHasMixedRelationAndAggregate(selectStr) {
+  if (!selectStr || selectStr === '*') return false;
+  const tokens = parseSelectTokens(selectStr);
+  const hasRelation = tokens.some((t) => {
+    if (!t.includes('(') || !t.includes(')')) return false;
+    return !t.match(/^(count|sum|avg|min|max)\s*\(/i);
+  });
+  const hasAggregate = tokens.some((t) => t.match(/^(count|sum|avg|min|max)\s*\(/i));
+  return hasRelation && hasAggregate;
+}
+
 function validateSelectString(selectStr, table) {
   const errors = [];
 
   if (!selectStr || selectStr === '*') return errors;
+
+  if (selectHasMixedRelationAndAggregate(selectStr)) {
+    errors.push('Aggregate functions cannot be combined with relation expansion in the same select. Use visualization aggregation instead.');
+    return errors;
+  }
 
   const tokens = parseSelectTokens(selectStr);
   for (const token of tokens) {
@@ -280,6 +296,40 @@ function validateSelectString(selectStr, table) {
   }
 
   return errors;
+}
+
+function sanitizeSelectForRelations(selectStr) {
+  if (!selectStr || selectStr === '*') return { select: selectStr, strippedAggregateType: null };
+
+  const tokens = parseSelectTokens(selectStr);
+
+  const hasRelation = tokens.some((t) => {
+    if (!t.includes('(') || !t.includes(')')) return false;
+    return !t.match(/^(count|sum|avg|min|max)\s*\(/i);
+  });
+
+  if (!hasRelation) return { select: selectStr, strippedAggregateType: null };
+
+  const aggregateTokens = tokens.filter((t) =>
+    t.match(/^(count|sum|avg|min|max)\s*\(/i)
+  );
+
+  if (aggregateTokens.length === 0) return { select: selectStr, strippedAggregateType: null };
+
+  const fullAggMatch = aggregateTokens[0].match(/^(count|sum|avg|min|max)\s*\(([^)]*)\)/i);
+  const detectedAggType = fullAggMatch ? fullAggMatch[1].toLowerCase() : 'count';
+  const innerColRaw = fullAggMatch ? (fullAggMatch[2] || '').trim() : '';
+  const detectedAggColumn = (innerColRaw && innerColRaw !== '*') ? innerColRaw.split('::')[0].trim() : null;
+
+  const cleaned = tokens.filter(
+    (t) => !t.match(/^(count|sum|avg|min|max)\s*\(/i)
+  );
+
+  return {
+    select: cleaned.join(', ') || '*',
+    strippedAggregateType: detectedAggType,
+    strippedAggregateColumn: detectedAggColumn,
+  };
 }
 
 function validateQuery(queryDef) {
@@ -487,7 +537,8 @@ IMPORTANT RULES:
    - job_posting -> organization(id, name, org_type)
    - member_group_assignment -> member(id, first_name, last_name, email), member_group(id, name)
    Do NOT use rename syntax (e.g. "col:alias"). Do NOT nest relation expansions.
-7. When counting or aggregating, use the select syntax with aggregate functions if possible, otherwise return raw data and the frontend will aggregate
+   CRITICAL: Do NOT combine aggregate functions (count(*), sum(), avg(), etc.) with relation expansion (e.g. form(id,title)) in the same "select" string. PostgREST cannot parse them together and the query will fail. When you need related table data AND aggregation, use relation expansion in "select" to fetch raw data, then set "aggregation" and "aggregationColumn" in the visualization config so the frontend performs the aggregation.
+7. When counting or aggregating with relation expansion, return raw data using relation expansion in select and set "aggregation" (count/sum/avg) and "aggregationColumn" in the visualization config. The frontend will perform the aggregation. Only use aggregate functions like count(*) in the select string when there is NO relation expansion in the same select
 8. Choose the most appropriate chart type for the data:
    - bar: comparing categories
    - line: trends over time
@@ -502,7 +553,7 @@ You MUST respond with valid JSON in this exact format:
   "description": "Brief description of what this report shows",
   "query": {
     "table": "table_name",
-    "select": "column1, column2, count(*)",
+    "select": "column1, column2",
     "filters": [
       { "column": "column_name", "operator": "eq|neq|gt|gte|lt|lte|like|ilike|in|is", "value": "value" }
     ],
@@ -566,6 +617,31 @@ If the user's request is unclear or cannot be answered with the available data, 
 
     if (!aiResponse.query || !aiResponse.query.table) {
       return res.status(500).json({ error: 'AI did not generate a valid query. Please try rephrasing your request.' });
+    }
+
+    if (aiResponse.query.select) {
+      const { select: sanitizedSelect, strippedAggregateType, strippedAggregateColumn } = sanitizeSelectForRelations(aiResponse.query.select);
+      aiResponse.query.select = sanitizedSelect;
+
+      if (strippedAggregateType) {
+        const viz = aiResponse.visualization;
+        const supportedFrontendAggregations = ['count', 'sum', 'avg'];
+        const safeAggType = supportedFrontendAggregations.includes(strippedAggregateType)
+          ? strippedAggregateType
+          : 'count';
+        if (viz && (!viz.aggregation || viz.aggregation === 'none')) {
+          if (!supportedFrontendAggregations.includes(strippedAggregateType)) {
+            console.warn(`[AI Reports] Unsupported aggregate "${strippedAggregateType}" stripped from select; falling back to "count" for frontend aggregation`);
+          }
+          viz.aggregation = safeAggType;
+        }
+        if (viz && strippedAggregateColumn && !viz.aggregationColumn) {
+          viz.aggregationColumn = strippedAggregateColumn;
+        }
+        if (viz && viz.yAxis && !viz.yAxis.key) {
+          viz.yAxis.key = 'value';
+        }
+      }
     }
 
     const validationErrors = validateQuery(aiResponse.query);
