@@ -271,6 +271,8 @@ import ProjectBoard from "./ProjectBoard";
 
 import ReportsDashboard from "./ReportsDashboard";
 
+import AIReports from "./AIReports";
+
 import EventRegistrationReport from "./EventRegistrationReport";
 
 import OrganisationEngagementReport from "./OrganisationEngagementReport";
@@ -623,6 +625,8 @@ const PAGES = {
     Forum: Forum,
     ForumThread: ForumThread,
     ForumManagement: ForumManagement,
+    
+    AIReports: AIReports,
 }
 
 function _getCurrentPage(url) {
@@ -955,6 +959,7 @@ function PagesContent() {
                 <Route path="/ProjectBoard/:id" element={<ProjectBoard />} />
                 
                 <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
+                <Route path="/AIReports" element={<AIReports />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />

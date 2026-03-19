@@ -608,6 +608,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.roleaccessconfigmanagement",
         label: "Role Access Config Management"
+      },
+      {
+        id: "admin.ai-reports",
+        label: "AI Report Generator"
       }
     ]
   },
@@ -983,7 +987,9 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_ProjectBoards": "projects.boards",
   "page_ProjectBoard": "projects.board-view",
   "page_admin_ProjectBoards": "projects.boards",
-  "page_admin_ProjectBoard": "projects.board-view"
+  "page_admin_ProjectBoard": "projects.board-view",
+  "page_AIReports": "admin.ai-reports",
+  "page_admin_AIReports": "admin.ai-reports"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

@@ -172,7 +172,9 @@ const LEGACY_TO_NEW_MAPPING = {
   "action_article_edit": "content.articles.edit",
   "action_article_delete": "content.articles.delete",
   "page_SupportManagement": "support.management",
-  "page_PostJob": "jobs.my-postings"
+  "page_PostJob": "jobs.my-postings",
+  "page_AIReports": "admin.ai-reports",
+  "page_admin_AIReports": "admin.ai-reports"
 };
 
 function migrateLegacyFeatureId(legacyId) {
