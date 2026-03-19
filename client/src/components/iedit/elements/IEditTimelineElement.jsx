@@ -86,7 +86,7 @@ function getMarkerShapeIcon(shape) {
 }
 
 function emptyColumn() {
-  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], has_year_anchor: false };
+  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], sub_items: [], has_year_anchor: false };
 }
 
 function migrateToColumns(item, numCols) {
@@ -96,6 +96,7 @@ function migrateToColumns(item, numCols) {
     body: item.body || '',
     media: item.media || { type: 'image', src: '', alt: '' },
     media_items: item.media_items || [],
+    sub_items: item.sub_items || [],
     has_year_anchor: true,
   });
   for (let i = 1; i < numCols; i++) {
@@ -107,11 +108,13 @@ function migrateToColumns(item, numCols) {
 function flattenColumns(item) {
   const cols = item.column_content || [];
   const anchor = cols.find(c => c.has_year_anchor) || cols[0] || {};
+  const allSubItems = cols.reduce((acc, col) => acc.concat(col.sub_items || []), []);
   return {
     heading: anchor.heading || '',
     body: anchor.body || '',
     media: anchor.media || { type: 'image', src: '', alt: '' },
     media_items: anchor.media_items || [],
+    sub_items: allSubItems,
   };
 }
 
@@ -711,13 +714,22 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         if (mainX === null) mainX = pos.cx;
         markers.push({ type: 'parent', ...pos, year: item.year });
       }
-      (item.sub_items || []).forEach((sub, sIdx) => {
-        const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-        const subPos = findDotCenter(subKey);
-        if (subPos) {
-          markers.push({ type: 'sub', ...subPos, year: subKey });
-        }
-      });
+      const numCols = item.columns || 1;
+      if (numCols > 1 && item.column_content) {
+        item.column_content.slice(0, numCols).forEach((col, cIdx) => {
+          (col.sub_items || []).forEach((sub, sIdx) => {
+            const subKey = `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`;
+            const subPos = findDotCenter(subKey);
+            if (subPos) markers.push({ type: 'sub', ...subPos, year: subKey });
+          });
+        });
+      } else {
+        (item.sub_items || []).forEach((sub, sIdx) => {
+          const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+          const subPos = findDotCenter(subKey);
+          if (subPos) markers.push({ type: 'sub', ...subPos, year: subKey });
+        });
+      }
     });
 
     if (!markers.length || mainX === null) { setNavLinePath(''); return; }
@@ -761,15 +773,35 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const measureSubDotCorrection = useCallback(() => {
     const nav = navRef.current;
     if (!nav || !items.length) return;
-    const parentWithSubs = items.find(item => (item.sub_items || []).length > 0);
-    if (!parentWithSubs) return;
-    const firstSubKey = `${parentWithSubs.year}-sub0-${parentWithSubs.sub_items[0].year}`;
+    let parentWithSubs = null;
+    let firstSub = null;
+    let firstSubKey = null;
+    for (const item of items) {
+      const numCols = item.columns || 1;
+      if (numCols > 1 && item.column_content) {
+        for (let cIdx = 0; cIdx < Math.min(numCols, item.column_content.length); cIdx++) {
+          const colSubs = item.column_content[cIdx].sub_items || [];
+          if (colSubs.length > 0) {
+            parentWithSubs = item;
+            firstSub = colSubs[0];
+            firstSubKey = `${item.year}-col${cIdx}-sub0-${colSubs[0].year}`;
+            break;
+          }
+        }
+      } else if ((item.sub_items || []).length > 0) {
+        parentWithSubs = item;
+        firstSub = item.sub_items[0];
+        firstSubKey = `${item.year}-sub0-${item.sub_items[0].year}`;
+      }
+      if (parentWithSubs) break;
+    }
+    if (!parentWithSubs || !firstSub) return;
     const parentDot = nav.querySelector(`[data-dot-key="${parentWithSubs.year}"]`);
     const subDot = nav.querySelector(`[data-dot-key="${firstSubKey}"]`);
     if (!parentDot || !subDot) return;
     const parentCx = parentDot.getBoundingClientRect().left + parentDot.getBoundingClientRect().width / 2;
     const subCx = subDot.getBoundingClientRect().left + subDot.getBoundingClientRect().width / 2;
-    const subOffX = typeof parentWithSubs.sub_items[0].offset_x === 'number' ? parentWithSubs.sub_items[0].offset_x : sub_offset_x;
+    const subOffX = typeof firstSub.offset_x === 'number' ? firstSub.offset_x : sub_offset_x;
     const currentCorrection = subDotCorrectionRef.current;
     const naturalDelta = parentCx - (subCx - currentCorrection - subOffX);
     const newCorrection = Math.round(naturalDelta);
@@ -809,9 +841,18 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const allYears = [];
     items.forEach((item) => {
       allYears.push(item.year);
-      (item.sub_items || []).forEach((sub, sIdx) => {
-        allYears.push(`${item.year}-sub${sIdx}-${sub.year}`);
-      });
+      const numCols = item.columns || 1;
+      if (numCols > 1 && item.column_content) {
+        item.column_content.slice(0, numCols).forEach((col, cIdx) => {
+          (col.sub_items || []).forEach((sub, sIdx) => {
+            allYears.push(`${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`);
+          });
+        });
+      } else {
+        (item.sub_items || []).forEach((sub, sIdx) => {
+          allYears.push(`${item.year}-sub${sIdx}-${sub.year}`);
+        });
+      }
     });
 
     for (const year of allYears) {
@@ -1639,7 +1680,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     gradientCss: buildRailGradientCss(),
   };
 
-  const maxSubOffX = Math.max(0, ...items.flatMap(i => (i.sub_items || []).map(s => Math.abs((typeof s.offset_x === 'number' ? s.offset_x : sub_offset_x) + subDotCorrection))));
+  const allSubItems = items.flatMap(i => {
+    const nc = i.columns || 1;
+    if (nc > 1 && i.column_content) {
+      return i.column_content.slice(0, nc).flatMap(col => col.sub_items || []);
+    }
+    return i.sub_items || [];
+  });
+  const maxSubOffX = Math.max(0, ...allSubItems.map(s => Math.abs((typeof s.offset_x === 'number' ? s.offset_x : sub_offset_x) + subDotCorrection)));
 
   const desktopTimeline = (inOverlay) => {
     const stickyTop = inOverlay ? 0 : (header_offset + 16);
@@ -1717,12 +1765,16 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               </svg>
             )}
             {items.map((item, idx) => {
-              const subs = item.sub_items || [];
+              const numCols = item.columns || 1;
+              const subs = (numCols > 1 && item.column_content)
+                ? item.column_content.slice(0, numCols).flatMap((col, cIdx) =>
+                    (col.sub_items || []).map((sub, sIdx) => ({ sub, key: `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}` }))
+                  )
+                : (item.sub_items || []).map((sub, sIdx) => ({ sub, key: `${item.year}-sub${sIdx}-${sub.year}` }));
               return (
                 <div key={item.year} className="flex flex-col" style={{ marginBottom: idx < items.length - 1 ? '24px' : 0 }}>
                   {markerNav(idx, item)}
-                  {subs.length > 0 && subs.map((sub, sIdx) => {
-                    const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                  {subs.length > 0 && subs.map(({ sub, key: subKey }) => {
                     const isSubActive = activeYear === subKey;
                     const subLabelSide = sub.label_side || (isLeftLabel ? 'left' : 'below');
                     const subOffX = typeof sub.offset_x === 'number' ? sub.offset_x : sub_offset_x;
@@ -1772,10 +1824,20 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined, width: '100%' }}>
             {items.flatMap((item, idx) => {
               const sections = [contentSection(item, idx, inOverlay)];
-              (item.sub_items || []).forEach((sub, sIdx) => {
-                const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                sections.push(subContentSection(sub, subKey, inOverlay, item));
-              });
+              const numCols = item.columns || 1;
+              if (numCols > 1 && item.column_content) {
+                item.column_content.slice(0, numCols).forEach((col, cIdx) => {
+                  (col.sub_items || []).forEach((sub, sIdx) => {
+                    const subKey = `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`;
+                    sections.push(subContentSection(sub, subKey, inOverlay, item));
+                  });
+                });
+              } else {
+                (item.sub_items || []).forEach((sub, sIdx) => {
+                  const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                  sections.push(subContentSection(sub, subKey, inOverlay, item));
+                });
+              }
               return sections;
             })}
           </div>
@@ -1870,10 +1932,20 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     <div className="space-y-8">
                       {items.flatMap((item) => {
                         const sections = [mobileContentSection(item, true)];
-                        (item.sub_items || []).forEach((sub, sIdx) => {
-                          const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                          sections.push(subContentSection(sub, subKey, true, item));
-                        });
+                        const numCols = item.columns || 1;
+                        if (numCols > 1 && item.column_content) {
+                          item.column_content.slice(0, numCols).forEach((col, cIdx) => {
+                            (col.sub_items || []).forEach((sub, sIdx) => {
+                              const subKey = `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`;
+                              sections.push(subContentSection(sub, subKey, true, item));
+                            });
+                          });
+                        } else {
+                          (item.sub_items || []).forEach((sub, sIdx) => {
+                            const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                            sections.push(subContentSection(sub, subKey, true, item));
+                          });
+                        }
                         return sections;
                       })}
                     </div>
@@ -1927,10 +1999,20 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         <div className="space-y-8">
           {items.flatMap((item) => {
             const sections = [mobileContentSection(item)];
-            (item.sub_items || []).forEach((sub, sIdx) => {
-              const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-              sections.push(subContentSection(sub, subKey, false, item));
-            });
+            const numCols = item.columns || 1;
+            if (numCols > 1 && item.column_content) {
+              item.column_content.slice(0, numCols).forEach((col, cIdx) => {
+                (col.sub_items || []).forEach((sub, sIdx) => {
+                  const subKey = `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`;
+                  sections.push(subContentSection(sub, subKey, false, item));
+                });
+              });
+            } else {
+              (item.sub_items || []).forEach((sub, sIdx) => {
+                const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+                sections.push(subContentSection(sub, subKey, false, item));
+              });
+            }
             return sections;
           })}
         </div>
@@ -2198,6 +2280,54 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     const [moved] = subs.splice(fromIndex, 1);
     subs.splice(toIndex, 0, moved);
     updateItem(parentIndex, 'sub_items', subs);
+  };
+
+  const addColSubItem = (parentIndex, colIndex) => {
+    const newItems = [...items];
+    const cols = [...(newItems[parentIndex].column_content || [])];
+    const col = { ...cols[colIndex] };
+    const subs = col.sub_items || [];
+    const nextLabel = `${newItems[parentIndex].year || '????'}.${subs.length + 1}`;
+    col.sub_items = [...subs, { year: nextLabel, heading: '', body: '', media_items: [] }];
+    cols[colIndex] = col;
+    newItems[parentIndex] = { ...newItems[parentIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
+  const updateColSubItem = (parentIndex, colIndex, subIndex, key, value) => {
+    const newItems = [...items];
+    const cols = [...(newItems[parentIndex].column_content || [])];
+    const col = { ...cols[colIndex] };
+    const subs = [...(col.sub_items || [])];
+    subs[subIndex] = { ...subs[subIndex], [key]: value };
+    col.sub_items = subs;
+    cols[colIndex] = col;
+    newItems[parentIndex] = { ...newItems[parentIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
+  const removeColSubItem = (parentIndex, colIndex, subIndex) => {
+    const newItems = [...items];
+    const cols = [...(newItems[parentIndex].column_content || [])];
+    const col = { ...cols[colIndex] };
+    col.sub_items = (col.sub_items || []).filter((_, i) => i !== subIndex);
+    cols[colIndex] = col;
+    newItems[parentIndex] = { ...newItems[parentIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
+  const moveColSubItem = (parentIndex, colIndex, fromIndex, toIndex) => {
+    const newItems = [...items];
+    const cols = [...(newItems[parentIndex].column_content || [])];
+    const col = { ...cols[colIndex] };
+    const subs = [...(col.sub_items || [])];
+    if (toIndex < 0 || toIndex >= subs.length) return;
+    const [moved] = subs.splice(fromIndex, 1);
+    subs.splice(toIndex, 0, moved);
+    col.sub_items = subs;
+    cols[colIndex] = col;
+    newItems[parentIndex] = { ...newItems[parentIndex], column_content: cols };
+    updateContent('items', newItems);
   };
 
   const handleBgUpload = async (file) => {
@@ -2623,6 +2753,11 @@ export function IEditTimelineElementEditor({ element, onChange }) {
               {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
               {col.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
               {renderMediaItems(getColumnMediaItems(col))}
+              {(col.sub_items || []).length > 0 && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+                  {(col.sub_items || []).length} sub-year{(col.sub_items || []).length !== 1 ? 's' : ''}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -3744,13 +3879,60 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                   )}
                                 </div>
                               </div>
+                              <div className="border-t border-slate-200 pt-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <Label className="text-xs text-slate-600 font-medium">Sub-Years ({(col.sub_items || []).length})</Label>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(e) => { e.stopPropagation(); addColSubItem(index, cIdx); }}
+                                    data-testid={`button-add-col-sub-item-${index}-${cIdx}`}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    Add
+                                  </Button>
+                                </div>
+                                {(col.sub_items || []).length > 0 && (
+                                  <div className="space-y-2 pl-3 border-l-2 border-slate-200">
+                                    {(col.sub_items || []).map((sub, sIdx) => (
+                                      <div key={sIdx} className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+                                        <div className="flex items-center gap-1.5 px-2 py-1.5 bg-slate-50">
+                                          <span className="font-mono text-xs text-slate-600 shrink-0">{sub.year || '????'}</span>
+                                          <span className="text-xs text-slate-400 truncate flex-1">{sub.heading || '(no heading)'}</span>
+                                          <button onClick={() => moveColSubItem(index, cIdx, sIdx, sIdx - 1)} disabled={sIdx === 0} className="p-0.5 rounded text-slate-400 hover:text-slate-600 disabled:opacity-30" type="button" data-testid={`button-move-col-sub-up-${index}-${cIdx}-${sIdx}`}><ChevronUp className="w-3 h-3" /></button>
+                                          <button onClick={() => moveColSubItem(index, cIdx, sIdx, sIdx + 1)} disabled={sIdx === (col.sub_items || []).length - 1} className="p-0.5 rounded text-slate-400 hover:text-slate-600 disabled:opacity-30" type="button" data-testid={`button-move-col-sub-down-${index}-${cIdx}-${sIdx}`}><ChevronDown className="w-3 h-3" /></button>
+                                          <button onClick={() => removeColSubItem(index, cIdx, sIdx)} className="p-0.5 rounded text-red-400 hover:text-red-600" type="button" data-testid={`button-remove-col-sub-${index}-${cIdx}-${sIdx}`}><Trash2 className="w-3 h-3" /></button>
+                                        </div>
+                                        <div className="p-2 space-y-2">
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Label</Label>
+                                              <Input value={sub.year || ''} onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'year', e.target.value)} placeholder="e.g., 2020.1" className="mt-0.5 h-7 text-xs" data-testid={`input-col-sub-year-${index}-${cIdx}-${sIdx}`} />
+                                            </div>
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Heading</Label>
+                                              <Input value={sub.heading || ''} onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'heading', e.target.value)} placeholder="e.g., Q1 Update" className="mt-0.5 h-7 text-xs" data-testid={`input-col-sub-heading-${index}-${cIdx}-${sIdx}`} />
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <Label className="text-[10px] text-slate-500">Body</Label>
+                                            <div className="mt-0.5 [&_.ql-container]:min-h-[60px] [&_.ql-editor]:min-h-[60px] [&_.ql-toolbar]:p-1 [&_.ql-editor]:text-xs">
+                                              <ReactQuill theme="snow" value={sub.body || ''} onChange={(val) => updateColSubItem(index, cIdx, sIdx, 'body', val)} modules={timelineQuillModules} formats={timelineQuillFormats} />
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     )}
 
-                    {/* Sub-Years */}
+                    {(item.columns || 1) === 1 && (
                     <div className="border-t border-slate-200 pt-3">
                       <div className="flex items-center justify-between mb-2">
                         <Label className="text-xs text-slate-600 font-medium">Sub-Years ({(item.sub_items || []).length})</Label>
@@ -4002,6 +4184,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                         </div>
                       )}
                     </div>
+                    )}
 
                     {/* Highlight */}
                     <div className="border-t border-slate-200 pt-3">
