@@ -30,7 +30,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock, Download } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -56,6 +57,8 @@ export default function FormSubmissionsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [viewingSubmission, setViewingSubmission] = useState(null);
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [selectedExportFields, setSelectedExportFields] = useState([]);
 
   const queryClient = useQueryClient();
 
@@ -348,6 +351,107 @@ export default function FormSubmissionsPage() {
     return null;
   };
 
+  const METADATA_FIELDS = [
+    { key: '__form_name', label: 'Form Name' },
+    { key: '__submitter_name', label: 'Submitter Name' },
+    { key: '__submitter_email', label: 'Submitter Email' },
+    { key: '__status', label: 'Status' },
+    { key: '__submission_date', label: 'Submission Date' },
+  ];
+
+  const exportFieldOptions = useMemo(() => {
+    const dynamicFieldKeys = new Map();
+    filteredSubmissions.forEach(submission => {
+      if (!submission.submission_data) return;
+      const form = formsById[submission.form_id];
+      Object.keys(submission.submission_data).forEach(key => {
+        if (dynamicFieldKeys.has(key)) return;
+        let label = key;
+        if (form?.fields) {
+          const field = form.fields.find(f => f.id === key);
+          if (field?.label) label = field.label;
+        }
+        dynamicFieldKeys.set(key, label);
+      });
+    });
+    const dynamicFields = Array.from(dynamicFieldKeys.entries()).map(([key, label]) => ({
+      key,
+      label,
+    }));
+    return [...METADATA_FIELDS, ...dynamicFields];
+  }, [filteredSubmissions, formsById]);
+
+  const handleOpenExportModal = () => {
+    setSelectedExportFields(exportFieldOptions.map(f => f.key));
+    setExportModalOpen(true);
+  };
+
+  const handleToggleExportField = (fieldKey) => {
+    setSelectedExportFields(prev =>
+      prev.includes(fieldKey) ? prev.filter(k => k !== fieldKey) : [...prev, fieldKey]
+    );
+  };
+
+  const handleSelectAllFields = () => {
+    setSelectedExportFields(exportFieldOptions.map(f => f.key));
+  };
+
+  const handleDeselectAllFields = () => {
+    setSelectedExportFields([]);
+  };
+
+  const handleExportCSV = () => {
+    if (filteredSubmissions.length === 0 || selectedExportFields.length === 0) return;
+
+    const selectedOptions = exportFieldOptions.filter(f => selectedExportFields.includes(f.key));
+    const headers = selectedOptions.map(f => f.label);
+
+    const rows = filteredSubmissions.map(submission => {
+      return selectedOptions.map(field => {
+        switch (field.key) {
+          case '__form_name':
+            return resolveFormName(submission);
+          case '__submitter_name':
+            return submission.submitted_by_name || '';
+          case '__submitter_email':
+            return getSubmitterEmail(submission) || '';
+          case '__status':
+            return (submission.status || 'new').charAt(0).toUpperCase() + (submission.status || 'new').slice(1);
+          case '__submission_date':
+            return moment(submission.created_date).format('YYYY-MM-DD HH:mm');
+          default: {
+            const val = submission.submission_data?.[field.key];
+            if (val == null) return '';
+            if (Array.isArray(val)) return val.join(', ');
+            return String(val);
+          }
+        }
+      });
+    });
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+
+    let fileNameParts = ['form_submissions'];
+    if (selectedForm !== 'all') {
+      const formName = formsById[selectedForm]?.name?.replace(/[^a-zA-Z0-9]/g, '_') || 'form';
+      fileNameParts.push(formName);
+    }
+    fileNameParts.push(moment().format('YYYY-MM-DD'));
+    link.download = `${fileNameParts.join('_')}.csv`;
+
+    link.click();
+    URL.revokeObjectURL(url);
+    setExportModalOpen(false);
+    toast.success(`Exported ${filteredSubmissions.length} submissions`);
+  };
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -522,6 +626,15 @@ export default function FormSubmissionsPage() {
                   <SelectItem value="actioned">Actioned</SelectItem>
                 </SelectContent>
               </Select>
+              <Button
+                variant="outline"
+                onClick={handleOpenExportModal}
+                disabled={filteredSubmissions.length === 0}
+                data-testid="button-export-csv"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -821,6 +934,77 @@ export default function FormSubmissionsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Export CSV</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600" data-testid="text-export-count">
+            {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'submission' : 'submissions'} will be exported
+          </p>
+          <div className="flex items-center gap-3 mb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSelectAllFields}
+              data-testid="button-select-all-fields"
+            >
+              Select All
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDeselectAllFields}
+              data-testid="button-deselect-all-fields"
+            >
+              Deselect All
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+            {exportFieldOptions.map(field => (
+              <div
+                key={field.key}
+                className="flex items-center gap-3 py-1"
+                data-testid={`export-field-${field.key}`}
+              >
+                <Checkbox
+                  id={`export-field-${field.key}`}
+                  checked={selectedExportFields.includes(field.key)}
+                  onCheckedChange={() => handleToggleExportField(field.key)}
+                  data-testid={`checkbox-export-field-${field.key}`}
+                />
+                <Label
+                  htmlFor={`export-field-${field.key}`}
+                  className="text-sm cursor-pointer flex-1"
+                >
+                  {field.label}
+                  {field.key.startsWith('__') && (
+                    <span className="text-slate-400 ml-2 text-xs">(metadata)</span>
+                  )}
+                </Label>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-3 pt-4 border-t mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setExportModalOpen(false)}
+              data-testid="button-cancel-export"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleExportCSV}
+              disabled={selectedExportFields.length === 0}
+              data-testid="button-confirm-export"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export {filteredSubmissions.length} {filteredSubmissions.length === 1 ? 'Row' : 'Rows'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
