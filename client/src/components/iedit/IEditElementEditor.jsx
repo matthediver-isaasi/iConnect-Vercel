@@ -46,6 +46,7 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
   const [previewMode, setPreviewMode] = useState('desktop');
   
   const supportsLivePreview = element.element_type === 'hero';
+  const isWideEditor = element.element_type === 'timeline';
   
   const notifyChange = (content, variant, settings) => {
     if (isInlineMode && onChange) {
@@ -626,7 +627,7 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
 
   return (
     <div className={`fixed inset-y-0 right-0 bg-white border-l border-slate-200 shadow-xl z-50 flex transition-all ${
-      supportsLivePreview ? 'w-[calc(100%-4rem)]' : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96')
+      supportsLivePreview ? 'w-[calc(100%-4rem)]' : isWideEditor ? 'w-[calc(100%-4rem)]' : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96')
     }`}>
       {supportsLivePreview && renderLivePreview()}
       

@@ -85,6 +85,36 @@ function getMarkerShapeIcon(shape) {
   return found ? found.Icon : null;
 }
 
+function emptyColumn() {
+  return { heading: '', body: '', media: { type: 'image', src: '', alt: '' }, media_items: [], has_year_anchor: false };
+}
+
+function migrateToColumns(item, numCols) {
+  const cols = [];
+  cols.push({
+    heading: item.heading || '',
+    body: item.body || '',
+    media: item.media || { type: 'image', src: '', alt: '' },
+    media_items: item.media_items || [],
+    has_year_anchor: true,
+  });
+  for (let i = 1; i < numCols; i++) {
+    cols.push(emptyColumn());
+  }
+  return cols;
+}
+
+function flattenColumns(item) {
+  const cols = item.column_content || [];
+  const anchor = cols.find(c => c.has_year_anchor) || cols[0] || {};
+  return {
+    heading: anchor.heading || '',
+    body: anchor.body || '',
+    media: anchor.media || { type: 'image', src: '', alt: '' },
+    media_items: anchor.media_items || [],
+  };
+}
+
 function getContentWidthStyle(content, inModal = false) {
   const w = inModal ? (content.content_width_modal ?? content.content_width ?? 100) : (content.content_width ?? 100);
   if (w >= 100) return null;
@@ -1074,6 +1104,83 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     );
   };
 
+  const buildColumnContent = (colData, item, isAnchorCol, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor) => {
+    const isActive = activeYear === item.year;
+    const headingEl = isAnchorCol ? (
+      <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+        <span
+          className="font-bold transition-colors duration-200"
+          style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
+        >
+          {item.year}
+        </span>
+        {colData.heading && (
+          <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{colData.heading}</h3>
+        )}
+      </div>
+    ) : colData.heading ? (
+      <div className={`${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+        <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{colData.heading}</h3>
+      </div>
+    ) : null;
+
+    const colMediaBlock = colData.media?.type === 'video' && colData.media?.src && !colData.media_items?.length ? (
+      <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-hidden`}>
+        <video src={colData.media.src} controls className="w-full max-w-2xl rounded-lg" />
+      </div>
+    ) : (() => {
+      const mediaImages = getMediaItems(colData);
+      return mediaImages.length > 0 ? (
+        <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
+          <TimelineImageCarousel images={mediaImages} year={item.year} heading={colData.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass="w-full" onPopupClick={setPopupImage} />
+        </div>
+      ) : null;
+    })();
+
+    const colBodyBlock = colData.body ? (
+      <div>
+        <div
+          className="prose max-w-none"
+          style={{
+            fontSize: `${itemBodySize}px`,
+            ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
+          }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(colData.body) }}
+        />
+      </div>
+    ) : null;
+
+    const mediaCol = <div className="w-2/5 shrink-0">{colMediaBlock}</div>;
+    const textCol = <div className="flex-1 min-w-0">{headingEl}{colBodyBlock}</div>;
+    const bodyCol = <div className="flex-1 min-w-0">{colBodyBlock}</div>;
+
+    if (isInline && colMediaBlock) {
+      return (
+        <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
+          {mediaCol}
+          {textCol}
+        </div>
+      );
+    } else if (isSideBySide && colMediaBlock) {
+      return (
+        <>
+          {headingEl}
+          <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
+            {mediaCol}
+            {bodyCol}
+          </div>
+        </>
+      );
+    }
+    return (
+      <>
+        {headingEl}
+        {colMediaBlock}
+        {colBodyBlock}
+      </>
+    );
+  };
+
   const contentSection = (item, idx, inOverlay = false) => {
     const isActive = activeYear === item.year;
     const effectiveOffset = isExpanded ? 16 : header_offset;
@@ -1095,102 +1202,122 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const itemMediaSide = item.content_media_side || content_media_side;
     const mediaOnRight = itemMediaSide === 'right';
 
-    const headingBlock = (
-      <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
-        <span
-          className="font-bold transition-colors duration-200"
-          style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
-        >
-          {item.year}
-        </span>
-        {item.heading && (
-          <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
-        )}
-      </div>
-    );
-
-    const mediaBlock = item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
-      <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-hidden`}>
-        <video
-          src={item.media.src}
-          controls
-          className="w-full max-w-2xl rounded-lg"
-          data-testid={`timeline-video-${item.year}`}
-        />
-      </div>
-    ) : (() => {
-      const mediaImages = getMediaItems(item);
-      return mediaImages.length > 0 ? (
-        <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
-          <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} />
-        </div>
-      ) : null;
-    })();
-
-    const hlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
-    const isTextExpanded = !!expandedTexts[item.year];
-    const shouldClamp = hlTextLines > 0 && !isTextExpanded;
-
-    const bodyBlock = item.body ? (
-      <div>
-        <div
-          className="prose max-w-none"
-          style={{
-            fontSize: `${itemBodySize}px`,
-            ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
-            ...(shouldClamp ? {
-              display: '-webkit-box',
-              WebkitLineClamp: hlTextLines,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            } : {}),
-          }}
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
-        />
-        {hlTextLines > 0 && (
-          <button
-            type="button"
-            onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
-            className="mt-2 text-sm font-medium transition-colors"
-            style={{ color: textColor || active_color }}
-            data-testid={`button-read-more-${item.year}`}
-          >
-            {isTextExpanded ? 'Read less' : 'Read more'}
-          </button>
-        )}
-      </div>
-    ) : null;
-
-    const mediaCol = <div className="w-2/5 shrink-0">{mediaBlock}</div>;
-    const textCol = <div className="flex-1 min-w-0">{headingBlock}{bodyBlock}</div>;
-    const bodyCol = <div className="flex-1 min-w-0">{bodyBlock}</div>;
-
+    const numCols = item.columns || 1;
     let innerContent;
-    if (isInline && mediaBlock) {
+
+    if (numCols > 1 && item.column_content && item.column_content.length > 0) {
+      const gridClass = numCols === 3 ? 'grid grid-cols-3 gap-6' : 'grid grid-cols-2 gap-6';
+      const visibleCols = item.column_content.slice(0, numCols);
+      const hasAnyAnchor = visibleCols.some(c => c.has_year_anchor);
       innerContent = (
-        <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
-          {mediaCol}
-          {textCol}
+        <div className={gridClass}>
+          {visibleCols.map((col, cIdx) => {
+            const isAnchor = hasAnyAnchor ? col.has_year_anchor : cIdx === 0;
+            return (
+              <div key={cIdx}>
+                {buildColumnContent(col, item, isAnchor, isSideLayout, isSideBySide, isInline, mediaOnRight, textColor, itemHeadingSize, itemHeadingColor, itemBodySize, itemBodyColor)}
+              </div>
+            );
+          })}
         </div>
-      );
-    } else if (isSideBySide && mediaBlock) {
-      innerContent = (
-        <>
-          {headingBlock}
-          <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
-            {mediaCol}
-            {bodyCol}
-          </div>
-        </>
       );
     } else {
-      innerContent = (
-        <>
-          {headingBlock}
-          {mediaBlock}
-          {bodyBlock}
-        </>
+      const headingBlock = (
+        <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+          <span
+            className="font-bold transition-colors duration-200"
+            style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
+          >
+            {item.year}
+          </span>
+          {item.heading && (
+            <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
+          )}
+        </div>
       );
+
+      const mediaBlock = item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
+        <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-hidden`}>
+          <video
+            src={item.media.src}
+            controls
+            className="w-full max-w-2xl rounded-lg"
+            data-testid={`timeline-video-${item.year}`}
+          />
+        </div>
+      ) : (() => {
+        const mediaImages = getMediaItems(item);
+        return mediaImages.length > 0 ? (
+          <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
+            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} />
+          </div>
+        ) : null;
+      })();
+
+      const hlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
+      const isTextExpanded = !!expandedTexts[item.year];
+      const shouldClamp = hlTextLines > 0 && !isTextExpanded;
+
+      const bodyBlock = item.body ? (
+        <div>
+          <div
+            className="prose max-w-none"
+            style={{
+              fontSize: `${itemBodySize}px`,
+              ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
+              ...(shouldClamp ? {
+                display: '-webkit-box',
+                WebkitLineClamp: hlTextLines,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              } : {}),
+            }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
+          />
+          {hlTextLines > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
+              className="mt-2 text-sm font-medium transition-colors"
+              style={{ color: textColor || active_color }}
+              data-testid={`button-read-more-${item.year}`}
+            >
+              {isTextExpanded ? 'Read less' : 'Read more'}
+            </button>
+          )}
+        </div>
+      ) : null;
+
+      const mediaCol = <div className="w-2/5 shrink-0">{mediaBlock}</div>;
+      const textCol = <div className="flex-1 min-w-0">{headingBlock}{bodyBlock}</div>;
+      const bodyCol = <div className="flex-1 min-w-0">{bodyBlock}</div>;
+
+      if (isInline && mediaBlock) {
+        innerContent = (
+          <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
+            {mediaCol}
+            {textCol}
+          </div>
+        );
+      } else if (isSideBySide && mediaBlock) {
+        innerContent = (
+          <>
+            {headingBlock}
+            <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
+              {mediaCol}
+              {bodyCol}
+            </div>
+          </>
+        );
+      } else {
+        innerContent = (
+          <>
+            {headingBlock}
+            {mediaBlock}
+            {bodyBlock}
+          </>
+        );
+      }
     }
 
     return (
@@ -1833,9 +1960,19 @@ export function IEditTimelineElementEditor({ element, onChange }) {
   const [isRailBgUploading, setIsRailBgUploading] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [activeColumnTab, setActiveColumnTab] = useState(0);
 
   const content = element.content || {};
   const items = content.items || [];
+
+  useEffect(() => {
+    if (expandedItem !== null && items[expandedItem]) {
+      const numCols = items[expandedItem].columns || 1;
+      if (activeColumnTab >= numCols) setActiveColumnTab(0);
+    } else {
+      setActiveColumnTab(0);
+    }
+  }, [expandedItem]);
 
   const updateContent = (key, value) => {
     onChange({
@@ -1925,6 +2062,84 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       alert('Failed to upload image: ' + error.message);
     } finally {
       setIsHighlightBgUploading(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
+  const setItemColumns = (index, numCols) => {
+    const item = items[index];
+    const currentCols = item.columns || 1;
+    if (numCols === currentCols) return;
+    const newItems = [...items];
+    if (numCols === 1) {
+      const flat = flattenColumns(item);
+      newItems[index] = { ...newItems[index], ...flat, columns: 1, column_content: undefined };
+    } else if (currentCols === 1) {
+      newItems[index] = { ...newItems[index], columns: numCols, column_content: migrateToColumns(item, numCols) };
+    } else {
+      const existing = item.column_content || [];
+      const cols = [];
+      for (let i = 0; i < Math.max(numCols, existing.length); i++) {
+        cols.push(existing[i] || emptyColumn());
+      }
+      if (!cols.slice(0, numCols).some(c => c.has_year_anchor)) {
+        cols[0] = { ...cols[0], has_year_anchor: true };
+      }
+      newItems[index] = { ...newItems[index], columns: numCols, column_content: cols };
+    }
+    updateContent('items', newItems);
+    setActiveColumnTab(0);
+  };
+
+  const updateColumnContent = (itemIndex, colIndex, key, value) => {
+    const newItems = [...items];
+    const cols = [...(newItems[itemIndex].column_content || [])];
+    cols[colIndex] = { ...cols[colIndex], [key]: value };
+    newItems[itemIndex] = { ...newItems[itemIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
+  const setColumnAnchor = (itemIndex, colIndex) => {
+    const newItems = [...items];
+    const cols = (newItems[itemIndex].column_content || []).map((c, i) => ({
+      ...c,
+      has_year_anchor: i === colIndex,
+    }));
+    newItems[itemIndex] = { ...newItems[itemIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
+  const getColumnMediaItems = (col) => {
+    if (col.media_items && col.media_items.length > 0) return col.media_items;
+    if (col.media && col.media.src) return [{ src: col.media.src, alt: col.media.alt || '' }];
+    return [];
+  };
+
+  const updateColumnMediaItems = (itemIndex, colIndex, newMediaItems) => {
+    const newItems = [...items];
+    const cols = [...(newItems[itemIndex].column_content || [])];
+    cols[colIndex] = {
+      ...cols[colIndex],
+      media_items: newMediaItems,
+      media: newMediaItems.length > 0
+        ? { type: 'image', src: newMediaItems[0].src, alt: newMediaItems[0].alt || '' }
+        : { type: 'image', src: '', alt: '' }
+    };
+    newItems[itemIndex] = { ...newItems[itemIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
+  const handleColumnImageUpload = async (itemIndex, colIndex, file) => {
+    if (!file) return;
+    const uploadKey = `${itemIndex}-col-${colIndex}`;
+    setIsUploading(prev => ({ ...prev, [uploadKey]: true }));
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      const current = getColumnMediaItems(items[itemIndex].column_content[colIndex]);
+      updateColumnMediaItems(itemIndex, colIndex, [...current, { src: response.file_url, alt: '' }]);
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsUploading(prev => ({ ...prev, [uploadKey]: false }));
     }
   };
 
@@ -2364,6 +2579,72 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     } finally {
       setIsUploading(prev => ({ ...prev, [index]: false }));
     }
+  };
+
+  const renderPreviewCard = (item) => {
+    if (!item) return null;
+    const numCols = item.columns || 1;
+    const lineColor = content.line_color || '#d1d5db';
+    const markerColor = item.marker_color || content.marker_color || lineColor;
+    const hlStyle = item.highlight ? getHighlightStyle(item.highlight) : null;
+    const globalHeadingSize = content.heading_size || 20;
+    const globalBodySize = content.body_size || 16;
+    const itemHeadingSize = `${item.heading_size || globalHeadingSize}px`;
+    const itemBodySize = `${item.body_size || globalBodySize}px`;
+    const headingColor = item.heading_color || content.heading_color || '#1e293b';
+    const bodyColor = item.body_color || content.body_color || '';
+    const textColor = hlStyle && item.highlight?.text_color ? item.highlight.text_color : '';
+
+    const renderMediaItems = (mediaList) => {
+      if (!mediaList || mediaList.length === 0) return null;
+      return (
+        <div className="flex flex-wrap gap-2 mt-2">
+          {mediaList.map((m, i) => (
+            <img key={i} src={m.src} alt={m.alt || ''} className={`h-16 object-cover rounded ${m.display === 'circle' ? 'rounded-full w-16' : m.display === 'square' ? 'w-16' : 'w-auto max-w-[120px]'}`} style={{ border: '1px solid #e2e8f0' }} onError={(e) => { e.target.style.display = 'none'; }} />
+          ))}
+        </div>
+      );
+    };
+
+    const renderSingleColumn = () => (
+      <div>
+        {item.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{item.heading}</div>}
+        {item.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
+        {renderMediaItems(getItemMediaItems(item))}
+      </div>
+    );
+
+    const renderMultiColumn = () => {
+      const cols = (item.column_content || []).slice(0, numCols);
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numCols}, 1fr)`, gap: '1rem' }}>
+          {cols.map((col, ci) => (
+            <div key={ci}>
+              {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
+              {col.body && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
+              {renderMediaItems(getColumnMediaItems(col))}
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    const cardContent = numCols === 1 ? renderSingleColumn() : renderMultiColumn();
+
+    return (
+      <div className="rounded-lg border border-slate-200 overflow-hidden" style={hlStyle ? { ...hlStyle, padding: '1rem' } : { padding: '1rem', background: '#fff' }}>
+        <div className="flex items-start gap-3">
+          <div className="flex flex-col items-center shrink-0" style={{ marginTop: '4px' }}>
+            <div style={{ width: 14, height: 14, borderRadius: '50%', background: markerColor, border: `2px solid ${markerColor}` }} />
+            <div style={{ width: 2, height: 40, background: lineColor, marginTop: 4 }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            {item.year && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: textColor || '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>{item.year}</div>}
+            {cardContent}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -2941,6 +3222,13 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           </Button>
         </div>
 
+        {expandedItem !== null && items[expandedItem] && (
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/30 p-3">
+            <Label className="text-xs text-blue-600 font-medium mb-2 block">Live Preview</Label>
+            {renderPreviewCard(items[expandedItem])}
+          </div>
+        )}
+
         <div className="space-y-2">
           {items.map((item, index) => {
             const isExpanded = expandedItem === index;
@@ -3036,8 +3324,8 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                 {/* Item body */}
                 {isExpanded && (
                   <div className="p-3 space-y-3 border-t border-slate-200">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
+                    <div className="flex items-end gap-3">
+                      <div className="flex-1">
                         <Label className="text-xs text-slate-600">Year</Label>
                         <Input
                           value={item.year || ''}
@@ -3047,15 +3335,37 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                           data-testid={`input-year-${index}`}
                         />
                       </div>
+                      {(item.columns || 1) === 1 && (
+                        <div className="flex-1">
+                          <Label className="text-xs text-slate-600">Heading</Label>
+                          <Input
+                            value={item.heading || ''}
+                            onChange={(e) => updateItem(index, 'heading', e.target.value)}
+                            placeholder="e.g., Founded"
+                            className="mt-1"
+                            data-testid={`input-heading-${index}`}
+                          />
+                        </div>
+                      )}
                       <div>
-                        <Label className="text-xs text-slate-600">Heading</Label>
-                        <Input
-                          value={item.heading || ''}
-                          onChange={(e) => updateItem(index, 'heading', e.target.value)}
-                          placeholder="e.g., Founded"
-                          className="mt-1"
-                          data-testid={`input-heading-${index}`}
-                        />
+                        <Label className="text-xs text-slate-600">Columns</Label>
+                        <div className="flex items-center gap-1 mt-1">
+                          {[1, 2, 3].map(n => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setItemColumns(index, n)}
+                              className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+                                (item.columns || 1) === n
+                                  ? 'bg-slate-700 text-white border-slate-700'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
+                              }`}
+                              data-testid={`button-columns-${index}-${n}`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -3269,234 +3579,176 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                       </div>
                     </div>
 
-                    <div>
-                      <Label className="text-xs text-slate-600">Body Content</Label>
-                      <div className="mt-1 [&_.ql-container]:min-h-[80px] [&_.ql-editor]:min-h-[80px]">
-                        <ReactQuill
-                          theme="snow"
-                          value={item.body || ''}
-                          onChange={(val) => updateItem(index, 'body', val)}
-                          modules={timelineQuillModules}
-                          formats={timelineQuillFormats}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Media - Multiple Images */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <Label className="text-xs text-slate-600">Images ({getItemMediaItems(item).length}/5)</Label>
-                      </div>
-                      <div className="mt-1 space-y-2">
-                        {getItemMediaItems(item).length > 0 && (
-                          <div className="grid grid-cols-3 gap-2">
-                            {getItemMediaItems(item).map((mediaImg, mIdx) => {
-                              const totalImages = getItemMediaItems(item).length;
-                              return (
-                              <div key={mIdx} className="relative rounded-lg overflow-hidden border border-slate-200 group">
-                                <img
-                                  src={mediaImg.src}
-                                  alt={mediaImg.alt || ''}
-                                  className="w-full h-20 object-cover"
-                                  onError={(e) => { e.target.style.display = 'none'; }}
-                                />
-                                <div className="absolute top-1 left-1 flex gap-0.5" style={{ visibility: totalImages > 1 ? 'visible' : 'hidden' }}>
-                                  <button
-                                    onClick={() => moveMediaItem(index, mIdx, mIdx - 1)}
-                                    disabled={mIdx === 0}
-                                    className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30"
-                                    title="Move left"
-                                    type="button"
-                                    data-testid={`button-move-media-left-${index}-${mIdx}`}
-                                  >
-                                    <ChevronLeft className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => moveMediaItem(index, mIdx, mIdx + 1)}
-                                    disabled={mIdx === totalImages - 1}
-                                    className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30"
-                                    title="Move right"
-                                    type="button"
-                                    data-testid={`button-move-media-right-${index}-${mIdx}`}
-                                  >
-                                    <ChevronRight className="w-3 h-3" />
-                                  </button>
-                                </div>
-                                <button
-                                  onClick={() => removeMediaItem(index, mIdx)}
-                                  className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors"
-                                  title="Remove image"
-                                  type="button"
-                                  data-testid={`button-remove-media-${index}-${mIdx}`}
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                                <div className="flex border-t border-slate-200 bg-white">
-                                  <input
-                                    value={mediaImg.alt || ''}
-                                    onChange={(e) => {
-                                      const current = getItemMediaItems(items[index]);
-                                      const updated = [...current];
-                                      updated[mIdx] = { ...updated[mIdx], alt: e.target.value };
-                                      updateItemMediaItems(index, updated);
-                                    }}
-                                    placeholder="Alt text"
-                                    className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-transparent"
-                                    data-testid={`input-media-alt-${index}-${mIdx}`}
-                                  />
-                                </div>
-                                <div className="flex border-t border-slate-200 bg-white">
-                                  {[
-                                    { value: 'original', label: 'Orig' },
-                                    { value: 'square', label: 'Sq' },
-                                    { value: 'circle', label: 'Circ' },
-                                  ].map(opt => (
-                                    <button
-                                      key={opt.value}
-                                      type="button"
-                                      onClick={() => {
-                                        const current = getItemMediaItems(items[index]);
-                                        const updated = [...current];
-                                        updated[mIdx] = { ...updated[mIdx], display: opt.value };
-                                        updateItemMediaItems(index, updated);
-                                      }}
-                                      className={`flex-1 text-[9px] py-0.5 transition-colors ${
-                                        (mediaImg.display || 'original') === opt.value
-                                          ? 'bg-slate-700 text-white'
-                                          : 'text-slate-500 hover:bg-slate-100'
-                                      }`}
-                                      data-testid={`button-media-display-${index}-${mIdx}-${opt.value}`}
-                                    >
-                                      {opt.label}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="border-t border-slate-200 bg-white px-1.5 py-1 space-y-1">
-                                  <div className="flex items-center gap-1">
-                                    <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <div className="flex gap-0.5 flex-1">
-                                      {[
-                                        { value: '', label: 'None' },
-                                        { value: 'url', label: 'URL' },
-                                        { value: 'popup', label: 'Popup' },
-                                      ].map(opt => (
-                                        <button
-                                          key={opt.value}
-                                          type="button"
-                                          onClick={() => {
-                                            const current = getItemMediaItems(items[index]);
-                                            const updated = [...current];
-                                            updated[mIdx] = { ...updated[mIdx], link_type: opt.value || undefined };
-                                            updateItemMediaItems(index, updated);
-                                          }}
-                                          className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${
-                                            (mediaImg.link_type || '') === opt.value
-                                              ? 'bg-slate-700 text-white'
-                                              : 'text-slate-500 hover:bg-slate-100'
-                                          }`}
-                                          data-testid={`button-media-link-type-${index}-${mIdx}-${opt.value || 'none'}`}
-                                        >
-                                          {opt.label}
-                                        </button>
+                    {(item.columns || 1) === 1 ? (
+                      <>
+                        <div>
+                          <Label className="text-xs text-slate-600">Body Content</Label>
+                          <div className="mt-1 [&_.ql-container]:min-h-[80px] [&_.ql-editor]:min-h-[80px]">
+                            <ReactQuill
+                              theme="snow"
+                              value={item.body || ''}
+                              onChange={(val) => updateItem(index, 'body', val)}
+                              modules={timelineQuillModules}
+                              formats={timelineQuillFormats}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <Label className="text-xs text-slate-600">Images ({getItemMediaItems(item).length}/5)</Label>
+                          </div>
+                          <div className="mt-1 space-y-2">
+                            {getItemMediaItems(item).length > 0 && (
+                              <div className="grid grid-cols-3 gap-2">
+                                {getItemMediaItems(item).map((mediaImg, mIdx) => {
+                                  const totalImages = getItemMediaItems(item).length;
+                                  return (
+                                  <div key={mIdx} className="relative rounded-lg overflow-hidden border border-slate-200 group">
+                                    <img src={mediaImg.src} alt={mediaImg.alt || ''} className="w-full h-20 object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                                    <div className="absolute top-1 left-1 flex gap-0.5" style={{ visibility: totalImages > 1 ? 'visible' : 'hidden' }}>
+                                      <button onClick={() => moveMediaItem(index, mIdx, mIdx - 1)} disabled={mIdx === 0} className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30" title="Move left" type="button" data-testid={`button-move-media-left-${index}-${mIdx}`}><ChevronLeft className="w-3 h-3" /></button>
+                                      <button onClick={() => moveMediaItem(index, mIdx, mIdx + 1)} disabled={mIdx === totalImages - 1} className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30" title="Move right" type="button" data-testid={`button-move-media-right-${index}-${mIdx}`}><ChevronRight className="w-3 h-3" /></button>
+                                    </div>
+                                    <button onClick={() => removeMediaItem(index, mIdx)} className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors" title="Remove image" type="button" data-testid={`button-remove-media-${index}-${mIdx}`}><X className="w-3 h-3" /></button>
+                                    <div className="flex border-t border-slate-200 bg-white">
+                                      <input value={mediaImg.alt || ''} onChange={(e) => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], alt: e.target.value }; updateItemMediaItems(index, updated); }} placeholder="Alt text" className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-transparent" data-testid={`input-media-alt-${index}-${mIdx}`} />
+                                    </div>
+                                    <div className="flex border-t border-slate-200 bg-white">
+                                      {[{ value: 'original', label: 'Orig' }, { value: 'square', label: 'Sq' }, { value: 'circle', label: 'Circ' }].map(opt => (
+                                        <button key={opt.value} type="button" onClick={() => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], display: opt.value }; updateItemMediaItems(index, updated); }} className={`flex-1 text-[9px] py-0.5 transition-colors ${(mediaImg.display || 'original') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-media-display-${index}-${mIdx}-${opt.value}`}>{opt.label}</button>
                                       ))}
                                     </div>
-                                  </div>
-                                  {mediaImg.link_type === 'url' && (
-                                    <div className="space-y-1">
-                                      <input
-                                        value={mediaImg.link_url || ''}
-                                        onChange={(e) => {
-                                          const current = getItemMediaItems(items[index]);
-                                          const updated = [...current];
-                                          updated[mIdx] = { ...updated[mIdx], link_url: e.target.value };
-                                          updateItemMediaItems(index, updated);
-                                        }}
-                                        placeholder="https://..."
-                                        className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded"
-                                        data-testid={`input-media-link-url-${index}-${mIdx}`}
-                                      />
-                                      <div className="flex gap-0.5">
-                                        {[
-                                          { value: '_blank', label: 'New Tab' },
-                                          { value: '_self', label: 'Same Tab' },
-                                        ].map(opt => (
-                                          <button
-                                            key={opt.value}
-                                            type="button"
-                                            onClick={() => {
-                                              const current = getItemMediaItems(items[index]);
-                                              const updated = [...current];
-                                              updated[mIdx] = { ...updated[mIdx], link_target: opt.value };
-                                              updateItemMediaItems(index, updated);
-                                            }}
-                                            className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${
-                                              (mediaImg.link_target || '_blank') === opt.value
-                                                ? 'bg-slate-700 text-white'
-                                                : 'text-slate-500 hover:bg-slate-100'
-                                            }`}
-                                            data-testid={`button-media-link-target-${index}-${mIdx}-${opt.value}`}
-                                          >
-                                            {opt.label}
-                                          </button>
-                                        ))}
+                                    <div className="border-t border-slate-200 bg-white px-1.5 py-1 space-y-1">
+                                      <div className="flex items-center gap-1">
+                                        <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
+                                        <div className="flex gap-0.5 flex-1">
+                                          {[{ value: '', label: 'None' }, { value: 'url', label: 'URL' }, { value: 'popup', label: 'Popup' }].map(opt => (
+                                            <button key={opt.value} type="button" onClick={() => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], link_type: opt.value || undefined }; updateItemMediaItems(index, updated); }} className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${(mediaImg.link_type || '') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-media-link-type-${index}-${mIdx}-${opt.value || 'none'}`}>{opt.label}</button>
+                                          ))}
+                                        </div>
                                       </div>
+                                      {mediaImg.link_type === 'url' && (
+                                        <div className="space-y-1">
+                                          <input value={mediaImg.link_url || ''} onChange={(e) => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], link_url: e.target.value }; updateItemMediaItems(index, updated); }} placeholder="https://..." className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded" data-testid={`input-media-link-url-${index}-${mIdx}`} />
+                                          <div className="flex gap-0.5">
+                                            {[{ value: '_blank', label: 'New Tab' }, { value: '_self', label: 'Same Tab' }].map(opt => (
+                                              <button key={opt.value} type="button" onClick={() => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], link_target: opt.value }; updateItemMediaItems(index, updated); }} className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${(mediaImg.link_target || '_blank') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-media-link-target-${index}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {mediaImg.link_type === 'popup' && (
+                                        <textarea value={mediaImg.link_embed || ''} onChange={(e) => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], link_embed: e.target.value }; updateItemMediaItems(index, updated); }} placeholder="Paste iframe embed code or URL" rows={2} className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded resize-none" data-testid={`input-media-link-embed-${index}-${mIdx}`} />
+                                      )}
+                                    </div>
+                                  </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {getItemMediaItems(item).length < 5 && (
+                              <div className="flex gap-2">
+                                <label className="cursor-pointer flex-1">
+                                  <div className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border-2 border-dashed transition-colors ${isUploading[index] ? 'border-slate-200 bg-slate-100 cursor-not-allowed' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/50'}`}>
+                                    {isUploading[index] ? (<span className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />) : (<><Upload className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-500">Add Image</span></>)}
+                                  </div>
+                                  <input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageUpload(index, file); e.target.value = ''; }} className="hidden" disabled={isUploading[index]} data-testid={`input-upload-media-${index}`} />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                        <div className="flex border-b border-slate-200 bg-slate-50">
+                          {(item.column_content || []).slice(0, item.columns || 1).map((col, cIdx) => (
+                            <button
+                              key={cIdx}
+                              type="button"
+                              onClick={() => setActiveColumnTab(cIdx)}
+                              className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+                                activeColumnTab === cIdx ? 'bg-white text-slate-900 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-700'
+                              }`}
+                              data-testid={`button-column-tab-${index}-${cIdx}`}
+                            >
+                              Col {cIdx + 1}
+                              {col.has_year_anchor && <span className="ml-1 text-[9px] text-blue-500">(anchor)</span>}
+                            </button>
+                          ))}
+                        </div>
+                        {(item.column_content || []).slice(0, item.columns || 1).map((col, cIdx) => {
+                          if (cIdx !== activeColumnTab) return null;
+                          const colUploadKey = `${index}-col-${cIdx}`;
+                          const colMediaItems = getColumnMediaItems(col);
+                          return (
+                            <div key={cIdx} className="p-3 space-y-3">
+                              <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name={`anchor-${index}`}
+                                    checked={col.has_year_anchor}
+                                    onChange={() => setColumnAnchor(index, cIdx)}
+                                    className="w-3 h-3"
+                                    data-testid={`radio-anchor-${index}-${cIdx}`}
+                                  />
+                                  <span className="text-xs text-slate-600">Year Anchor</span>
+                                </label>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-600">Heading</Label>
+                                <Input
+                                  value={col.heading || ''}
+                                  onChange={(e) => updateColumnContent(index, cIdx, 'heading', e.target.value)}
+                                  placeholder="Column heading"
+                                  className="mt-1"
+                                  data-testid={`input-col-heading-${index}-${cIdx}`}
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-600">Body Content</Label>
+                                <div className="mt-1 [&_.ql-container]:min-h-[80px] [&_.ql-editor]:min-h-[80px]">
+                                  <ReactQuill
+                                    theme="snow"
+                                    value={col.body || ''}
+                                    onChange={(val) => updateColumnContent(index, cIdx, 'body', val)}
+                                    modules={timelineQuillModules}
+                                    formats={timelineQuillFormats}
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-slate-600">Images ({colMediaItems.length}/5)</Label>
+                                <div className="mt-1 space-y-2">
+                                  {colMediaItems.length > 0 && (
+                                    <div className="grid grid-cols-3 gap-2">
+                                      {colMediaItems.map((mediaImg, mIdx) => (
+                                        <div key={mIdx} className="relative rounded-lg overflow-hidden border border-slate-200">
+                                          <img src={mediaImg.src} alt={mediaImg.alt || ''} className="w-full h-16 object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                                          <button onClick={() => { const updated = colMediaItems.filter((_, i) => i !== mIdx); updateColumnMediaItems(index, cIdx, updated); }} className="absolute top-1 right-1 p-0.5 bg-red-600 hover:bg-red-700 text-white rounded-full" type="button" data-testid={`button-remove-col-media-${index}-${cIdx}-${mIdx}`}><X className="w-3 h-3" /></button>
+                                          <div className="flex border-t border-slate-200 bg-white">
+                                            <input value={mediaImg.alt || ''} onChange={(e) => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], alt: e.target.value }; updateColumnMediaItems(index, cIdx, updated); }} placeholder="Alt text" className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-transparent" data-testid={`input-col-media-alt-${index}-${cIdx}-${mIdx}`} />
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
                                   )}
-                                  {mediaImg.link_type === 'popup' && (
-                                    <textarea
-                                      value={mediaImg.link_embed || ''}
-                                      onChange={(e) => {
-                                        const current = getItemMediaItems(items[index]);
-                                        const updated = [...current];
-                                        updated[mIdx] = { ...updated[mIdx], link_embed: e.target.value };
-                                        updateItemMediaItems(index, updated);
-                                      }}
-                                      placeholder="Paste iframe embed code or URL"
-                                      rows={2}
-                                      className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded resize-none"
-                                      data-testid={`input-media-link-embed-${index}-${mIdx}`}
-                                    />
+                                  {colMediaItems.length < 5 && (
+                                    <label className="cursor-pointer block">
+                                      <div className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border-2 border-dashed transition-colors ${isUploading[colUploadKey] ? 'border-slate-200 bg-slate-100 cursor-not-allowed' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/50'}`}>
+                                        {isUploading[colUploadKey] ? (<span className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />) : (<><Upload className="w-4 h-4 text-slate-400" /><span className="text-xs text-slate-500">Add Image</span></>)}
+                                      </div>
+                                      <input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleColumnImageUpload(index, cIdx, file); e.target.value = ''; }} className="hidden" disabled={isUploading[colUploadKey]} data-testid={`input-upload-col-media-${index}-${cIdx}`} />
+                                    </label>
                                   )}
                                 </div>
                               </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {getItemMediaItems(item).length < 5 && (
-                          <div className="flex gap-2">
-                            <label className="cursor-pointer flex-1">
-                              <div className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border-2 border-dashed transition-colors ${
-                                isUploading[index]
-                                  ? 'border-slate-200 bg-slate-100 cursor-not-allowed'
-                                  : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/50'
-                              }`}>
-                                {isUploading[index] ? (
-                                  <span className="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full" />
-                                ) : (
-                                  <>
-                                    <Upload className="w-4 h-4 text-slate-400" />
-                                    <span className="text-xs text-slate-500">Add Image</span>
-                                  </>
-                                )}
-                              </div>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) handleImageUpload(index, file);
-                                  e.target.value = '';
-                                }}
-                                className="hidden"
-                                disabled={isUploading[index]}
-                                data-testid={`input-upload-media-${index}`}
-                              />
-                            </label>
-                          </div>
-                        )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
+                    )}
 
                     {/* Sub-Years */}
                     <div className="border-t border-slate-200 pt-3">
