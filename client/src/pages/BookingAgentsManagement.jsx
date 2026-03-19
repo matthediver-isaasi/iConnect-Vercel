@@ -35,6 +35,7 @@ import {
   Monitor
 } from 'lucide-react';
 import { toast } from 'sonner';
+import TimezoneSelect from '@/components/TimezoneSelect';
 
 const MEETING_TYPES = [
   { value: 'phone', label: 'Phone Call', icon: Phone },
@@ -52,14 +53,6 @@ const DURATION_OPTIONS = [
   { value: 120, label: '2 hours' }
 ];
 
-const TIMEZONE_OPTIONS = [
-  { value: 'Europe/London', label: 'London (GMT/BST)' },
-  { value: 'Europe/Paris', label: 'Paris (CET/CEST)' },
-  { value: 'America/New_York', label: 'New York (EST/EDT)' },
-  { value: 'America/Los_Angeles', label: 'Los Angeles (PST/PDT)' },
-  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
-  { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' }
-];
 
 const DAYS_OF_WEEK = [
   { key: 'monday', label: 'Monday' },
@@ -816,19 +809,10 @@ export default function BookingAgentsManagement() {
               </div>
               <div className="space-y-2">
                 <Label>Timezone</Label>
-                <Select
+                <TimezoneSelect
                   value={availabilityForm.timezone}
-                  onValueChange={(v) => setAvailabilityForm(f => ({ ...f, timezone: v }))}
-                >
-                  <SelectTrigger data-testid="select-timezone">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEZONE_OPTIONS.map(tz => (
-                      <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(v) => setAvailabilityForm(f => ({ ...f, timezone: v }))}
+                />
               </div>
             </div>
 
