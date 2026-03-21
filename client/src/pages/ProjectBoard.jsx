@@ -800,7 +800,7 @@ function CardDetailModal({
       if (context?.prev !== undefined) setLocalAppliedLabels(context.prev);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-board'] });
+      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
       queryClient.invalidateQueries({ queryKey: ['card-detail', card.id] });
     }
   });
@@ -811,7 +811,7 @@ function CardDetailModal({
     },
     onSuccess: () => {
       setEditingLabelId(null);
-      queryClient.invalidateQueries({ queryKey: ['project-board'] });
+      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
     },
     onError: () => {
       toast.error('Failed to update label');
