@@ -976,6 +976,7 @@ export default async function handler(req, res) {
 
       if (rowsDeleted === 0) {
         console.warn(`[Entity DELETE] WARNING: Delete returned 0 rows for ${tableName} id=${id}. Row may still exist (trigger cancellation or row not found).`);
+        return res.status(404).json({ error: 'Record not found or could not be deleted' });
       }
 
       return res.json({ success: true });

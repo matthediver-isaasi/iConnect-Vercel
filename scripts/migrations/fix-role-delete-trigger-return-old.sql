@@ -10,4 +10,31 @@
 --
 -- Run this SQL in your Supabase SQL Editor
 
-A
+CREATE OR REPLACE FUNCTION prevent_system_role_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Prevent deletion of system roles
+  IF TG_OP = 'DELETE' AND OLD.is_system = true THEN
+    RAISE EXCEPTION 'Cannot delete system role: %', OLD.name;
+  END IF;
+
+  -- Prevent renaming system roles
+  IF TG_OP = 'UPDATE' AND OLD.is_system = true THEN
+    IF NEW.name != OLD.name THEN
+      RAISE EXCEPTION 'Cannot rename system role: %', OLD.name;
+    END IF;
+    -- Prevent removing is_system flag
+    IF NEW.is_system = false OR NEW.is_system IS NULL THEN
+      NEW.is_system := true;
+    END IF;
+  END IF;
+
+  -- Return OLD for DELETE (allows the delete to proceed)
+  -- Return NEW for UPDATE (allows the update to proceed, possibly with modified values)
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
