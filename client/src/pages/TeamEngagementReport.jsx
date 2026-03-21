@@ -260,8 +260,8 @@ export default function TeamEngagementReportPage() {
               <FileText className="w-4 h-4 text-purple-600 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{article.title || 'Untitled'}</div>
-                {(article.published_at || article.created_date) && (
-                  <div className="text-xs text-slate-500">{formatDate(article.published_at || article.created_date)}</div>
+                {(article.published_date || article.created_date) && (
+                  <div className="text-xs text-slate-500">{formatDate(article.published_date || article.created_date)}</div>
                 )}
               </div>
             </div>
@@ -346,9 +346,9 @@ export default function TeamEngagementReportPage() {
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{award.name || 'Award'}</div>
                     <div className="text-xs text-slate-500">
-                      {award.award_type === 'events_attended' ? 'Events' :
-                       award.award_type === 'articles_published' ? 'Articles' :
-                       award.award_type === 'jobs_posted' ? 'Jobs' : award.award_type} — threshold: {award.threshold}
+                      Earned automatically — {award.award_type === 'events_attended' ? 'Events attended' :
+                       award.award_type === 'articles_published' ? 'Articles published' :
+                       award.award_type === 'jobs_posted' ? 'Jobs posted' : award.award_type} reached {award.threshold}
                     </div>
                   </div>
                 </div>
