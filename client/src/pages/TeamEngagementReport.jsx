@@ -6,9 +6,27 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, User, Trophy, Calendar, FileText, Briefcase, Users, Clock, UserX } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, User, Trophy, Calendar, FileText, Briefcase, Users, Clock, UserX, X } from "lucide-react";
+import { formatDistanceToNow, format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+
+const ENGAGEMENT_TYPES = {
+  eventsAttended: { label: "Events Attended", icon: Calendar, color: "text-green-600", bgColor: "bg-green-50" },
+  articlesPublished: { label: "Articles Published", icon: FileText, color: "text-purple-600", bgColor: "bg-purple-50" },
+  jobsPosted: { label: "Jobs Posted", icon: Briefcase, color: "text-blue-600", bgColor: "bg-blue-50" },
+  engagementAwards: { label: "Engagement Awards", icon: Trophy, color: "text-rose-600", bgColor: "bg-rose-50" },
+  totalAwards: { label: "Awards", icon: Trophy, color: "text-amber-600", bgColor: "bg-amber-50" },
+};
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    return format(new Date(dateStr), 'dd MMM yyyy');
+  } catch {
+    return '';
+  }
+}
 
 export default function TeamEngagementReportPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
@@ -17,37 +35,37 @@ export default function TeamEngagementReportPage() {
   const [sortField, setSortField] = useState("totalScore");
   const [sortDirection, setSortDirection] = useState("desc");
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [detailModal, setDetailModal] = useState(null);
 
-  // Fetch members from the same organization directly via server-side filter
   const { data: teamMembers = [], isLoading: membersLoading } = useQuery({
     queryKey: ['team-members-report', memberInfo?.organization_id],
     queryFn: async () => {
       if (!memberInfo?.organization_id) return [];
-      // Use server-side filter to only fetch members from this organization
       return base44.entities.Member.filter({ organization_id: memberInfo.organization_id });
     },
     enabled: !!memberInfo?.organization_id
   });
 
-  // Fetch all articles
   const { data: allArticles = [] } = useQuery({
     queryKey: ['all-articles-report'],
     queryFn: () => base44.entities.BlogPost.list()
   });
 
-  // Fetch all bookings
   const { data: allBookings = [] } = useQuery({
     queryKey: ['all-bookings-report'],
     queryFn: () => base44.entities.Booking.list()
   });
 
-  // Fetch all job postings
   const { data: allJobPostings = [] } = useQuery({
     queryKey: ['all-job-postings-report'],
     queryFn: () => base44.entities.JobPosting.list()
   });
 
-  // Fetch online awards
+  const { data: allEvents = [] } = useQuery({
+    queryKey: ['all-events-report'],
+    queryFn: () => base44.entities.Event.list()
+  });
+
   const { data: awards = [] } = useQuery({
     queryKey: ['awards-report'],
     queryFn: async () => {
@@ -56,27 +74,28 @@ export default function TeamEngagementReportPage() {
     }
   });
 
-  // Fetch offline award assignments
   const { data: offlineAssignments = [] } = useQuery({
     queryKey: ['offline-assignments-report'],
     queryFn: () => base44.entities.OfflineAwardAssignment.list()
   });
 
-  // Fetch engagement award assignments
   const { data: engagementAssignments = [] } = useQuery({
     queryKey: ['engagement-assignments-report'],
     queryFn: () => base44.entities.EngagementAwardAssignment.list()
   });
 
-  // Calculate engagement data for all members
+  const eventsById = useMemo(() => {
+    const map = {};
+    allEvents.forEach(e => { map[e.id] = e; });
+    return map;
+  }, [allEvents]);
+
   const engagementData = useMemo(() => {
-    // Filter based on includeInactive toggle
     const membersToProcess = includeInactive 
       ? teamMembers 
       : teamMembers.filter(m => m.login_enabled !== false);
 
     return membersToProcess.map(member => {
-      // Get opening balances from member record
       const openingBalances = member.engagement_opening_balances || {};
       const obEvents = openingBalances.eventsAttended || 0;
       const obArticles = openingBalances.articlesPublished || 0;
@@ -84,41 +103,32 @@ export default function TeamEngagementReportPage() {
       const obAwards = openingBalances.awards || 0;
       const obEngagement = openingBalances.engagementAwards || 0;
 
-      // Calculate current activity metrics
-      const currentEventsAttended = allBookings.filter(
+      const memberBookings = allBookings.filter(
         b => b.member_id === member.id && b.status === 'confirmed'
-      ).length;
-
-      const currentArticlesPublished = allArticles.filter(
+      );
+      const memberArticles = allArticles.filter(
         a => a.author_id === member.id && a.status === 'published'
-      ).length;
-
-      const currentJobsPosted = allJobPostings.filter(
+      );
+      const memberJobs = allJobPostings.filter(
         j => j.posted_by_member_id === member.id
-      ).length;
+      );
 
-      // Add opening balances to get total metrics
-      const eventsAttended = currentEventsAttended + obEvents;
-      const articlesPublished = currentArticlesPublished + obArticles;
-      const jobsPosted = currentJobsPosted + obJobs;
+      const eventsAttended = memberBookings.length + obEvents;
+      const articlesPublished = memberArticles.length + obArticles;
+      const jobsPosted = memberJobs.length + obJobs;
 
-      // Calculate online awards (based on total metrics including opening balances)
       const earnedOnlineAwards = awards.filter(award => {
         const stat = award.award_type === 'events_attended' ? eventsAttended :
                      award.award_type === 'articles_published' ? articlesPublished :
                      award.award_type === 'jobs_posted' ? jobsPosted : 0;
         return stat >= award.threshold;
-      }).length;
+      });
 
-      // Calculate offline awards
-      const earnedOfflineAwards = offlineAssignments.filter(a => a.member_id === member.id).length;
+      const memberOfflineAssignments = offlineAssignments.filter(a => a.member_id === member.id);
+      const memberEngagementAssignments = engagementAssignments.filter(a => a.member_id === member.id);
 
-      // Calculate engagement awards
-      const earnedEngagementAwards = engagementAssignments.filter(a => a.member_id === member.id).length;
-
-      // Add opening balances to awards
-      const totalAwards = earnedOnlineAwards + earnedOfflineAwards + obAwards;
-      const engagementAwardsTotal = earnedEngagementAwards + obEngagement;
+      const totalAwards = earnedOnlineAwards.length + memberOfflineAssignments.length + obAwards;
+      const engagementAwardsTotal = memberEngagementAssignments.length + obEngagement;
       
       const totalScore = eventsAttended + articlesPublished + jobsPosted + totalAwards + engagementAwardsTotal;
 
@@ -134,12 +144,18 @@ export default function TeamEngagementReportPage() {
         engagementAwards: engagementAwardsTotal,
         totalAwards,
         totalScore,
-        lastActivity: member.last_activity ? new Date(member.last_activity).getTime() : 0
+        lastActivity: member.last_activity ? new Date(member.last_activity).getTime() : 0,
+        details: {
+          eventsAttended: { items: memberBookings, openingBalance: obEvents },
+          articlesPublished: { items: memberArticles, openingBalance: obArticles },
+          jobsPosted: { items: memberJobs, openingBalance: obJobs },
+          engagementAwards: { items: memberEngagementAssignments, openingBalance: obEngagement },
+          totalAwards: { onlineAwards: earnedOnlineAwards, offlineAwards: memberOfflineAssignments, openingBalance: obAwards },
+        }
       };
     });
   }, [teamMembers, allArticles, allBookings, allJobPostings, awards, offlineAssignments, engagementAssignments, includeInactive]);
 
-  // Filter and sort
   const filteredAndSortedData = useMemo(() => {
     let filtered = engagementData;
 
@@ -176,11 +192,192 @@ export default function TeamEngagementReportPage() {
     }
   };
 
+  const handleBadgeClick = (memberId, type) => {
+    setDetailModal({ memberId, type });
+  };
+
   const SortIcon = ({ field }) => {
     if (sortField !== field) return <ArrowUpDown className="w-4 h-4 text-slate-400" />;
     return sortDirection === 'asc' 
       ? <ArrowUp className="w-4 h-4 text-blue-600" />
       : <ArrowDown className="w-4 h-4 text-blue-600" />;
+  };
+
+  const selectedMember = detailModal ? engagementData.find(m => m.id === detailModal.memberId) : null;
+  const selectedType = detailModal?.type;
+  const typeConfig = selectedType ? ENGAGEMENT_TYPES[selectedType] : null;
+
+  const renderDetailItems = () => {
+    if (!selectedMember || !selectedType) return null;
+    const detail = selectedMember.details[selectedType];
+    if (!detail) return null;
+
+    const TypeIcon = typeConfig?.icon || Trophy;
+
+    if (selectedType === 'eventsAttended') {
+      return (
+        <div className="space-y-2">
+          {detail.items.map((booking, idx) => {
+            const event = eventsById[booking.event_id];
+            const eventName = event?.title || booking.event_name || 'Event';
+            const eventDate = event?.start_date || booking.created_date || booking.created_at;
+            return (
+              <div key={booking.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <Calendar className="w-4 h-4 text-green-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{eventName}</div>
+                  {eventDate && <div className="text-xs text-slate-500">{formatDate(eventDate)}</div>}
+                </div>
+              </div>
+            );
+          })}
+          {detail.openingBalance > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600">
+              <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="text-sm text-slate-600 dark:text-slate-400">Opening balance: {detail.openingBalance}</div>
+            </div>
+          )}
+          {detail.items.length === 0 && detail.openingBalance === 0 && (
+            <div className="text-sm text-slate-500 text-center py-4">No events attended</div>
+          )}
+        </div>
+      );
+    }
+
+    if (selectedType === 'articlesPublished') {
+      return (
+        <div className="space-y-2">
+          {detail.items.map((article, idx) => (
+            <div key={article.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20">
+              <FileText className="w-4 h-4 text-purple-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{article.title || 'Untitled'}</div>
+                {(article.published_at || article.created_date) && (
+                  <div className="text-xs text-slate-500">{formatDate(article.published_at || article.created_date)}</div>
+                )}
+              </div>
+            </div>
+          ))}
+          {detail.openingBalance > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600">
+              <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="text-sm text-slate-600 dark:text-slate-400">Opening balance: {detail.openingBalance}</div>
+            </div>
+          )}
+          {detail.items.length === 0 && detail.openingBalance === 0 && (
+            <div className="text-sm text-slate-500 text-center py-4">No articles published</div>
+          )}
+        </div>
+      );
+    }
+
+    if (selectedType === 'jobsPosted') {
+      return (
+        <div className="space-y-2">
+          {detail.items.map((job, idx) => (
+            <div key={job.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20">
+              <Briefcase className="w-4 h-4 text-blue-600 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{job.title || 'Untitled'}</div>
+                {(job.created_date || job.created_at) && (
+                  <div className="text-xs text-slate-500">{formatDate(job.created_date || job.created_at)}</div>
+                )}
+              </div>
+            </div>
+          ))}
+          {detail.openingBalance > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600">
+              <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="text-sm text-slate-600 dark:text-slate-400">Opening balance: {detail.openingBalance}</div>
+            </div>
+          )}
+          {detail.items.length === 0 && detail.openingBalance === 0 && (
+            <div className="text-sm text-slate-500 text-center py-4">No jobs posted</div>
+          )}
+        </div>
+      );
+    }
+
+    if (selectedType === 'engagementAwards') {
+      return (
+        <div className="space-y-2">
+          {detail.items.map((assignment, idx) => {
+            const award = awards.find(a => a.id === assignment.engagement_award_id);
+            return (
+              <div key={assignment.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/20">
+                <Trophy className="w-4 h-4 text-rose-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{award?.name || 'Engagement Award'}</div>
+                  {assignment.assigned_date && <div className="text-xs text-slate-500">{formatDate(assignment.assigned_date)}</div>}
+                </div>
+              </div>
+            );
+          })}
+          {detail.openingBalance > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600">
+              <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="text-sm text-slate-600 dark:text-slate-400">Opening balance: {detail.openingBalance}</div>
+            </div>
+          )}
+          {detail.items.length === 0 && detail.openingBalance === 0 && (
+            <div className="text-sm text-slate-500 text-center py-4">No engagement awards</div>
+          )}
+        </div>
+      );
+    }
+
+    if (selectedType === 'totalAwards') {
+      return (
+        <div className="space-y-2">
+          {detail.onlineAwards.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Online Awards (threshold met)</div>
+              {detail.onlineAwards.map((award, idx) => (
+                <div key={award.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 mb-2">
+                  <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{award.name || 'Award'}</div>
+                    <div className="text-xs text-slate-500">
+                      {award.award_type === 'events_attended' ? 'Events' :
+                       award.award_type === 'articles_published' ? 'Articles' :
+                       award.award_type === 'jobs_posted' ? 'Jobs' : award.award_type} — threshold: {award.threshold}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {detail.offlineAwards.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Offline Awards (assigned)</div>
+              {detail.offlineAwards.map((assignment, idx) => {
+                const award = awards.find(a => a.id === assignment.offline_award_id);
+                return (
+                  <div key={assignment.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 mb-2">
+                    <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{award?.name || 'Offline Award'}</div>
+                      {assignment.assigned_date && <div className="text-xs text-slate-500">{formatDate(assignment.assigned_date)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {detail.openingBalance > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-300 dark:border-slate-600">
+              <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="text-sm text-slate-600 dark:text-slate-400">Opening balance: {detail.openingBalance}</div>
+            </div>
+          )}
+          {detail.onlineAwards.length === 0 && detail.offlineAwards.length === 0 && detail.openingBalance === 0 && (
+            <div className="text-sm text-slate-500 text-center py-4">No awards earned</div>
+          )}
+        </div>
+      );
+    }
+
+    return null;
   };
 
   const isLoading = membersLoading;
@@ -211,7 +408,6 @@ export default function TeamEngagementReportPage() {
           </div>
         </div>
 
-        {/* Search and Filters */}
         <Card className="mb-6 border-slate-200">
           <CardContent className="p-4">
             <div className="flex flex-col sm:flex-row gap-4">
@@ -241,7 +437,6 @@ export default function TeamEngagementReportPage() {
           </CardContent>
         </Card>
 
-        {/* Table */}
         {filteredAndSortedData.length === 0 ? (
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
@@ -369,27 +564,52 @@ export default function TeamEngagementReportPage() {
                           </div>
                         </td>
                         <td className="p-4 text-center">
-                          <Badge variant="secondary" className="bg-green-100 text-green-700">
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-700 cursor-pointer"
+                            onClick={() => handleBadgeClick(member.id, 'eventsAttended')}
+                            data-testid={`badge-events-${member.id}`}
+                          >
                             {member.eventsAttended}
                           </Badge>
                         </td>
                         <td className="p-4 text-center">
-                          <Badge variant="secondary" className="bg-purple-100 text-purple-700">
+                          <Badge
+                            variant="secondary"
+                            className="bg-purple-100 text-purple-700 cursor-pointer"
+                            onClick={() => handleBadgeClick(member.id, 'articlesPublished')}
+                            data-testid={`badge-articles-${member.id}`}
+                          >
                             {member.articlesPublished}
                           </Badge>
                         </td>
                         <td className="p-4 text-center">
-                          <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                          <Badge
+                            variant="secondary"
+                            className="bg-blue-100 text-blue-700 cursor-pointer"
+                            onClick={() => handleBadgeClick(member.id, 'jobsPosted')}
+                            data-testid={`badge-jobs-${member.id}`}
+                          >
                             {member.jobsPosted}
                           </Badge>
                         </td>
                         <td className="p-4 text-center">
-                          <Badge variant="secondary" className="bg-rose-100 text-rose-700">
+                          <Badge
+                            variant="secondary"
+                            className="bg-rose-100 text-rose-700 cursor-pointer"
+                            onClick={() => handleBadgeClick(member.id, 'engagementAwards')}
+                            data-testid={`badge-engagement-${member.id}`}
+                          >
                             {member.engagementAwards}
                           </Badge>
                         </td>
                         <td className="p-4 text-center">
-                          <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+                          <Badge
+                            variant="secondary"
+                            className="bg-amber-100 text-amber-700 cursor-pointer"
+                            onClick={() => handleBadgeClick(member.id, 'totalAwards')}
+                            data-testid={`badge-awards-${member.id}`}
+                          >
                             {member.totalAwards}
                           </Badge>
                         </td>
@@ -416,6 +636,29 @@ export default function TeamEngagementReportPage() {
           </Card>
         )}
       </div>
+
+      <Dialog open={!!detailModal} onOpenChange={(open) => !open && setDetailModal(null)}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col" data-testid="dialog-engagement-detail">
+          <DialogHeader>
+            {typeConfig && (
+              <div className="flex items-center gap-2">
+                <typeConfig.icon className={`w-5 h-5 ${typeConfig.color}`} />
+                <DialogTitle className="text-lg">
+                  {selectedMember?.name} — {typeConfig.label}
+                </DialogTitle>
+              </div>
+            )}
+            {selectedMember && selectedType && (
+              <div className="text-sm text-slate-500 mt-1">
+                Total: {selectedMember[selectedType]}
+              </div>
+            )}
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 pr-1">
+            {renderDetailItems()}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
