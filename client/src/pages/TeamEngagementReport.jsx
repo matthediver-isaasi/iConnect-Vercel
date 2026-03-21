@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, User, Trophy, Calendar, FileText, Briefcase, Users, Clock, UserX, X } from "lucide-react";
+import { Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, User, Trophy, Calendar, FileText, Briefcase, Users, Clock, UserX } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -82,6 +82,16 @@ export default function TeamEngagementReportPage() {
   const { data: engagementAssignments = [] } = useQuery({
     queryKey: ['engagement-assignments-report'],
     queryFn: () => base44.entities.EngagementAwardAssignment.list()
+  });
+
+  const { data: offlineAwardDefs = [] } = useQuery({
+    queryKey: ['offline-award-defs-report'],
+    queryFn: () => base44.entities.OfflineAward.list()
+  });
+
+  const { data: engagementAwardDefs = [] } = useQuery({
+    queryKey: ['engagement-award-defs-report'],
+    queryFn: () => base44.entities.EngagementAward.list()
   });
 
   const eventsById = useMemo(() => {
@@ -212,8 +222,6 @@ export default function TeamEngagementReportPage() {
     const detail = selectedMember.details[selectedType];
     if (!detail) return null;
 
-    const TypeIcon = typeConfig?.icon || Trophy;
-
     if (selectedType === 'eventsAttended') {
       return (
         <div className="space-y-2">
@@ -302,7 +310,7 @@ export default function TeamEngagementReportPage() {
       return (
         <div className="space-y-2">
           {detail.items.map((assignment, idx) => {
-            const award = awards.find(a => a.id === assignment.engagement_award_id);
+            const award = engagementAwardDefs.find(a => a.id === assignment.engagement_award_id);
             return (
               <div key={assignment.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/20">
                 <Trophy className="w-4 h-4 text-rose-600 shrink-0" />
@@ -351,7 +359,7 @@ export default function TeamEngagementReportPage() {
             <div className="mb-3">
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Offline Awards (assigned)</div>
               {detail.offlineAwards.map((assignment, idx) => {
-                const award = awards.find(a => a.id === assignment.offline_award_id);
+                const award = offlineAwardDefs.find(a => a.id === assignment.offline_award_id);
                 return (
                   <div key={assignment.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 mb-2">
                     <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
