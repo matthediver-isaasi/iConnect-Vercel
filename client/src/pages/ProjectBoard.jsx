@@ -788,12 +788,14 @@ function CardDetailModal({
       }
     },
     onMutate: async ({ labelId, isApplied }) => {
-      const prev = localAppliedLabels ?? card?.project_card_label ?? [];
-      if (isApplied) {
-        setLocalAppliedLabels(prev.filter(l => l.label_id !== labelId));
-      } else {
-        setLocalAppliedLabels([...prev, { label_id: labelId }]);
-      }
+      let prev;
+      setLocalAppliedLabels((current) => {
+        prev = current ?? card?.project_card_label ?? [];
+        if (isApplied) {
+          return prev.filter(l => l.label_id !== labelId);
+        }
+        return [...prev, { label_id: labelId }];
+      });
       return { prev };
     },
     onError: (_err, _vars, context) => {
@@ -812,6 +814,9 @@ function CardDetailModal({
     onSuccess: () => {
       setEditingLabelId(null);
       queryClient.invalidateQueries({ queryKey: ['project-board'] });
+    },
+    onError: () => {
+      toast.error('Failed to update label');
     }
   });
 
