@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { 
   Plus, MoreHorizontal, Loader2, ArrowLeft, Calendar, Users, 
   MessageSquare, CheckSquare, Tag, Trash2, Archive, Settings, Clock,
-  AlertCircle, X, Check, User, Paperclip
+  AlertCircle, X, Check, User, Paperclip, Pencil
 } from "lucide-react";
 import { CardAttachments, CardCoverSection } from "@/components/projects/CardAttachments";
 import { toast } from "sonner";
@@ -691,6 +691,7 @@ export default function ProjectBoardPage() {
         card={selectedCard}
         open={showCardDetail}
         onOpenChange={setShowCardDetail}
+        boardId={boardId}
         labels={boardData?.labels || []}
         members={boardData?.members || []}
         lists={lists}
@@ -715,14 +716,24 @@ export default function ProjectBoardPage() {
   );
 }
 
+const LABEL_COLORS = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',
+  '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1',
+  '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#78716c'
+];
+
 function CardDetailModal({ 
-  card, open, onOpenChange, labels, members, lists, canEdit, canManage,
+  card, open, onOpenChange, boardId, labels, members, lists, canEdit, canManage,
   onUpdate, onDelete, getLabelById, getMemberById
 }) {
   const [editedCard, setEditedCard] = useState({});
   const [newComment, setNewComment] = useState('');
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showMemberPicker, setShowMemberPicker] = useState(false);
+  const [editingLabelId, setEditingLabelId] = useState(null);
+  const [editLabelName, setEditLabelName] = useState('');
+  const [editLabelColor, setEditLabelColor] = useState('');
+  const [localAppliedLabels, setLocalAppliedLabels] = useState(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -734,8 +745,16 @@ function CardDetailModal({
         priority: card.priority || 'none',
         is_complete: card.is_complete
       });
+      setLocalAppliedLabels(card.project_card_label || []);
     }
   }, [card]);
+
+  useEffect(() => {
+    if (!open) {
+      setEditingLabelId(null);
+      setLocalAppliedLabels(null);
+    }
+  }, [open]);
 
   const { data: cardDetails } = useQuery({
     queryKey: ['card-detail', card?.id],
@@ -768,9 +787,31 @@ function CardDetailModal({
         return apiRequest('POST', `/api/projects/cards/${card.id}/labels`, { label_id: labelId });
       }
     },
-    onSuccess: () => {
+    onMutate: async ({ labelId, isApplied }) => {
+      const prev = localAppliedLabels || [];
+      if (isApplied) {
+        setLocalAppliedLabels(prev.filter(l => l.label_id !== labelId));
+      } else {
+        setLocalAppliedLabels([...prev, { label_id: labelId }]);
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prev) setLocalAppliedLabels(context.prev);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['project-board'] });
       queryClient.invalidateQueries({ queryKey: ['card-detail', card.id] });
+    }
+  });
+
+  const renameLabelMutation = useMutation({
+    mutationFn: async ({ id, name, color }) => {
+      return apiRequest('PATCH', `/api/projects/boards/${boardId}/labels`, { id, name, color });
+    },
+    onSuccess: () => {
+      setEditingLabelId(null);
+      queryClient.invalidateQueries({ queryKey: ['project-board'] });
     }
   });
 
@@ -798,8 +839,9 @@ function CardDetailModal({
     });
   };
 
+  const appliedLabels = localAppliedLabels || card?.project_card_label || [];
   const isLabelApplied = (labelId) => {
-    return card?.project_card_label?.some(l => l.label_id === labelId);
+    return appliedLabels.some(l => l.label_id === labelId);
   };
 
   const isAssigned = (identityId) => {
@@ -993,7 +1035,7 @@ function CardDetailModal({
                 Labels
               </Label>
               <div className="flex flex-wrap gap-1 mt-2">
-                {card.project_card_label?.map((cl) => {
+                {appliedLabels.map((cl) => {
                   const label = getLabelById(cl.label_id);
                   if (!label) return null;
                   return (
@@ -1022,17 +1064,86 @@ function CardDetailModal({
               {showLabelPicker && (
                 <div className="mt-2 p-2 border rounded-md space-y-1">
                   {labels.map((label) => (
-                    <div
-                      key={label.id}
-                      className="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-muted"
-                      onClick={() => toggleLabelMutation.mutate({ labelId: label.id, isApplied: isLabelApplied(label.id) })}
-                    >
-                      <div
-                        className="w-4 h-4 rounded"
-                        style={{ backgroundColor: label.color }}
-                      />
-                      <span className="text-sm flex-1">{label.name}</span>
-                      {isLabelApplied(label.id) && <Check className="w-4 h-4" />}
+                    <div key={label.id}>
+                      {editingLabelId === label.id ? (
+                        <div className="flex flex-col gap-2 p-2 border rounded-md bg-muted/50">
+                          <Input
+                            value={editLabelName}
+                            onChange={(e) => setEditLabelName(e.target.value)}
+                            placeholder="Label name"
+                            className="h-8 text-sm"
+                            data-testid={`input-label-name-${label.id}`}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (editLabelName.trim()) {
+                                  renameLabelMutation.mutate({ id: label.id, name: editLabelName.trim(), color: editLabelColor });
+                                }
+                              }
+                              if (e.key === 'Escape') setEditingLabelId(null);
+                            }}
+                          />
+                          <div className="flex flex-wrap gap-1">
+                            {LABEL_COLORS.map((c) => (
+                              <button
+                                key={c}
+                                className="w-5 h-5 rounded-full border-2 transition-transform"
+                                style={{
+                                  backgroundColor: c,
+                                  borderColor: editLabelColor === c ? 'white' : 'transparent',
+                                  outline: editLabelColor === c ? `2px solid ${c}` : 'none'
+                                }}
+                                onClick={() => setEditLabelColor(c)}
+                                data-testid={`color-swatch-${c}`}
+                              />
+                            ))}
+                          </div>
+                          <div className="flex gap-1 justify-end">
+                            <Button size="sm" variant="ghost" onClick={() => setEditingLabelId(null)}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={!editLabelName.trim() || renameLabelMutation.isPending}
+                              onClick={() => renameLabelMutation.mutate({ id: label.id, name: editLabelName.trim(), color: editLabelColor })}
+                              data-testid={`button-save-label-${label.id}`}
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-muted">
+                          <div
+                            className="flex items-center gap-2 flex-1"
+                            onClick={() => toggleLabelMutation.mutate({ labelId: label.id, isApplied: isLabelApplied(label.id) })}
+                          >
+                            <div
+                              className="w-4 h-4 rounded"
+                              style={{ backgroundColor: label.color }}
+                            />
+                            <span className="text-sm flex-1">{label.name}</span>
+                            {isLabelApplied(label.id) && <Check className="w-4 h-4" />}
+                          </div>
+                          {canManage && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingLabelId(label.id);
+                                setEditLabelName(label.name);
+                                setEditLabelColor(label.color);
+                              }}
+                              data-testid={`button-edit-label-${label.id}`}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
