@@ -532,7 +532,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   const creditNotePayload = {
     CreditNotes: [{
       Type: 'ACCRECCREDIT',
-      Contact: { ContactID: contactId },
+      Contact: { ContactID: contactId, Addresses: invoice.Contact?.Addresses || [] },
       Date: new Date().toISOString().split('T')[0],
       Reference: reference || '',
       Status: 'AUTHORISED',
