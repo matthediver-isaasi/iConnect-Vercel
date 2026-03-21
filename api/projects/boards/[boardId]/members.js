@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       if (identityIds.length > 0) {
         const { data } = await supabase
           .from('tenant_identity')
-          .select('id, email, first_name, last_name, profile_picture_url')
+          .select('id, email, first_name, last_name, avatar_url')
           .in('id', identityIds);
         identities = data || [];
       }
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
           email: identity?.email,
           first_name: identity?.first_name,
           last_name: identity?.last_name,
-          profile_picture_url: identity?.profile_picture_url
+          avatar_url: identity?.avatar_url
         };
       }) || [];
 

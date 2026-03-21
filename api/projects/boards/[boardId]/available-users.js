@@ -57,7 +57,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('tenant_identity')
-      .select('id, email, first_name, last_name, profile_picture_url')
+      .select('id, email, first_name, last_name, avatar_url')
       .eq('tenant_id', session.tenantId)
       .order('first_name', { ascending: true })
       .limit(20);

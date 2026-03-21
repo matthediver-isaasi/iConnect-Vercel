@@ -333,7 +333,7 @@ export default function ProjectBoardPage() {
           <div className="flex -space-x-2">
             {boardData?.members?.slice(0, 5).map((member) => (
               <Avatar key={member.identity_id} className="w-8 h-8 border-2 border-background">
-                <AvatarImage src={member.profile_picture_url} />
+                <AvatarImage src={member.avatar_url} />
                 <AvatarFallback className="text-xs">
                   {member.first_name?.[0]}{member.last_name?.[0]}
                 </AvatarFallback>
@@ -525,7 +525,7 @@ export default function ProjectBoardPage() {
                                             const member = getMemberById(a.identity_id);
                                             return (
                                               <Avatar key={a.identity_id} className="w-6 h-6 border border-background">
-                                                <AvatarImage src={member?.profile_picture_url} />
+                                                <AvatarImage src={member?.avatar_url} />
                                                 <AvatarFallback className="text-[10px]">
                                                   {member?.first_name?.[0]}{member?.last_name?.[0]}
                                                 </AvatarFallback>
@@ -894,7 +894,7 @@ function CardDetailModal({
                 {cardDetails?.comments?.map((comment) => (
                   <div key={comment.id} className="flex gap-3">
                     <Avatar className="w-8 h-8">
-                      <AvatarImage src={comment.author?.profile_picture_url} />
+                      <AvatarImage src={comment.author?.avatar_url} />
                       <AvatarFallback>
                         {comment.author?.first_name?.[0]}{comment.author?.last_name?.[0]}
                       </AvatarFallback>
@@ -1054,7 +1054,7 @@ function CardDetailModal({
                       onClick={() => canEdit && toggleAssigneeMutation.mutate({ identityId: a.identity_id, isAssigned: true })}
                     >
                       <Avatar className="w-5 h-5">
-                        <AvatarImage src={member?.profile_picture_url} />
+                        <AvatarImage src={member?.avatar_url} />
                         <AvatarFallback className="text-[10px]">
                           {member?.first_name?.[0]}{member?.last_name?.[0]}
                         </AvatarFallback>
@@ -1084,7 +1084,7 @@ function CardDetailModal({
                       onClick={() => toggleAssigneeMutation.mutate({ identityId: member.identity_id, isAssigned: isAssigned(member.identity_id) })}
                     >
                       <Avatar className="w-6 h-6">
-                        <AvatarImage src={member.profile_picture_url} />
+                        <AvatarImage src={member.avatar_url} />
                         <AvatarFallback className="text-xs">
                           {member.first_name?.[0]}{member.last_name?.[0]}
                         </AvatarFallback>
@@ -1290,7 +1290,7 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
                     data-testid={`button-add-member-${user.id}`}
                   >
                     <Avatar className="w-8 h-8">
-                      <AvatarImage src={user.profile_picture_url} />
+                      <AvatarImage src={user.avatar_url} />
                       <AvatarFallback className="text-xs">
                         {user.first_name?.[0]}{user.last_name?.[0]}
                       </AvatarFallback>
@@ -1316,7 +1316,7 @@ function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, u
               {members.map((member) => (
                 <div key={member.identity_id} className="flex items-center gap-2 p-2">
                   <Avatar className="w-8 h-8">
-                    <AvatarImage src={member.profile_picture_url} />
+                    <AvatarImage src={member.avatar_url} />
                     <AvatarFallback className="text-xs">
                       {member.first_name?.[0]}{member.last_name?.[0]}
                     </AvatarFallback>
