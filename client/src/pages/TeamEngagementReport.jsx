@@ -116,6 +116,11 @@ export default function TeamEngagementReportPage() {
       const memberBookings = allBookings.filter(
         b => b.member_id === member.id && b.status === 'confirmed'
       );
+      const uniqueEventIds = [...new Set(memberBookings.map(b => b.event_id).filter(Boolean))];
+      const uniqueEventBookings = uniqueEventIds.map(eventId => {
+        const bookingsForEvent = memberBookings.filter(b => b.event_id === eventId);
+        return { eventId, tickets: bookingsForEvent.length, booking: bookingsForEvent[0] };
+      });
       const memberArticles = allArticles.filter(
         a => a.author_id === member.id && a.status === 'published'
       );
@@ -123,7 +128,7 @@ export default function TeamEngagementReportPage() {
         j => j.posted_by_member_id === member.id
       );
 
-      const eventsAttended = memberBookings.length + obEvents;
+      const eventsAttended = uniqueEventIds.length + obEvents;
       const articlesPublished = memberArticles.length + obArticles;
       const jobsPosted = memberJobs.length + obJobs;
 
@@ -156,7 +161,7 @@ export default function TeamEngagementReportPage() {
         totalScore,
         lastActivity: member.last_activity ? new Date(member.last_activity).getTime() : 0,
         details: {
-          eventsAttended: { items: memberBookings, openingBalance: obEvents },
+          eventsAttended: { items: uniqueEventBookings, openingBalance: obEvents },
           articlesPublished: { items: memberArticles, openingBalance: obArticles },
           jobsPosted: { items: memberJobs, openingBalance: obJobs },
           engagementAwards: { items: memberEngagementAssignments, openingBalance: obEngagement },
@@ -225,16 +230,19 @@ export default function TeamEngagementReportPage() {
     if (selectedType === 'eventsAttended') {
       return (
         <div className="space-y-2">
-          {detail.items.map((booking, idx) => {
-            const event = eventsById[booking.event_id];
-            const eventName = event?.title || booking.event_name || 'Event';
-            const eventDate = event?.start_date || booking.created_date || booking.created_at;
+          {detail.items.map((item, idx) => {
+            const event = eventsById[item.eventId];
+            const eventName = event?.title || item.booking?.event_name || 'Event';
+            const eventDate = event?.start_date || item.booking?.created_date || item.booking?.created_at;
             return (
-              <div key={booking.id || idx} className="flex items-center gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
+              <div key={item.eventId || idx} className="flex items-center gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
                 <Calendar className="w-4 h-4 text-green-600 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{eventName}</div>
-                  {eventDate && <div className="text-xs text-slate-500">{formatDate(eventDate)}</div>}
+                  <div className="text-xs text-slate-500">
+                    {eventDate ? formatDate(eventDate) : ''}
+                    {item.tickets > 1 ? `${eventDate ? ' — ' : ''}${item.tickets} tickets` : ''}
+                  </div>
                 </div>
               </div>
             );
