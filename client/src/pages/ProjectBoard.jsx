@@ -788,7 +788,7 @@ function CardDetailModal({
       }
     },
     onMutate: async ({ labelId, isApplied }) => {
-      const prev = localAppliedLabels || [];
+      const prev = localAppliedLabels ?? card?.project_card_label ?? [];
       if (isApplied) {
         setLocalAppliedLabels(prev.filter(l => l.label_id !== labelId));
       } else {
@@ -797,7 +797,7 @@ function CardDetailModal({
       return { prev };
     },
     onError: (_err, _vars, context) => {
-      if (context?.prev) setLocalAppliedLabels(context.prev);
+      if (context?.prev !== undefined) setLocalAppliedLabels(context.prev);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['project-board'] });
