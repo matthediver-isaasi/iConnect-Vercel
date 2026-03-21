@@ -60,7 +60,7 @@ export default async function handler(req, res) {
       .select('identity_id, tenant_identity!inner(id, email, first_name, last_name, avatar_url)')
       .eq('tenant_id', session.tenantId)
       .not('identity_id', 'is', null)
-      .order('created_at', { ascending: false })
+      .order('created_on', { ascending: false })
       .limit(20);
 
     if (existingIds.length > 0) {
