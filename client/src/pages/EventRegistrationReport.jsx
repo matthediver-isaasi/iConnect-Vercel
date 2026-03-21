@@ -163,6 +163,7 @@ export default function EventRegistrationReport() {
     let totalTrainingFund = 0;
     let totalDiscount = 0;
     let totalStripePayments = 0;
+    const countByMethod = {};
     for (const group of filteredGroups) {
       const gp = group.groupPayment;
       totalRevenue += gp.totalCost || 0;
@@ -172,6 +173,8 @@ export default function EventRegistrationReport() {
       if (gp.paymentMethod === 'card' || gp.stripePaymentIntentId) {
         totalStripePayments += gp.totalCost || 0;
       }
+      const method = gp.paymentMethod || 'unknown';
+      countByMethod[method] = (countByMethod[method] || 0) + 1;
     }
     return {
       totalBookings: totalAttendees,
@@ -181,6 +184,7 @@ export default function EventRegistrationReport() {
       totalTrainingFund,
       totalDiscount,
       totalStripePayments,
+      countByMethod,
     };
   }, [filteredGroups, totalAttendees]);
 
@@ -699,8 +703,8 @@ export default function EventRegistrationReport() {
                             </td>
                             <td className="pt-3 pr-3" colSpan={4}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
-                                <span>Account: {summary.countByMethod?.account || 0}</span>
-                                <span>Card: {summary.countByMethod?.card || 0}</span>
+                                <span>Account: {filteredSummary.countByMethod?.account || 0}</span>
+                                <span>Card: {filteredSummary.countByMethod?.card || 0}</span>
                               </div>
                             </td>
                           </tr>
