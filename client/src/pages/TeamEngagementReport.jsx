@@ -654,7 +654,7 @@ export default function TeamEngagementReportPage() {
       </div>
 
       <Dialog open={!!detailModal} onOpenChange={(open) => !open && setDetailModal(null)}>
-        <DialogContent className="max-w-md max-h-[80vh] flex flex-col" data-testid="dialog-engagement-detail">
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid="dialog-engagement-detail">
           <DialogHeader>
             {typeConfig && (
               <div className="flex items-center gap-2">
