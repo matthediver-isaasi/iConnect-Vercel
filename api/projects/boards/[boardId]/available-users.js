@@ -56,14 +56,15 @@ export default async function handler(req, res) {
     const existingIds = existingMembers?.map(m => m.identity_id) || [];
 
     let query = supabase
-      .from('tenant_identity')
-      .select('id, email, first_name, last_name, avatar_url')
+      .from('member')
+      .select('identity_id, tenant_identity!inner(id, email, first_name, last_name, avatar_url)')
       .eq('tenant_id', session.tenantId)
-      .order('first_name', { ascending: true })
+      .not('identity_id', 'is', null)
+      .order('created_at', { ascending: false })
       .limit(20);
 
     if (existingIds.length > 0) {
-      query = query.not('id', 'in', `(${existingIds.join(',')})`);
+      query = query.not('identity_id', 'in', `(${existingIds.join(',')})`);
     }
 
     if (search?.trim()) {
@@ -71,12 +72,22 @@ export default async function handler(req, res) {
       query = query.or(`email.ilike.${searchTerm},first_name.ilike.${searchTerm},last_name.ilike.${searchTerm}`);
     }
 
-    const { data: users, error } = await query;
+    const { data: members, error } = await query;
 
     if (error) {
       console.error('[Available Users] Error:', error);
       return res.status(500).json({ error: 'Failed to fetch users' });
     }
+
+    const seen = new Set();
+    const users = (members || [])
+      .map(m => m.tenant_identity)
+      .filter(Boolean)
+      .filter(u => {
+        if (seen.has(u.id)) return false;
+        seen.add(u.id);
+        return true;
+      });
 
     return res.json({ users: users || [] });
   } catch (err) {
