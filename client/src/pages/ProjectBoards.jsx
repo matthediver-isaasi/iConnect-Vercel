@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, LayoutGrid, Archive, Loader2, Users, Settings, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, LayoutGrid, Archive, Loader2, Users, Settings, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -33,6 +33,8 @@ export default function ProjectBoardsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [newBoard, setNewBoard] = useState({ name: '', description: '', color: '#6366f1', visibility: 'private' });
+  const [deleteBoard, setDeleteBoard] = useState(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -71,6 +73,22 @@ export default function ProjectBoardsPage() {
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to create board');
+    }
+  });
+
+  const deleteBoardMutation = useMutation({
+    mutationFn: async (boardId) => {
+      const response = await apiRequest('DELETE', `/api/projects/boards/${boardId}`);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-boards'] });
+      setDeleteBoard(null);
+      setDeleteConfirmName('');
+      toast.success('Board deleted successfully');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to delete board');
     }
   });
 
@@ -155,9 +173,27 @@ export default function ProjectBoardsPage() {
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-lg line-clamp-2">{board.name}</CardTitle>
-                    {board.is_archived && (
-                      <Badge variant="secondary" className="shrink-0">Archived</Badge>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {board.is_archived && (
+                        <Badge variant="secondary">Archived</Badge>
+                      )}
+                      {board.user_role === 'owner' && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDeleteBoard(board);
+                            setDeleteConfirmName('');
+                          }}
+                          data-testid={`button-delete-board-${board.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   {board.description && (
                     <CardDescription className="line-clamp-2">
@@ -263,6 +299,55 @@ export default function ProjectBoardsPage() {
             >
               {createBoardMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Create Board
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteBoard} onOpenChange={(open) => { if (!open) { setDeleteBoard(null); setDeleteConfirmName(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Board
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the board
+              <strong> {deleteBoard?.name}</strong>, including all its lists, cards, and data.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="delete-confirm-name">
+                Type <strong>{deleteBoard?.name}</strong> to confirm
+              </Label>
+              <Input
+                id="delete-confirm-name"
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                placeholder="Enter board name"
+                data-testid="input-delete-confirm-name"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteBoard(null); setDeleteConfirmName(''); }}
+              data-testid="button-cancel-delete"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteConfirmName.trim() !== deleteBoard?.name || deleteBoardMutation.isPending}
+              onClick={() => deleteBoardMutation.mutate(deleteBoard.id)}
+              data-testid="button-confirm-delete"
+            >
+              {deleteBoardMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Delete Board
             </Button>
           </DialogFooter>
         </DialogContent>

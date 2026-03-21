@@ -704,6 +704,7 @@ export default function ProjectBoardPage() {
 
       <BoardSettingsModal
         boardId={boardId}
+        boardName={board?.name || ''}
         open={showSettingsModal}
         onOpenChange={setShowSettingsModal}
         members={boardData?.members || []}
@@ -1127,10 +1128,32 @@ function CardDetailModal({
   );
 }
 
-function BoardSettingsModal({ boardId, open, onOpenChange, members, userRole, onMembersChange }) {
+function BoardSettingsModal({ boardId, boardName, open, onOpenChange, members, userRole, onMembersChange }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState('member');
+  const [editName, setEditName] = useState('');
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (open) {
+      setEditName(boardName);
+    }
+  }, [open, boardName]);
+
+  const renameBoardMutation = useMutation({
+    mutationFn: async (name) => {
+      const response = await apiRequest('PATCH', `/api/projects/boards/${boardId}`, { name });
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
+      queryClient.invalidateQueries({ queryKey: ['project-boards'] });
+      toast.success('Board name updated');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update board name');
+    }
+  });
 
   const { data: availableUsers = { users: [] }, isLoading: loadingUsers } = useQuery({
     queryKey: ['available-users', boardId, searchQuery],
@@ -1203,12 +1226,34 @@ function BoardSettingsModal({ boardId, open, onOpenChange, members, userRole, on
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Users className="w-5 h-5" />
-            Board Members
+            <Settings className="w-5 h-5" />
+            Board Settings
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
+          {['owner', 'admin'].includes(userRole) && (
+            <div>
+              <Label className="text-sm font-medium mb-2 block">Board Name</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Board name"
+                  data-testid="input-board-rename"
+                />
+                <Button
+                  disabled={!editName.trim() || editName.trim() === boardName || renameBoardMutation.isPending}
+                  onClick={() => renameBoardMutation.mutate(editName.trim())}
+                  data-testid="button-save-board-name"
+                >
+                  {renameBoardMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Save
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div>
             <Label className="text-sm font-medium mb-2 block">Invite Members</Label>
             <div className="flex gap-2">
