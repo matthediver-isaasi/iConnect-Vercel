@@ -119,14 +119,22 @@ export default function BookingsPage() {
     refetchOnMount: true,
   });
 
+  const isDevDomain = window.location.hostname.endsWith('.dev.iconn.app');
+
   const { data: cancellationSettings } = useQuery({
-    queryKey: ['system-setting', 'cancellation_settings'],
+    queryKey: ['system-setting', 'cancellation_settings', isDevDomain],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const termsSetting = allSettings.find(s => s.setting_key === 'event_booking_terms');
       const deadlineSetting = allSettings.find(s => s.setting_key === 'cancellation_deadline_hours');
-      const allowTransferSetting = allSettings.find(s => s.setting_key === 'allow_ticket_transfer');
-      const allowCancellationSetting = allSettings.find(s => s.setting_key === 'allow_ticket_cancellation');
+
+      const transferKey = isDevDomain ? 'allow_ticket_transfer__dev' : 'allow_ticket_transfer';
+      const cancellationKey = isDevDomain ? 'allow_ticket_cancellation__dev' : 'allow_ticket_cancellation';
+      const allowTransferSetting = allSettings.find(s => s.setting_key === transferKey)
+        || allSettings.find(s => s.setting_key === 'allow_ticket_transfer');
+      const allowCancellationSetting = allSettings.find(s => s.setting_key === cancellationKey)
+        || allSettings.find(s => s.setting_key === 'allow_ticket_cancellation');
+
       return {
         termsContent: termsSetting?.setting_value || '',
         deadlineHours: parseInt(deadlineSetting?.setting_value) || 0,
