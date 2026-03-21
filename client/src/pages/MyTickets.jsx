@@ -59,17 +59,14 @@ export default function MyTicketsPage({ hasBanner }) {
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  // Fetch only this user's tickets - filtered server-side by attendee_email
+  // Fetch only this user's tickets - filtered server-side by member_id
   const { data: myTickets = [], isLoading: loadingTickets } = useQuery({
-    queryKey: ['my-tickets', memberInfo?.email],
+    queryKey: ['my-tickets', memberInfo?.id],
     queryFn: async () => {
-      if (!memberInfo?.email) return [];
-      // Use server-side filtering by attendee_email
-      return base44.entities.Booking.list({
-        filter: { attendee_email: memberInfo.email }
-      });
+      if (!memberInfo?.id) return [];
+      return base44.entities.Booking.filter({ member_id: memberInfo.id });
     },
-    enabled: !!memberInfo?.email,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
