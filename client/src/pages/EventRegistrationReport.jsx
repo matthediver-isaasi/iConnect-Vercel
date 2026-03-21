@@ -59,6 +59,7 @@ export default function EventRegistrationReport() {
   const [submittingCancel, setSubmittingCancel] = useState(false);
   const [transferTarget, setTransferTarget] = useState(null);
   const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("active");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -100,6 +101,16 @@ export default function EventRegistrationReport() {
   const filteredGroups = useMemo(() => {
     let result = bookingGroups;
 
+    if (statusFilter !== "all") {
+      result = result.map(group => {
+        const filtered = group.attendees.filter(a =>
+          statusFilter === "active" ? a.status !== 'cancelled' : a.status === statusFilter
+        );
+        if (filtered.length === 0) return null;
+        return { ...group, attendees: filtered };
+      }).filter(Boolean);
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(group =>
@@ -140,7 +151,7 @@ export default function EventRegistrationReport() {
     });
 
     return result;
-  }, [bookingGroups, searchQuery, sortBy, organizations]);
+  }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter]);
 
   const totalAttendees = useMemo(() => {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
@@ -154,7 +165,7 @@ export default function EventRegistrationReport() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedEventId, searchQuery]);
+  }, [selectedEventId, searchQuery, statusFilter]);
 
   const handleExportCSV = () => {
     if (filteredGroups.length === 0) return;
@@ -454,6 +465,16 @@ export default function EventRegistrationReport() {
                     data-testid="input-search"
                   />
                 </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active Only</SelectItem>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="cancelled">Cancelled Only</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
                   <SelectTrigger className="w-[160px]" data-testid="select-sort">
                     <SelectValue />
