@@ -88,14 +88,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Identity ID required' });
       }
 
-      const { data: identity } = await supabase
-        .from('tenant_identity')
-        .select('id')
-        .eq('id', identity_id)
+      const { data: memberRecord } = await supabase
+        .from('member')
+        .select('identity_id')
+        .eq('identity_id', identity_id)
         .eq('tenant_id', session.tenantId)
-        .single();
+        .limit(1)
+        .maybeSingle();
 
-      if (!identity) {
+      if (!memberRecord) {
         return res.status(404).json({ error: 'User not found in tenant' });
       }
 
