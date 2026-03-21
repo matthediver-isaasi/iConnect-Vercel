@@ -1,4 +1,4 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -9,6 +9,11 @@ export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
   if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
     return res.status(401).json({ error: 'Unauthorized - authentication and tenant context required' });
+  }
+
+  const isAdmin = await hasAdminAccess(tenantContext);
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Admin access required' });
   }
 
   const { tenantId } = tenantContext;
