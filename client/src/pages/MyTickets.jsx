@@ -670,7 +670,8 @@ export default function MyTicketsPage({ hasBanner }) {
                                   onClick={() => handleTransferClick(ticket)}
                                   data-testid={`button-transfer-ticket-${ticket.id}`}
                                 >
-                                  <ArrowRightLeft className="w-4 h-4" />
+                                  <ArrowRightLeft className="w-3.5 h-3.5 mr-1" />
+                                  Transfer
                                 </Button>
                               )}
 
@@ -680,10 +681,10 @@ export default function MyTicketsPage({ hasBanner }) {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handleCancelClick(ticket)}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
                                   data-testid={`button-cancel-ticket-${ticket.id}`}
                                 >
-                                  <XCircle className="w-4 h-4" />
+                                  <XCircle className="w-3.5 h-3.5 mr-1" />
+                                  Cancel
                                 </Button>
                               )}
                             </div>
