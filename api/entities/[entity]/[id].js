@@ -959,12 +959,25 @@ export default async function handler(req, res) {
         });
       }
 
-      const { error } = await supabase
+      console.log(`[Entity DELETE] About to delete from ${tableName} where id=${id}`);
+      const { data: deleteData, error, count } = await supabase
         .from(tableName)
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select();
 
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) {
+        console.error(`[Entity DELETE] Error deleting ${tableName} id=${id}:`, error.message, error.details, error.hint, error.code);
+        return res.status(500).json({ error: error.message });
+      }
+
+      const rowsDeleted = deleteData ? deleteData.length : 0;
+      console.log(`[Entity DELETE] Delete result for ${tableName} id=${id}: ${rowsDeleted} row(s) deleted`);
+
+      if (rowsDeleted === 0) {
+        console.warn(`[Entity DELETE] WARNING: Delete returned 0 rows for ${tableName} id=${id}. Row may still exist (trigger cancellation or row not found).`);
+      }
+
       return res.json({ success: true });
     }
 
