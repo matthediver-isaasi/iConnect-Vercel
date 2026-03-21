@@ -191,6 +191,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       org = orgData;
     }
 
+    let newlyCancelledCount = 0;
     for (const booking of bookings) {
       if (booking.status === 'cancelled') {
         console.log(`[GroupApproval] Booking ${booking.id} already cancelled, skipping`);
@@ -207,6 +208,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
         return { success: false, error: `Failed to cancel booking ${booking.id}: ${updateError.message}` };
       }
 
+      newlyCancelledCount++;
       console.log(`[GroupApproval] Booking ${booking.id} cancelled`);
 
       if (booking.training_fund_amount > 0 && org) {
@@ -282,6 +284,33 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
           console.error(`[GroupApproval] Program ticket refund error for booking ${booking.id}:`, err);
           reversalResults.programTickets.push({ bookingId: booking.id, success: false, error: err.message });
         }
+      }
+    }
+
+    // --- Restore available seats for newly cancelled bookings ---
+    if (newlyCancelledCount > 0 && firstBooking.event_id) {
+      try {
+        const { data: eventForSeats } = await supabase
+          .from('event')
+          .select('id, available_seats, is_unlimited_registration')
+          .eq('id', firstBooking.event_id)
+          .single();
+
+        if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
+          const { data: newSeatCount, error: rpcError } = await supabase
+            .rpc('adjust_event_seats', { p_event_id: firstBooking.event_id, p_delta: newlyCancelledCount });
+
+          if (rpcError) {
+            console.error(`[GroupApproval] RPC seat increment failed:`, rpcError.message);
+            const newCount = eventForSeats.available_seats + newlyCancelledCount;
+            await supabase.from('event').update({ available_seats: newCount }).eq('id', firstBooking.event_id);
+            console.log(`[GroupApproval] Fallback: Incremented seats by ${newlyCancelledCount} to ${newCount}`);
+          } else {
+            console.log(`[GroupApproval] Seats restored by ${newlyCancelledCount}, new count: ${newSeatCount}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[GroupApproval] Seat restoration error (non-blocking):`, err.message);
       }
     }
 

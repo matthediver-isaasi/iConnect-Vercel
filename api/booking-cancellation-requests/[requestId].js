@@ -153,6 +153,33 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
 
     console.log(`[CancellationRequest] Booking ${booking.id} cancelled`);
 
+    // --- Restore available seats ---
+    if (booking.event_id) {
+      try {
+        const { data: eventForSeats } = await supabase
+          .from('event')
+          .select('id, available_seats, is_unlimited_registration')
+          .eq('id', booking.event_id)
+          .single();
+
+        if (eventForSeats && eventForSeats.available_seats !== null && eventForSeats.available_seats !== undefined && !eventForSeats.is_unlimited_registration) {
+          const { data: newSeatCount, error: rpcError } = await supabase
+            .rpc('adjust_event_seats', { p_event_id: booking.event_id, p_delta: 1 });
+
+          if (rpcError) {
+            console.error(`[CancellationRequest] RPC seat increment failed:`, rpcError.message);
+            const newCount = eventForSeats.available_seats + 1;
+            await supabase.from('event').update({ available_seats: newCount }).eq('id', booking.event_id);
+            console.log(`[CancellationRequest] Fallback: Incremented seats to ${newCount}`);
+          } else {
+            console.log(`[CancellationRequest] Seats restored, new count: ${newSeatCount}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[CancellationRequest] Seat restoration error (non-blocking):`, err.message);
+      }
+    }
+
     const organizationId = booking.organization_id;
     let org = null;
     if (organizationId) {

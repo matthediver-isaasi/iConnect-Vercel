@@ -231,28 +231,33 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     }, {});
   }, [organizationsData]);
 
+  const activeBookings = useMemo(() => {
+    if (!bookingsData) return [];
+    return bookingsData.filter(b => b.status !== 'cancelled');
+  }, [bookingsData]);
+
   // Get unique organizations from bookings for filter dropdown
   const uniqueOrganizations = useMemo(() => {
-    if (!bookingsData) return [];
-    const orgIds = [...new Set(bookingsData.map(b => b.organization_id).filter(Boolean))];
+    if (!activeBookings || activeBookings.length === 0) return [];
+    const orgIds = [...new Set(activeBookings.map(b => b.organization_id).filter(Boolean))];
     const orgs = orgIds.map(id => ({
       id,
       name: organizationMap[id] || 'Unknown Organization'
     })).sort((a, b) => a.name.localeCompare(b.name));
     
     // Check if there are any non-member (NULL organization_id) bookings
-    const hasNonMemberBookings = bookingsData.some(b => !b.organization_id);
+    const hasNonMemberBookings = activeBookings.some(b => !b.organization_id);
     if (hasNonMemberBookings) {
       orgs.push({ id: 'non-member', name: 'Non-member' });
     }
     
     return orgs;
-  }, [bookingsData, organizationMap]);
+  }, [activeBookings, organizationMap]);
 
   // Filter attendees based on organization and search
   const filteredAttendees = useMemo(() => {
-    if (!bookingsData) return [];
-    return bookingsData
+    if (!activeBookings) return [];
+    return activeBookings
       .filter(booking => {
         // Filter by organization
         if (organizationFilter !== "all") {
@@ -278,7 +283,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         const nameB = `${b.attendee_first_name || ''} ${b.attendee_last_name || ''}`;
         return nameA.localeCompare(nameB);
       });
-  }, [bookingsData, organizationFilter, searchFilter, organizationMap]);
+  }, [activeBookings, organizationFilter, searchFilter, organizationMap]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredAttendees.length / itemsPerPage);
@@ -841,7 +846,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 Attendees - {event.title}
               </DialogTitle>
               <DialogDescription>
-                {bookingsData?.length || 0} registered attendee{bookingsData?.length !== 1 ? 's' : ''}
+                {activeBookings?.length || 0} registered attendee{activeBookings?.length !== 1 ? 's' : ''}
               </DialogDescription>
             </DialogHeader>
 
@@ -895,7 +900,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 </div>
               ) : filteredAttendees.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
-                  {bookingsData?.length === 0 ? (
+                  {activeBookings?.length === 0 ? (
                     <p>No attendees registered for this event yet.</p>
                   ) : (
                     <p>No attendees match your search criteria.</p>
@@ -942,7 +947,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               <div className="pt-3 border-t flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="text-sm text-slate-500">
                   Showing {startIndex + 1}-{Math.min(endIndex, filteredAttendees.length)} of {filteredAttendees.length} attendee{filteredAttendees.length !== 1 ? 's' : ''}
-                  {organizationFilter !== "all" || searchFilter ? ` (filtered from ${bookingsData?.length || 0})` : ''}
+                  {organizationFilter !== "all" || searchFilter ? ` (filtered from ${activeBookings?.length || 0})` : ''}
                 </div>
                 
                 {/* Pagination Controls */}
