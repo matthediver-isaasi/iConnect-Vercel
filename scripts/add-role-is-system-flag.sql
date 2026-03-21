@@ -42,7 +42,13 @@ BEGIN
     END IF;
   END IF;
   
-  RETURN NEW;
+  -- Return OLD for DELETE (allows the delete to proceed)
+  -- Return NEW for UPDATE (allows the update to proceed, possibly with modified values)
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
 $$ LANGUAGE plpgsql;
 
