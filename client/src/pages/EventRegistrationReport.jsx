@@ -157,6 +157,33 @@ export default function EventRegistrationReport() {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
   }, [filteredGroups]);
 
+  const filteredSummary = useMemo(() => {
+    let totalRevenue = 0;
+    let totalVoucher = 0;
+    let totalTrainingFund = 0;
+    let totalDiscount = 0;
+    let totalStripePayments = 0;
+    for (const group of filteredGroups) {
+      const gp = group.groupPayment;
+      totalRevenue += gp.totalCost || 0;
+      totalVoucher += gp.voucherAmount || 0;
+      totalTrainingFund += gp.trainingFundAmount || 0;
+      totalDiscount += gp.discount || 0;
+      if (gp.paymentMethod === 'card' || gp.stripePaymentIntentId) {
+        totalStripePayments += gp.totalCost || 0;
+      }
+    }
+    return {
+      totalBookings: totalAttendees,
+      totalGroups: filteredGroups.length,
+      totalRevenue,
+      totalVoucher,
+      totalTrainingFund,
+      totalDiscount,
+      totalStripePayments,
+    };
+  }, [filteredGroups, totalAttendees]);
+
   const totalPages = Math.ceil(filteredGroups.length / ITEMS_PER_PAGE);
   const paginatedGroups = filteredGroups.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
@@ -391,9 +418,9 @@ export default function EventRegistrationReport() {
                   <Users className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Attendees</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-registrations">{summary.totalBookings || 0}</p>
-                {summary.totalGroups > 0 && summary.totalGroups !== summary.totalBookings && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{summary.totalGroups} booking{summary.totalGroups !== 1 ? 's' : ''}</p>
+                <p className="text-xl font-bold" data-testid="text-total-registrations">{filteredSummary.totalBookings || 0}</p>
+                {filteredSummary.totalGroups > 0 && filteredSummary.totalGroups !== filteredSummary.totalBookings && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{filteredSummary.totalGroups} booking{filteredSummary.totalGroups !== 1 ? 's' : ''}</p>
                 )}
               </CardContent>
             </Card>
@@ -403,7 +430,7 @@ export default function EventRegistrationReport() {
                   <Banknote className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Total Revenue</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-revenue">{formatCurrency(summary.totalRevenue)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-revenue">{formatCurrency(filteredSummary.totalRevenue)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -412,7 +439,7 @@ export default function EventRegistrationReport() {
                   <Ticket className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Vouchers Used</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-vouchers">{formatCurrency(summary.totalVoucher)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-vouchers">{formatCurrency(filteredSummary.totalVoucher)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -421,7 +448,7 @@ export default function EventRegistrationReport() {
                   <Building2 className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Training Fund</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-fund">{formatCurrency(summary.totalTrainingFund)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-fund">{formatCurrency(filteredSummary.totalTrainingFund)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -430,7 +457,7 @@ export default function EventRegistrationReport() {
                   <Receipt className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Discounts</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-discounts">{formatCurrency(summary.totalDiscount)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-discounts">{formatCurrency(filteredSummary.totalDiscount)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -439,7 +466,7 @@ export default function EventRegistrationReport() {
                   <CreditCard className="w-4 h-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">Stripe Payments</span>
                 </div>
-                <p className="text-xl font-bold" data-testid="text-total-stripe">{formatCurrency(summary.totalStripePayments)}</p>
+                <p className="text-xl font-bold" data-testid="text-total-stripe">{formatCurrency(filteredSummary.totalStripePayments)}</p>
               </CardContent>
             </Card>
           </div>
@@ -656,19 +683,19 @@ export default function EventRegistrationReport() {
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(summary.totalRevenue + summary.totalDiscount)}
+                              {formatCurrency(filteredSummary.totalRevenue + filteredSummary.totalDiscount)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap text-green-600">
-                              {summary.totalDiscount > 0 ? `-${formatCurrency(summary.totalDiscount)}` : '-'}
+                              {filteredSummary.totalDiscount > 0 ? `-${formatCurrency(filteredSummary.totalDiscount)}` : '-'}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(summary.totalRevenue)}
+                              {formatCurrency(filteredSummary.totalRevenue)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(summary.totalVoucher)}
+                              {formatCurrency(filteredSummary.totalVoucher)}
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
-                              {formatCurrency(summary.totalTrainingFund)}
+                              {formatCurrency(filteredSummary.totalTrainingFund)}
                             </td>
                             <td className="pt-3 pr-3" colSpan={4}>
                               <div className="flex gap-3 text-xs text-muted-foreground">
