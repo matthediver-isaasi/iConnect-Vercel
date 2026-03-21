@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { getValidXeroAccessToken } from '../_lib/xero.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -60,7 +61,7 @@ export default async function handler(req, res) {
 
     const { data: booking, error: bookingError } = await supabase
       .from('booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id')
+      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id, xero_invoice_id')
       .eq('id', request.booking_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -109,6 +110,19 @@ export default async function handler(req, res) {
       }
 
       console.log(`[TransferRequest] Booking ${booking.id} transferred from ${originalAttendeeEmail} to ${targetMember.email}`);
+
+      updateXeroInvoiceDescription({
+        booking,
+        originalFirstName: booking.attendee_first_name,
+        originalLastName: booking.attendee_last_name,
+        originalEmail: originalAttendeeEmail,
+        newFirstName: targetMember.first_name,
+        newLastName: targetMember.last_name,
+        newEmail: targetMember.email,
+        tenantId,
+      }).catch(err => {
+        console.error('[TransferRequest] Xero invoice update error (non-blocking):', err.message);
+      });
     }
 
     const { data: updated, error: updateError } = await supabase
@@ -144,6 +158,122 @@ export default async function handler(req, res) {
     console.error('[TransferRequest] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+async function updateXeroInvoiceDescription({ booking, originalFirstName, originalLastName, originalEmail, newFirstName, newLastName, newEmail, tenantId }) {
+  if (!booking.xero_invoice_id) {
+    console.log('[TransferXero] No Xero invoice linked to this booking — skipping');
+    return;
+  }
+
+  console.log(`[TransferXero] Updating invoice ${booking.xero_invoice_id} description for transfer`);
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(tenantId);
+
+  if (!accessToken || !xeroTenantId) {
+    console.error('[TransferXero] Missing Xero token or tenant ID — skipping');
+    return;
+  }
+
+  const invoiceResponse = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${booking.xero_invoice_id}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json'
+      }
+    }
+  );
+
+  if (!invoiceResponse.ok) {
+    const errText = await invoiceResponse.text();
+    console.error(`[TransferXero] Failed to fetch invoice: ${invoiceResponse.status} ${errText.substring(0, 300)}`);
+    return;
+  }
+
+  const invoiceData = await invoiceResponse.json();
+  const invoice = invoiceData?.Invoices?.[0];
+
+  if (!invoice || !invoice.LineItems || invoice.LineItems.length === 0) {
+    console.error('[TransferXero] Invoice has no line items — skipping');
+    return;
+  }
+
+  if (invoice.Status === 'PAID' || invoice.Status === 'VOIDED') {
+    console.log(`[TransferXero] Invoice status is ${invoice.Status} — cannot update description`);
+    return;
+  }
+
+  const originalName = [originalFirstName, originalLastName].filter(Boolean).join(' ').trim();
+  const newName = [newFirstName, newLastName].filter(Boolean).join(' ').trim();
+
+  let descriptionUpdated = false;
+  const updatedLineItems = invoice.LineItems.map(item => {
+    if (!item.Description) return item;
+
+    const lines = item.Description.split('\n');
+    const updatedLines = lines.map(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+
+      if (originalName && trimmed === originalName) {
+        descriptionUpdated = true;
+        return newName || newEmail;
+      }
+      if (originalEmail && trimmed === originalEmail) {
+        descriptionUpdated = true;
+        return newName || newEmail;
+      }
+
+      return line;
+    });
+
+    return { ...item, Description: updatedLines.join('\n') };
+  });
+
+  if (!descriptionUpdated) {
+    console.log('[TransferXero] Original attendee not found in any line item description — skipping');
+    return;
+  }
+
+  const updatePayload = {
+    Invoices: [{
+      InvoiceID: booking.xero_invoice_id,
+      LineItems: updatedLineItems.map(li => ({
+        LineItemID: li.LineItemID,
+        Description: li.Description,
+        Quantity: li.Quantity,
+        UnitAmount: li.UnitAmount,
+        AccountCode: li.AccountCode,
+        TaxType: li.TaxType,
+        Tracking: li.Tracking,
+      })),
+    }]
+  };
+
+  console.log(`[TransferXero] Updating invoice description: replacing "${originalName || originalEmail}" with "${newName || newEmail}"`);
+
+  const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(updatePayload)
+  });
+
+  if (!updateResponse.ok) {
+    const errText = await updateResponse.text();
+    console.error(`[TransferXero] Failed to update invoice: ${updateResponse.status} ${errText.substring(0, 300)}`);
+    return;
+  }
+
+  const updateData = await updateResponse.json();
+  const updatedInvoice = updateData?.Invoices?.[0];
+  console.log(`[TransferXero] Invoice ${updatedInvoice?.InvoiceNumber || booking.xero_invoice_id} description updated successfully`);
 }
 
 async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes }) {
