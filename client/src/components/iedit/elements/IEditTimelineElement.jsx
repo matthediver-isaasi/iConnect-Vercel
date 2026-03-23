@@ -333,7 +333,7 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
       <img
         src={images[0].src}
         alt={images[0].alt || heading || year}
-        className={`${isShaped ? '' : 'w-full'} ${isShaped ? '' : maxWidthClass} ${cls}`}
+        className={`${isShaped ? '' : `w-full ${maxWidthClass}`} ${cls}`}
         style={isShaped ? { width: 'min(16rem, 100%)' } : undefined}
         loading="lazy"
         data-testid={`timeline-image-${year}`}
