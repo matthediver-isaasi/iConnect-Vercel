@@ -305,9 +305,10 @@ function ImageLinkWrapper({ img, onPopupClick, children }) {
   return children;
 }
 
-function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2xl', onPopupClick }) {
+function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2xl', onPopupClick, autoPlayInterval = 0 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [api, setApi] = useState(null);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     if (!api) return;
@@ -316,6 +317,14 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
     onSelect();
     return () => { api.off('select', onSelect); };
   }, [api]);
+
+  useEffect(() => {
+    if (!api || !autoPlayInterval || autoPlayInterval <= 0 || isHovered || images.length <= 1) return;
+    const timer = setInterval(() => {
+      api.scrollNext();
+    }, autoPlayInterval);
+    return () => clearInterval(timer);
+  }, [api, autoPlayInterval, isHovered, images.length]);
 
   if (images.length === 0) return null;
 
@@ -358,7 +367,12 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
   }
 
   return (
-    <div className={`relative ${maxWidthClass}`} data-testid={`timeline-carousel-${year}`}>
+    <div
+      className={`relative ${maxWidthClass}`}
+      data-testid={`timeline-carousel-${year}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <Carousel setApi={setApi} opts={{ loop: true }} className="w-full">
         <CarouselContent>
           {images.map((img, idx) => {
@@ -1225,7 +1239,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const mediaImages = getMediaItems(colData);
       return mediaImages.length > 0 ? (
         <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
-          <TimelineImageCarousel images={mediaImages} year={item.year} heading={colData.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} />
+          <TimelineImageCarousel images={mediaImages} year={item.year} heading={colData.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
         </div>
       ) : null;
     })();
@@ -1438,7 +1452,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         const mediaImages = getMediaItems(item);
         return mediaImages.length > 0 ? (
           <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
-            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} />
+            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
           </div>
         ) : null;
       })();
@@ -1647,7 +1661,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           const mediaImages = getMediaItems(item);
           return mediaImages.length > 0 ? (
             <div className="mb-3 rounded-lg overflow-visible">
-              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} />
+              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
             </div>
           ) : null;
         })()}
@@ -3010,6 +3024,39 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           <span className="text-sm font-medium text-slate-700">Show Connector Lines</span>
         </label>
         <p className="text-xs text-slate-400 mt-1">Lines linking year labels to content. Disable for better scroll performance on large timelines.</p>
+      </div>
+
+      {/* Carousel Auto-Play */}
+      <div>
+        <Label className="text-sm font-medium text-slate-700">Carousel Auto-Play Speed</Label>
+        <div className="flex items-center gap-2 mt-1">
+          <Input
+            type="number"
+            min="0"
+            max="30"
+            step="0.5"
+            placeholder="Off"
+            value={content.carousel_autoplay_interval ? (content.carousel_autoplay_interval / 1000) : ''}
+            onChange={(e) => {
+              const secs = parseFloat(e.target.value);
+              updateContent('carousel_autoplay_interval', secs > 0 ? Math.round(secs * 1000) : 0);
+            }}
+            className="w-24"
+            data-testid="input-carousel-autoplay"
+          />
+          <span className="text-xs text-slate-500">seconds</span>
+          {content.carousel_autoplay_interval > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => updateContent('carousel_autoplay_interval', 0)}
+              data-testid="button-carousel-autoplay-off"
+            >
+              Turn Off
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Time between automatic image transitions. Leave empty or 0 to disable. Pauses when hovered.</p>
       </div>
 
       {/* Styling */}
