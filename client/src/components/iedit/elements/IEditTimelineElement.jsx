@@ -36,7 +36,8 @@ import {
   Award,
   Bookmark,
   ExternalLink,
-  Link2
+  Link2,
+  Copy
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -2423,6 +2424,16 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     if (expandedItem === index) setExpandedItem(null);
   };
 
+  const duplicateItem = (index) => {
+    const original = items[index];
+    const clone = JSON.parse(JSON.stringify(original));
+    clone.year = `${clone.year || ''} (copy)`;
+    const newItems = [...items];
+    newItems.splice(index + 1, 0, clone);
+    updateContent('items', newItems);
+    setExpandedItem(index + 1);
+  };
+
   const moveItem = (fromIndex, toIndex) => {
     if (toIndex < 0 || toIndex >= items.length) return;
     const newItems = [...items];
@@ -3858,6 +3869,14 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                       data-testid={`button-move-down-${index}`}
                     >
                       <ChevronDown className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); duplicateItem(index); }}
+                      className="p-1 rounded text-slate-400 hover:text-slate-600"
+                      title="Duplicate item"
+                      data-testid={`button-duplicate-item-${index}`}
+                    >
+                      <Copy className="w-4 h-4" />
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); removeItem(index); }}
