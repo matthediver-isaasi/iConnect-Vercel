@@ -469,6 +469,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     label_color = '#9ca3af',
     content_layout = 'stacked',
     content_media_side = 'left',
+    show_connectors = true,
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -840,6 +841,13 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   const computeConnectors = useCallback(() => {
     connectorTickingRef.current = false;
+    if (show_connectors === false) {
+      if (connectorLinesRef.current.length > 0) {
+        connectorLinesRef.current = [];
+        setConnectorLines([]);
+      }
+      return;
+    }
     const container = timelineContainerRef.current;
     const nav = navRef.current;
     if (!container || !nav || !items.length || isMobile) return;
@@ -912,7 +920,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       connectorLinesRef.current = lines;
       setConnectorLines(lines);
     }
-  }, [items, activeYear, isMobile, isExpanded]);
+  }, [items, activeYear, isMobile, isExpanded, show_connectors]);
 
   const scheduleConnectorUpdate = useCallback(() => {
     if (connectorTickingRef.current) return;
@@ -921,13 +929,13 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   }, [computeConnectors]);
 
   useEffect(() => {
-    if (isMobile || !items.length) return;
+    if (isMobile || !items.length || show_connectors === false) return;
     const t = setTimeout(computeConnectors, 100);
     return () => clearTimeout(t);
-  }, [computeConnectors, isMobile, items, activeYear]);
+  }, [computeConnectors, isMobile, items, activeYear, show_connectors]);
 
   useEffect(() => {
-    if (isMobile || !items.length) return;
+    if (isMobile || !items.length || show_connectors === false) return;
     const target = isExpanded ? scrollContainerRef.current : window;
     if (!target) return;
     target.addEventListener('scroll', scheduleConnectorUpdate, { passive: true });
@@ -940,7 +948,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       ro.disconnect();
       if (connectorRafRef.current) cancelAnimationFrame(connectorRafRef.current);
     };
-  }, [scheduleConnectorUpdate, isMobile, isExpanded, items]);
+  }, [scheduleConnectorUpdate, isMobile, isExpanded, items, show_connectors]);
 
   const scrollToSection = useCallback((year) => {
     const el = sectionRefs.current[year];
@@ -2926,6 +2934,21 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           data-testid="input-timeline-anchor"
         />
         <p className="text-xs text-slate-400 mt-1">For in-page linking</p>
+      </div>
+
+      {/* Connector Lines */}
+      <div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={content.show_connectors !== false}
+            onChange={(e) => updateContent('show_connectors', e.target.checked)}
+            className="rounded"
+            data-testid="checkbox-show-connectors"
+          />
+          <span className="text-sm font-medium text-slate-700">Show Connector Lines</span>
+        </label>
+        <p className="text-xs text-slate-400 mt-1">Lines linking year labels to content. Disable for better scroll performance on large timelines.</p>
       </div>
 
       {/* Styling */}
