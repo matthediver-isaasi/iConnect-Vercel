@@ -512,13 +512,21 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
-    let effectiveCardAmount = totalCardAmount;
+    const totalGroupCost = bookings.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
+    let effectiveRefundAmount = null;
     if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
       const customAmt = parseFloat(custom_refund_amount);
-      if (Number.isFinite(customAmt) && customAmt > 0) {
-        effectiveCardAmount = Math.min(customAmt, totalCardAmount);
+      if (!Number.isFinite(customAmt) || customAmt <= 0) {
+        return { success: false, error: 'custom_refund_amount must be a positive number' };
       }
+      const maxAllowed = Math.min(totalCardAmount > 0 ? totalCardAmount : Infinity, totalGroupCost > 0 ? totalGroupCost : Infinity);
+      if (customAmt > maxAllowed) {
+        return { success: false, error: `custom_refund_amount (${customAmt}) exceeds maximum refundable amount (${maxAllowed.toFixed(2)})` };
+      }
+      effectiveRefundAmount = customAmt;
     }
+
+    const effectiveCardAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : totalCardAmount;
 
     if (stripePaymentIntentId && effectiveCardAmount > 0) {
       try {
@@ -597,13 +605,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
         const xeroInvoiceId = bookingsWithXero[0].xero_invoice_id;
         const bookingsForThisInvoice = bookings.filter(b => b.xero_invoice_id === xeroInvoiceId);
         const fullCreditAmount = bookingsForThisInvoice.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
-        let totalCreditAmount = fullCreditAmount;
-        if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
-          const customAmt = parseFloat(custom_refund_amount);
-          if (Number.isFinite(customAmt) && customAmt > 0) {
-            totalCreditAmount = Math.min(customAmt, fullCreditAmount);
-          }
-        }
+        const totalCreditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : fullCreditAmount;
 
         if (totalCreditAmount > 0) {
           const xeroBooking = bookingsWithXero[0];
@@ -665,11 +667,11 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
           }
         }
       } catch (err) {
-        const totalCreditAmount = bookings.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
+        const errCreditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : totalGroupCost;
         console.error('[GroupApproval] Xero credit note error:', err.message);
         reversalResults.xeroCreditNote = {
           success: false,
-          amount: totalCreditAmount,
+          amount: errCreditAmount,
           requiresManualAction: true,
           error: err.message,
         };

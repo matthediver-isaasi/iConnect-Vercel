@@ -451,25 +451,31 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
       }
     }
 
+    // --- Compute effective refund amount ---
+    const totalCost = parseFloat(booking.total_cost) || 0;
+    const trainingFundAmt = parseFloat(booking.training_fund_amount) || 0;
+    const voucherAmt = parseFloat(booking.voucher_amount) || 0;
+    const discountAmt = parseFloat(booking.discount_code_amount) || 0;
+    const accountAmt = parseFloat(booking.account_amount) || 0;
+    const fullCardAmount = Math.max(0, totalCost - trainingFundAmt - voucherAmt - discountAmt - accountAmt);
+
+    let effectiveRefundAmount = null;
+    if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
+      const customAmt = parseFloat(custom_refund_amount);
+      if (!Number.isFinite(customAmt) || customAmt <= 0) {
+        return { success: false, error: 'custom_refund_amount must be a positive number' };
+      }
+      const maxAllowed = Math.min(fullCardAmount > 0 ? fullCardAmount : Infinity, totalCost > 0 ? totalCost : Infinity);
+      if (customAmt > maxAllowed) {
+        return { success: false, error: `custom_refund_amount (${customAmt}) exceeds maximum refundable amount (${maxAllowed.toFixed(2)})` };
+      }
+      effectiveRefundAmount = customAmt;
+    }
+
     // --- Stripe Refund ---
     if (booking.stripe_payment_intent_id && booking.payment_method === 'card') {
       try {
-        const totalCost = parseFloat(booking.total_cost) || 0;
-        const trainingFundAmt = parseFloat(booking.training_fund_amount) || 0;
-        const voucherAmt = parseFloat(booking.voucher_amount) || 0;
-        const discountAmt = parseFloat(booking.discount_code_amount) || 0;
-        const accountAmt = parseFloat(booking.account_amount) || 0;
-        const fullCardAmount = Math.max(0, totalCost - trainingFundAmt - voucherAmt - discountAmt - accountAmt);
-
-        let cardAmount = fullCardAmount;
-        if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
-          const customAmt = parseFloat(custom_refund_amount);
-          if (!Number.isFinite(customAmt) || customAmt <= 0) {
-            console.warn(`[CancellationRequest] Invalid custom_refund_amount: ${custom_refund_amount}, using full amount`);
-          } else {
-            cardAmount = Math.min(customAmt, fullCardAmount);
-          }
-        }
+        const cardAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : fullCardAmount;
 
         if (cardAmount > 0) {
           const creds = await getStripeCredentials(tenantId, 'events');
@@ -532,11 +538,11 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
           console.log(`[CancellationRequest] Card amount is £0 — no Stripe refund needed`);
         }
       } catch (err) {
-        const cardAmount = Math.max(0, (parseFloat(booking.total_cost) || 0) - (parseFloat(booking.training_fund_amount) || 0) - (parseFloat(booking.voucher_amount) || 0) - (parseFloat(booking.discount_code_amount) || 0) - (parseFloat(booking.account_amount) || 0));
+        const errCardAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : fullCardAmount;
         console.error('[CancellationRequest] Stripe refund error:', err.message);
         reversalResults.stripeRefund = {
           success: false,
-          amount: cardAmount,
+          amount: errCardAmount,
           requiresManualRefund: true,
           error: err.message,
           paymentIntentId: booking.stripe_payment_intent_id,
@@ -547,14 +553,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
     // --- Xero Credit Note ---
     if (booking.xero_invoice_id) {
       try {
-        const fullCreditAmount = parseFloat(booking.total_cost) || 0;
-        let creditAmount = fullCreditAmount;
-        if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
-          const customAmt = parseFloat(custom_refund_amount);
-          if (Number.isFinite(customAmt) && customAmt > 0) {
-            creditAmount = Math.min(customAmt, fullCreditAmount);
-          }
-        }
+        const creditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : totalCost;
 
         if (creditAmount > 0) {
           const result = await createXeroCreditNote({
@@ -603,11 +602,11 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
           }
         }
       } catch (err) {
-        const creditAmount = parseFloat(booking.total_cost) || 0;
+        const errCreditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : totalCost;
         console.error('[CancellationRequest] Xero credit note error:', err.message);
         reversalResults.xeroCreditNote = {
           success: false,
-          amount: creditAmount,
+          amount: errCreditAmount,
           requiresManualAction: true,
           error: err.message,
           invoiceId: booking.xero_invoice_id,
