@@ -912,18 +912,16 @@ export default function IEditElementEditor({ element, onClose, onSave, onSaveOnl
             <Button variant="outline" onClick={onClose} data-testid="button-cancel-edit">
               Cancel
             </Button>
-            {onSaveOnly && (
-              <Button 
-                variant="outline"
-                onClick={handleSaveOnly} 
-                className="flex-1"
-                disabled={Object.values(uploadingFiles).some(v => v) || savingOnly}
-                data-testid="button-save-only-element"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                {savingOnly ? 'Saving...' : 'Save'}
-              </Button>
-            )}
+            <Button 
+              variant="outline"
+              onClick={onSaveOnly ? handleSaveOnly : handleSave} 
+              className="flex-1"
+              disabled={Object.values(uploadingFiles).some(v => v) || savingOnly}
+              data-testid="button-save-only-element"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {savingOnly ? 'Saving...' : 'Save'}
+            </Button>
             <Button 
               onClick={handleSave} 
               className="flex-1 bg-blue-600 hover:bg-blue-700"

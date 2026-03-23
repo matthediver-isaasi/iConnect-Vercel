@@ -245,17 +245,15 @@ export default function DraggableEditModal({
           >
             Cancel
           </Button>
-          {onSaveOnly && (
-            <Button
-              variant="outline"
-              onClick={handleSaveOnly}
-              disabled={isSavingOnly || isSaving}
-              data-testid="button-save-only-inline-edit"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {isSavingOnly ? 'Saving...' : 'Save'}
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            onClick={onSaveOnly ? handleSaveOnly : handleSave}
+            disabled={isSavingOnly || isSaving}
+            data-testid="button-save-only-inline-edit"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {isSavingOnly ? 'Saving...' : 'Save'}
+          </Button>
           <Button
             onClick={handleSave}
             disabled={isSaving || isSavingOnly}
