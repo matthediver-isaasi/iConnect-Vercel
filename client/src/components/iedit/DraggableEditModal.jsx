@@ -10,6 +10,7 @@ export default function DraggableEditModal({
   draftSettings,
   onChange,
   onSave, 
+  onSaveOnly,
   onClose,
   EditorComponent
 }) {
@@ -19,6 +20,7 @@ export default function DraggableEditModal({
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewMode, setPreviewMode] = useState('desktop');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingOnly, setIsSavingOnly] = useState(false);
   
   const modalRef = useRef(null);
 
@@ -99,6 +101,16 @@ export default function DraggableEditModal({
       await onSave();
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveOnly = async () => {
+    if (!onSaveOnly) return;
+    setIsSavingOnly(true);
+    try {
+      await onSaveOnly();
+    } finally {
+      setIsSavingOnly(false);
     }
   };
 
@@ -233,14 +245,25 @@ export default function DraggableEditModal({
           >
             Cancel
           </Button>
+          {onSaveOnly && (
+            <Button
+              variant="outline"
+              onClick={handleSaveOnly}
+              disabled={isSavingOnly || isSaving}
+              data-testid="button-save-only-inline-edit"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {isSavingOnly ? 'Saving...' : 'Save'}
+            </Button>
+          )}
           <Button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isSavingOnly}
             className="bg-blue-600 hover:bg-blue-700"
             data-testid="button-save-inline-edit"
           >
             <Save className="w-4 h-4 mr-2" />
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving ? 'Saving...' : 'Save & Close'}
           </Button>
         </div>
       </div>

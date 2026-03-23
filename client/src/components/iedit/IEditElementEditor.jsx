@@ -37,11 +37,12 @@ import { IEditVideoElementEditor } from "./elements/IEditVideoElement";
 import { IEditTimelineElementEditor } from "./elements/IEditTimelineElement";
 import { IEditHeroCarouselElementEditor } from "./elements/IEditHeroCarouselElement";
 
-export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
+export default function IEditElementEditor({ element, onClose, onSave, onSaveOnly, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
   const [editedVariant, setEditedVariant] = useState(element.style_variant || 'default');
   const [editedSettings, setEditedSettings] = useState(element.settings || {});
   const [uploadingFiles, setUploadingFiles] = useState({});
+  const [savingOnly, setSavingOnly] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewMode, setPreviewMode] = useState('desktop');
   
@@ -80,6 +81,20 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
       style_variant: editedVariant,
       settings: editedSettings
     });
+  };
+
+  const handleSaveOnly = async () => {
+    if (!onSaveOnly) return;
+    setSavingOnly(true);
+    try {
+      await onSaveOnly({
+        content: editedContent,
+        style_variant: editedVariant,
+        settings: editedSettings
+      });
+    } finally {
+      setSavingOnly(false);
+    }
   };
 
   const updateContent = (key, value) => {
@@ -894,9 +909,21 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
       {!isInlineMode && (
         <div className="p-6 border-t border-slate-200">
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} className="flex-1" data-testid="button-cancel-edit">
+            <Button variant="outline" onClick={onClose} data-testid="button-cancel-edit">
               Cancel
             </Button>
+            {onSaveOnly && (
+              <Button 
+                variant="outline"
+                onClick={handleSaveOnly} 
+                className="flex-1"
+                disabled={Object.values(uploadingFiles).some(v => v) || savingOnly}
+                data-testid="button-save-only-element"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {savingOnly ? 'Saving...' : 'Save'}
+              </Button>
+            )}
             <Button 
               onClick={handleSave} 
               className="flex-1 bg-blue-600 hover:bg-blue-700"
@@ -904,7 +931,7 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
               data-testid="button-save-element"
             >
               <Save className="w-4 h-4 mr-2" />
-              Save
+              Save & Close
             </Button>
           </div>
         </div>

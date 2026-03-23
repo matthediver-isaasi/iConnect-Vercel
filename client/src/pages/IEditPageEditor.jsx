@@ -185,6 +185,15 @@ export default function IEditPageEditorPage() {
     setEditingElement(null);
   };
 
+  const handleSaveElementOnly = async (elementId, updates) => {
+    try {
+      await updateElementMutation.mutateAsync({ id: elementId, data: updates });
+      toast.success('Element saved');
+    } catch (error) {
+      toast.error('Failed to save element');
+    }
+  };
+
   // Delete element
   const handleDeleteElement = async (elementId) => {
     if (confirm('Are you sure you want to delete this element?')) {
@@ -262,7 +271,7 @@ export default function IEditPageEditorPage() {
     }
   };
 
-  const handleSaveInlineEdit = async () => {
+  const handleSaveInlineEdit = async ({ closeAfterSave = true } = {}) => {
     if (!inlineEditingElement) return;
     
     try {
@@ -274,11 +283,13 @@ export default function IEditPageEditorPage() {
           settings: draftSettings
         }
       });
-      setInlineEditingElement(null);
-      setDraftContent({});
-      setDraftVariant('default');
-      setDraftSettings({});
-      toast.success('Element updated');
+      if (closeAfterSave) {
+        setInlineEditingElement(null);
+        setDraftContent({});
+        setDraftVariant('default');
+        setDraftSettings({});
+      }
+      toast.success('Element saved');
     } catch (error) {
       toast.error('Failed to save element');
     }
@@ -541,6 +552,7 @@ export default function IEditPageEditorPage() {
           element={editingElement}
           onClose={() => setEditingElement(null)}
           onSave={(updates) => handleUpdateElement(editingElement.id, updates)}
+          onSaveOnly={(updates) => handleSaveElementOnly(editingElement.id, updates)}
         />
       )}
 
@@ -561,7 +573,8 @@ export default function IEditPageEditorPage() {
           draftVariant={draftVariant}
           draftSettings={draftSettings}
           onChange={handleInlineEditChange}
-          onSave={handleSaveInlineEdit}
+          onSave={() => handleSaveInlineEdit({ closeAfterSave: true })}
+          onSaveOnly={() => handleSaveInlineEdit({ closeAfterSave: false })}
           onClose={handleCancelInlineEdit}
           EditorComponent={IEditElementEditor}
         />
