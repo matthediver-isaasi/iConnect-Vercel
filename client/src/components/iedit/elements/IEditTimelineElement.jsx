@@ -562,13 +562,23 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     }
   }, [items]);
 
+  const userHasScrolledRef = useRef(false);
+
   useEffect(() => {
     if (!isExpanded || !scrollContainerRef.current) return;
     const container = scrollContainerRef.current;
     container.scrollTop = 0;
+    userHasScrolledRef.current = false;
+
+    const onUserScroll = () => {
+      if (!isClickScrolling.current) {
+        userHasScrolledRef.current = true;
+      }
+    };
+    container.addEventListener('scroll', onUserScroll, { passive: true });
 
     const observer = new MutationObserver(() => {
-      if (container.scrollTop !== 0 && isClickScrolling.current === false) {
+      if (container.scrollTop !== 0 && !isClickScrolling.current && !userHasScrolledRef.current) {
         container.scrollTop = 0;
       }
     });
@@ -601,6 +611,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
     return () => {
       observer.disconnect();
+      container.removeEventListener('scroll', onUserScroll);
       clearTimeout(timeout);
       images.forEach((img) => {
         img.removeEventListener('load', onLoad);
@@ -609,10 +620,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     };
   }, [isExpanded]);
 
+  const scrollTickingRef = useRef(false);
+  const scrollRafRef = useRef(null);
+
   useEffect(() => {
     if (!items.length) return;
 
-    const handleScroll = () => {
+    const computeActiveYear = () => {
+      scrollTickingRef.current = false;
       if (isClickScrolling.current) return;
 
       const container = isExpanded ? scrollContainerRef.current : null;
@@ -673,14 +688,21 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       if (bestYear) setActiveYear(bestYear);
     };
 
+    const handleScroll = () => {
+      if (scrollTickingRef.current) return;
+      scrollTickingRef.current = true;
+      scrollRafRef.current = requestAnimationFrame(computeActiveYear);
+    };
+
     const target = isExpanded ? scrollContainerRef.current : window;
     if (target) {
       target.addEventListener('scroll', handleScroll, { passive: true });
-      handleScroll();
+      computeActiveYear();
     }
 
     return () => {
       if (target) target.removeEventListener('scroll', handleScroll);
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     };
   }, [items, header_offset, isExpanded]);
 
@@ -828,7 +850,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const t1 = setTimeout(() => { computeNavLine(); }, 50);
     const t2 = setTimeout(() => { measureSubDotCorrection(); computeNavLine(); }, 200);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [computeNavLine, measureSubDotCorrection, items, activeYear, sub_offset_x, sub_offset_y, subDotCorrection]);
+  }, [computeNavLine, measureSubDotCorrection, items, sub_offset_x, sub_offset_y, subDotCorrection]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => { measureSubDotCorrection(); computeNavLine(); });
