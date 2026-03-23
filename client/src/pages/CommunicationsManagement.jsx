@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -50,6 +50,10 @@ export default function CommunicationsManagementPage() {
   const [showAddListSegment, setShowAddListSegment] = useState(false);
   const [addListSegmentType, setAddListSegmentType] = useState('');
   const [addListSegmentIds, setAddListSegmentIds] = useState([]);
+  const [indMemberSearchInput, setIndMemberSearchInput] = useState('');
+  const [indMemberSearchResults, setIndMemberSearchResults] = useState([]);
+  const [indMemberSearchLoading, setIndMemberSearchLoading] = useState(false);
+  const [indSelectedMembers, setIndSelectedMembers] = useState([]);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -238,6 +242,35 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
+  const debouncedIndMemberSearch = useCallback(
+    (() => {
+      let timer;
+      return (query) => {
+        clearTimeout(timer);
+        if (!query || query.length < 2) {
+          setIndMemberSearchResults([]);
+          setIndMemberSearchLoading(false);
+          return;
+        }
+        setIndMemberSearchLoading(true);
+        timer = setTimeout(async () => {
+          try {
+            const resp = await fetch(`/api/members/search?q=${encodeURIComponent(query)}&limit=10`, { credentials: 'include' });
+            if (resp.ok) {
+              const data = await resp.json();
+              setIndMemberSearchResults(data);
+            }
+          } catch (e) {
+            console.error('Member search error:', e);
+          } finally {
+            setIndMemberSearchLoading(false);
+          }
+        }, 300);
+      };
+    })(),
+    []
+  );
+
   const getSegmentSummary = (segment) => {
     const typeLabels = {
       communication_category: 'Categories',
@@ -247,11 +280,19 @@ export default function CommunicationsManagementPage() {
       fundraisers: 'Fundraisers',
       donors: 'Donors',
       all_members: 'All Members',
-      audience_list: 'Saved Lists'
+      audience_list: 'Saved Lists',
+      individual_members: 'Individual Members'
     };
     const label = typeLabels[segment.type] || segment.type;
     if (segment.type === 'all_members') return label;
     const count = (segment.ids || []).length;
+    if (segment.type === 'individual_members') {
+      if (segment.names && Object.keys(segment.names).length > 0) {
+        const names = (segment.ids || []).map(id => segment.names[id]).filter(Boolean);
+        return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
+      }
+      return `${label} (${count})`;
+    }
     if (segment.type === 'role') {
       const names = (segment.ids || []).map(id => roleLookup[id]).filter(Boolean);
       return names.length > 0 ? `${label}: ${names.join(', ')}` : `${label} (${count})`;
@@ -280,6 +321,13 @@ export default function CommunicationsManagementPage() {
     return `${label} (${count})`;
   };
 
+  const resetIndMemberSearch = () => {
+    setIndMemberSearchInput('');
+    setIndMemberSearchResults([]);
+    setIndMemberSearchLoading(false);
+    setIndSelectedMembers([]);
+  };
+
   const openEditListDialog = (list) => {
     setEditingList(list);
     setEditListName(list.name);
@@ -287,6 +335,7 @@ export default function CommunicationsManagementPage() {
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
+    resetIndMemberSearch();
     setShowEditListDialog(true);
   };
 
@@ -297,6 +346,7 @@ export default function CommunicationsManagementPage() {
     setShowAddListSegment(false);
     setAddListSegmentType('');
     setAddListSegmentIds([]);
+    resetIndMemberSearch();
     setShowEditListDialog(true);
   };
 
@@ -2160,7 +2210,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); }}>
+                    <Select value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); resetIndMemberSearch(); }}>
                       <SelectTrigger data-testid="select-add-list-segment-type">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -2180,10 +2230,76 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         {!editListAudiences.some(a => a.type === 'donors') && (
                           <SelectItem value="donors">Donors</SelectItem>
                         )}
+                        <SelectItem value="individual_members">Individual Members</SelectItem>
                       </SelectContent>
                     </Select>
 
-                    {addListSegmentType && addListSegmentType !== 'all_members' && (
+                    {addListSegmentType === 'individual_members' && (
+                      <div className="border rounded-md p-2 space-y-2 bg-background">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                          <Input
+                            placeholder="Search by name or email..."
+                            value={indMemberSearchInput}
+                            onChange={(e) => {
+                              setIndMemberSearchInput(e.target.value);
+                              debouncedIndMemberSearch(e.target.value);
+                            }}
+                            className="pl-8 h-8 text-sm"
+                            data-testid="input-ind-member-search"
+                          />
+                        </div>
+                        {indMemberSearchLoading && (
+                          <div className="text-xs text-muted-foreground py-1">Searching...</div>
+                        )}
+                        {indMemberSearchResults.length > 0 && (
+                          <div className="max-h-28 overflow-y-auto space-y-0.5">
+                            {indMemberSearchResults
+                              .filter(m => !indSelectedMembers.some(s => s.id === m.id))
+                              .map(m => (
+                                <div
+                                  key={m.id}
+                                  className="flex items-center gap-2 p-1.5 rounded cursor-pointer hover-elevate text-sm"
+                                  onClick={() => {
+                                    setIndSelectedMembers(prev => [...prev, m]);
+                                    setAddListSegmentIds(prev => [...prev, m.id]);
+                                    setIndMemberSearchInput('');
+                                    setIndMemberSearchResults([]);
+                                  }}
+                                  data-testid={`ind-member-result-${m.id}`}
+                                >
+                                  <Plus className="w-3 h-3 text-muted-foreground" />
+                                  <span>{m.first_name} {m.last_name}</span>
+                                  <span className="text-xs text-muted-foreground">{m.email}</span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                        {indSelectedMembers.length > 0 && (
+                          <div className="space-y-0.5 border-t pt-1">
+                            {indSelectedMembers.map(m => (
+                              <div key={m.id} className="flex items-center justify-between gap-2 p-1 text-sm" data-testid={`ind-member-selected-${m.id}`}>
+                                <span>{m.first_name} {m.last_name} <span className="text-xs text-muted-foreground">{m.email}</span></span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5"
+                                  onClick={() => {
+                                    setIndSelectedMembers(prev => prev.filter(s => s.id !== m.id));
+                                    setAddListSegmentIds(prev => prev.filter(i => i !== m.id));
+                                  }}
+                                  data-testid={`button-remove-ind-member-${m.id}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && (
                       <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1 bg-background">
                         {addListSegmentType === 'communication_category' && categories.filter(c => c.is_active !== false).map(cat => (
                           <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
@@ -2277,6 +2393,25 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         onClick={() => {
                           if (addListSegmentType === 'all_members') {
                             setEditListAudiences(prev => [...prev, { type: 'all_members', ids: [] }]);
+                          } else if (addListSegmentType === 'individual_members' && indSelectedMembers.length > 0) {
+                            const newNames = {};
+                            indSelectedMembers.forEach(m => { newNames[m.id] = `${m.first_name} ${m.last_name}`; });
+                            const existingIdx = editListAudiences.findIndex(a => a.type === 'individual_members');
+                            if (existingIdx >= 0) {
+                              setEditListAudiences(prev => {
+                                const updated = [...prev];
+                                const existing = new Set(updated[existingIdx].ids || []);
+                                const existingNames = { ...(updated[existingIdx].names || {}) };
+                                indSelectedMembers.forEach(m => {
+                                  existing.add(m.id);
+                                  existingNames[m.id] = `${m.first_name} ${m.last_name}`;
+                                });
+                                updated[existingIdx] = { ...updated[existingIdx], ids: [...existing], names: existingNames };
+                                return updated;
+                              });
+                            } else {
+                              setEditListAudiences(prev => [...prev, { type: 'individual_members', ids: indSelectedMembers.map(m => m.id), names: newNames }]);
+                            }
                           } else if (addListSegmentIds.length > 0) {
                             const existingIdx = editListAudiences.findIndex(a => a.type === addListSegmentType);
                             if (existingIdx >= 0) {
@@ -2294,8 +2429,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                           setShowAddListSegment(false);
                           setAddListSegmentType('');
                           setAddListSegmentIds([]);
+                          resetIndMemberSearch();
                         }}
-                        disabled={addListSegmentType !== 'all_members' && addListSegmentIds.length === 0}
+                        disabled={addListSegmentType === 'individual_members' ? indSelectedMembers.length === 0 : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)}
                         data-testid="button-confirm-add-list-segment"
                       >
                         <Check className="w-4 h-4 mr-1" />

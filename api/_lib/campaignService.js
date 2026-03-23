@@ -491,6 +491,25 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
     recipients = members.filter(m => 
       m.email && m.communications_opted_out_all !== true
     );
+  } else if (targetType === 'individual_members' && targetIds.length > 0) {
+    const allMembers = [];
+    const idBatchSize = 500;
+
+    for (let i = 0; i < targetIds.length; i += idBatchSize) {
+      const idBatch = targetIds.slice(i, i + idBatchSize);
+      const { data: members } = await supabase
+        .from('member')
+        .select('id, email, first_name, last_name, communications_opted_out_all')
+        .eq('tenant_id', tenantId)
+        .in('id', idBatch)
+        .not('email', 'ilike', 'deleted_%@deleted.local');
+
+      if (members) allMembers.push(...members);
+    }
+
+    recipients = allMembers.filter(m =>
+      m.email && m.communications_opted_out_all !== true
+    );
   } else if (targetType === 'form' && targetIds.length > 0) {
     const { data: forms } = await supabase
       .from('form')
