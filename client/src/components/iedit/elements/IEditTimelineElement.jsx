@@ -1295,26 +1295,36 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               style={{ scrollMarginTop: `${(isExpanded ? 16 : header_offset) + 8}px`, marginBottom: '24px' }}
               data-testid={`timeline-section-${subKey}`}
             >
-              {SubIcon ? (
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                  <SubIcon style={{ width: 18, height: 18, color: subIconColor, flexShrink: 0, marginTop: '2px' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
+              {(() => {
+                const colSubMedia = getMediaItems(sub);
+                const colSubCarousel = colSubMedia.length > 0 ? (
+                  <div className="mb-2 rounded-lg overflow-visible">
+                    <TimelineImageCarousel images={colSubMedia} year={subKey} heading={sub.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
+                  </div>
+                ) : null;
+                return SubIcon ? (
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                    <SubIcon style={{ width: 18, height: 18, color: subIconColor, flexShrink: 0, marginTop: '2px' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div data-year-heading style={{ marginBottom: '4px' }}>
+                        <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}>{sub.year}</span>
+                      </div>
+                      {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
+                      {colSubCarousel}
+                      {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border-l-2 pl-4" style={{ borderColor: isSubActive ? active_color : line_color }}>
                     <div data-year-heading style={{ marginBottom: '4px' }}>
                       <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}>{sub.year}</span>
                     </div>
                     {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
+                    {colSubCarousel}
                     {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
                   </div>
-                </div>
-              ) : (
-                <div className="border-l-2 pl-4" style={{ borderColor: isSubActive ? active_color : line_color }}>
-                  <div data-year-heading style={{ marginBottom: '4px' }}>
-                    <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isSubActive ? active_color : (sub.label_color || item.label_color || label_color) }}>{sub.year}</span>
-                  </div>
-                  {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
-                  {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}
@@ -1561,12 +1571,18 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     const SubIcon = subDecoration !== 'line' ? getMarkerShapeIcon(subDecoration) : null;
     const subIconColor = sub.icon_color || (isActive ? active_color : line_color);
 
+    const subMediaImages = getMediaItems(sub);
     const subInner = (
       <>
         <div data-year-heading style={{ marginBottom: '4px' }}>
           <span className="font-semibold transition-colors duration-200" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.9)}px`, color: isActive ? active_color : (sub.label_color || parentItem.label_color || label_color) }}>{sub.year}</span>
         </div>
         {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
+        {subMediaImages.length > 0 && (
+          <div className="mb-2 rounded-lg overflow-visible">
+            <TimelineImageCarousel images={subMediaImages} year={subKey} heading={sub.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
+          </div>
+        )}
         {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
       </>
     );
@@ -2430,6 +2446,36 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     updateItem(parentIndex, 'sub_items', subs);
   };
 
+  const updateSubItemMediaItems = (parentIndex, subIndex, newMediaItems) => {
+    const subs = [...(items[parentIndex].sub_items || [])];
+    subs[subIndex] = {
+      ...subs[subIndex],
+      media_items: newMediaItems,
+      media: newMediaItems.length > 0
+        ? { type: 'image', src: newMediaItems[0].src, alt: newMediaItems[0].alt || '' }
+        : { type: 'image', src: '', alt: '' }
+    };
+    updateItem(parentIndex, 'sub_items', subs);
+  };
+
+  const updateColSubItemMediaItems = (parentIndex, colIndex, subIndex, newMediaItems) => {
+    const newItems = [...items];
+    const cols = [...(newItems[parentIndex].column_content || [])];
+    const col = { ...cols[colIndex] };
+    const subs = [...(col.sub_items || [])];
+    subs[subIndex] = {
+      ...subs[subIndex],
+      media_items: newMediaItems,
+      media: newMediaItems.length > 0
+        ? { type: 'image', src: newMediaItems[0].src, alt: newMediaItems[0].alt || '' }
+        : { type: 'image', src: '', alt: '' }
+    };
+    col.sub_items = subs;
+    cols[colIndex] = col;
+    newItems[parentIndex] = { ...newItems[parentIndex], column_content: cols };
+    updateContent('items', newItems);
+  };
+
   const removeSubItem = (parentIndex, subIndex) => {
     const subs = (items[parentIndex].sub_items || []).filter((_, i) => i !== subIndex);
     updateItem(parentIndex, 'sub_items', subs);
@@ -2870,6 +2916,103 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     } finally {
       setIsUploading(prev => ({ ...prev, [index]: false }));
     }
+  };
+
+  const [isSubUploading, setIsSubUploading] = useState({});
+
+  const handleSubImageUpload = async (parentIndex, subIndex, file) => {
+    if (!file) return;
+    const sub = (items[parentIndex].sub_items || [])[subIndex];
+    const currentMediaItems = getMediaItems(sub || {});
+    if (currentMediaItems.length >= 5) { alert('Maximum 5 images per sub-year'); return; }
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) { alert('Please upload a valid image file (JPEG, PNG, GIF, WebP)'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('Image must be smaller than 10MB'); return; }
+    const uploadKey = `${parentIndex}-sub${subIndex}`;
+    setIsSubUploading(prev => ({ ...prev, [uploadKey]: true }));
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      const updated = [...currentMediaItems, { src: response.file_url, alt: '' }];
+      updateSubItemMediaItems(parentIndex, subIndex, updated);
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsSubUploading(prev => ({ ...prev, [uploadKey]: false }));
+    }
+  };
+
+  const handleColSubImageUpload = async (parentIndex, colIndex, subIndex, file) => {
+    if (!file) return;
+    const col = (items[parentIndex].column_content || [])[colIndex] || {};
+    const sub = (col.sub_items || [])[subIndex];
+    const currentMediaItems = getMediaItems(sub || {});
+    if (currentMediaItems.length >= 5) { alert('Maximum 5 images per sub-year'); return; }
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) { alert('Please upload a valid image file (JPEG, PNG, GIF, WebP)'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('Image must be smaller than 10MB'); return; }
+    const uploadKey = `${parentIndex}-col${colIndex}-sub${subIndex}`;
+    setIsSubUploading(prev => ({ ...prev, [uploadKey]: true }));
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      const updated = [...currentMediaItems, { src: response.file_url, alt: '' }];
+      updateColSubItemMediaItems(parentIndex, colIndex, subIndex, updated);
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsSubUploading(prev => ({ ...prev, [uploadKey]: false }));
+    }
+  };
+
+  const renderSubImageEditor = (sub, parentIndex, subIndex, uploadHandler, updateHandler, keyPrefix) => {
+    const subMedia = getMediaItems(sub || {});
+    const uploadKey = keyPrefix;
+    const uploading = isSubUploading[uploadKey];
+    return (
+      <div>
+        <Label className="text-[10px] text-slate-500">Images ({subMedia.length}/5)</Label>
+        <div className="mt-1 space-y-1">
+          {subMedia.length > 0 && (
+            <div className="grid grid-cols-3 gap-1.5">
+              {subMedia.map((mediaImg, mIdx) => (
+                <div key={mIdx} className="relative rounded overflow-hidden border border-slate-200">
+                  <img src={mediaImg.src} alt={mediaImg.alt || ''} className="w-full h-14 object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                  <div className="absolute top-0.5 left-0.5 flex gap-0.5" style={{ visibility: subMedia.length > 1 ? 'visible' : 'hidden' }}>
+                    <button onClick={() => { const updated = [...subMedia]; if (mIdx === 0) return; const [moved] = updated.splice(mIdx, 1); updated.splice(mIdx - 1, 0, moved); updateHandler(updated); }} disabled={mIdx === 0} className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30" type="button" data-testid={`button-move-sub-media-left-${keyPrefix}-${mIdx}`}><ChevronLeft className="w-2.5 h-2.5" /></button>
+                    <button onClick={() => { const updated = [...subMedia]; if (mIdx === subMedia.length - 1) return; const [moved] = updated.splice(mIdx, 1); updated.splice(mIdx + 1, 0, moved); updateHandler(updated); }} disabled={mIdx === subMedia.length - 1} className="p-0.5 bg-black/50 hover:bg-black/70 text-white rounded transition-colors disabled:opacity-30" type="button" data-testid={`button-move-sub-media-right-${keyPrefix}-${mIdx}`}><ChevronRight className="w-2.5 h-2.5" /></button>
+                  </div>
+                  <button onClick={() => { const updated = subMedia.filter((_, i) => i !== mIdx); updateHandler(updated); }} className="absolute top-0.5 right-0.5 p-0.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-lg transition-colors" type="button" data-testid={`button-remove-sub-media-${keyPrefix}-${mIdx}`}><X className="w-2.5 h-2.5" /></button>
+                  <div className="flex border-t border-slate-200 bg-white">
+                    <input value={mediaImg.alt || ''} onChange={(e) => { const updated = [...subMedia]; updated[mIdx] = { ...updated[mIdx], alt: e.target.value }; updateHandler(updated); }} placeholder="Alt text" className="flex-1 min-w-0 text-[9px] px-1 py-0.5 bg-transparent" data-testid={`input-sub-media-alt-${keyPrefix}-${mIdx}`} />
+                  </div>
+                  <div className="flex border-t border-slate-200 bg-white">
+                    {[{ value: 'original', label: 'Orig' }, { value: 'square', label: 'Sq' }, { value: 'circle', label: 'Circ' }].map(opt => (
+                      <button key={opt.value} type="button" onClick={() => { const updated = [...subMedia]; updated[mIdx] = { ...updated[mIdx], display: opt.value }; updateHandler(updated); }} className={`flex-1 text-[8px] py-0.5 transition-colors ${(mediaImg.display || 'original') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-sub-media-display-${keyPrefix}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-0.5 border-t border-slate-200 bg-white px-1 py-0.5">
+                    <span className="text-[8px] text-slate-400 shrink-0">W</span>
+                    <input type="number" min={1} value={mediaImg.width || ''} onChange={(e) => { const updated = [...subMedia]; updated[mIdx] = { ...updated[mIdx], width: e.target.value === '' ? undefined : parseInt(e.target.value) || undefined }; updateHandler(updated); }} placeholder="Auto" className="flex-1 min-w-0 text-[9px] px-0.5 py-0.5 border border-slate-200 rounded" data-testid={`input-sub-media-width-${keyPrefix}-${mIdx}`} />
+                    <div className="flex gap-0.5">
+                      {[{ value: '%', label: '%' }, { value: 'px', label: 'px' }].map(opt => (
+                        <button key={opt.value} type="button" onClick={() => { const updated = [...subMedia]; updated[mIdx] = { ...updated[mIdx], width_unit: opt.value }; updateHandler(updated); }} className={`text-[8px] px-1 py-0.5 rounded transition-colors ${(mediaImg.width_unit || '%') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-sub-media-width-unit-${keyPrefix}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {subMedia.length < 5 && (
+            <label className="cursor-pointer block">
+              <div className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs border-2 border-dashed transition-colors ${uploading ? 'border-slate-200 bg-slate-100 cursor-not-allowed' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/50'}`}>
+                {uploading ? (<span className="animate-spin w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full" />) : (<><Upload className="w-3 h-3 text-slate-400" /><span className="text-[10px] text-slate-500">Add Image</span></>)}
+              </div>
+              <input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadHandler(file); e.target.value = ''; }} className="hidden" disabled={uploading} data-testid={`input-upload-sub-media-${keyPrefix}`} />
+            </label>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const renderPreviewCard = (item) => {
@@ -4509,6 +4652,12 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                               <ReactQuill theme="snow" value={sub.body || ''} onChange={(val) => updateColSubItem(index, cIdx, sIdx, 'body', val)} modules={timelineQuillModules} formats={timelineQuillFormats} />
                                             </div>
                                           </div>
+                                          {renderSubImageEditor(
+                                            sub, index, sIdx,
+                                            (file) => handleColSubImageUpload(index, cIdx, sIdx, file),
+                                            (updated) => updateColSubItemMediaItems(index, cIdx, sIdx, updated),
+                                            `${index}-col${cIdx}-sub${sIdx}`
+                                          )}
                                         </div>
                                       </div>
                                     ))}
@@ -4811,6 +4960,12 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                     />
                                   </div>
                                 </div>
+                                {renderSubImageEditor(
+                                  sub, index, sIdx,
+                                  (file) => handleSubImageUpload(index, sIdx, file),
+                                  (updated) => updateSubItemMediaItems(index, sIdx, updated),
+                                  `${index}-sub${sIdx}`
+                                )}
                               </div>
                             </div>
                           ))}
