@@ -1175,6 +1175,10 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     })();
 
     const hasColBody = !isEmptyHtml(colData.body);
+    const colTextLines = colData.text_lines || 0;
+    const colExpandKey = `${item.year}-col${colIndex}`;
+    const isColTextExpanded = !!expandedTexts[colExpandKey];
+    const shouldColClamp = colTextLines > 0 && !isColTextExpanded;
     const colBodyBlock = hasColBody ? (
       <div>
         <div
@@ -1182,9 +1186,26 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           style={{
             fontSize: `${itemBodySize}px`,
             ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
+            ...(shouldColClamp ? {
+              display: '-webkit-box',
+              WebkitLineClamp: colTextLines,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            } : {}),
           }}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(colData.body) }}
         />
+        {colTextLines > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpandedTexts(prev => ({ ...prev, [colExpandKey]: !prev[colExpandKey] }))}
+            className="mt-2 text-sm font-medium transition-colors"
+            style={{ color: textColor || active_color }}
+            data-testid={`button-read-more-${colExpandKey}`}
+          >
+            {isColTextExpanded ? 'Read less' : 'Read more'}
+          </button>
+        )}
       </div>
     ) : null;
 
@@ -1358,9 +1379,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         ) : null;
       })();
 
-      const hlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
+      const effectiveTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : (!isHighlighted && item.text_lines ? item.text_lines : 0);
       const isTextExpanded = !!expandedTexts[item.year];
-      const shouldClamp = hlTextLines > 0 && !isTextExpanded;
+      const shouldClamp = effectiveTextLines > 0 && !isTextExpanded;
 
       const bodyBlock = !isEmptyHtml(item.body) ? (
         <div>
@@ -1371,14 +1392,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               ...(textColor ? { color: textColor } : itemBodyColor ? { color: itemBodyColor } : {}),
               ...(shouldClamp ? {
                 display: '-webkit-box',
-                WebkitLineClamp: hlTextLines,
+                WebkitLineClamp: effectiveTextLines,
                 WebkitBoxOrient: 'vertical',
                 overflow: 'hidden',
               } : {}),
             }}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
           />
-          {hlTextLines > 0 && (
+          {effectiveTextLines > 0 && (
             <button
               type="button"
               onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
@@ -1567,9 +1588,9 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           ) : null;
         })()}
         {(() => {
-          const mobileHlTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : 0;
+          const mobileTextLines = isHighlighted && item.highlight.text_lines ? item.highlight.text_lines : (!isHighlighted && item.text_lines ? item.text_lines : 0);
           const mobileIsTextExpanded = !!expandedTexts[item.year];
-          const mobileShouldClamp = mobileHlTextLines > 0 && !mobileIsTextExpanded;
+          const mobileShouldClamp = mobileTextLines > 0 && !mobileIsTextExpanded;
           return !isEmptyHtml(item.body) ? (
             <div>
               <div
@@ -1579,14 +1600,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   ...(textColor ? { color: textColor } : (item.body_color || body_color) ? { color: item.body_color || body_color } : {}),
                   ...(mobileShouldClamp ? {
                     display: '-webkit-box',
-                    WebkitLineClamp: mobileHlTextLines,
+                    WebkitLineClamp: mobileTextLines,
                     WebkitBoxOrient: 'vertical',
                     overflow: 'hidden',
                   } : {}),
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }}
               />
-              {mobileHlTextLines > 0 && (
+              {mobileTextLines > 0 && (
                 <button
                   type="button"
                   onClick={() => setExpandedTexts(prev => ({ ...prev, [item.year]: !prev[item.year] }))}
@@ -2816,10 +2837,12 @@ export function IEditTimelineElementEditor({ element, onChange }) {
       );
     };
 
-    const renderSingleColumn = () => (
+    const renderSingleColumn = () => {
+      const pvTextLines = hlStyle && item.highlight?.text_lines ? item.highlight.text_lines : (item.text_lines || 0);
+      return (
       <div>
         {item.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{item.heading}</div>}
-        {!isEmptyHtml(item.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
+        {!isEmptyHtml(item.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit', ...(pvTextLines > 0 ? { display: '-webkit-box', WebkitLineClamp: pvTextLines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.body) }} />}
         {renderMediaItems(getItemMediaItems(item))}
         {(item.sub_items || []).length > 0 && (
           <div style={{ marginTop: '0.5rem' }}>
@@ -2828,6 +2851,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
         )}
       </div>
     );
+    };
 
     const renderMultiColumn = () => {
       const cols = (item.column_content || []).slice(0, numCols);
@@ -2843,7 +2867,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
             return (
               <div key={ci} style={pvColStyle}>
                 {col.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{col.heading}</div>}
-                {!isEmptyHtml(col.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit' }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
+                {!isEmptyHtml(col.body) && <div className="prose prose-sm max-w-none mt-1" style={{ fontSize: itemBodySize, color: bodyColor || textColor || 'inherit', ...((col.text_lines || 0) > 0 ? { display: '-webkit-box', WebkitLineClamp: col.text_lines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(col.body) }} />}
                 {renderMediaItems(getColumnMediaItems(col))}
                 {(col.sub_items || []).length > 0 && (
                   <div style={{ marginTop: '0.5rem' }}>
@@ -3820,6 +3844,26 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               formats={timelineQuillFormats}
                             />
                           </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Label className="text-xs text-slate-500 whitespace-nowrap">Text Lines</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={50}
+                              step={1}
+                              value={item.text_lines || ''}
+                              placeholder="All"
+                              onChange={(e) => updateItem(index, 'text_lines', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                              className="w-20 text-xs h-7"
+                              data-testid={`input-text-lines-${index}`}
+                            />
+                            {item.text_lines > 0 && (
+                              <Button size="sm" variant="ghost" onClick={() => updateItem(index, 'text_lines', 0)} className="h-7 px-1.5" data-testid={`button-clear-text-lines-${index}`}>
+                                <X className="w-3 h-3" />
+                              </Button>
+                            )}
+                            <span className="text-[10px] text-slate-400">Limit with "Read more"</span>
+                          </div>
                         </div>
                         <div>
                           <div className="flex items-center justify-between mb-1">
@@ -3964,6 +4008,30 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       onClick={() => updateColumnContent(index, cIdx, 'background_color', '')}
                                       className="text-[10px] text-slate-400 hover:text-slate-600"
                                       data-testid={`button-clear-col-bg-${index}-${cIdx}`}
+                                    >
+                                      clear
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs text-slate-600">Lines:</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={50}
+                                    step={1}
+                                    value={col.text_lines || ''}
+                                    placeholder="All"
+                                    onChange={(e) => updateColumnContent(index, cIdx, 'text_lines', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                    className="w-12 text-xs border border-slate-200 rounded px-1.5 py-0.5 bg-white"
+                                    data-testid={`input-col-text-lines-${index}-${cIdx}`}
+                                  />
+                                  {col.text_lines > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateColumnContent(index, cIdx, 'text_lines', 0)}
+                                      className="text-[10px] text-slate-400 hover:text-slate-600"
+                                      data-testid={`button-clear-col-text-lines-${index}-${cIdx}`}
                                     >
                                       clear
                                     </button>
