@@ -929,7 +929,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   }, [computeConnectors]);
 
   useEffect(() => {
-    if (isMobile || !items.length || show_connectors === false) return;
+    if (show_connectors === false) {
+      if (connectorLinesRef.current.length > 0) {
+        connectorLinesRef.current = [];
+        setConnectorLines([]);
+      }
+      return;
+    }
+    if (isMobile || !items.length) return;
     const t = setTimeout(computeConnectors, 100);
     return () => clearTimeout(t);
   }, [computeConnectors, isMobile, items, activeYear, show_connectors]);
