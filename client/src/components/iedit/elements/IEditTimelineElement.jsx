@@ -4000,6 +4000,34 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                           <div className="flex border-t border-slate-200 bg-white">
                                             <input value={mediaImg.alt || ''} onChange={(e) => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], alt: e.target.value }; updateColumnMediaItems(index, cIdx, updated); }} placeholder="Alt text" className="flex-1 min-w-0 text-[10px] px-1.5 py-0.5 bg-transparent" data-testid={`input-col-media-alt-${index}-${cIdx}-${mIdx}`} />
                                           </div>
+                                          <div className="flex border-t border-slate-200 bg-white">
+                                            {[{ value: 'original', label: 'Orig' }, { value: 'square', label: 'Sq' }, { value: 'circle', label: 'Circ' }].map(opt => (
+                                              <button key={opt.value} type="button" onClick={() => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], display: opt.value }; updateColumnMediaItems(index, cIdx, updated); }} className={`flex-1 text-[9px] py-0.5 transition-colors ${(mediaImg.display || 'original') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-col-media-display-${index}-${cIdx}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                                            ))}
+                                          </div>
+                                          <div className="border-t border-slate-200 bg-white px-1.5 py-1 space-y-1">
+                                            <div className="flex items-center gap-1">
+                                              <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
+                                              <div className="flex gap-0.5 flex-1">
+                                                {[{ value: '', label: 'None' }, { value: 'url', label: 'URL' }, { value: 'popup', label: 'Popup' }].map(opt => (
+                                                  <button key={opt.value} type="button" onClick={() => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], link_type: opt.value || undefined }; updateColumnMediaItems(index, cIdx, updated); }} className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${(mediaImg.link_type || '') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-col-media-link-type-${index}-${cIdx}-${mIdx}-${opt.value || 'none'}`}>{opt.label}</button>
+                                                ))}
+                                              </div>
+                                            </div>
+                                            {mediaImg.link_type === 'url' && (
+                                              <div className="space-y-1">
+                                                <input value={mediaImg.link_url || ''} onChange={(e) => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], link_url: e.target.value }; updateColumnMediaItems(index, cIdx, updated); }} placeholder="https://..." className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded" data-testid={`input-col-media-link-url-${index}-${cIdx}-${mIdx}`} />
+                                                <div className="flex gap-0.5">
+                                                  {[{ value: '_blank', label: 'New Tab' }, { value: '_self', label: 'Same Tab' }].map(opt => (
+                                                    <button key={opt.value} type="button" onClick={() => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], link_target: opt.value }; updateColumnMediaItems(index, cIdx, updated); }} className={`flex-1 text-[9px] py-0.5 rounded transition-colors ${(mediaImg.link_target || '_blank') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-col-media-link-target-${index}-${cIdx}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
+                                            {mediaImg.link_type === 'popup' && (
+                                              <textarea value={mediaImg.link_embed || ''} onChange={(e) => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], link_embed: e.target.value }; updateColumnMediaItems(index, cIdx, updated); }} placeholder="Paste iframe embed code or URL" rows={2} className="w-full text-[10px] px-1.5 py-0.5 border border-slate-200 rounded resize-none" data-testid={`input-col-media-link-embed-${index}-${cIdx}-${mIdx}`} />
+                                            )}
+                                          </div>
                                         </div>
                                       ))}
                                     </div>
