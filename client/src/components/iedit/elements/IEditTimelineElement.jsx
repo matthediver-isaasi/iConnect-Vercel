@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useId } from "react";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -406,6 +406,8 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
 
 export function IEditTimelineElementRenderer({ content, variant, settings }) {
   const isMobile = useIsMobile();
+  const timelineId = useId();
+  const timelineScopeClass = `tl-${timelineId.replace(/:/g, '')}`;
   const [activeYear, setActiveYear] = useState(null);
   const [isExpanded, setIsExpanded] = useState(!!(content || {}).auto_expand);
   const [expandedTexts, setExpandedTexts] = useState({});
@@ -470,6 +472,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
     content_layout = 'stacked',
     content_media_side = 'left',
     show_connectors = true,
+    link_color = '',
   } = content || {};
 
   const effectiveBgType = _bg_type || (background_image ? 'image' : 'none');
@@ -1974,16 +1977,21 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   ) : null;
 
   /* ── Expanded overlay ── */
+  const linkColorStyle = link_color ? (
+    <style dangerouslySetInnerHTML={{ __html: `.${timelineScopeClass} .prose a { color: ${link_color}; }` }} />
+  ) : null;
+
   const hasBg = hasContentBg || hasRailBg;
   if (isExpanded) {
     return (
       <>
         {popupModal}
-        <div id={anchor || undefined} className="relative" data-testid="timeline-desktop">
+        <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-desktop">
+          {linkColorStyle}
           {expandButton}
         </div>
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          className={`fixed inset-0 z-[9999] flex items-center justify-center ${timelineScopeClass}`}
           style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
           onClick={(e) => { if (e.target === e.currentTarget) setIsExpanded(false); }}
           data-testid="timeline-overlay"
@@ -2087,7 +2095,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
   /* ── Mobile layout (inline) ── */
   if (isMobile) {
     return (
-      <div id={anchor || undefined} className="relative" data-testid="timeline-mobile">
+      <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-mobile">
+        {linkColorStyle}
         {popupModal}
         {expandButton}
         {title && (
@@ -2145,7 +2154,8 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
 
   /* ── Desktop layout (inline) ── */
   return (
-    <div id={anchor || undefined} className="relative" data-testid="timeline-desktop">
+    <div id={anchor || undefined} className={`relative ${timelineScopeClass}`} data-testid="timeline-desktop">
+      {linkColorStyle}
       {popupModal}
       {expandButton}
       {title && (
@@ -3261,6 +3271,32 @@ export function IEditTimelineElementEditor({ element, onChange }) {
           </div>
           <p className="text-xs text-slate-400 mt-1">Default label size in px (sub-markers use 85%)</p>
         </div>
+      </div>
+
+      <div>
+        <Label className="text-sm font-medium text-slate-700">Link Colour</Label>
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            type="color"
+            value={content.link_color || '#2563eb'}
+            onChange={(e) => updateContent('link_color', e.target.value)}
+            className="w-8 h-8 rounded border border-slate-200 cursor-pointer"
+            data-testid="input-link-color-picker"
+          />
+          <Input
+            value={content.link_color || ''}
+            onChange={(e) => updateContent('link_color', e.target.value)}
+            placeholder="Default"
+            className="flex-1"
+            data-testid="input-link-color"
+          />
+          {content.link_color && (
+            <Button size="sm" variant="ghost" onClick={() => updateContent('link_color', '')} data-testid="button-clear-link-color">
+              <X className="w-3 h-3" />
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Colour of links in body text</p>
       </div>
 
       <div>
