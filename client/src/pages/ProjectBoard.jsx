@@ -840,6 +840,7 @@ function CardDetailModal({
       priority: editedCard.priority,
       is_complete: editedCard.is_complete
     });
+    onOpenChange(false);
   };
 
   const appliedLabels = localAppliedLabels || card?.project_card_label || [];
@@ -977,7 +978,7 @@ function CardDetailModal({
                       {addCommentMutation.isPending ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        'Send'
+                        'Submit'
                       )}
                     </Button>
                   </div>
