@@ -323,7 +323,7 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
     const display = img.display || 'original';
     if (display === 'circle') return `rounded-full object-cover aspect-square`;
     if (display === 'square') return `rounded-lg object-cover aspect-square`;
-    return `rounded-lg object-cover ${maxHeightClass}`;
+    return `rounded-lg`;
   };
 
   if (images.length === 1) {
