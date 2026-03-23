@@ -81,8 +81,10 @@ export default async function handler(req, res) {
       const reversalOptions = reversal_options || {};
       const cancellationResult = await processCancellation(request, tenantId, reversalOptions, custom_refund_amount);
       if (!cancellationResult.success) {
+        const isValidationError = cancellationResult.error && cancellationResult.error.includes('custom_refund_amount');
+        const statusCode = isValidationError ? 400 : 500;
         console.error('[CancellationRequest] Cancellation processing failed:', cancellationResult.error);
-        return res.status(500).json({ error: 'Failed to process cancellation: ' + (cancellationResult.error || 'Unknown error') });
+        return res.status(statusCode).json({ error: 'Failed to process cancellation: ' + (cancellationResult.error || 'Unknown error') });
       }
       reversalResults = cancellationResult.reversalResults;
     }

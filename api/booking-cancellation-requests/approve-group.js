@@ -99,8 +99,10 @@ export default async function handler(req, res) {
       const reversalOptions = reversal_options || {};
       const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, custom_refund_amount);
       if (!result.success) {
+        const isValidationError = result.error && result.error.includes('custom_refund_amount');
+        const statusCode = isValidationError ? 400 : 500;
         console.error('[GroupApproval] Group cancellation processing failed:', result.error);
-        return res.status(500).json({ error: 'Failed to process group cancellation: ' + (result.error || 'Unknown error') });
+        return res.status(statusCode).json({ error: 'Failed to process group cancellation: ' + (result.error || 'Unknown error') });
       }
       reversalResults = result.reversalResults;
     }
