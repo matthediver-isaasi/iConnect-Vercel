@@ -1323,17 +1323,21 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       );
     } else {
       const headingBlock = (
-        <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
-          <span
-            className="font-bold transition-colors duration-200"
-            style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
-          >
-            {item.year}
-          </span>
+        <>
+          <div data-year-heading className={`${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+            <span
+              className="font-bold transition-colors duration-200"
+              style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
+            >
+              {item.year}
+            </span>
+          </div>
           {item.heading && (
-            <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
+            <div className={`${isSideLayout ? 'mb-2' : 'mb-3'}`}>
+              <h3 className="font-semibold" style={{ fontSize: `${itemHeadingSize}px`, color: textColor || itemHeadingColor }}>{item.heading}</h3>
+            </div>
           )}
-        </div>
+        </>
       );
 
       const mediaBlock = item.media?.type === 'video' && item.media?.src && !item.media_items?.length ? (
