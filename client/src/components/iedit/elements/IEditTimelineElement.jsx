@@ -2838,7 +2838,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
     };
 
     const renderSingleColumn = () => {
-      const pvTextLines = hlStyle && item.highlight?.text_lines ? item.highlight.text_lines : (item.text_lines || 0);
+      const pvTextLines = hlStyle ? (item.highlight?.text_lines || 0) : (item.text_lines || 0);
       return (
       <div>
         {item.heading && <div style={{ fontSize: itemHeadingSize, fontWeight: 700, color: headingColor || textColor || 'inherit', lineHeight: 1.2 }}>{item.heading}</div>}
@@ -3844,6 +3844,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                               formats={timelineQuillFormats}
                             />
                           </div>
+                          {!getHighlightStyle(item.highlight) && (
                           <div className="flex items-center gap-2 mt-2">
                             <Label className="text-xs text-slate-500 whitespace-nowrap">Text Lines</Label>
                             <Input
@@ -3864,6 +3865,7 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                             )}
                             <span className="text-[10px] text-slate-400">Limit with "Read more"</span>
                           </div>
+                          )}
                         </div>
                         <div>
                           <div className="flex items-center justify-between mb-1">
