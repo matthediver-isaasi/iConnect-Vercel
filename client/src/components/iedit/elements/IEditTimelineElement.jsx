@@ -4293,6 +4293,121 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                               </div>
                                             )}
                                           </div>
+                                          <div className="grid grid-cols-3 gap-2">
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Label Size</Label>
+                                              <input
+                                                type="number"
+                                                min={8}
+                                                max={32}
+                                                step={1}
+                                                value={sub.label_size || ''}
+                                                placeholder={String(Math.round((content.label_size || 14) * 0.85))}
+                                                onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'label_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                                className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                                data-testid={`input-col-sub-label-size-${index}-${cIdx}-${sIdx}`}
+                                              />
+                                            </div>
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Heading Size</Label>
+                                              <input
+                                                type="number"
+                                                min={10}
+                                                max={48}
+                                                step={1}
+                                                value={sub.heading_size || ''}
+                                                placeholder={String(content.heading_size || 20)}
+                                                onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'heading_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                                className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                                data-testid={`input-col-sub-heading-size-${index}-${cIdx}-${sIdx}`}
+                                              />
+                                            </div>
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Body Size</Label>
+                                              <input
+                                                type="number"
+                                                min={10}
+                                                max={32}
+                                                step={1}
+                                                value={sub.body_size || ''}
+                                                placeholder={String(content.body_size || 16)}
+                                                onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'body_size', e.target.value === '' ? undefined : parseInt(e.target.value) || undefined)}
+                                                className="w-full px-1.5 py-0.5 text-[10px] border border-slate-200 rounded mt-0.5"
+                                                data-testid={`input-col-sub-body-size-${index}-${cIdx}-${sIdx}`}
+                                              />
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <Label className="text-[10px] text-slate-500">Label Colour</Label>
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                              <input
+                                                type="color"
+                                                value={sub.label_color || content.label_color || '#9ca3af'}
+                                                onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'label_color', e.target.value)}
+                                                className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                              />
+                                              <input
+                                                value={sub.label_color || ''}
+                                                onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'label_color', e.target.value)}
+                                                placeholder="Default"
+                                                className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                                data-testid={`input-col-sub-label-color-${index}-${cIdx}-${sIdx}`}
+                                              />
+                                              {sub.label_color && (
+                                                <button type="button" onClick={() => updateColSubItem(index, cIdx, sIdx, 'label_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Heading Colour</Label>
+                                              <div className="flex items-center gap-1 mt-0.5">
+                                                <input
+                                                  type="color"
+                                                  value={sub.heading_color || content.heading_color || '#1e293b'}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'heading_color', e.target.value)}
+                                                  className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                                />
+                                                <input
+                                                  value={sub.heading_color || ''}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'heading_color', e.target.value)}
+                                                  placeholder="Default"
+                                                  className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                                  data-testid={`input-col-sub-heading-color-${index}-${cIdx}-${sIdx}`}
+                                                />
+                                                {sub.heading_color && (
+                                                  <button type="button" onClick={() => updateColSubItem(index, cIdx, sIdx, 'heading_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                                    <X className="w-3 h-3" />
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <Label className="text-[10px] text-slate-500">Body Colour</Label>
+                                              <div className="flex items-center gap-1 mt-0.5">
+                                                <input
+                                                  type="color"
+                                                  value={sub.body_color || content.body_color || '#374151'}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'body_color', e.target.value)}
+                                                  className="w-5 h-5 rounded border border-slate-200 cursor-pointer"
+                                                />
+                                                <input
+                                                  value={sub.body_color || ''}
+                                                  onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'body_color', e.target.value)}
+                                                  placeholder="Default"
+                                                  className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                                  data-testid={`input-col-sub-body-color-${index}-${cIdx}-${sIdx}`}
+                                                />
+                                                {sub.body_color && (
+                                                  <button type="button" onClick={() => updateColSubItem(index, cIdx, sIdx, 'body_color', '')} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                                    <X className="w-3 h-3" />
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
                                           <div>
                                             <Label className="text-[10px] text-slate-500">Body</Label>
                                             <div className="mt-0.5 [&_.ql-container]:min-h-[60px] [&_.ql-editor]:min-h-[60px] [&_.ql-toolbar]:p-1 [&_.ql-editor]:text-xs">
