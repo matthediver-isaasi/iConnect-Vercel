@@ -279,7 +279,7 @@ function ImageLinkWrapper({ img, onPopupClick, children }) {
         href={img.link_url}
         target={img.link_target || '_blank'}
         rel={img.link_target === '_blank' ? 'noopener noreferrer' : undefined}
-        className="relative block cursor-pointer"
+        className="relative inline-block cursor-pointer"
         data-testid="image-link-url"
       >
         {indicator}
@@ -293,7 +293,7 @@ function ImageLinkWrapper({ img, onPopupClick, children }) {
       <button
         type="button"
         onClick={() => onPopupClick(img)}
-        className="relative block cursor-pointer text-left w-full"
+        className="relative inline-block cursor-pointer text-left"
         data-testid="image-link-popup"
       >
         {indicator}
@@ -1354,15 +1354,23 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const visibleCols = item.column_content.slice(0, numCols);
       const hasAnyAnchor = visibleCols.some(c => c.has_year_anchor);
       const vAlignMap = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
+      const anchorIdx = visibleCols.findIndex(c => c.has_year_anchor);
+      const anchorColIdx = anchorIdx >= 0 ? anchorIdx : 0;
       innerContent = (
         <>
-          <div data-year-heading className={`flex items-baseline gap-3 ${isSideLayout ? 'mb-2' : 'mb-3'}`}>
-            <span
-              className="font-bold transition-colors duration-200"
-              style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
-            >
-              {item.year}
-            </span>
+          <div data-year-heading style={{ display: 'grid', gridTemplateColumns: `repeat(${numCols}, 1fr)`, gap: '1.5rem' }} className={isSideLayout ? 'mb-2' : 'mb-3'}>
+            {visibleCols.map((_, cIdx) => (
+              <div key={cIdx}>
+                {cIdx === anchorColIdx && (
+                  <span
+                    className="font-bold transition-colors duration-200"
+                    style={{ fontSize: `${Math.round(itemHeadingSize * 1.2)}px`, color: textColor || (isActive ? active_color : (item.label_color || label_color)) }}
+                  >
+                    {item.year}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${numCols}, 1fr)`, gap: '1.5rem' }}>
             {visibleCols.map((col, cIdx) => {
