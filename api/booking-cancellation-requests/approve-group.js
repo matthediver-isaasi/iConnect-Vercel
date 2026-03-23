@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   }
 
   const tenantId = ctx.tenantId;
-  const { request_ids, status, review_notes, reversal_options } = req.body;
+  const { request_ids, status, review_notes, reversal_options, custom_refund_amount } = req.body;
 
   if (!request_ids || !Array.isArray(request_ids) || request_ids.length === 0) {
     return res.status(400).json({ error: 'request_ids is required and must be a non-empty array' });
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
 
     if (status === 'approved') {
       const reversalOptions = reversal_options || {};
-      const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions);
+      const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, custom_refund_amount);
       if (!result.success) {
         console.error('[GroupApproval] Group cancellation processing failed:', result.error);
         return res.status(500).json({ error: 'Failed to process group cancellation: ' + (result.error || 'Unknown error') });
@@ -139,7 +139,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function processGroupCancellation(requests, tenantId, reversalOptions = {}) {
+async function processGroupCancellation(requests, tenantId, reversalOptions = {}, custom_refund_amount = null) {
   const reversalResults = {
     trainingFund: [],
     vouchers: [],
@@ -506,20 +506,28 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       }
     }
 
-    if (stripePaymentIntentId && totalCardAmount > 0) {
+    let effectiveCardAmount = totalCardAmount;
+    if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
+      const customAmt = parseFloat(custom_refund_amount);
+      if (Number.isFinite(customAmt) && customAmt > 0) {
+        effectiveCardAmount = Math.min(customAmt, totalCardAmount);
+      }
+    }
+
+    if (stripePaymentIntentId && effectiveCardAmount > 0) {
       try {
         const creds = await getStripeCredentials(tenantId, 'events');
         if (!creds || !creds.secret_key || !creds.is_enabled) {
           reversalResults.stripeRefund = {
             success: false,
-            amount: totalCardAmount,
+            amount: effectiveCardAmount,
             requiresManualRefund: true,
             error: !creds?.is_enabled ? 'Stripe integration is disabled for this tenant' : 'Stripe not configured for this tenant',
           };
           console.warn(`[GroupApproval] Stripe not available — manual refund needed for £${totalCardAmount}`);
         } else {
           const stripe = new Stripe(creds.secret_key);
-          const refundAmountPence = Math.round(totalCardAmount * 100);
+          const refundAmountPence = Math.round(effectiveCardAmount * 100);
 
           const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
           const amountReceived = paymentIntent.amount_received || 0;
@@ -530,7 +538,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
           if (refundableAmount <= 0) {
             reversalResults.stripeRefund = {
               success: true,
-              amount: totalCardAmount,
+              amount: effectiveCardAmount,
               alreadyRefunded: true,
               paymentIntentId: stripePaymentIntentId,
             };
@@ -569,7 +577,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
         console.error('[GroupApproval] Stripe refund error:', err.message);
         reversalResults.stripeRefund = {
           success: false,
-          amount: totalCardAmount,
+          amount: effectiveCardAmount,
           requiresManualRefund: true,
           error: err.message,
           paymentIntentId: stripePaymentIntentId,
@@ -582,7 +590,14 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
       try {
         const xeroInvoiceId = bookingsWithXero[0].xero_invoice_id;
         const bookingsForThisInvoice = bookings.filter(b => b.xero_invoice_id === xeroInvoiceId);
-        const totalCreditAmount = bookingsForThisInvoice.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
+        const fullCreditAmount = bookingsForThisInvoice.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
+        let totalCreditAmount = fullCreditAmount;
+        if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
+          const customAmt = parseFloat(custom_refund_amount);
+          if (Number.isFinite(customAmt) && customAmt > 0) {
+            totalCreditAmount = Math.min(customAmt, fullCreditAmount);
+          }
+        }
 
         if (totalCreditAmount > 0) {
           const xeroBooking = bookingsWithXero[0];

@@ -20,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw, DollarSign, AlertTriangle, RotateCcw, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -38,6 +40,8 @@ export default function CancellationRequests() {
   const [processing, setProcessing] = useState(false);
   const [voucherReplacements, setVoucherReplacements] = useState({});
   const [discountCodeReplacement, setDiscountCodeReplacement] = useState({ create: false, newExpiryDate: "" });
+  const [refundInFull, setRefundInFull] = useState(true);
+  const [customRefundAmount, setCustomRefundAmount] = useState('');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -224,6 +228,9 @@ export default function CancellationRequests() {
         };
         if (action === 'approved') {
           body.reversal_options = reversalOpts;
+          if (!refundInFull && customRefundAmount) {
+            body.custom_refund_amount = parseFloat(customRefundAmount);
+          }
         }
 
         const response = await fetch('/api/booking-cancellation-requests/approve-group', {
@@ -252,6 +259,10 @@ export default function CancellationRequests() {
 
           if (action === 'approved' && i === 0) {
             body.reversal_options = reversalOpts;
+          }
+
+          if (action === 'approved' && !refundInFull && customRefundAmount) {
+            body.custom_refund_amount = parseFloat(customRefundAmount);
           }
 
           const response = await fetch(`/api/booking-cancellation-requests/${requestId}`, {
@@ -312,6 +323,8 @@ export default function CancellationRequests() {
       setReviewNotes("");
       setVoucherReplacements({});
       setDiscountCodeReplacement({ create: false, newExpiryDate: "" });
+      setRefundInFull(true);
+      setCustomRefundAmount('');
       queryClient.invalidateQueries({ queryKey: ['cancellation-requests'] });
     } catch (error) {
       console.error('Review error:', error);
@@ -619,7 +632,7 @@ export default function CancellationRequests() {
         )}
       </div>
 
-      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); } }}>
+      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); } }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -825,6 +838,66 @@ export default function CancellationRequests() {
               );
             })()}
 
+            {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
+              const isGroupReview = reviewDialog?.request_type === 'group';
+              const fs = isGroupReview
+                ? reviewDialog?.items?.[0]?.groupFinancialSummary
+                : reviewDialog?.items?.[0]?.financialSummary;
+              const maxAmount = fs?.totalCost || 0;
+              if (maxAmount <= 0) return null;
+              const parsedAmount = parseFloat(customRefundAmount);
+              const isValidAmount = !refundInFull && parsedAmount > 0 && parsedAmount <= maxAmount;
+              const showError = !refundInFull && customRefundAmount !== '' && !isValidAmount;
+
+              return (
+                <div className="space-y-3 p-3 border rounded-md" data-testid="section-refund-options">
+                  <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="refund-in-full" className="text-sm font-medium cursor-pointer">
+                      Refund in full
+                    </Label>
+                    <Switch
+                      id="refund-in-full"
+                      checked={refundInFull}
+                      onCheckedChange={(checked) => {
+                        setRefundInFull(checked);
+                        if (checked) setCustomRefundAmount('');
+                      }}
+                      data-testid="switch-refund-in-full"
+                    />
+                  </div>
+                  {!refundInFull && (
+                    <div className="space-y-2">
+                      <Label htmlFor="custom-refund-amount" className="text-sm text-muted-foreground">
+                        Refund amount (max: £{maxAmount.toFixed(2)})
+                      </Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">£</span>
+                        <Input
+                          id="custom-refund-amount"
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max={maxAmount}
+                          value={customRefundAmount}
+                          onChange={(e) => setCustomRefundAmount(e.target.value)}
+                          className="pl-7"
+                          placeholder="0.00"
+                          data-testid="input-custom-refund-amount"
+                        />
+                      </div>
+                      {showError && (
+                        <p className="text-xs text-destructive" data-testid="text-refund-error">
+                          {parsedAmount <= 0
+                            ? 'Amount must be greater than zero'
+                            : `Amount cannot exceed £${maxAmount.toFixed(2)}`}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 Notes (optional)
@@ -842,7 +915,7 @@ export default function CancellationRequests() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); }}
+              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); }}
               data-testid="button-review-cancel"
             >
               Cancel
@@ -850,7 +923,7 @@ export default function CancellationRequests() {
             <Button
               variant={reviewDialog?.action === 'approved' ? 'default' : 'destructive'}
               onClick={() => reviewDialog?._type === 'transfer' ? handleTransferReview(reviewDialog?.action) : handleReview(reviewDialog?.action)}
-              disabled={processing}
+              disabled={processing || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && (!(parseFloat(customRefundAmount) > 0) || parseFloat(customRefundAmount) > ((() => { const fs = (reviewDialog?.request_type === 'group' ? reviewDialog?.items?.[0]?.groupFinancialSummary : reviewDialog?.items?.[0]?.financialSummary); return fs?.totalCost || 0; })())))}
               data-testid="button-review-confirm"
             >
               {processing ? (

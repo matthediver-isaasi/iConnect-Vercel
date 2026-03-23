@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Request ID is required' });
   }
 
-  const { status, review_notes, reversal_options } = req.body;
+  const { status, review_notes, reversal_options, custom_refund_amount } = req.body;
 
   if (!status || !['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'status must be "approved" or "rejected"' });
@@ -73,7 +73,7 @@ export default async function handler(req, res) {
 
     if (status === 'approved') {
       const reversalOptions = reversal_options || {};
-      const cancellationResult = await processCancellation(request, tenantId, reversalOptions);
+      const cancellationResult = await processCancellation(request, tenantId, reversalOptions, custom_refund_amount);
       if (!cancellationResult.success) {
         console.error('[CancellationRequest] Cancellation processing failed:', cancellationResult.error);
         return res.status(500).json({ error: 'Failed to process cancellation: ' + (cancellationResult.error || 'Unknown error') });
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function processCancellation(request, tenantId, reversalOptions = {}) {
+async function processCancellation(request, tenantId, reversalOptions = {}, custom_refund_amount = null) {
   const reversalResults = {
     trainingFund: null,
     vouchers: [],
@@ -453,7 +453,17 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
         const voucherAmt = parseFloat(booking.voucher_amount) || 0;
         const discountAmt = parseFloat(booking.discount_code_amount) || 0;
         const accountAmt = parseFloat(booking.account_amount) || 0;
-        const cardAmount = Math.max(0, totalCost - trainingFundAmt - voucherAmt - discountAmt - accountAmt);
+        const fullCardAmount = Math.max(0, totalCost - trainingFundAmt - voucherAmt - discountAmt - accountAmt);
+
+        let cardAmount = fullCardAmount;
+        if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
+          const customAmt = parseFloat(custom_refund_amount);
+          if (!Number.isFinite(customAmt) || customAmt <= 0) {
+            console.warn(`[CancellationRequest] Invalid custom_refund_amount: ${custom_refund_amount}, using full amount`);
+          } else {
+            cardAmount = Math.min(customAmt, fullCardAmount);
+          }
+        }
 
         if (cardAmount > 0) {
           const creds = await getStripeCredentials(tenantId, 'events');
@@ -531,7 +541,14 @@ async function processCancellation(request, tenantId, reversalOptions = {}) {
     // --- Xero Credit Note ---
     if (booking.xero_invoice_id) {
       try {
-        const creditAmount = parseFloat(booking.total_cost) || 0;
+        const fullCreditAmount = parseFloat(booking.total_cost) || 0;
+        let creditAmount = fullCreditAmount;
+        if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
+          const customAmt = parseFloat(custom_refund_amount);
+          if (Number.isFinite(customAmt) && customAmt > 0) {
+            creditAmount = Math.min(customAmt, fullCreditAmount);
+          }
+        }
 
         if (creditAmount > 0) {
           const result = await createXeroCreditNote({
