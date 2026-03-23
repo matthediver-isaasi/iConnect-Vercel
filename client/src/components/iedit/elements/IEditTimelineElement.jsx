@@ -333,7 +333,8 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
       <img
         src={images[0].src}
         alt={images[0].alt || heading || year}
-        className={`${isShaped ? 'h-64' : 'w-full'} ${isShaped ? '' : maxWidthClass} ${cls}`}
+        className={`${isShaped ? '' : 'w-full'} ${isShaped ? '' : maxWidthClass} ${cls}`}
+        style={isShaped ? { width: 'min(16rem, 100%)' } : undefined}
         loading="lazy"
         data-testid={`timeline-image-${year}`}
       />
@@ -359,7 +360,8 @@ function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-
                 <img
                   src={img.src}
                   alt={img.alt || heading || `${year} image ${idx + 1}`}
-                  className={`${isShaped ? 'h-64' : 'w-full'} ${cls}`}
+                  className={`${isShaped ? '' : 'w-full'} ${cls}`}
+                  style={isShaped ? { width: 'min(16rem, 100%)' } : undefined}
                   loading="lazy"
                   data-testid={`timeline-image-${year}-${idx}`}
                 />
