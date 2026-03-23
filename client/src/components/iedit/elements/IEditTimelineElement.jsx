@@ -326,15 +326,25 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
     return `rounded-lg`;
   };
 
+  const getImageWidth = (img) => {
+    if (!img.width) return null;
+    const unit = img.width_unit || '%';
+    return `${img.width}${unit}`;
+  };
+
   if (images.length === 1) {
     const cls = getImageClasses(images[0]);
     const isShaped = images[0].display === 'circle' || images[0].display === 'square';
+    const customWidth = getImageWidth(images[0]);
+    const imgStyle = customWidth
+      ? { width: customWidth, maxWidth: '100%' }
+      : (isShaped ? { width: 'min(16rem, 100%)' } : undefined);
     const imgEl = (
       <img
         src={images[0].src}
         alt={images[0].alt || heading || year}
-        className={`${isShaped ? '' : `w-full ${maxWidthClass}`} ${cls}`}
-        style={isShaped ? { width: 'min(16rem, 100%)' } : undefined}
+        className={`${isShaped && !customWidth ? '' : (!customWidth ? `w-full ${maxWidthClass}` : '')} ${cls}`}
+        style={imgStyle}
         loading="lazy"
         data-testid={`timeline-image-${year}`}
       />
@@ -344,7 +354,7 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
         {imgEl}
       </ImageLinkWrapper>
     );
-    return isShaped ? <div className="flex justify-center">{wrapped}</div> : wrapped;
+    return (isShaped || customWidth) ? <div className="flex justify-center">{wrapped}</div> : wrapped;
   }
 
   return (
@@ -354,14 +364,18 @@ function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2
           {images.map((img, idx) => {
             const cls = getImageClasses(img);
             const isShaped = img.display === 'circle' || img.display === 'square';
+            const customWidth = getImageWidth(img);
+            const imgStyle = customWidth
+              ? { width: customWidth, maxWidth: '100%' }
+              : (isShaped ? { width: 'min(16rem, 100%)' } : undefined);
             return (
-            <CarouselItem key={idx} className={isShaped ? 'flex justify-center' : ''}>
+            <CarouselItem key={idx} className={(isShaped || customWidth) ? 'flex justify-center' : ''}>
               <ImageLinkWrapper img={img} onPopupClick={onPopupClick}>
                 <img
                   src={img.src}
                   alt={img.alt || heading || `${year} image ${idx + 1}`}
-                  className={`${isShaped ? '' : 'w-full'} ${cls}`}
-                  style={isShaped ? { width: 'min(16rem, 100%)' } : undefined}
+                  className={`${isShaped && !customWidth ? '' : (!customWidth ? 'w-full' : '')} ${cls}`}
+                  style={imgStyle}
                   loading="lazy"
                   data-testid={`timeline-image-${year}-${idx}`}
                 />
@@ -3990,6 +4004,23 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                         <button key={opt.value} type="button" onClick={() => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], display: opt.value }; updateItemMediaItems(index, updated); }} className={`flex-1 text-[9px] py-0.5 transition-colors ${(mediaImg.display || 'original') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-media-display-${index}-${mIdx}-${opt.value}`}>{opt.label}</button>
                                       ))}
                                     </div>
+                                    <div className="flex items-center gap-1 border-t border-slate-200 bg-white px-1.5 py-1">
+                                      <span className="text-[9px] text-slate-400 shrink-0">W</span>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={mediaImg.width || ''}
+                                        onChange={(e) => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], width: e.target.value === '' ? undefined : parseInt(e.target.value) || undefined }; updateItemMediaItems(index, updated); }}
+                                        placeholder="Auto"
+                                        className="flex-1 min-w-0 text-[10px] px-1 py-0.5 border border-slate-200 rounded"
+                                        data-testid={`input-media-width-${index}-${mIdx}`}
+                                      />
+                                      <div className="flex gap-0.5">
+                                        {[{ value: '%', label: '%' }, { value: 'px', label: 'px' }].map(opt => (
+                                          <button key={opt.value} type="button" onClick={() => { const current = getItemMediaItems(items[index]); const updated = [...current]; updated[mIdx] = { ...updated[mIdx], width_unit: opt.value }; updateItemMediaItems(index, updated); }} className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${(mediaImg.width_unit || '%') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-media-width-unit-${index}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                                        ))}
+                                      </div>
+                                    </div>
                                     <div className="border-t border-slate-200 bg-white px-1.5 py-1 space-y-1">
                                       <div className="flex items-center gap-1">
                                         <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
@@ -4176,6 +4207,23 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                             {[{ value: 'original', label: 'Orig' }, { value: 'square', label: 'Sq' }, { value: 'circle', label: 'Circ' }].map(opt => (
                                               <button key={opt.value} type="button" onClick={() => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], display: opt.value }; updateColumnMediaItems(index, cIdx, updated); }} className={`flex-1 text-[9px] py-0.5 transition-colors ${(mediaImg.display || 'original') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-col-media-display-${index}-${cIdx}-${mIdx}-${opt.value}`}>{opt.label}</button>
                                             ))}
+                                          </div>
+                                          <div className="flex items-center gap-1 border-t border-slate-200 bg-white px-1.5 py-1">
+                                            <span className="text-[9px] text-slate-400 shrink-0">W</span>
+                                            <input
+                                              type="number"
+                                              min={1}
+                                              value={mediaImg.width || ''}
+                                              onChange={(e) => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], width: e.target.value === '' ? undefined : parseInt(e.target.value) || undefined }; updateColumnMediaItems(index, cIdx, updated); }}
+                                              placeholder="Auto"
+                                              className="flex-1 min-w-0 text-[10px] px-1 py-0.5 border border-slate-200 rounded"
+                                              data-testid={`input-col-media-width-${index}-${cIdx}-${mIdx}`}
+                                            />
+                                            <div className="flex gap-0.5">
+                                              {[{ value: '%', label: '%' }, { value: 'px', label: 'px' }].map(opt => (
+                                                <button key={opt.value} type="button" onClick={() => { const updated = [...colMediaItems]; updated[mIdx] = { ...updated[mIdx], width_unit: opt.value }; updateColumnMediaItems(index, cIdx, updated); }} className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${(mediaImg.width_unit || '%') === opt.value ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'}`} data-testid={`button-col-media-width-unit-${index}-${cIdx}-${mIdx}-${opt.value}`}>{opt.label}</button>
+                                              ))}
+                                            </div>
                                           </div>
                                           <div className="border-t border-slate-200 bg-white px-1.5 py-1 space-y-1">
                                             <div className="flex items-center gap-1">
