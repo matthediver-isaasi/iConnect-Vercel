@@ -90,6 +90,12 @@ export default async function handler(req, res) {
     let reversalResults = null;
 
     if (status === 'approved') {
+      if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
+        const parsed = parseFloat(custom_refund_amount);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          return res.status(400).json({ error: 'custom_refund_amount must be a positive number' });
+        }
+      }
       const reversalOptions = reversal_options || {};
       const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, custom_refund_amount);
       if (!result.success) {

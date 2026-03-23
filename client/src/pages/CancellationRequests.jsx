@@ -843,7 +843,10 @@ export default function CancellationRequests() {
               const fs = isGroupReview
                 ? reviewDialog?.items?.[0]?.groupFinancialSummary
                 : reviewDialog?.items?.[0]?.financialSummary;
-              const maxAmount = fs?.totalCost || 0;
+              const hasStripeRefund = fs?.stripePaymentIntentId && fs?.cardAmount > 0;
+              const stripeMax = hasStripeRefund ? (fs?.cardAmount || 0) : Infinity;
+              const xeroMax = fs?.xeroInvoiceId ? (fs?.totalCost || 0) : Infinity;
+              const maxAmount = Math.min(stripeMax, xeroMax, fs?.totalCost || 0);
               if (maxAmount <= 0) return null;
               const parsedAmount = parseFloat(customRefundAmount);
               const isValidAmount = !refundInFull && parsedAmount > 0 && parsedAmount <= maxAmount;
@@ -923,7 +926,7 @@ export default function CancellationRequests() {
             <Button
               variant={reviewDialog?.action === 'approved' ? 'default' : 'destructive'}
               onClick={() => reviewDialog?._type === 'transfer' ? handleTransferReview(reviewDialog?.action) : handleReview(reviewDialog?.action)}
-              disabled={processing || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && (!(parseFloat(customRefundAmount) > 0) || parseFloat(customRefundAmount) > ((() => { const fs = (reviewDialog?.request_type === 'group' ? reviewDialog?.items?.[0]?.groupFinancialSummary : reviewDialog?.items?.[0]?.financialSummary); return fs?.totalCost || 0; })())))}
+              disabled={processing || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && (!(parseFloat(customRefundAmount) > 0) || parseFloat(customRefundAmount) > ((() => { const fs = (reviewDialog?.request_type === 'group' ? reviewDialog?.items?.[0]?.groupFinancialSummary : reviewDialog?.items?.[0]?.financialSummary); const hs = fs?.stripePaymentIntentId && fs?.cardAmount > 0; const sm = hs ? (fs?.cardAmount || 0) : Infinity; const xm = fs?.xeroInvoiceId ? (fs?.totalCost || 0) : Infinity; return Math.min(sm, xm, fs?.totalCost || 0); })())))}
               data-testid="button-review-confirm"
             >
               {processing ? (
