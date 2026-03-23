@@ -305,7 +305,7 @@ function ImageLinkWrapper({ img, onPopupClick, children }) {
   return children;
 }
 
-function TimelineImageCarousel({ images, year, heading, maxHeightClass = 'max-h-80', maxWidthClass = 'max-w-2xl', onPopupClick }) {
+function TimelineImageCarousel({ images, year, heading, maxWidthClass = 'max-w-2xl', onPopupClick }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [api, setApi] = useState(null);
 
@@ -1186,7 +1186,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const mediaImages = getMediaItems(colData);
       return mediaImages.length > 0 ? (
         <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
-          <TimelineImageCarousel images={mediaImages} year={item.year} heading={colData.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass="w-full" onPopupClick={setPopupImage} />
+          <TimelineImageCarousel images={mediaImages} year={item.year} heading={colData.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} />
         </div>
       ) : null;
     })();
@@ -1391,7 +1391,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
         const mediaImages = getMediaItems(item);
         return mediaImages.length > 0 ? (
           <div className={`${isSideLayout ? '' : 'mb-4'} rounded-lg overflow-visible`}>
-            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass={isSideLayout ? 'max-h-64' : 'max-h-80'} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} />
+            <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxWidthClass={isSideLayout ? 'w-full' : 'max-w-2xl'} onPopupClick={setPopupImage} />
           </div>
         ) : null;
       })();
@@ -1600,7 +1600,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           const mediaImages = getMediaItems(item);
           return mediaImages.length > 0 ? (
             <div className="mb-3 rounded-lg overflow-visible">
-              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxHeightClass="max-h-64" maxWidthClass="w-full" onPopupClick={setPopupImage} />
+              <TimelineImageCarousel images={mediaImages} year={item.year} heading={item.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} />
             </div>
           ) : null;
         })()}
