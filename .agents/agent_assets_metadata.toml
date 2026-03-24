@@ -18,3 +18,9 @@ id = "N2B6mBZOqqmKvuZjHrXnS"
 uri = "file://.local/wordpress-integration-proposal.docx"
 type = "word_document"
 title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal (Word)"
+
+[[outputs]]
+id = "ww54CePseorboUB_oDbud"
+uri = "file://iconnect-sync.zip"
+type = "unspecified"
+title = "iConnect Content Sync WordPress Plugin (v1.1.0)"
