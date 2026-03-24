@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Settings, Loader2, ThumbsUp, ThumbsDown, MessageSquare, User, Globe, Rss, Send, Check, X } from "lucide-react";
+import { Settings, Loader2, ThumbsUp, ThumbsDown, MessageSquare, User, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -20,10 +20,6 @@ export default function ArticlesSettingsPage() {
   const [showAuthorBio, setShowAuthorBio] = useState(true);
   const [showAuthorLabel, setShowAuthorLabel] = useState(true);
   const [allowPublicComments, setAllowPublicComments] = useState(false);
-  const [wpWebhookUrl, setWpWebhookUrl] = useState("");
-  const [wpApiKey, setWpApiKey] = useState("");
-  const [wpTestResult, setWpTestResult] = useState(null);
-  const [wpTesting, setWpTesting] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -66,65 +62,6 @@ export default function ArticlesSettingsPage() {
     },
     staleTime: 0
   });
-
-  const { data: wpSyncSettings, isLoading: wpSyncLoading } = useQuery({
-    queryKey: ['wp-sync-settings'],
-    queryFn: async () => {
-      const response = await fetch('/api/admin/wp-sync-settings', { credentials: 'include' });
-      if (!response.ok) return { webhook_url: '', api_key: '' };
-      return response.json();
-    },
-    staleTime: 0,
-  });
-
-  React.useEffect(() => {
-    if (wpSyncSettings) {
-      setWpWebhookUrl(wpSyncSettings.webhook_url || '');
-      setWpApiKey(wpSyncSettings.api_key || '');
-    }
-  }, [wpSyncSettings]);
-
-  const wpSyncMutation = useMutation({
-    mutationFn: async ({ webhook_url, api_key }) => {
-      const response = await fetch('/api/admin/wp-sync-settings', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhook_url, api_key }),
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to save');
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['wp-sync-settings'] });
-      toast.success('WordPress sync settings saved');
-    },
-    onError: (error) => {
-      toast.error('Failed to save: ' + error.message);
-    },
-  });
-
-  const handleWpTest = async () => {
-    setWpTesting(true);
-    setWpTestResult(null);
-    try {
-      const response = await fetch('/api/admin/wp-sync-settings', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhook_url: wpWebhookUrl, api_key: wpApiKey, test: true }),
-      });
-      const result = await response.json();
-      setWpTestResult(result);
-    } catch {
-      setWpTestResult({ success: false, statusText: 'Network error' });
-    } finally {
-      setWpTesting(false);
-    }
-  };
 
   React.useEffect(() => {
     if (settings) {
@@ -476,93 +413,6 @@ export default function ArticlesSettingsPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Rss className="w-5 h-5" />
-                  WordPress Sync
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-sm text-blue-900">
-                    Configure a WordPress webhook so your WordPress site is automatically notified whenever articles are created, updated, or deleted. Requires the iConnect Content Sync plugin installed on your WordPress site.
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="wp-webhook-url">Webhook URL</Label>
-                    <Input
-                      id="wp-webhook-url"
-                      value={wpWebhookUrl}
-                      onChange={(e) => { setWpWebhookUrl(e.target.value); setWpTestResult(null); }}
-                      placeholder="https://yoursite.com/wp-json/iconnect-sync/v1/webhook"
-                      data-testid="input-wp-webhook-url"
-                    />
-                    <p className="text-sm text-slate-500">
-                      Found in your WordPress admin under Settings &rarr; iConnect Sync &rarr; Webhook URL.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wp-api-key">API Key (optional)</Label>
-                    <Input
-                      id="wp-api-key"
-                      type="password"
-                      value={wpApiKey}
-                      onChange={(e) => { setWpApiKey(e.target.value); setWpTestResult(null); }}
-                      placeholder="Enter API key if configured in WordPress"
-                      data-testid="input-wp-api-key"
-                    />
-                    <p className="text-sm text-slate-500">
-                      Must match the API Key set in your WordPress iConnect Sync plugin settings.
-                    </p>
-                  </div>
-
-                  {wpTestResult && (
-                    <div className={`flex items-center gap-2 p-3 rounded-lg border ${wpTestResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                      {wpTestResult.success ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                      <span className="text-sm">
-                        {wpTestResult.success
-                          ? `Connection successful (HTTP ${wpTestResult.status})`
-                          : `Connection failed: ${wpTestResult.statusText || 'Unknown error'}${wpTestResult.status ? ` (HTTP ${wpTestResult.status})` : ''}`
-                        }
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex gap-3 flex-wrap">
-                    <Button
-                      onClick={() => wpSyncMutation.mutate({ webhook_url: wpWebhookUrl, api_key: wpApiKey })}
-                      disabled={wpSyncMutation.isPending}
-                      className="bg-blue-600 hover:bg-blue-700"
-                      data-testid="button-save-wp-sync"
-                    >
-                      {wpSyncMutation.isPending ? 'Saving...' : 'Save Settings'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={handleWpTest}
-                      disabled={wpTesting || !wpWebhookUrl.trim()}
-                      data-testid="button-test-wp-webhook"
-                    >
-                      {wpTesting ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Testing...
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4 mr-2" />
-                          Test Webhook
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         )}
       </div>

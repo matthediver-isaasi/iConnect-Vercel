@@ -153,6 +153,14 @@ export default function AdminIntegrations() {
   const [outlookSyncSaving, setOutlookSyncSaving] = useState(false);
   const [outlookSyncLoaded, setOutlookSyncLoaded] = useState(false);
 
+  const [wpWebhookUrl, setWpWebhookUrl] = useState('');
+  const [wpApiKey, setWpApiKey] = useState('');
+  const [wpSaving, setWpSaving] = useState(false);
+  const [wpTesting, setWpTesting] = useState(false);
+  const [wpTestResult, setWpTestResult] = useState(null);
+  const [wpLoaded, setWpLoaded] = useState(false);
+  const [showWpApiKey, setShowWpApiKey] = useState(false);
+
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
     { value: 'eu', label: 'Europe', accountsDomain: 'https://accounts.zoho.eu', campaignsDomain: 'https://campaigns.zoho.eu' },
@@ -304,9 +312,65 @@ export default function AdminIntegrations() {
         fetchZohoStatus();
         fetchXeroStatus();
         fetchOutlookSyncSettings();
+        fetchWpSyncSettings();
       }
     } catch (err) {
       console.error('Failed to fetch integrations:', err);
+    }
+  };
+
+  const fetchWpSyncSettings = async () => {
+    try {
+      const response = await fetch('/api/admin/wp-sync-settings', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setWpWebhookUrl(data.webhook_url || '');
+        setWpApiKey(data.api_key || '');
+        setWpLoaded(true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch WP sync settings:', err);
+    }
+  };
+
+  const handleSaveWpSync = async () => {
+    setWpSaving(true);
+    try {
+      const response = await fetch('/api/admin/wp-sync-settings', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: wpWebhookUrl, api_key: wpApiKey }),
+      });
+      if (response.ok) {
+        toast({ title: 'WordPress sync settings saved' });
+      } else {
+        const err = await response.json();
+        toast({ title: 'Failed to save', description: err.error, variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Failed to save', description: err.message, variant: 'destructive' });
+    } finally {
+      setWpSaving(false);
+    }
+  };
+
+  const handleTestWpWebhook = async () => {
+    setWpTesting(true);
+    setWpTestResult(null);
+    try {
+      const response = await fetch('/api/admin/wp-sync-settings', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: wpWebhookUrl, api_key: wpApiKey, test: true }),
+      });
+      const result = await response.json();
+      setWpTestResult(result);
+    } catch {
+      setWpTestResult({ success: false, statusText: 'Network error' });
+    } finally {
+      setWpTesting(false);
     }
   };
 
@@ -1803,6 +1867,107 @@ export default function AdminIntegrations() {
                     The background sync checks every 5 minutes and processes accounts that are due based on this frequency.
                   </p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                    <Plug className="h-5 w-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">WordPress</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Sync articles to your WordPress site
+                    </CardDescription>
+                  </div>
+                </div>
+                {wpWebhookUrl && (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                    <CheckCircle2 className="h-3 w-3 mr-1" /> Configured
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-400">
+                When articles are created, updated, or deleted, iConnect will notify your WordPress site to sync immediately. Requires the iConnect Content Sync plugin.
+              </p>
+
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Webhook URL</Label>
+                  <Input
+                    value={wpWebhookUrl}
+                    onChange={(e) => { setWpWebhookUrl(e.target.value); setWpTestResult(null); }}
+                    placeholder="https://yoursite.com/wp-json/iconnect-sync/v1/webhook"
+                    className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500"
+                    data-testid="input-wp-webhook-url"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">API Key (optional)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type={showWpApiKey ? 'text' : 'password'}
+                      value={wpApiKey}
+                      onChange={(e) => { setWpApiKey(e.target.value); setWpTestResult(null); }}
+                      placeholder="Enter API key if configured in WordPress"
+                      className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-wp-api-key"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setShowWpApiKey(!showWpApiKey)}
+                      className="border-slate-600 text-slate-300 shrink-0"
+                      data-testid="button-toggle-wp-api-key"
+                    >
+                      {showWpApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {wpTestResult && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg border ${wpTestResult.success ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                  {wpTestResult.success 
+                    ? <CheckCircle2 className="h-4 w-4 text-green-400" />
+                    : <AlertTriangle className="h-4 w-4 text-red-400" />
+                  }
+                  <span className={`text-sm ${wpTestResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                    {wpTestResult.success
+                      ? `Connection successful (HTTP ${wpTestResult.status})`
+                      : `Connection failed: ${wpTestResult.statusText || 'Unknown error'}${wpTestResult.status ? ` (HTTP ${wpTestResult.status})` : ''}`
+                    }
+                  </span>
+                </div>
+              )}
+
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  onClick={handleSaveWpSync}
+                  disabled={wpSaving}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-save-wp-sync"
+                >
+                  {wpSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleTestWpWebhook}
+                  disabled={wpTesting || !wpWebhookUrl.trim()}
+                  className="border-slate-600 text-slate-300"
+                  data-testid="button-test-wp-webhook"
+                >
+                  {wpTesting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <TestTube2 className="h-4 w-4 mr-2" />}
+                  Test Webhook
+                </Button>
               </div>
             </CardContent>
           </Card>
