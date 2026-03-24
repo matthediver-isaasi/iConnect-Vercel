@@ -1506,12 +1506,24 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
       const textCol = <div className="flex-1 min-w-0">{headingBlock}{bodyBlock}</div>;
       const bodyCol = <div className="flex-1 min-w-0">{bodyBlock}</div>;
 
+      const subItemsBlock = (item.sub_items && item.sub_items.length > 0) ? (
+        <div className="mt-4">
+          {item.sub_items.map((sub, sIdx) => {
+            const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+            return subContentSection(sub, subKey, inOverlay, item);
+          })}
+        </div>
+      ) : null;
+
       if (isInline && mediaBlock) {
         innerContent = (
-          <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
-            {mediaCol}
-            {textCol}
-          </div>
+          <>
+            <div className={`flex gap-4 ${mediaOnRight ? 'flex-row-reverse' : 'flex-row'}`}>
+              {mediaCol}
+              {textCol}
+            </div>
+            {subItemsBlock}
+          </>
         );
       } else if (isSideBySide && mediaBlock) {
         innerContent = (
@@ -1521,6 +1533,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
               {mediaCol}
               {bodyCol}
             </div>
+            {subItemsBlock}
           </>
         );
       } else {
@@ -1529,6 +1542,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             {headingBlock}
             {mediaBlock}
             {bodyBlock}
+            {subItemsBlock}
           </>
         );
       }
@@ -1716,6 +1730,14 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             </div>
           ) : null;
         })()}
+        {(item.columns || 1) <= 1 && item.sub_items && item.sub_items.length > 0 && (
+          <div className="mt-4">
+            {item.sub_items.map((sub, sIdx) => {
+              const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
+              return subContentSection(sub, subKey, inOverlay, item);
+            })}
+          </div>
+        )}
       </>
     );
 
@@ -2000,17 +2022,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
           {!inOverlay && hasContentBg && renderBgLayer(effectiveBgType, contentBgProps, bgFixedBase, 'timeline-background')}
           {!inOverlay && !isUnified && hasRailBg && renderBgLayer(effectiveRailBgType, railBgProps, railBgBase, 'timeline-rail-background')}
           <div style={{ position: 'relative', zIndex: 2, padding: hasBg ? '0 16px' : undefined, width: '100%' }}>
-            {items.flatMap((item, idx) => {
-              const sections = [contentSection(item, idx, inOverlay)];
-              const numCols = item.columns || 1;
-              if (numCols <= 1 || !item.column_content) {
-                (item.sub_items || []).forEach((sub, sIdx) => {
-                  const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                  sections.push(subContentSection(sub, subKey, inOverlay, item));
-                });
-              }
-              return sections;
-            })}
+            {items.map((item, idx) => contentSection(item, idx, inOverlay))}
           </div>
         </div>
       </div>
@@ -2116,11 +2128,6 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                               sections.push(subContentSection(sub, subKey, true, item));
                             });
                           });
-                        } else {
-                          (item.sub_items || []).forEach((sub, sIdx) => {
-                            const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                            sections.push(subContentSection(sub, subKey, true, item));
-                          });
                         }
                         return sections;
                       })}
@@ -2183,11 +2190,6 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                   const subKey = `${item.year}-col${cIdx}-sub${sIdx}-${sub.year}`;
                   sections.push(subContentSection(sub, subKey, false, item));
                 });
-              });
-            } else {
-              (item.sub_items || []).forEach((sub, sIdx) => {
-                const subKey = `${item.year}-sub${sIdx}-${sub.year}`;
-                sections.push(subContentSection(sub, subKey, false, item));
               });
             }
             return sections;
