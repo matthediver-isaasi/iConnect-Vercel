@@ -1303,6 +1303,38 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     <TimelineImageCarousel images={colSubMedia} year={subKey} heading={sub.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
                   </div>
                 ) : null;
+                const colSubTextLines = sub.text_lines || 0;
+                const isColSubTextExpanded = !!expandedTexts[subKey];
+                const shouldClampColSub = colSubTextLines > 0 && !isColSubTextExpanded;
+                const colSubBodyBlock = !isEmptyHtml(sub.body) ? (
+                  <div>
+                    <div
+                      className="prose prose-sm max-w-none"
+                      style={{
+                        fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`,
+                        ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}),
+                        ...(shouldClampColSub ? {
+                          display: '-webkit-box',
+                          WebkitLineClamp: colSubTextLines,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        } : {}),
+                      }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
+                    />
+                    {colSubTextLines > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTexts(prev => ({ ...prev, [subKey]: !prev[subKey] }))}
+                        className="mt-1 text-sm font-medium transition-colors"
+                        style={{ color: active_color }}
+                        data-testid={`button-read-more-sub-${subKey}`}
+                      >
+                        {isColSubTextExpanded ? 'Read less' : 'Read more'}
+                      </button>
+                    )}
+                  </div>
+                ) : null;
                 return SubIcon ? (
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                     <SubIcon style={{ width: 18, height: 18, color: subIconColor, flexShrink: 0, marginTop: '2px' }} />
@@ -1312,7 +1344,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                       </div>
                       {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
                       {colSubCarousel}
-                      {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+                      {colSubBodyBlock}
                     </div>
                   </div>
                 ) : (
@@ -1322,7 +1354,7 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
                     </div>
                     {sub.heading && <h4 className="font-medium" style={{ fontSize: `${Math.round((sub.heading_size || heading_size) * 0.8)}px`, color: sub.heading_color || heading_color || '#1e293b', marginBottom: '4px' }}>{sub.heading}</h4>}
                     {colSubCarousel}
-                    {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+                    {colSubBodyBlock}
                   </div>
                 );
               })()}
@@ -1598,7 +1630,40 @@ export function IEditTimelineElementRenderer({ content, variant, settings }) {
             <TimelineImageCarousel images={subMediaImages} year={subKey} heading={sub.heading} maxWidthClass="w-full" onPopupClick={setPopupImage} autoPlayInterval={content.carousel_autoplay_interval || 0} />
           </div>
         )}
-        {!isEmptyHtml(sub.body) && <div className="prose prose-sm max-w-none" style={{ fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`, ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}) }} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }} />}
+        {(() => {
+          const subTextLines = sub.text_lines || 0;
+          const isSubTextExpanded = !!expandedTexts[subKey];
+          const shouldClampSub = subTextLines > 0 && !isSubTextExpanded;
+          return !isEmptyHtml(sub.body) ? (
+            <div>
+              <div
+                className="prose prose-sm max-w-none"
+                style={{
+                  fontSize: `${Math.round((sub.body_size || body_size) * 0.9)}px`,
+                  ...(sub.body_color || body_color ? { color: sub.body_color || body_color } : {}),
+                  ...(shouldClampSub ? {
+                    display: '-webkit-box',
+                    WebkitLineClamp: subTextLines,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  } : {}),
+                }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sub.body) }}
+              />
+              {subTextLines > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedTexts(prev => ({ ...prev, [subKey]: !prev[subKey] }))}
+                  className="mt-1 text-sm font-medium transition-colors"
+                  style={{ color: active_color }}
+                  data-testid={`button-read-more-sub-${subKey}`}
+                >
+                  {isSubTextExpanded ? 'Read less' : 'Read more'}
+                </button>
+              )}
+            </div>
+          ) : null;
+        })()}
       </>
     );
 
@@ -4673,6 +4738,28 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                               <ReactQuill theme="snow" value={sub.body || ''} onChange={(val) => updateColSubItem(index, cIdx, sIdx, 'body', val)} modules={timelineQuillModules} formats={timelineQuillFormats} />
                                             </div>
                                           </div>
+                                          <div>
+                                            <Label className="text-[10px] text-slate-500">Text Lines</Label>
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                              <input
+                                                type="number"
+                                                min={0}
+                                                max={50}
+                                                step={1}
+                                                value={sub.text_lines || ''}
+                                                placeholder="All"
+                                                onChange={(e) => updateColSubItem(index, cIdx, sIdx, 'text_lines', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                                className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                                data-testid={`input-col-sub-text-lines-${index}-${cIdx}-${sIdx}`}
+                                              />
+                                              {(sub.text_lines || 0) > 0 && (
+                                                <button type="button" onClick={() => updateColSubItem(index, cIdx, sIdx, 'text_lines', 0)} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                              <span className="text-[10px] text-slate-400">Limit with "Read more"</span>
+                                            </div>
+                                          </div>
                                           {renderSubImageEditor(
                                             sub, index, sIdx,
                                             (file) => handleColSubImageUpload(index, cIdx, sIdx, file),
@@ -4979,6 +5066,28 @@ export function IEditTimelineElementEditor({ element, onChange }) {
                                       modules={timelineQuillModules}
                                       formats={timelineQuillFormats}
                                     />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-slate-500">Text Lines</Label>
+                                  <div className="flex items-center gap-1 mt-0.5">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={50}
+                                      step={1}
+                                      value={sub.text_lines || ''}
+                                      placeholder="All"
+                                      onChange={(e) => updateSubItem(index, sIdx, 'text_lines', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                      className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded"
+                                      data-testid={`input-sub-text-lines-${index}-${sIdx}`}
+                                    />
+                                    {(sub.text_lines || 0) > 0 && (
+                                      <button type="button" onClick={() => updateSubItem(index, sIdx, 'text_lines', 0)} className="p-0.5 text-slate-400 hover:text-slate-600">
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <span className="text-[10px] text-slate-400">Limit with "Read more"</span>
                                   </div>
                                 </div>
                                 {renderSubImageEditor(
