@@ -2,8 +2,8 @@
 /**
  * Plugin Name: iConnect Content Sync
  * Plugin URI: https://iconn.app
- * Description: Syncs news articles from an iConnect instance into WordPress as a custom post type for SEO indexing and visitor discovery.
- * Version: 1.0.0
+ * Description: Syncs news articles from an iConnect instance into WordPress as standard posts for SEO indexing and visitor discovery.
+ * Version: 1.1.0
  * Author: iConnect
  * Author URI: https://iconn.app
  * License: GPL v2 or later
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'ICONNECT_SYNC_VERSION', '1.0.0' );
+define( 'ICONNECT_SYNC_VERSION', '1.1.0' );
 define( 'ICONNECT_SYNC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ICONNECT_SYNC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'ICONNECT_SYNC_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -50,14 +50,11 @@ final class IConnect_Sync {
 
         register_activation_hook( __FILE__, array( $this, 'activate' ) );
         register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
+
+        add_action( 'plugins_loaded', array( $this, 'maybe_upgrade' ) );
     }
 
     public function activate() {
-        $post_type = new IConnect_Sync_Post_Type();
-        $post_type->register_post_type();
-        $post_type->register_taxonomy();
-        flush_rewrite_rules();
-
         $defaults = array(
             'iconnect_sync_api_url'    => '',
             'iconnect_sync_api_key'    => '',
@@ -69,13 +66,28 @@ final class IConnect_Sync {
             }
         }
 
+        $post_type = new IConnect_Sync_Post_Type();
+        $post_type->ensure_sync_category();
+        $post_type->migrate_legacy_posts();
+
+        update_option( 'iconnect_sync_version', ICONNECT_SYNC_VERSION );
+
         $engine = new IConnect_Sync_Engine();
         $engine->schedule_sync();
     }
 
     public function deactivate() {
         wp_clear_scheduled_hook( 'iconnect_sync_cron_event' );
-        flush_rewrite_rules();
+    }
+
+    public function maybe_upgrade() {
+        $stored_version = get_option( 'iconnect_sync_version', '1.0.0' );
+        if ( version_compare( $stored_version, ICONNECT_SYNC_VERSION, '<' ) ) {
+            $post_type = new IConnect_Sync_Post_Type();
+            $post_type->ensure_sync_category();
+            $post_type->migrate_legacy_posts();
+            update_option( 'iconnect_sync_version', ICONNECT_SYNC_VERSION );
+        }
     }
 }
 

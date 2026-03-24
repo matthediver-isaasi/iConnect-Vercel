@@ -6,65 +6,110 @@ if ( ! defined( 'ABSPATH' ) ) {
 class IConnect_Sync_Post_Type {
 
     public function __construct() {
-        add_action( 'init', array( $this, 'register_post_type' ) );
-        add_action( 'init', array( $this, 'register_taxonomy' ) );
+        add_action( 'admin_notices', array( $this, 'synced_post_notice' ) );
     }
 
-    public function register_post_type() {
-        $labels = array(
-            'name'               => __( 'iConnect Articles', 'iconnect-sync' ),
-            'singular_name'      => __( 'iConnect Article', 'iconnect-sync' ),
-            'menu_name'          => __( 'iConnect Articles', 'iconnect-sync' ),
-            'all_items'          => __( 'All Articles', 'iconnect-sync' ),
-            'view_item'          => __( 'View Article', 'iconnect-sync' ),
-            'search_items'       => __( 'Search Articles', 'iconnect-sync' ),
-            'not_found'          => __( 'No articles found', 'iconnect-sync' ),
-            'not_found_in_trash' => __( 'No articles found in Trash', 'iconnect-sync' ),
-        );
+    public function ensure_sync_category() {
+        $cat_id = get_option( 'iconnect_sync_category', 0 );
 
-        $args = array(
-            'labels'              => $labels,
-            'public'              => true,
-            'publicly_queryable'  => true,
-            'show_ui'             => true,
-            'show_in_menu'        => true,
-            'show_in_rest'        => true,
-            'menu_icon'           => 'dashicons-rss',
-            'query_var'           => true,
-            'rewrite'             => array( 'slug' => 'iconnect-articles' ),
-            'capability_type'     => 'post',
-            'has_archive'         => true,
-            'hierarchical'        => false,
-            'supports'            => array( 'title', 'excerpt', 'thumbnail', 'custom-fields' ),
-            'capabilities'        => array(
-                'create_posts' => 'do_not_allow',
-            ),
-            'map_meta_cap'        => true,
-        );
+        if ( $cat_id && term_exists( (int) $cat_id, 'category' ) ) {
+            return $cat_id;
+        }
 
-        register_post_type( 'iconnect_article', $args );
-    }
+        $existing = get_term_by( 'name', 'iConnect', 'category' );
+        if ( $existing ) {
+            update_option( 'iconnect_sync_category', $existing->term_id );
+            return $existing->term_id;
+        }
 
-    public function register_taxonomy() {
-        $labels = array(
-            'name'          => __( 'iConnect Tags', 'iconnect-sync' ),
-            'singular_name' => __( 'iConnect Tag', 'iconnect-sync' ),
-            'search_items'  => __( 'Search Tags', 'iconnect-sync' ),
-            'all_items'     => __( 'All Tags', 'iconnect-sync' ),
-            'edit_item'     => __( 'Edit Tag', 'iconnect-sync' ),
-            'update_item'   => __( 'Update Tag', 'iconnect-sync' ),
-            'add_new_item'  => __( 'Add New Tag', 'iconnect-sync' ),
-            'new_item_name' => __( 'New Tag Name', 'iconnect-sync' ),
-            'menu_name'     => __( 'Tags', 'iconnect-sync' ),
-        );
-
-        register_taxonomy( 'iconnect_tag', 'iconnect_article', array(
-            'labels'            => $labels,
-            'hierarchical'      => false,
-            'public'            => true,
-            'show_in_rest'      => true,
-            'show_admin_column' => true,
-            'rewrite'           => array( 'slug' => 'iconnect-tag' ),
+        $result = wp_insert_term( 'iConnect', 'category', array(
+            'description' => __( 'Articles synced from iConnect.', 'iconnect-sync' ),
+            'slug'        => 'iconnect',
         ) );
+
+        if ( ! is_wp_error( $result ) ) {
+            update_option( 'iconnect_sync_category', $result['term_id'] );
+            return $result['term_id'];
+        }
+
+        return 0;
+    }
+
+    public function migrate_legacy_posts() {
+        $migrated = get_option( 'iconnect_sync_migrated_to_posts', false );
+        if ( $migrated ) {
+            return;
+        }
+
+        global $wpdb;
+
+        $legacy_posts = $wpdb->get_results(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'iconnect_article'",
+            ARRAY_A
+        );
+
+        if ( ! empty( $legacy_posts ) ) {
+            $cat_id = $this->ensure_sync_category();
+
+            foreach ( $legacy_posts as $row ) {
+                $post_id = (int) $row['ID'];
+
+                $wpdb->update(
+                    $wpdb->posts,
+                    array( 'post_type' => 'post' ),
+                    array( 'ID' => $post_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+
+                update_post_meta( $post_id, '_iconnect_synced', '1' );
+
+                if ( $cat_id ) {
+                    wp_set_post_categories( $post_id, array( $cat_id ), true );
+                }
+
+                $old_tags = wp_get_object_terms( $post_id, 'iconnect_tag', array( 'fields' => 'names' ) );
+                if ( ! empty( $old_tags ) && ! is_wp_error( $old_tags ) ) {
+                    wp_set_post_tags( $post_id, $old_tags, true );
+                    wp_set_object_terms( $post_id, array(), 'iconnect_tag' );
+                }
+            }
+        }
+
+        $wpdb->query( "DELETE FROM {$wpdb->termmeta} WHERE term_id IN (SELECT term_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'iconnect_tag')" );
+        $wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN (SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'iconnect_tag')" );
+        $wpdb->query( "DELETE FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'iconnect_tag'" );
+
+        update_option( 'iconnect_sync_migrated_to_posts', '1' );
+    }
+
+    public function synced_post_notice() {
+        $screen = get_current_screen();
+        if ( ! $screen || 'post' !== $screen->base ) {
+            return;
+        }
+
+        $post_id = isset( $_GET['post'] ) ? (int) $_GET['post'] : 0;
+        if ( ! $post_id ) {
+            return;
+        }
+
+        $is_synced = get_post_meta( $post_id, '_iconnect_synced', true );
+        if ( ! $is_synced ) {
+            return;
+        }
+
+        $iconnect_url = get_post_meta( $post_id, '_iconnect_url', true );
+        ?>
+        <div class="notice notice-info is-dismissible">
+            <p>
+                <strong><?php esc_html_e( 'iConnect Synced Article', 'iconnect-sync' ); ?></strong> &mdash;
+                <?php esc_html_e( 'This post is managed by iConnect and will be overwritten on the next sync. Edit the article in iConnect instead.', 'iconnect-sync' ); ?>
+                <?php if ( ! empty( $iconnect_url ) ) : ?>
+                    <a href="<?php echo esc_url( $iconnect_url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View on iConnect', 'iconnect-sync' ); ?></a>
+                <?php endif; ?>
+            </p>
+        </div>
+        <?php
     }
 }

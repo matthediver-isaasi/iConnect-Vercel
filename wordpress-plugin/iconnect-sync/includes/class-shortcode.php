@@ -27,21 +27,25 @@ class IConnect_Sync_Shortcode {
         wp_enqueue_style( 'iconnect-sync-frontend' );
 
         $query_args = array(
-            'post_type'      => 'iconnect_article',
+            'post_type'      => 'post',
             'post_status'    => 'publish',
             'posts_per_page' => $limit,
             'orderby'        => 'meta_value',
             'meta_key'       => '_iconnect_published_date',
             'order'          => 'DESC',
+            'meta_query'     => array(
+                array(
+                    'key'   => '_iconnect_synced',
+                    'value' => '1',
+                ),
+            ),
         );
 
         if ( ! empty( $atts['category'] ) ) {
-            $query_args['tax_query'] = array(
-                array(
-                    'taxonomy' => 'iconnect_tag',
-                    'field'    => 'name',
-                    'terms'    => sanitize_text_field( $atts['category'] ),
-                ),
+            $query_args['tax_query'][] = array(
+                'taxonomy' => 'post_tag',
+                'field'    => 'name',
+                'terms'    => sanitize_text_field( $atts['category'] ),
             );
         }
 
@@ -63,7 +67,7 @@ class IConnect_Sync_Shortcode {
             if ( empty( $article_url ) ) {
                 $article_url = get_permalink( $post_id );
             }
-            $tags           = wp_get_object_terms( $post_id, 'iconnect_tag', array( 'fields' => 'names' ) );
+            $tags = get_the_tags( $post_id );
 
             $output .= '<article class="iconnect-article-card">';
 
@@ -103,7 +107,7 @@ class IConnect_Sync_Shortcode {
             if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
                 $output .= '<div class="iconnect-article-card__tags">';
                 foreach ( $tags as $tag ) {
-                    $output .= '<span class="iconnect-article-card__tag">' . esc_html( $tag ) . '</span>';
+                    $output .= '<span class="iconnect-article-card__tag">' . esc_html( $tag->name ) . '</span>';
                 }
                 $output .= '</div>';
             }

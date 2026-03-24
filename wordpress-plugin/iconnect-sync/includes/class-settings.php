@@ -38,6 +38,16 @@ class IConnect_Sync_Settings {
             'sanitize_callback' => array( $this, 'sanitize_frequency' ),
             'default'           => 'hourly',
         ) );
+        register_setting( 'iconnect_sync_settings', 'iconnect_sync_category', array(
+            'type'              => 'integer',
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
+        ) );
+        register_setting( 'iconnect_sync_settings', 'iconnect_sync_author', array(
+            'type'              => 'integer',
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
+        ) );
 
         add_settings_section(
             'iconnect_sync_main',
@@ -46,9 +56,18 @@ class IConnect_Sync_Settings {
             'iconnect-sync'
         );
 
+        add_settings_section(
+            'iconnect_sync_post',
+            __( 'Post Settings', 'iconnect-sync' ),
+            null,
+            'iconnect-sync'
+        );
+
         add_settings_field( 'iconnect_sync_api_url', __( 'iConnect API URL', 'iconnect-sync' ), array( $this, 'render_api_url_field' ), 'iconnect-sync', 'iconnect_sync_main' );
         add_settings_field( 'iconnect_sync_api_key', __( 'API Key', 'iconnect-sync' ), array( $this, 'render_api_key_field' ), 'iconnect-sync', 'iconnect_sync_main' );
         add_settings_field( 'iconnect_sync_frequency', __( 'Sync Frequency', 'iconnect-sync' ), array( $this, 'render_frequency_field' ), 'iconnect-sync', 'iconnect_sync_main' );
+        add_settings_field( 'iconnect_sync_category', __( 'Sync Category', 'iconnect-sync' ), array( $this, 'render_category_field' ), 'iconnect-sync', 'iconnect_sync_post' );
+        add_settings_field( 'iconnect_sync_author', __( 'Post Author', 'iconnect-sync' ), array( $this, 'render_author_field' ), 'iconnect-sync', 'iconnect_sync_post' );
     }
 
     public function sanitize_frequency( $value ) {
@@ -81,6 +100,40 @@ class IConnect_Sync_Settings {
             echo '<option value="' . esc_attr( $key ) . '"' . selected( $value, $key, false ) . '>' . esc_html( $label ) . '</option>';
         }
         echo '</select>';
+    }
+
+    public function render_category_field() {
+        $value = (int) get_option( 'iconnect_sync_category', 0 );
+        $categories = get_categories( array(
+            'hide_empty' => false,
+            'orderby'    => 'name',
+            'order'      => 'ASC',
+        ) );
+
+        echo '<select name="iconnect_sync_category">';
+        echo '<option value="0"' . selected( $value, 0, false ) . '>' . esc_html__( '— No category —', 'iconnect-sync' ) . '</option>';
+        foreach ( $categories as $cat ) {
+            echo '<option value="' . esc_attr( $cat->term_id ) . '"' . selected( $value, $cat->term_id, false ) . '>' . esc_html( $cat->name ) . '</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__( 'WordPress category to assign to synced articles. An "iConnect" category is created automatically on activation.', 'iconnect-sync' ) . '</p>';
+    }
+
+    public function render_author_field() {
+        $value = (int) get_option( 'iconnect_sync_author', 0 );
+        $users = get_users( array(
+            'capability' => 'publish_posts',
+            'orderby'    => 'display_name',
+            'order'      => 'ASC',
+        ) );
+
+        echo '<select name="iconnect_sync_author">';
+        echo '<option value="0"' . selected( $value, 0, false ) . '>' . esc_html__( '— Default (site admin) —', 'iconnect-sync' ) . '</option>';
+        foreach ( $users as $user ) {
+            echo '<option value="' . esc_attr( $user->ID ) . '"' . selected( $value, $user->ID, false ) . '>' . esc_html( $user->display_name ) . ' (' . esc_html( $user->user_login ) . ')</option>';
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__( 'WordPress user to set as author on synced posts.', 'iconnect-sync' ) . '</p>';
     }
 
     public function enqueue_admin_assets( $hook ) {

@@ -10,11 +10,16 @@ class IConnect_Sync_SEO {
     }
 
     public function output_json_ld() {
-        if ( ! is_singular( 'iconnect_article' ) ) {
+        if ( ! is_singular( 'post' ) ) {
             return;
         }
 
         $post_id = get_the_ID();
+
+        $is_synced = get_post_meta( $post_id, '_iconnect_synced', true );
+        if ( ! $is_synced ) {
+            return;
+        }
 
         $title          = get_the_title( $post_id );
         $excerpt        = get_the_excerpt( $post_id );

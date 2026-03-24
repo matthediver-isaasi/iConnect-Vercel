@@ -6,22 +6,23 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 delete_option( 'iconnect_sync_api_url' );
 delete_option( 'iconnect_sync_api_key' );
 delete_option( 'iconnect_sync_frequency' );
+delete_option( 'iconnect_sync_category' );
+delete_option( 'iconnect_sync_author' );
 delete_option( 'iconnect_sync_last_status' );
+delete_option( 'iconnect_sync_migrated_to_posts' );
+delete_option( 'iconnect_sync_version' );
 
-$posts = get_posts( array(
-    'post_type'      => 'iconnect_article',
+$synced_posts = get_posts( array(
+    'post_type'      => 'post',
     'posts_per_page' => -1,
     'post_status'    => 'any',
+    'meta_key'       => '_iconnect_synced',
+    'meta_value'     => '1',
     'fields'         => 'ids',
 ) );
 
-foreach ( $posts as $post_id ) {
+foreach ( $synced_posts as $post_id ) {
     wp_delete_post( $post_id, true );
 }
-
-global $wpdb;
-$wpdb->query( "DELETE FROM {$wpdb->termmeta} WHERE term_id IN (SELECT term_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'iconnect_tag')" );
-$wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN (SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'iconnect_tag')" );
-$wpdb->query( "DELETE FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'iconnect_tag'" );
 
 flush_rewrite_rules();

@@ -86,9 +86,17 @@ class IConnect_Sync_Engine {
             return new WP_Error( 'invalid_response', __( 'Invalid API response format.', 'iconnect-sync' ) );
         }
 
-        $articles     = $body['articles'];
-        $authors      = isset( $body['authors'] ) ? $body['authors'] : array();
-        $guest_writers = isset( $body['guestWriters'] ) ? $body['guestWriters'] : array();
+        $articles      = $body['articles'];
+        $authors        = isset( $body['authors'] ) ? $body['authors'] : array();
+        $guest_writers  = isset( $body['guestWriters'] ) ? $body['guestWriters'] : array();
+
+        $sync_cat_id   = (int) get_option( 'iconnect_sync_category', 0 );
+        $sync_author   = (int) get_option( 'iconnect_sync_author', 0 );
+
+        if ( ! $sync_author ) {
+            $admins = get_users( array( 'role' => 'administrator', 'number' => 1, 'orderby' => 'ID', 'order' => 'ASC' ) );
+            $sync_author = ! empty( $admins ) ? $admins[0]->ID : 1;
+        }
 
         $created = 0;
         $updated = 0;
@@ -122,7 +130,8 @@ class IConnect_Sync_Engine {
                 'post_title'   => sanitize_text_field( $article['title'] ),
                 'post_excerpt' => wp_kses_post( isset( $article['summary'] ) ? $article['summary'] : '' ),
                 'post_status'  => 'publish',
-                'post_type'    => 'iconnect_article',
+                'post_type'    => 'post',
+                'post_author'  => $sync_author,
             );
 
             if ( $existing_post ) {
@@ -146,18 +155,23 @@ class IConnect_Sync_Engine {
                 $created++;
             }
 
+            update_post_meta( $post_id, '_iconnect_synced', '1' );
             update_post_meta( $post_id, '_iconnect_id', $iconnect_id );
             update_post_meta( $post_id, '_iconnect_author_name', sanitize_text_field( $author_name ) );
             update_post_meta( $post_id, '_iconnect_published_date', sanitize_text_field( isset( $article['published_date'] ) ? $article['published_date'] : '' ) );
             update_post_meta( $post_id, '_iconnect_slug', sanitize_text_field( isset( $article['slug'] ) ? $article['slug'] : '' ) );
             update_post_meta( $post_id, '_iconnect_url', esc_url_raw( $article_url ) );
 
+            if ( $sync_cat_id ) {
+                wp_set_post_categories( $post_id, array( $sync_cat_id ), true );
+            }
+
             $tags = isset( $article['tags'] ) ? $article['tags'] : array();
             if ( ! empty( $tags ) && is_array( $tags ) ) {
                 $tag_names = array_map( 'sanitize_text_field', $tags );
-                wp_set_object_terms( $post_id, $tag_names, 'iconnect_tag' );
+                wp_set_post_tags( $post_id, $tag_names, false );
             } else {
-                wp_set_object_terms( $post_id, array(), 'iconnect_tag' );
+                wp_set_post_tags( $post_id, array() );
             }
 
             if ( ! empty( $article['feature_image_url'] ) ) {
@@ -206,10 +220,19 @@ class IConnect_Sync_Engine {
 
     private function get_post_by_iconnect_id( $iconnect_id ) {
         $posts = get_posts( array(
-            'post_type'      => 'iconnect_article',
+            'post_type'      => 'post',
             'post_status'    => array( 'publish', 'draft', 'trash' ),
-            'meta_key'       => '_iconnect_id',
-            'meta_value'     => $iconnect_id,
+            'meta_query'     => array(
+                'relation' => 'AND',
+                array(
+                    'key'   => '_iconnect_synced',
+                    'value' => '1',
+                ),
+                array(
+                    'key'   => '_iconnect_id',
+                    'value' => $iconnect_id,
+                ),
+            ),
             'posts_per_page' => 1,
         ) );
 
@@ -222,10 +245,11 @@ class IConnect_Sync_Engine {
         }
 
         $all_synced_posts = get_posts( array(
-            'post_type'      => 'iconnect_article',
+            'post_type'      => 'post',
             'post_status'    => 'publish',
             'posts_per_page' => -1,
-            'meta_key'       => '_iconnect_id',
+            'meta_key'       => '_iconnect_synced',
+            'meta_value'     => '1',
             'fields'         => 'ids',
         ) );
 
