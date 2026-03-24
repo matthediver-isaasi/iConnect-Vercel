@@ -2,6 +2,7 @@ import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
+import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -999,6 +1000,10 @@ export default async function handler(req, res) {
         sendFormSubmissionEmail(data).catch(err => {
           console.error('[Entity POST] Form submission email error:', err);
         });
+      }
+
+      if (entityNorm === 'blogpost' && data && data.tenant_id) {
+        dispatchWpWebhook(data.tenant_id, 'article.created', data.id);
       }
 
       // If there are pending workflow confirmations, include them in the response

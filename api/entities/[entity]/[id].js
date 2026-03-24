@@ -2,6 +2,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflo
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions } from '../../_lib/tenantContext.js';
+import { dispatchWpWebhook } from '../../_lib/wpWebhook.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -497,7 +498,10 @@ export default async function handler(req, res) {
         }
       }
 
-      // If there are pending workflow confirmations or reverts, include them in the response
+      if (entity === 'BlogPost' && responseData && tenantCtx.tenantId) {
+        dispatchWpWebhook(tenantCtx.tenantId, 'article.updated', id);
+      }
+
       if (pendingWorkflowConfirmations.length > 0 || workflowReverts.length > 0) {
         return res.json({
           ...responseData,
@@ -980,6 +984,10 @@ export default async function handler(req, res) {
       if (rowsDeleted === 0) {
         console.warn(`[Entity DELETE] WARNING: Delete returned 0 rows for ${tableName} id=${id}. Row may still exist (trigger cancellation or row not found).`);
         return res.status(404).json({ error: 'Record not found or could not be deleted' });
+      }
+
+      if (entity === 'BlogPost' && tenantCtx.tenantId) {
+        dispatchWpWebhook(tenantCtx.tenantId, 'article.deleted', id);
       }
 
       return res.json({ success: true });
