@@ -481,7 +481,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const listPages = ['PublicEvents', 'PublicNews', 'JobBoard', 'OrganisationDirectory'];
+    const listPages = ['PublicEvents', 'PublicNews', 'JobBoard', 'OrganisationDirectory', 'Resources'];
     if (!pageData) {
       if (requestPath === `/${publicArticlesPageName}` || requestPath === '/PublicArticles') {
         pageData = await renderListPage(supabase, tenant, 'PublicArticles', baseUrl);
