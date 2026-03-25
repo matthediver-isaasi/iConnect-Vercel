@@ -88,6 +88,7 @@ export default async function handler(req, res) {
     urls.push({ loc: baseUrl + '/PublicNews', changefreq: 'daily', priority: '0.7' });
     urls.push({ loc: baseUrl + '/JobBoard', changefreq: 'daily', priority: '0.7' });
     urls.push({ loc: baseUrl + '/OrganisationDirectory', changefreq: 'weekly', priority: '0.6' });
+    urls.push({ loc: baseUrl + '/Resources', changefreq: 'daily', priority: '0.7' });
 
     const { data: articleUrlSetting } = await supabase
       .from('system_settings')

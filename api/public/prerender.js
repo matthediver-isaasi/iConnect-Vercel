@@ -369,6 +369,20 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
       title: `Organisation Directory | ${tenant.name}`,
       description: `Browse organisations in the ${tenant.name} directory`,
       query: async () => ''
+    },
+    'Resources': {
+      title: `Resources | ${tenant.name}`,
+      description: `Browse resources from ${tenant.name}`,
+      query: async () => {
+        const { data } = await supabaseClient
+          .from('resource')
+          .select('id, title, description, resource_type, release_date')
+          .eq('tenant_id', tenant.id)
+          .eq('status', 'active')
+          .order('release_date', { ascending: false })
+          .limit(50);
+        return (data || []).map(r => `<li><strong>${escapeHtml(r.title)}</strong>${r.resource_type ? ` (${escapeHtml(r.resource_type)})` : ''}${r.release_date ? ` - ${escapeHtml(new Date(r.release_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}</li>`).join('\n');
+      }
     }
   };
 
