@@ -63,11 +63,6 @@ export default async function handler(req, res) {
     const host = req.headers['x-forwarded-host'] || req.headers.host || '';
     const cleanHost = host.split(':')[0];
 
-    // Dev domains should never be indexed regardless of tenant settings
-    if (cleanHost.endsWith('.dev.iconn.app')) {
-      return res.status(200).send('User-agent: *\nDisallow: /');
-    }
-
     // First check for explicit tenant query param
     let tenant = null;
     if (req.query.tenant) {
