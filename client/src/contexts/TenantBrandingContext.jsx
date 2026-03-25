@@ -76,13 +76,20 @@ export function TenantBrandingProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (!branding?.ga4MeasurementId || isAdminRoute()) return;
+    if (!branding?.ga4MeasurementId) return;
 
     let lastPath = window.location.pathname + window.location.search;
 
     const trackRouteChange = () => {
       const currentPath = window.location.pathname + window.location.search;
-      if (currentPath !== lastPath && !currentPath.startsWith('/admin')) {
+      if (currentPath.startsWith('/admin')) return;
+
+      if (!ga4Injected.current) {
+        injectGA4(branding.ga4MeasurementId);
+        ga4Injected.current = true;
+      }
+
+      if (currentPath !== lastPath) {
         lastPath = currentPath;
         if (typeof window.gtag === 'function') {
           window.gtag('event', 'page_view', {
