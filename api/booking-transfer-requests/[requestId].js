@@ -144,20 +144,24 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to transfer booking' });
       }
 
-      console.log(`[TransferRequest] Booking ${booking.id} transferred from ${originalAttendeeEmail} to ${targetMember.email}`);
+      console.log(`[TransferRequest] Booking ${booking.id} transferred from ${originalAttendeeEmail} to ${targetMember.email}${isPublicTransfer ? ' (public)' : ''}`);
 
-      updateXeroInvoiceDescription({
-        booking,
-        originalFirstName: booking.attendee_first_name,
-        originalLastName: booking.attendee_last_name,
-        originalEmail: originalAttendeeEmail,
-        newFirstName: targetMember.first_name,
-        newLastName: targetMember.last_name,
-        newEmail: targetMember.email,
-        tenantId,
-      }).catch(err => {
-        console.error('[TransferRequest] Xero invoice update error (non-blocking):', err.message);
-      });
+      if (!isPublicTransfer) {
+        updateXeroInvoiceDescription({
+          booking,
+          originalFirstName: booking.attendee_first_name,
+          originalLastName: booking.attendee_last_name,
+          originalEmail: originalAttendeeEmail,
+          newFirstName: targetMember.first_name,
+          newLastName: targetMember.last_name,
+          newEmail: targetMember.email,
+          tenantId,
+        }).catch(err => {
+          console.error('[TransferRequest] Xero invoice update error (non-blocking):', err.message);
+        });
+      } else {
+        console.log(`[TransferRequest] Skipping Xero invoice update for public transfer`);
+      }
     }
 
     const { data: updated, error: updateError } = await supabase
@@ -185,6 +189,7 @@ export default async function handler(req, res) {
         status,
         tenantId,
         reviewNotes: review_notes || null,
+        isPublicTransfer,
       });
     } catch (emailErr) {
       console.error('[TransferRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', booking.id, '| requestId:', requestId);
@@ -313,7 +318,7 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
   console.log(`[TransferXero] Invoice ${updatedInvoice?.InvoiceNumber || booking.xero_invoice_id} description updated successfully`);
 }
 
-async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes }) {
+async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes, isPublicTransfer = false }) {
   console.log(`[TransferEmail] Starting email notification | bookingId: ${booking.id} | status: ${status} | targetMember: ${targetMember?.email || 'none'}`);
 
   let eventName = 'an event';
@@ -363,9 +368,9 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
 
     if (targetMember?.email) {
       try {
-        console.log(`[TransferEmail] Sending confirmation to new attendee: ${targetMember.email}`);
+        console.log(`[TransferEmail] Sending confirmation to new attendee: ${targetMember.email} (public: ${isPublicTransfer})`);
         let sent = false;
-        if (booking.event_id) {
+        if (!isPublicTransfer && booking.event_id) {
           const attendee = {
             first_name: targetMember.first_name || '',
             last_name: targetMember.last_name || '',
@@ -378,7 +383,7 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
           }
         }
         if (!sent) {
-          console.log(`[TransferEmail] No event confirmation template configured, sending generic email`);
+          console.log(`[TransferEmail] Sending generic confirmation email to new attendee`);
           const html = buildGenericConfirmationEmail(targetMember.first_name || 'there', eventName, bookingRef, event);
           const result = await sendEmail({
             to: targetMember.email,
