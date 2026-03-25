@@ -738,16 +738,20 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
 
       if (memberIds.length > 0) {
         const unsubscribedMemberIds = new Set();
-        const PAGE_SIZE = 1000;
+        const PAGE_SIZE = 100;
 
         for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
           const batch = memberIds.slice(i, i + PAGE_SIZE);
-          const { data: prefs } = await supabase
+          const { data: prefs, error: prefError } = await supabase
             .from('member_communication_preference')
             .select('member_id')
             .eq('category_id', communicationCategoryId)
             .eq('is_subscribed', false)
             .in('member_id', batch);
+
+          if (prefError) {
+            console.error(`[Campaign Service] Error fetching category opt-outs for batch ${i / PAGE_SIZE + 1}:`, prefError.message || prefError);
+          }
 
           if (prefs && prefs.length > 0) {
             for (const p of prefs) {
@@ -755,6 +759,8 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
             }
           }
         }
+
+        console.log(`[Campaign Service] Category opt-out filter: excluded ${unsubscribedMemberIds.size} members for category ${communicationCategoryId}`);
 
         allRecipients = allRecipients.filter(r => {
           const memberId = r.member_id || r.id;
@@ -764,12 +770,16 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
       }
 
       // Also filter external subscribers who opted out of this category
-      const { data: categoryUnsubscribes } = await supabase
+      const { data: categoryUnsubscribes, error: catUnsubError } = await supabase
         .from('email_unsubscribe')
         .select('email')
         .eq('tenant_id', tenantId)
         .eq('unsubscribe_type', 'category')
         .eq('communication_category_id', communicationCategoryId);
+
+      if (catUnsubError) {
+        console.error('[Campaign Service] Error fetching category unsubscribes:', catUnsubError.message || catUnsubError);
+      }
 
       if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
         const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));
