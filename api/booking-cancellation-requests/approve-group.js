@@ -129,15 +129,17 @@ export default async function handler(req, res) {
       console.warn(`[GroupApproval] Expected to update ${request_ids.length} requests but only ${updatedRows?.length || 0} were still pending — possible concurrent approval`);
     }
 
-    sendGroupNotificationEmails({
-      requests: pendingRequests,
-      status,
-      tenantId,
-      reviewNotes: review_notes || null,
-      reversalResults,
-    }).catch(err => {
-      console.error('[GroupApproval] Email notification error (non-blocking):', err.message);
-    });
+    try {
+      await sendGroupNotificationEmails({
+        requests: pendingRequests,
+        status,
+        tenantId,
+        reviewNotes: review_notes || null,
+        reversalResults,
+      });
+    } catch (emailErr) {
+      console.error('[GroupApproval] Email notification error (non-blocking):', emailErr.message, '| requestIds:', request_ids);
+    }
 
     console.log(`[GroupApproval] ${status} ${pendingRequests.length} group cancellation request(s)`);
     return res.json({ success: true, count: pendingRequests.length, reversalResults });

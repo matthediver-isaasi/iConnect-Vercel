@@ -106,15 +106,17 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to update request status' });
     }
 
-    sendCancellationNotificationEmails({
-      request,
-      status,
-      tenantId,
-      reviewNotes: review_notes || null,
-      reversalResults,
-    }).catch(err => {
-      console.error('[CancellationRequest] Email notification error (non-blocking):', err.message);
-    });
+    try {
+      await sendCancellationNotificationEmails({
+        request,
+        status,
+        tenantId,
+        reviewNotes: review_notes || null,
+        reversalResults,
+      });
+    } catch (emailErr) {
+      console.error('[CancellationRequest] Email notification error (non-blocking):', emailErr.message, '| bookingId:', request.booking_id, '| requestId:', requestId);
+    }
 
     return res.json({ request: updated, reversalResults });
   } catch (err) {
