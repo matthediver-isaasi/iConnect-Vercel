@@ -528,11 +528,18 @@ export default function CancellationRequests() {
                           >
                             <div className="flex items-center gap-2 flex-1 min-w-0">
                               <Ticket className="w-4 h-4 text-slate-400 shrink-0" />
-                              <span className="text-sm text-slate-700 truncate">
-                                {item.booking?.attendee_first_name && item.booking?.attendee_last_name
-                                  ? `${item.booking.attendee_first_name} ${item.booking.attendee_last_name}`
-                                  : item.booking?.attendee_email || 'Unknown attendee'}
-                              </span>
+                              <div className="min-w-0">
+                                <span className="text-sm text-slate-700 truncate block">
+                                  {item.booking?.attendee_first_name && item.booking?.attendee_last_name
+                                    ? `${item.booking.attendee_first_name} ${item.booking.attendee_last_name}`
+                                    : item.booking?.attendee_email || 'Unknown attendee'}
+                                </span>
+                                {item.booking?.attendee_email && (
+                                  <span className="text-xs text-slate-500 truncate block">
+                                    {item.booking.attendee_email}
+                                  </span>
+                                )}
+                              </div>
                               {item.booking?.ticket_class_name && (
                                 <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-200 text-xs">
                                   {item.booking.ticket_class_name}
@@ -659,11 +666,18 @@ export default function CancellationRequests() {
                 {reviewDialog.items?.map(item => (
                   <div key={item.id} className="flex items-center gap-2 text-sm p-2 bg-muted rounded-md">
                     <User className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="truncate">
-                      {item.booking?.attendee_first_name && item.booking?.attendee_last_name
-                        ? `${item.booking.attendee_first_name} ${item.booking.attendee_last_name}`
-                        : item.booking?.attendee_email || 'Unknown'}
-                    </span>
+                    <div className="min-w-0">
+                      <span className="truncate block">
+                        {item.booking?.attendee_first_name && item.booking?.attendee_last_name
+                          ? `${item.booking.attendee_first_name} ${item.booking.attendee_last_name}`
+                          : item.booking?.attendee_email || 'Unknown'}
+                      </span>
+                      {item.booking?.attendee_email && (
+                        <span className="text-xs text-muted-foreground truncate block">
+                          {item.booking.attendee_email}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {reviewDialog._type === 'transfer' && reviewDialog.target_member && (
