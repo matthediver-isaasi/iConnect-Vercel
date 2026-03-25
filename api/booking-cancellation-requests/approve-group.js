@@ -138,7 +138,7 @@ export default async function handler(req, res) {
         reversalResults,
       });
     } catch (emailErr) {
-      console.error('[GroupApproval] Email notification error (non-blocking):', emailErr.message, '| requestIds:', request_ids);
+      console.error('[GroupApproval] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| requestIds:', request_ids);
     }
 
     console.log(`[GroupApproval] ${status} ${pendingRequests.length} group cancellation request(s)`);

@@ -115,7 +115,7 @@ export default async function handler(req, res) {
         reversalResults,
       });
     } catch (emailErr) {
-      console.error('[CancellationRequest] Email notification error (non-blocking):', emailErr.message, '| bookingId:', request.booking_id, '| requestId:', requestId);
+      console.error('[CancellationRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', request.booking_id, '| requestId:', requestId);
     }
 
     return res.json({ request: updated, reversalResults });
@@ -627,15 +627,26 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
 }
 
 async function sendCancellationNotificationEmails({ request, status, tenantId, reviewNotes, reversalResults }) {
-  const { data: booking } = await supabase
+  const bookingId = request?.booking_id;
+  console.log(`[CancellationEmail] Starting email notification | bookingId: ${bookingId} | status: ${status} | member_id: ${request?.member_id || 'null (guest/public)'}`);
+
+  const { data: booking, error: bookingError } = await supabase
     .from('booking')
     .select('attendee_email, attendee_first_name, attendee_last_name, member_id, booking_reference, booking_group_reference, event_id, total_cost')
-    .eq('id', request.booking_id)
+    .eq('id', bookingId)
     .eq('tenant_id', tenantId)
     .single();
 
-  if (!booking) {
-    console.warn('[CancellationEmail] Booking not found, skipping email');
+  if (bookingError || !booking) {
+    console.warn(`[CancellationEmail] Booking not found, skipping email | bookingId: ${bookingId} | error: ${bookingError?.message || 'no data'}`);
+    return;
+  }
+
+  const attendeeEmail = booking.attendee_email;
+  console.log(`[CancellationEmail] Booking resolved | attendeeEmail: ${attendeeEmail || 'NONE'} | member_id: ${booking.member_id || 'null'} | ref: ${booking.booking_reference || 'none'}`);
+
+  if (!attendeeEmail && !booking.member_id) {
+    console.warn(`[CancellationEmail] No attendee email and no member_id — cannot send notification | bookingId: ${bookingId}`);
     return;
   }
 
@@ -702,14 +713,15 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
   }
 
   const buildEmailHtml = (recipientName, isBooker) => {
+    const safeName = recipientName || 'there';
     let body = '';
 
     if (isApproved) {
       if (isBooker) {
-        body += `<p>Hi ${recipientName},</p>`;
+        body += `<p>Hi ${safeName},</p>`;
         body += `<p>A booking you made for <strong>${attendeeName}</strong> for <strong>${eventName}</strong> has been cancelled.</p>`;
       } else {
-        body += `<p>Hi ${recipientName},</p>`;
+        body += `<p>Hi ${safeName},</p>`;
         body += `<p>Your booking for <strong>${eventName}</strong> has been cancelled as requested.</p>`;
       }
 
@@ -730,7 +742,7 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
 
       body += `<p style="color: #666; font-size: 14px;">If you have any questions, please don't hesitate to get in touch.</p>`;
     } else {
-      body += `<p>Hi ${recipientName},</p>`;
+      body += `<p>Hi ${safeName},</p>`;
 
       if (isBooker) {
         body += `<p>A cancellation request for a booking you made for <strong>${attendeeName}</strong> for <strong>${eventName}</strong> has been reviewed and <strong>was not approved</strong>.</p>`;
@@ -745,7 +757,7 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
       if (reviewNotes) {
         body += `<div style="margin: 20px 0; padding: 16px; background-color: #fff8e1; border-radius: 6px; border: 1px solid #ffe082;">`;
         body += `<p style="margin: 0 0 6px 0; font-weight: 600; color: #333;">Reviewer Notes</p>`;
-        body += `<p style="margin: 0; color: #555;">${reviewNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
+        body += `<p style="margin: 0; color: #555;">${String(reviewNotes).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
         body += `</div>`;
       }
 
@@ -755,10 +767,9 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
     return body;
   };
 
-  const attendeeEmail = booking.attendee_email;
-
   if (attendeeEmail) {
     try {
+      console.log(`[CancellationEmail] Sending ${status} email to attendee: ${attendeeEmail} | bookingId: ${bookingId}`);
       const result = await sendEmail({
         to: attendeeEmail,
         subject,
@@ -768,15 +779,18 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
       if (result?.success) {
         console.log(`[CancellationEmail] Sent ${status} notification to attendee: ${attendeeEmail}`);
       } else {
-        console.error(`[CancellationEmail] Failed to email attendee ${attendeeEmail}: ${result?.error || 'Unknown error'}`);
+        console.error(`[CancellationEmail] Failed to email attendee ${attendeeEmail} | bookingId: ${bookingId} | error: ${result?.error || 'Unknown error'}`);
       }
     } catch (err) {
-      console.error(`[CancellationEmail] Failed to email attendee ${attendeeEmail}:`, err.message);
+      console.error(`[CancellationEmail] Exception emailing attendee ${attendeeEmail} | bookingId: ${bookingId}:`, err.stack || err.message);
     }
+  } else {
+    console.warn(`[CancellationEmail] No attendee email on booking | bookingId: ${bookingId}`);
   }
 
   if (bookerEmail && bookerEmail.toLowerCase() !== (attendeeEmail || '').toLowerCase()) {
     try {
+      console.log(`[CancellationEmail] Sending ${status} email to booker: ${bookerEmail} | bookingId: ${bookingId}`);
       const result = await sendEmail({
         to: bookerEmail,
         subject,
@@ -786,10 +800,12 @@ async function sendCancellationNotificationEmails({ request, status, tenantId, r
       if (result?.success) {
         console.log(`[CancellationEmail] Sent ${status} notification to booker: ${bookerEmail}`);
       } else {
-        console.error(`[CancellationEmail] Failed to email booker ${bookerEmail}: ${result?.error || 'Unknown error'}`);
+        console.error(`[CancellationEmail] Failed to email booker ${bookerEmail} | bookingId: ${bookingId} | error: ${result?.error || 'Unknown error'}`);
       }
     } catch (err) {
-      console.error(`[CancellationEmail] Failed to email booker ${bookerEmail}:`, err.message);
+      console.error(`[CancellationEmail] Exception emailing booker ${bookerEmail} | bookingId: ${bookingId}:`, err.stack || err.message);
     }
   }
+
+  console.log(`[CancellationEmail] Notification process complete | bookingId: ${bookingId}`);
 }
