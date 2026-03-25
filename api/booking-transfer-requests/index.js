@@ -51,14 +51,29 @@ async function handlePost(req, res) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const { booking_id, target_member_id, reason } = req.body;
+  const { booking_id, target_member_id, reason, target_email, target_first_name, target_last_name, target_organisation, target_phone } = req.body;
 
   if (!booking_id) {
     return res.status(400).json({ error: 'booking_id is required' });
   }
 
-  if (!target_member_id) {
-    return res.status(400).json({ error: 'target_member_id is required' });
+  const isPublicTransfer = !target_member_id && target_email;
+
+  if (!target_member_id && !target_email) {
+    return res.status(400).json({ error: 'target_member_id or target_email is required' });
+  }
+
+  if (isPublicTransfer) {
+    const trimmedEmail = target_email?.trim();
+    const trimmedFirst = target_first_name?.trim();
+    const trimmedLast = target_last_name?.trim();
+
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      return res.status(400).json({ error: 'A valid email address is required for public transfers' });
+    }
+    if (!trimmedFirst || !trimmedLast) {
+      return res.status(400).json({ error: 'First name and last name are required for public transfers' });
+    }
   }
 
   try {
@@ -74,9 +89,9 @@ async function handlePost(req, res) {
     }
 
     if (!hasTransferAccess) {
-      const memberEmail = member.email?.toLowerCase();
-      const isOwner = booking.member_id === member.id ||
-        (booking.attendee_email || '').toLowerCase() === memberEmail;
+      const memberEmail = member?.email?.toLowerCase();
+      const isOwner = (member && booking.member_id === member.id) ||
+        (memberEmail && (booking.attendee_email || '').toLowerCase() === memberEmail);
 
       if (!isOwner) {
         return res.status(403).json({ error: 'You can only request transfers for your own bookings' });
@@ -111,6 +126,55 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'A pending cancellation request exists for this booking. Cancel it before requesting a transfer.' });
     }
 
+    if (isPublicTransfer) {
+      const normalizedEmail = target_email.trim().toLowerCase();
+
+      if (booking.attendee_email && normalizedEmail === booking.attendee_email.toLowerCase()) {
+        return res.status(400).json({ error: 'Target email is already the attendee for this booking' });
+      }
+
+      const { data: existingMember } = await supabase
+        .from('member')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .ilike('email', normalizedEmail)
+        .not('email', 'ilike', 'deleted_%@deleted.local')
+        .maybeSingle();
+
+      if (existingMember) {
+        return res.status(400).json({ error: 'This email belongs to an existing member. Please use the member transfer flow instead.' });
+      }
+
+      const row = {
+        tenant_id: tenantId,
+        booking_id: booking_id,
+        event_id: booking.event_id || null,
+        member_id: hasTransferAccess ? (booking.member_id || null) : (member?.id || null),
+        target_member_id: null,
+        target_email: normalizedEmail,
+        target_first_name: target_first_name.trim(),
+        target_last_name: target_last_name.trim(),
+        target_organisation: target_organisation?.trim() || null,
+        target_phone: target_phone?.trim() || null,
+        reason: reason || null,
+        status: 'pending',
+      };
+
+      const { data: created, error: insertError } = await supabase
+        .from('booking_transfer_request')
+        .insert(row)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('[TransferRequest] Insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to create transfer request' });
+      }
+
+      console.log(`[TransferRequest] Created public transfer request ${created.id} for booking ${booking_id} -> ${normalizedEmail}${hasTransferAccess ? ' (elevated-access)' : ''}`);
+      return res.status(201).json({ request: created });
+    }
+
     const { data: targetMember, error: targetError } = await supabase
       .from('member')
       .select('id, first_name, last_name, email')
@@ -123,7 +187,7 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'Target member not found' });
     }
 
-    if (!hasTransferAccess && target_member_id === member.id) {
+    if (!hasTransferAccess && member && target_member_id === member.id) {
       return res.status(400).json({ error: 'Cannot transfer a booking to yourself' });
     }
 
@@ -322,7 +386,7 @@ async function handleGet(req, res) {
     }
 
     const bookingIds = [...new Set((requests || []).map(r => r.booking_id))];
-    const memberIds = [...new Set((requests || []).flatMap(r => [r.member_id, r.target_member_id]))];
+    const memberIds = [...new Set((requests || []).flatMap(r => [r.member_id, r.target_member_id]).filter(Boolean))];
 
     let bookingsMap = {};
     if (bookingIds.length > 0) {
@@ -360,11 +424,26 @@ async function handleGet(req, res) {
       const booking = bookingsMap[r.booking_id] || null;
       const eventId = r.event_id || booking?.event_id || null;
 
+      let targetMemberInfo = null;
+      if (r.target_member_id) {
+        targetMemberInfo = membersMap[r.target_member_id] || null;
+      } else if (r.target_email) {
+        targetMemberInfo = {
+          id: null,
+          first_name: r.target_first_name || '',
+          last_name: r.target_last_name || '',
+          email: r.target_email,
+          is_public: true,
+          organisation: r.target_organisation || null,
+          phone: r.target_phone || null,
+        };
+      }
+
       return {
         ...r,
         booking,
         member: membersMap[r.member_id] || null,
-        target_member: membersMap[r.target_member_id] || null,
+        target_member: targetMemberInfo,
         event: eventId ? (eventsMap[eventId] || null) : null,
       };
     });

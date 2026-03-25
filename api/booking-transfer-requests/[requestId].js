@@ -77,15 +77,43 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Associated booking not found' });
     }
 
-    const { data: targetMember, error: targetError } = await supabase
-      .from('member')
-      .select('id, first_name, last_name, email')
-      .eq('id', request.target_member_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    const isPublicTransfer = !request.target_member_id && request.target_email;
 
-    if (targetError || !targetMember) {
-      return res.status(400).json({ error: 'Target member not found' });
+    let targetMember = null;
+    if (request.target_member_id) {
+      const { data: tm, error: targetError } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email')
+        .eq('id', request.target_member_id)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (targetError || !tm) {
+        return res.status(400).json({ error: 'Target member not found' });
+      }
+      targetMember = tm;
+    } else if (isPublicTransfer) {
+      if (status === 'approved') {
+        const { data: memberCheck } = await supabase
+          .from('member')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('email', request.target_email)
+          .not('email', 'ilike', 'deleted_%@deleted.local')
+          .maybeSingle();
+
+        if (memberCheck) {
+          return res.status(400).json({ error: 'The target email now belongs to an existing member. Please reject this request and create a new member transfer instead.' });
+        }
+      }
+      targetMember = {
+        id: null,
+        first_name: request.target_first_name || '',
+        last_name: request.target_last_name || '',
+        email: request.target_email,
+      };
+    } else {
+      return res.status(400).json({ error: 'Transfer request has no target member or target email' });
     }
 
     let reviewerName = 'Admin';

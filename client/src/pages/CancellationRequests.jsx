@@ -554,9 +554,22 @@ export default function CancellationRequests() {
                       {isTransfer && group.target_member && (
                         <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-md border border-blue-200">
                           <ArrowRightLeft className="w-4 h-4 text-blue-500 shrink-0" />
-                          <span className="text-sm text-blue-800">
-                            Transfer to: <span className="font-medium">{group.target_member.first_name} {group.target_member.last_name}</span> ({group.target_member.email})
-                          </span>
+                          <div className="text-sm text-blue-800 min-w-0">
+                            <span>Transfer to: <span className="font-medium">{group.target_member.first_name} {group.target_member.last_name}</span> ({group.target_member.email})</span>
+                            {group.target_member.is_public && (
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                                  Guest / Public
+                                </Badge>
+                                {group.target_member.organisation && (
+                                  <span className="text-xs text-blue-600">Org: {group.target_member.organisation}</span>
+                                )}
+                                {group.target_member.phone && (
+                                  <span className="text-xs text-blue-600">Tel: {group.target_member.phone}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
 
@@ -683,9 +696,24 @@ export default function CancellationRequests() {
                 {reviewDialog._type === 'transfer' && reviewDialog.target_member && (
                   <div className="flex items-center gap-2 text-sm p-2 bg-blue-50 rounded-md border border-blue-200">
                     <ArrowRightLeft className="w-4 h-4 text-blue-500 shrink-0" />
-                    <span className="text-blue-800 truncate">
-                      Transfer to: <span className="font-medium">{reviewDialog.target_member.first_name} {reviewDialog.target_member.last_name}</span> ({reviewDialog.target_member.email})
-                    </span>
+                    <div className="text-blue-800 min-w-0">
+                      <span className="truncate block">
+                        Transfer to: <span className="font-medium">{reviewDialog.target_member.first_name} {reviewDialog.target_member.last_name}</span> ({reviewDialog.target_member.email})
+                      </span>
+                      {reviewDialog.target_member.is_public && (
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                            Guest / Public
+                          </Badge>
+                          {reviewDialog.target_member.organisation && (
+                            <span className="text-xs text-blue-600">Org: {reviewDialog.target_member.organisation}</span>
+                          )}
+                          {reviewDialog.target_member.phone && (
+                            <span className="text-xs text-blue-600">Tel: {reviewDialog.target_member.phone}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

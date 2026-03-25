@@ -203,6 +203,7 @@ export default function EventRegistrationReport() {
   const [submittingCancel, setSubmittingCancel] = useState(false);
   const [transferTarget, setTransferTarget] = useState(null);
   const [showTransferDialog, setShowTransferDialog] = useState(false);
+  const [transferIsPublic, setTransferIsPublic] = useState(false);
   const [statusFilter, setStatusFilter] = useState("active");
 
   useEffect(() => {
@@ -483,7 +484,9 @@ export default function EventRegistrationReport() {
   };
 
   const handleTransferClick = (attendee) => {
+    const isGuest = attendee.is_guest_booking || (!attendee.organization_id && !attendee.member_id);
     setTransferTarget(attendee);
+    setTransferIsPublic(isGuest);
     setShowTransferDialog(true);
   };
 
@@ -1064,9 +1067,10 @@ export default function EventRegistrationReport() {
 
       <TransferTicketDialog
         open={showTransferDialog}
-        onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); } }}
+        onOpenChange={(open) => { if (!open) { setShowTransferDialog(false); setTransferTarget(null); setTransferIsPublic(false); } }}
         booking={transferTarget}
         onSuccess={handleTransferSuccess}
+        isPublicBooking={transferIsPublic}
       />
     </div>
   );
