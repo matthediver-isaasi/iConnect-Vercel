@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -29,17 +29,21 @@ export default async function handler(req, res) {
 
 async function handlePost(req, res) {
   let member = await getSessionMember(req);
-  let isAdmin = false;
+  let hasTransferAccess = false;
   let tenantId = null;
 
   const ctx = await getTenantContext(req);
   if (ctx?.isAuthenticated) {
-    isAdmin = await hasAdminAccess(ctx);
+    if (ctx.tenantUserId) {
+      hasTransferAccess = true;
+    } else if (ctx.roleId) {
+      hasTransferAccess = await hasFeatureAccess(ctx.roleId, 'commerce.event-cancellations');
+    }
   }
 
   if (member) {
     tenantId = member.organization?.tenant_id || member.tenant_id;
-  } else if (isAdmin) {
+  } else if (hasTransferAccess) {
     tenantId = ctx.tenantId;
   }
 
@@ -69,7 +73,7 @@ async function handlePost(req, res) {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    if (!isAdmin) {
+    if (!hasTransferAccess) {
       const memberEmail = member.email?.toLowerCase();
       const isOwner = booking.member_id === member.id ||
         (booking.attendee_email || '').toLowerCase() === memberEmail;
@@ -119,7 +123,7 @@ async function handlePost(req, res) {
       return res.status(400).json({ error: 'Target member not found' });
     }
 
-    if (!isAdmin && target_member_id === member.id) {
+    if (!hasTransferAccess && target_member_id === member.id) {
       return res.status(400).json({ error: 'Cannot transfer a booking to yourself' });
     }
 
@@ -200,7 +204,7 @@ async function handlePost(req, res) {
       tenant_id: tenantId,
       booking_id: booking_id,
       event_id: booking.event_id || null,
-      member_id: isAdmin ? (booking.member_id || null) : member.id,
+      member_id: hasTransferAccess ? (booking.member_id || null) : member.id,
       target_member_id: target_member_id,
       reason: reason || null,
       status: 'pending',
@@ -217,7 +221,7 @@ async function handlePost(req, res) {
       return res.status(500).json({ error: 'Failed to create transfer request' });
     }
 
-    console.log(`[TransferRequest] Created transfer request ${created.id} for booking ${booking_id}${isAdmin ? ' (admin-initiated)' : ` by member ${member.id}`}`);
+    console.log(`[TransferRequest] Created transfer request ${created.id} for booking ${booking_id}${hasTransferAccess ? ' (elevated-access)' : ` by member ${member.id}`}`);
     return res.status(201).json({ request: created });
   } catch (err) {
     console.error('[TransferRequest] Error:', err);
@@ -235,8 +239,13 @@ async function handleGet(req, res) {
   let memberIdFilter = null;
   let memberEmailFilter = null;
 
-  const isAdmin = await hasAdminAccess(ctx);
-  if (!isAdmin) {
+  let hasTransferAccess = false;
+  if (ctx.tenantUserId) {
+    hasTransferAccess = true;
+  } else if (ctx.roleId) {
+    hasTransferAccess = await hasFeatureAccess(ctx.roleId, 'commerce.event-cancellations');
+  }
+  if (!hasTransferAccess) {
     memberIdFilter = ctx.memberId;
     if (ctx.memberId) {
       const { data: memberData } = await supabase

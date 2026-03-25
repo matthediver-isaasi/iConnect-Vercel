@@ -112,7 +112,7 @@ export default function TransferTicketDialog({ open, onOpenChange, booking, onSu
         <DialogHeader>
           <DialogTitle>Transfer Ticket</DialogTitle>
           <DialogDescription>
-            Transfer this ticket to another member within the same organisation and role. The request will be reviewed by an admin.
+            Transfer this ticket to another eligible member within the same organisation. The request will be reviewed before it takes effect.
           </DialogDescription>
         </DialogHeader>
 

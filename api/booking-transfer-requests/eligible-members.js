@@ -1,6 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -21,17 +21,21 @@ export default async function handler(req, res) {
   }
 
   let member = await getSessionMember(req);
-  let isAdmin = false;
+  let hasTransferAccess = false;
   let tenantId = null;
 
   const ctx = await getTenantContext(req);
   if (ctx?.isAuthenticated) {
-    isAdmin = await hasAdminAccess(ctx);
+    if (ctx.tenantUserId) {
+      hasTransferAccess = true;
+    } else if (ctx.roleId) {
+      hasTransferAccess = await hasFeatureAccess(ctx.roleId, 'commerce.event-cancellations');
+    }
   }
 
   if (member) {
     tenantId = member.organization?.tenant_id || member.tenant_id;
-  } else if (isAdmin) {
+  } else if (hasTransferAccess) {
     tenantId = ctx.tenantId;
   }
 
@@ -62,7 +66,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Booking not found' });
     }
 
-    if (!isAdmin) {
+    if (!hasTransferAccess) {
       const memberEmail = member.email?.toLowerCase();
       const isOwner = booking.member_id === member.id ||
         (booking.attendee_email || '').toLowerCase() === memberEmail;

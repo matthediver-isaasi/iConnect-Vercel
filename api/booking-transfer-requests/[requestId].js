@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { getValidXeroAccessToken } from '../_lib/xero.js';
 
@@ -23,11 +23,17 @@ export default async function handler(req, res) {
 
   const ctx = await getTenantContext(req);
   if (!ctx.isAuthenticated) {
-    return res.status(401).json({ error: 'Admin authentication required' });
+    return res.status(401).json({ error: 'Authentication required' });
   }
 
-  if (!(await hasAdminAccess(ctx))) {
-    return res.status(403).json({ error: 'Admin access required to approve or reject transfer requests' });
+  let hasTransferAccess = false;
+  if (ctx.tenantUserId) {
+    hasTransferAccess = true;
+  } else if (ctx.roleId) {
+    hasTransferAccess = await hasFeatureAccess(ctx.roleId, 'commerce.event-cancellations');
+  }
+  if (!hasTransferAccess) {
+    return res.status(403).json({ error: 'You do not have permission to approve or reject transfer requests' });
   }
 
   const tenantId = ctx.tenantId;
