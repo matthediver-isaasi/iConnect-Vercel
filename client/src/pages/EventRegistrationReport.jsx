@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,95 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
 import { toast } from "sonner";
+
+function TypeAheadInput({ value, onChange, suggestions, placeholder, renderItem, "data-testid": testId, icon: Icon }) {
+  const [open, setOpen] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(-1);
+  const wrapperRef = useRef(null);
+  const listRef = useRef(null);
+
+  const filtered = useMemo(() => {
+    if (!value || value.length < 1) return [];
+    const q = value.toLowerCase();
+    return suggestions.filter(s =>
+      s.searchText.toLowerCase().includes(q)
+    ).slice(0, 12);
+  }, [value, suggestions]);
+
+  useEffect(() => {
+    setHighlightIdx(-1);
+  }, [filtered.length, value]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleKeyDown = useCallback((e) => {
+    if (!open || filtered.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIdx(prev => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIdx(prev => Math.max(prev - 1, 0));
+    } else if (e.key === "Enter" && highlightIdx >= 0) {
+      e.preventDefault();
+      onChange(filtered[highlightIdx].value);
+      setOpen(false);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }, [open, filtered, highlightIdx, onChange]);
+
+  useEffect(() => {
+    if (highlightIdx >= 0 && listRef.current) {
+      const item = listRef.current.children[highlightIdx];
+      if (item) item.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightIdx]);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      {Icon && <Icon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />}
+      <Input
+        placeholder={placeholder}
+        className={Icon ? "pl-8" : ""}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => { if (value) setOpen(true); }}
+        onKeyDown={handleKeyDown}
+        data-testid={testId}
+      />
+      {open && filtered.length > 0 && (
+        <div
+          ref={listRef}
+          className="absolute z-50 top-full left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-md border bg-popover shadow-md"
+        >
+          {filtered.map((item, idx) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`w-full text-left px-3 py-2 text-sm cursor-pointer ${
+                idx === highlightIdx ? "bg-accent text-accent-foreground" : "hover-elevate"
+              }`}
+              onMouseDown={(e) => { e.preventDefault(); onChange(item.value); setOpen(false); }}
+              onMouseEnter={() => setHighlightIdx(idx)}
+              data-testid={`${testId}-option-${idx}`}
+            >
+              {renderItem ? renderItem(item) : item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ITEMS_PER_PAGE = 25;
 
@@ -54,6 +143,54 @@ export default function EventRegistrationReport() {
   const [filterInternalRef, setFilterInternalRef] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+
+  const { data: eventsForTypeAhead = [] } = useQuery({
+    queryKey: ['event-registration-report-events'],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/event-registration-report', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.events || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const eventNameSuggestions = useMemo(() => {
+    const seen = new Set();
+    return eventsForTypeAhead
+      .filter(e => {
+        const title = (e.title || '').trim();
+        if (!title || seen.has(title.toLowerCase())) return false;
+        seen.add(title.toLowerCase());
+        return true;
+      })
+      .map(e => ({
+        key: e.id,
+        value: e.title,
+        label: e.title,
+        searchText: e.title,
+        startDate: e.start_date,
+        internalRef: e.internal_reference,
+      }));
+  }, [eventsForTypeAhead]);
+
+  const internalRefSuggestions = useMemo(() => {
+    const seen = new Set();
+    return eventsForTypeAhead
+      .filter(e => {
+        const ref = (e.internal_reference || '').trim();
+        if (!ref || seen.has(ref.toLowerCase())) return false;
+        seen.add(ref.toLowerCase());
+        return true;
+      })
+      .map(e => ({
+        key: e.id,
+        value: e.internal_reference,
+        label: e.internal_reference,
+        searchText: `${e.internal_reference} ${e.title}`,
+        title: e.title,
+      }));
+  }, [eventsForTypeAhead]);
 
   const [appliedFilters, setAppliedFilters] = useState(null);
 
@@ -431,25 +568,41 @@ export default function EventRegistrationReport() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Event Name</label>
-              <Input
+              <TypeAheadInput
                 placeholder="Search by event name..."
                 value={filterEventName}
-                onChange={(e) => setFilterEventName(e.target.value)}
+                onChange={setFilterEventName}
+                suggestions={eventNameSuggestions}
                 data-testid="input-filter-event-name"
+                renderItem={(item) => (
+                  <div>
+                    <div className="font-medium truncate">{item.label}</div>
+                    {item.startDate && (
+                      <div className="text-xs text-muted-foreground">
+                        {format(parseISO(item.startDate), 'dd MMM yyyy')}
+                        {item.internalRef ? ` \u00B7 ${item.internalRef}` : ''}
+                      </div>
+                    )}
+                  </div>
+                )}
               />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Internal Reference</label>
-              <div className="relative">
-                <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by reference..."
-                  className="pl-8"
-                  value={filterInternalRef}
-                  onChange={(e) => setFilterInternalRef(e.target.value)}
-                  data-testid="input-filter-internal-ref"
-                />
-              </div>
+              <TypeAheadInput
+                placeholder="Search by reference..."
+                value={filterInternalRef}
+                onChange={setFilterInternalRef}
+                suggestions={internalRefSuggestions}
+                icon={Hash}
+                data-testid="input-filter-internal-ref"
+                renderItem={(item) => (
+                  <div>
+                    <div className="font-medium truncate">{item.label}</div>
+                    <div className="text-xs text-muted-foreground truncate">{item.title}</div>
+                  </div>
+                )}
+              />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Booking Date From</label>
