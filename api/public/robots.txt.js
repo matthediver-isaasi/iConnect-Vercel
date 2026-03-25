@@ -91,7 +91,10 @@ export default async function handler(req, res) {
     const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
 
     if (allowSearchIndexing) {
-      // Allow indexing with common admin path restrictions
+      const protocol = 'https';
+      const sitemapHost = cleanHost || host.split(':')[0];
+      const sitemapUrl = `${protocol}://${sitemapHost}/sitemap.xml`;
+
       return res.status(200).send(`User-agent: *
 Allow: /
 
@@ -101,7 +104,9 @@ Disallow: /api/
 Disallow: /RoleManagement
 Disallow: /AdminSetup
 Disallow: /FormSubmissions
-Disallow: /DataExport`);
+Disallow: /DataExport
+
+Sitemap: ${sitemapUrl}`);
     } else {
       // Block all indexing
       return res.status(200).send('User-agent: *\nDisallow: /');
