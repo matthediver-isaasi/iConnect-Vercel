@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2 } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -49,7 +49,14 @@ export default function EventRegistrationReport() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
-  const [selectedEventId, setSelectedEventId] = useState("");
+
+  const [filterEventName, setFilterEventName] = useState("");
+  const [filterInternalRef, setFilterInternalRef] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+
+  const [appliedFilters, setAppliedFilters] = useState(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState("date_desc");
@@ -71,13 +78,23 @@ export default function EventRegistrationReport() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: reportData, isLoading } = useQuery({
-    queryKey: ['event-registration-report', selectedEventId],
+  const buildQueryUrl = () => {
+    if (!appliedFilters) return null;
+    const params = new URLSearchParams();
+    params.set('generate', 'true');
+    if (appliedFilters.eventName) params.set('eventName', appliedFilters.eventName);
+    if (appliedFilters.internalReference) params.set('internalReference', appliedFilters.internalReference);
+    if (appliedFilters.dateFrom) params.set('dateFrom', appliedFilters.dateFrom);
+    if (appliedFilters.dateTo) params.set('dateTo', appliedFilters.dateTo);
+    return `/api/reports/event-registration-report?${params.toString()}`;
+  };
+
+  const queryUrl = buildQueryUrl();
+
+  const { data: reportData, isLoading, isFetching } = useQuery({
+    queryKey: ['event-registration-report', appliedFilters],
     queryFn: async () => {
-      let url = '/api/reports/event-registration-report';
-      if (selectedEventId) {
-        url += `?eventId=${encodeURIComponent(selectedEventId)}`;
-      }
+      const url = queryUrl;
       const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) {
         const errorData = await response.json();
@@ -85,18 +102,37 @@ export default function EventRegistrationReport() {
       }
       return response.json();
     },
+    enabled: !!appliedFilters,
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  const events = reportData?.events || [];
   const bookingGroups = reportData?.bookingGroups || [];
   const organizations = reportData?.organizations || {};
-  const summary = reportData?.summary || {};
 
-  const selectedEvent = useMemo(() => {
-    return events.find(e => e.id === selectedEventId);
-  }, [events, selectedEventId]);
+  const handleGenerateReport = () => {
+    setAppliedFilters({
+      eventName: filterEventName.trim(),
+      internalReference: filterInternalRef.trim(),
+      dateFrom: filterDateFrom,
+      dateTo: filterDateTo,
+    });
+    setCurrentPage(1);
+    setSearchQuery("");
+  };
+
+  const handleClearFilters = () => {
+    setFilterEventName("");
+    setFilterInternalRef("");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setAppliedFilters(null);
+    setSearchQuery("");
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = filterEventName || filterInternalRef || filterDateFrom || filterDateTo;
+  const reportGenerated = !!appliedFilters;
 
   const filteredGroups = useMemo(() => {
     let result = bookingGroups;
@@ -123,7 +159,9 @@ export default function EventRegistrationReport() {
         ) ||
         (group.groupPayment.purchaseOrderNumber || '').toLowerCase().includes(q) ||
         (group.groupPayment.bookingReference || '').toLowerCase().includes(q) ||
-        (group.groupPayment.xeroInvoiceNumber || '').toLowerCase().includes(q)
+        (group.groupPayment.xeroInvoiceNumber || '').toLowerCase().includes(q) ||
+        (group.eventTitle || '').toLowerCase().includes(q) ||
+        (group.internalReference || '').toLowerCase().includes(q)
       );
     }
 
@@ -196,12 +234,14 @@ export default function EventRegistrationReport() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedEventId, searchQuery, statusFilter]);
+  }, [searchQuery, statusFilter]);
 
   const handleExportCSV = () => {
     if (filteredGroups.length === 0) return;
 
     const headers = [
+      'Event',
+      'Internal Reference',
       'Booking Group',
       'Name',
       'Email',
@@ -230,6 +270,8 @@ export default function EventRegistrationReport() {
       group.attendees.forEach((a, idx) => {
         const isFirstInGroup = idx === 0;
         rows.push([
+          group.eventTitle || '',
+          group.internalReference || '',
           group.isGroup ? (group.groupRef || 'Group') : '',
           `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
           a.attendee_email || '',
@@ -262,8 +304,8 @@ export default function EventRegistrationReport() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const eventTitle = selectedEvent?.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'event';
-    link.download = `registration_report_${eventTitle}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    const datePart = format(new Date(), 'yyyy-MM-dd');
+    link.download = `registration_report_${datePart}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -295,7 +337,7 @@ export default function EventRegistrationReport() {
       toast.success('Cancellation request submitted');
       setShowCancelDialog(false);
       setCancelTarget(null);
-      queryClient.invalidateQueries({ queryKey: ['event-registration-report', selectedEventId] });
+      queryClient.invalidateQueries({ queryKey: ['event-registration-report', appliedFilters] });
     } catch (error) {
       toast.error(error.message || 'Failed to submit cancellation request');
     } finally {
@@ -309,7 +351,7 @@ export default function EventRegistrationReport() {
   };
 
   const handleTransferSuccess = () => {
-    queryClient.invalidateQueries({ queryKey: ['event-registration-report', selectedEventId] });
+    queryClient.invalidateQueries({ queryKey: ['event-registration-report', appliedFilters] });
   };
 
   const renderActionIcons = (attendee) => {
@@ -362,10 +404,10 @@ export default function EventRegistrationReport() {
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-page-title">Event Registration Report</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            View registration details and payment breakdowns for each event
+            Set filters below and generate a report to view registration details and payment breakdowns
           </p>
         </div>
-        {selectedEventId && filteredGroups.length > 0 && (
+        {reportGenerated && filteredGroups.length > 0 && (
           <Button
             variant="outline"
             className="gap-2"
@@ -379,30 +421,78 @@ export default function EventRegistrationReport() {
       </div>
 
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <label className="text-sm font-medium mb-1.5 block">Select Event</label>
-              <Select value={selectedEventId} onValueChange={setSelectedEventId}>
-                <SelectTrigger data-testid="select-event">
-                  <SelectValue placeholder="Choose an event to view registrations..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {events.map(event => (
-                    <SelectItem key={event.id} value={event.id} data-testid={`select-event-${event.id}`}>
-                      <span className="flex items-center gap-2">
-                        {event.title}
-                        {event.start_date && (
-                          <span className="text-muted-foreground text-xs">
-                            ({format(parseISO(event.start_date), 'dd MMM yyyy')})
-                          </span>
-                        )}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Filter className="w-4 h-4" />
+            Report Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Event Name</label>
+              <Input
+                placeholder="Search by event name..."
+                value={filterEventName}
+                onChange={(e) => setFilterEventName(e.target.value)}
+                data-testid="input-filter-event-name"
+              />
             </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Internal Reference</label>
+              <div className="relative">
+                <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by reference..."
+                  className="pl-8"
+                  value={filterInternalRef}
+                  onChange={(e) => setFilterInternalRef(e.target.value)}
+                  data-testid="input-filter-internal-ref"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Booking Date From</label>
+              <Input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                data-testid="input-filter-date-from"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Booking Date To</label>
+              <Input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                data-testid="input-filter-date-to"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              onClick={handleGenerateReport}
+              className="gap-2"
+              data-testid="button-generate-report"
+            >
+              {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+              Generate Report
+            </Button>
+            {(hasActiveFilters || reportGenerated) && (
+              <Button
+                variant="outline"
+                onClick={handleClearFilters}
+                data-testid="button-clear-filters"
+              >
+                Clear Filters
+              </Button>
+            )}
+            {!hasActiveFilters && !reportGenerated && (
+              <span className="text-sm text-muted-foreground">
+                Leave all filters empty and click Generate Report to show all bookings
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -413,7 +503,7 @@ export default function EventRegistrationReport() {
         </div>
       )}
 
-      {selectedEventId && !isLoading && (
+      {reportGenerated && !isLoading && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             <Card>
@@ -525,7 +615,7 @@ export default function EventRegistrationReport() {
             <CardContent>
               {filteredGroups.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground" data-testid="text-no-registrations">
-                  {searchQuery ? 'No registrations match your search' : 'No registrations found for this event'}
+                  {searchQuery ? 'No registrations match your search' : 'No registrations found for the selected filters'}
                 </div>
               ) : (
                 <>
@@ -535,6 +625,8 @@ export default function EventRegistrationReport() {
                         <tr className="border-b text-left">
                           <th className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap w-[68px]"></th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Name</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Event</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Int. Ref</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Organisation</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '120px' }}>Ticket</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price</th>
@@ -567,6 +659,14 @@ export default function EventRegistrationReport() {
                                     {`${attendee.attendee_first_name || ''} ${attendee.attendee_last_name || ''}`.trim() || 'Unknown'}
                                   </div>
                                   <div className="text-xs text-muted-foreground">{attendee.attendee_email}</div>
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''}>
+                                  {group.eventTitle || '-'}
+                                </td>
+                                <td className="py-3 pr-3 whitespace-nowrap" data-testid={`text-internal-ref-${attendee.id}`}>
+                                  {group.internalReference ? (
+                                    <span className="text-xs font-mono">{group.internalReference}</span>
+                                  ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
@@ -636,6 +736,18 @@ export default function EventRegistrationReport() {
                                     </div>
                                   </div>
                                 </td>
+                                {isFirst ? (
+                                  <>
+                                    <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''} rowSpan={group.attendeeCount}>
+                                      {group.eventTitle || '-'}
+                                    </td>
+                                    <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount} data-testid={`text-internal-ref-${attendee.id}`}>
+                                      {group.internalReference ? (
+                                        <span className="text-xs font-mono">{group.internalReference}</span>
+                                      ) : '-'}
+                                    </td>
+                                  </>
+                                ) : null}
                                 <td className="py-2 pr-3 whitespace-nowrap">
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
                                 </td>
@@ -683,7 +795,7 @@ export default function EventRegistrationReport() {
                       {filteredGroups.length > 0 && (
                         <tfoot>
                           <tr className="border-t-2 font-medium">
-                            <td className="pt-3 pr-3" colSpan={4}>
+                            <td className="pt-3 pr-3" colSpan={6}>
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
@@ -747,13 +859,13 @@ export default function EventRegistrationReport() {
         </>
       )}
 
-      {!selectedEventId && !isLoading && (
+      {!reportGenerated && !isLoading && (
         <Card>
           <CardContent className="py-16 text-center">
             <Calendar className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2" data-testid="text-select-prompt">Select an event to view registrations</h3>
+            <h3 className="text-lg font-medium mb-2" data-testid="text-select-prompt">Set filters and generate a report</h3>
             <p className="text-sm text-muted-foreground">
-              Choose an event from the dropdown above to see all registration details and payment breakdowns
+              Use the filters above to narrow down results, or click Generate Report with no filters to view all bookings across all events
             </p>
           </CardContent>
         </Card>
