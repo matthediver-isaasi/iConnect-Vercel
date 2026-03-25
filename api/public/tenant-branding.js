@@ -32,6 +32,7 @@ export default async function handler(req, res) {
     // SEO settings from tenant settings
     const tenantSettings = tenantData.settings || {};
     const allowSearchIndexing = tenantSettings.allow_search_indexing === true;
+    const ga4MeasurementId = tenantSettings.ga4_measurement_id || null;
 
     res.json({
       success: true,
@@ -50,7 +51,8 @@ export default async function handler(req, res) {
         brandingConfig: tenantData.branding_config || {},
         platformBranding: tenantData.platform_branding || { showPlatformBranding: true },
         buttonStyles: buttonStyles,
-        allowSearchIndexing: allowSearchIndexing
+        allowSearchIndexing: allowSearchIndexing,
+        ga4MeasurementId: ga4MeasurementId
       }
     });
   } catch (error) {

@@ -26,7 +26,8 @@ import {
   FileText,
   Unplug,
   CreditCard,
-  TestTube2
+  TestTube2,
+  BarChart3
 } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement } from "@stripe/react-stripe-js";
@@ -161,6 +162,11 @@ export default function AdminIntegrations() {
   const [wpLoaded, setWpLoaded] = useState(false);
   const [showWpApiKey, setShowWpApiKey] = useState(false);
 
+  const [ga4MeasurementId, setGa4MeasurementId] = useState('');
+  const [ga4SavedId, setGa4SavedId] = useState('');
+  const [ga4Saving, setGa4Saving] = useState(false);
+  const [ga4Loaded, setGa4Loaded] = useState(false);
+
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
     { value: 'eu', label: 'Europe', accountsDomain: 'https://accounts.zoho.eu', campaignsDomain: 'https://campaigns.zoho.eu' },
@@ -177,6 +183,11 @@ export default function AdminIntegrations() {
           if (data.authenticated && data.tenantUser) {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            const settings = data.tenant?.settings || {};
+            const savedGa4 = settings.ga4_measurement_id || '';
+            setGa4MeasurementId(savedGa4);
+            setGa4SavedId(savedGa4);
+            setGa4Loaded(true);
             fetchIntegrations();
           } else {
             navigate('/admin/login');
@@ -352,6 +363,41 @@ export default function AdminIntegrations() {
       toast({ title: 'Failed to save', description: err.message, variant: 'destructive' });
     } finally {
       setWpSaving(false);
+    }
+  };
+
+  const handleSaveGa4 = async () => {
+    const trimmedId = ga4MeasurementId.trim();
+    if (trimmedId && !/^G-[A-Z0-9]+$/.test(trimmedId)) {
+      toast({
+        title: 'Invalid format',
+        description: 'GA4 Measurement ID should be in the format G-XXXXXXXXXX',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setGa4Saving(true);
+    try {
+      const response = await fetch('/api/admin/tenant', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: { ga4_measurement_id: trimmedId || null }
+        })
+      });
+      if (response.ok) {
+        setGa4SavedId(trimmedId);
+        toast({ title: 'Saved', description: 'Google Analytics settings saved successfully' });
+      } else {
+        const err = await response.json();
+        toast({ title: 'Failed to save', description: err.error, variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Failed to save', description: err.message, variant: 'destructive' });
+    } finally {
+      setGa4Saving(false);
     }
   };
 
@@ -1969,6 +2015,51 @@ export default function AdminIntegrations() {
                   Test Webhook
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700" data-testid="card-ga4-integration">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                  <BarChart3 className="h-5 w-5 text-orange-400" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-white">Google Analytics (GA4)</CardTitle>
+                  <CardDescription className="text-slate-400">
+                    Track visitor analytics on your member portal
+                  </CardDescription>
+                </div>
+                {ga4Loaded && ga4SavedId && (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                    Active
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-slate-300">Measurement ID</Label>
+                <Input
+                  value={ga4MeasurementId}
+                  onChange={(e) => setGa4MeasurementId(e.target.value)}
+                  placeholder="G-XXXXXXXXXX"
+                  className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500"
+                  data-testid="input-ga4-measurement-id"
+                />
+                <p className="text-xs text-slate-500">
+                  Find this in your Google Analytics account under Admin &gt; Data Streams &gt; Web
+                </p>
+              </div>
+              <Button
+                onClick={handleSaveGa4}
+                disabled={ga4Saving}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-ga4"
+              >
+                {ga4Saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Save
+              </Button>
             </CardContent>
           </Card>
 

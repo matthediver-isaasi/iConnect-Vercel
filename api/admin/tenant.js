@@ -65,6 +65,13 @@ export default async function handler(req, res) {
       }
 
       if (updates.settings) {
+        if (updates.settings.ga4_measurement_id !== undefined && updates.settings.ga4_measurement_id !== null) {
+          const ga4Id = String(updates.settings.ga4_measurement_id).trim();
+          if (ga4Id && !/^G-[A-Z0-9]{4,20}$/.test(ga4Id)) {
+            return res.status(400).json({ error: 'Invalid GA4 Measurement ID format. Expected G-XXXXXXXXXX.' });
+          }
+        }
+
         const { data: currentTenant } = await supabase
           .from('tenant')
           .select('settings')
