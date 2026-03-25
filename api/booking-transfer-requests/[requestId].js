@@ -125,6 +125,21 @@ export default async function handler(req, res) {
       if (m) reviewerName = m.email || [m.first_name, m.last_name].filter(Boolean).join(' ') || 'Admin';
     }
 
+    let eventData = null;
+    if (booking.event_id) {
+      const { data: ev, error: evErr } = await supabase
+        .from('event')
+        .select('*')
+        .eq('id', booking.event_id)
+        .maybeSingle();
+      if (ev?.title) {
+        eventData = ev;
+        console.log(`[TransferRequest] Event resolved: ${ev.title} (${ev.id})`);
+      } else {
+        console.warn(`[TransferRequest] Event lookup returned no data | eventId: ${booking.event_id} | error: ${evErr?.message || 'none'}`);
+      }
+    }
+
     if (status === 'approved') {
       const originalAttendeeEmail = booking.attendee_email;
       const originalAttendeeName = [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ') || 'there';
@@ -190,6 +205,7 @@ export default async function handler(req, res) {
         tenantId,
         reviewNotes: review_notes || null,
         isPublicTransfer,
+        eventData,
       });
     } catch (emailErr) {
       console.error('[TransferRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', booking.id, '| requestId:', requestId);
@@ -318,26 +334,27 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
   console.log(`[TransferXero] Invoice ${updatedInvoice?.InvoiceNumber || booking.xero_invoice_id} description updated successfully`);
 }
 
-async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes, isPublicTransfer = false }) {
-  console.log(`[TransferEmail] Starting email notification | bookingId: ${booking.id} | status: ${status} | targetMember: ${targetMember?.email || 'none'}`);
+async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes, isPublicTransfer = false, eventData = null }) {
+  console.log(`[TransferEmail] Starting email notification | bookingId: ${booking.id} | status: ${status} | targetMember: ${targetMember?.email || 'none'} | eventData: ${eventData ? eventData.title : 'none passed'}`);
 
-  let eventName = 'an event';
-  let event = null;
-  if (booking.event_id) {
-    const { data: eventData, error: eventError } = await supabase
+  let eventName = eventData?.title || 'an event';
+  let event = eventData || null;
+
+  if (!event && booking.event_id) {
+    console.warn(`[TransferEmail] No pre-resolved event data, attempting fallback lookup | eventId: ${booking.event_id} | tenantId: ${tenantId}`);
+    const { data: fallbackEvent, error: eventError } = await supabase
       .from('event')
-      .select('id, title, start_date, end_date, location, venue, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
+      .select('*')
       .eq('id', booking.event_id)
-      .eq('tenant_id', tenantId)
       .maybeSingle();
-    if (eventData?.title) {
-      eventName = eventData.title;
-      event = eventData;
-      console.log(`[TransferEmail] Event resolved | eventId: ${booking.event_id} | title: ${eventName}`);
+    if (fallbackEvent?.title) {
+      eventName = fallbackEvent.title;
+      event = fallbackEvent;
+      console.log(`[TransferEmail] Fallback event resolved | eventId: ${booking.event_id} | title: ${eventName}`);
     } else {
-      console.warn(`[TransferEmail] Event lookup failed | eventId: ${booking.event_id} | tenantId: ${tenantId} | error: ${eventError?.message || 'no data returned'}`);
+      console.warn(`[TransferEmail] Fallback event lookup also failed | eventId: ${booking.event_id} | error: ${eventError?.message || 'no data returned'}`);
     }
-  } else {
+  } else if (!event) {
     console.warn(`[TransferEmail] No event_id on booking | bookingId: ${booking.id}`);
   }
 

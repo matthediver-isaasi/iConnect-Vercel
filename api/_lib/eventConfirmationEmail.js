@@ -21,14 +21,11 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     console.log(`[sendConfirmationEmailsFromTemplate] Found ${confirmationEmails.length} confirmation email(s) to send`);
 
-    let eventQuery = supabase
+    const { data: event, error: eventError } = await supabase
       .from('event')
-      .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
-      .eq('id', eventId);
-    if (tenantId) {
-      eventQuery = eventQuery.eq('tenant_id', tenantId);
-    }
-    const { data: event, error: eventError } = await eventQuery.single();
+      .select('*')
+      .eq('id', eventId)
+      .single();
 
     if (eventError || !event) {
       console.error(`[sendConfirmationEmailsFromTemplate] Event not found | eventId: ${eventId} | tenantId: ${tenantId || 'not provided'} | error: ${eventError?.message || 'no data'}`);
