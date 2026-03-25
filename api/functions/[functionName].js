@@ -8,6 +8,7 @@ import { supabase } from '../_lib/database.js';
 import { getZoomAccessToken } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
+import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate, replacePlaceholders as sharedReplacePlaceholders, formatBodyAsHtml as sharedFormatBodyAsHtml, formatEventDate as sharedFormatEventDate } from '../_lib/eventConfirmationEmail.js';
 
 // Helper: Get Stripe client for a tenant
 async function getStripeClient(tenantId, feature) {
@@ -239,112 +240,9 @@ async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
 // Helper: Send confirmation emails using event_email configuration
 // personalizedZoomUrl: Optional attendee-specific Zoom join URL from webinar registration
 async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null) {
-  if (!supabase) return [];
-  
-  const results = [];
-  
-  try {
-    // Fetch enabled confirmation emails for this event
-    // Support both 'confirmation' and 'booking_confirmation' email types
-    const { data: confirmationEmails, error: emailsError } = await supabase
-      .from('event_email')
-      .select('*')
-      .eq('event_id', eventId)
-      .in('email_type', ['confirmation', 'booking_confirmation'])
-      .eq('is_enabled', true);
-
-    if (emailsError || !confirmationEmails || confirmationEmails.length === 0) {
-      console.log('[sendConfirmationEmailsFromTemplate] No confirmation emails configured for event');
-      return results;
-    }
-
-    console.log(`[sendConfirmationEmailsFromTemplate] Found ${confirmationEmails.length} confirmation email(s) to send`);
-
-    // Fetch event details including tenant_id for email domain
-    const { data: event, error: eventError } = await supabase
-      .from('event')
-      .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
-      .eq('id', eventId)
-      .single();
-
-    if (eventError || !event) {
-      console.error('[sendConfirmationEmailsFromTemplate] Event not found');
-      return results;
-    }
-
-    // Fetch zoom link if event has a zoom meeting or webinar (fallback if no personalized URL)
-    let zoomJoinUrl = personalizedZoomUrl; // Prioritize personalized URL from registration
-    if (!zoomJoinUrl) {
-      if (event.zoom_meeting_id) {
-        const { data: zoomMeeting } = await supabase
-          .from('zoom_meeting')
-          .select('join_url')
-          .eq('id', event.zoom_meeting_id)
-          .single();
-        zoomJoinUrl = zoomMeeting?.join_url;
-      } else if (event.zoom_webinar_id) {
-        const { data: zoomWebinar } = await supabase
-          .from('zoom_webinar')
-          .select('join_url')
-          .eq('id', event.zoom_webinar_id)
-          .single();
-        zoomJoinUrl = zoomWebinar?.join_url;
-      }
-    }
-    
-    // Attach zoom link to event object for placeholder replacement
-    event.zoom_join_url = zoomJoinUrl;
-    
-    if (zoomJoinUrl) {
-      console.log(`[sendConfirmationEmailsFromTemplate] Using Zoom link for ${attendee?.email || booking?.attendee_email}: ${zoomJoinUrl.substring(0, 50)}...`);
-    }
-
-    // Build booking data for placeholders
-    const bookingData = {
-      id: booking?.id || '',
-      attendee_first_name: attendee?.first_name || booking?.attendee_first_name || '',
-      attendee_last_name: attendee?.last_name || booking?.attendee_last_name || '',
-      attendee_email: attendee?.email || booking?.attendee_email || '',
-      booking_reference: booking?.booking_reference || '',
-      ticket_price: booking?.ticket_price || 0,
-      total_cost: booking?.total_cost || 0,
-      ticket_class_name: booking?.ticket_class_name || 'Standard',
-      pricingDetails: pricingDetails || null
-    };
-
-    for (const emailConfig of confirmationEmails) {
-      try {
-        const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData });
-        const body = replacePlaceholders(emailConfig.body, { event, booking: bookingData });
-
-        const emailResult = await sendEmail({
-          to: bookingData.attendee_email,
-          subject: subject,
-          html: formatBodyAsHtml(body),
-          tenantId: event.tenant_id
-        });
-
-        if (emailResult.success) {
-          console.log(`[sendConfirmationEmailsFromTemplate] Sent confirmation to ${bookingData.attendee_email}`);
-          results.push({ email: bookingData.attendee_email, success: true, ...emailResult });
-        } else {
-          console.error(`[sendConfirmationEmailsFromTemplate] Failed to send to ${bookingData.attendee_email}:`, emailResult.error);
-          results.push({ email: bookingData.attendee_email, success: false, error: emailResult.error });
-        }
-      } catch (err) {
-        console.error(`[sendConfirmationEmailsFromTemplate] Error sending confirmation:`, err.message);
-        results.push({ email: bookingData.attendee_email, success: false, error: err.message });
-      }
-    }
-
-  } catch (err) {
-    console.error('[sendConfirmationEmailsFromTemplate] Error:', err.message);
-  }
-
-  return results;
+  return sharedSendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl, pricingDetails);
 }
 
-// Helper functions for email template processing
 function replacePlaceholders(template, data) {
   const { event, booking } = data;
   
