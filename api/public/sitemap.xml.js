@@ -105,7 +105,7 @@ export default async function handler(req, res) {
 
     let eventsResult = await supabase
       .from('event')
-      .select('id, slug, start_date, updated_at')
+      .select('id, slug, start_date')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .order('start_date', { ascending: false });
@@ -114,7 +114,7 @@ export default async function handler(req, res) {
       console.warn('[Sitemap] event.tenant_id not recognised by PostgREST, retrying without tenant filter');
       eventsResult = await supabase
         .from('event')
-        .select('id, slug, start_date, updated_at')
+        .select('id, slug, start_date')
         .in('status', ['published', 'tbc'])
         .order('start_date', { ascending: false });
     }
@@ -122,28 +122,28 @@ export default async function handler(req, res) {
     const [articlesResult, newsResult, jobsResult, customPagesResult] = await Promise.all([
       supabase
         .from('blog_post')
-        .select('id, slug, author_id, guest_writer_id, published_date, updated_at')
+        .select('id, slug, author_id, guest_writer_id, published_date')
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
         .order('published_date', { ascending: false }),
 
       supabase
         .from('news_post')
-        .select('id, slug, published_date, updated_at')
+        .select('id, slug, published_date')
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
         .order('published_date', { ascending: false }),
 
       supabase
         .from('job_posting')
-        .select('id, created_date, updated_at')
+        .select('id, created_date')
         .eq('tenant_id', tenant.id)
         .eq('status', 'active')
         .order('created_date', { ascending: false }),
 
       supabase
         .from('i_edit_page')
-        .select('id, slug, title, updated_at')
+        .select('id, slug, title')
         .eq('tenant_id', tenant.id)
         .eq('status', 'published')
         .in('layout_type', ['public', 'hybrid'])
@@ -164,7 +164,7 @@ export default async function handler(req, res) {
           : `/EventDetails?id=${event.id}`;
         urls.push({
           loc: baseUrl + path,
-          lastmod: formatDate(event.updated_at || event.start_date),
+          lastmod: formatDate(event.start_date),
           changefreq: 'weekly',
           priority: '0.7'
         });
@@ -194,7 +194,7 @@ export default async function handler(req, res) {
         const path = `${articleBasePath}/${encodeURIComponent(authorHandle)}/${encodeURIComponent(cleanSlug)}`;
         urls.push({
           loc: baseUrl + path,
-          lastmod: formatDate(article.updated_at || article.published_date),
+          lastmod: formatDate(article.published_date),
           changefreq: 'monthly',
           priority: '0.6'
         });
@@ -206,7 +206,7 @@ export default async function handler(req, res) {
         const path = `/NewsView?slug=${encodeURIComponent(news.slug || news.id)}`;
         urls.push({
           loc: baseUrl + path,
-          lastmod: formatDate(news.updated_at || news.published_date),
+          lastmod: formatDate(news.published_date),
           changefreq: 'monthly',
           priority: '0.6'
         });
@@ -218,7 +218,7 @@ export default async function handler(req, res) {
         const path = `/JobDetails?id=${job.id}`;
         urls.push({
           loc: baseUrl + path,
-          lastmod: formatDate(job.updated_at || job.created_date),
+          lastmod: formatDate(job.created_date),
           changefreq: 'weekly',
           priority: '0.6'
         });
@@ -230,7 +230,7 @@ export default async function handler(req, res) {
         const path = `/ViewPage?slug=${encodeURIComponent(page.slug)}`;
         urls.push({
           loc: baseUrl + path,
-          lastmod: formatDate(page.updated_at),
+          lastmod: null,
           changefreq: 'weekly',
           priority: '0.5'
         });
