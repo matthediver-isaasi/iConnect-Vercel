@@ -83,6 +83,10 @@ export default async function handler(req, res) {
       return res.status(200).send('User-agent: *\nDisallow: /');
     }
 
+    if (cleanHost.endsWith('.dev.iconn.app')) {
+      return res.status(200).send('User-agent: *\nDisallow: /');
+    }
+
     const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
 
     if (allowSearchIndexing) {
