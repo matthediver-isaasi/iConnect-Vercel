@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,16 @@ export default function TransferTicketDialog({ open, onOpenChange, booking, onSu
   const [searching, setSearching] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => base44.entities.SystemSettings.list(),
+    staleTime: 60000,
+  });
+  const restrictByRole = (() => {
+    const setting = systemSettings.find(s => s.setting_key === 'transfer_restrict_by_role');
+    return !setting || setting.setting_value !== 'false';
+  })();
 
   useEffect(() => {
     if (!open) {
@@ -112,7 +123,7 @@ export default function TransferTicketDialog({ open, onOpenChange, booking, onSu
         <DialogHeader>
           <DialogTitle>Transfer Ticket</DialogTitle>
           <DialogDescription>
-            Transfer this ticket to another eligible member within the same organisation. The request will be reviewed before it takes effect.
+            Transfer this ticket to another eligible member within the same organisation{restrictByRole ? ' and role' : ''}. The request will be reviewed before it takes effect.
           </DialogDescription>
         </DialogHeader>
 
