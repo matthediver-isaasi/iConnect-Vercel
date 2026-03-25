@@ -129,11 +129,31 @@ export default async function handler(req, res) {
     const eventIdToLookup = booking.event_id || request.event_id;
     console.log(`[TransferRequest] Event lookup starting | booking.event_id: ${booking.event_id} | request.event_id: ${request.event_id} | tenantId: ${tenantId}`);
     if (eventIdToLookup) {
-      const { data: ev, error: evErr } = await supabase
+      let ev = null;
+      let evErr = null;
+
+      const tenantResult = await supabase
         .from('event')
-        .select('*')
+        .select('id, title, start_date, end_date, location, venue, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
         .eq('id', eventIdToLookup)
+        .eq('tenant_id', tenantId)
         .maybeSingle();
+
+      if (tenantResult.data?.title) {
+        ev = tenantResult.data;
+      } else if (tenantResult.error?.code === '42703') {
+        console.warn(`[TransferRequest] PostgREST schema cache stale, retrying event lookup without tenant_id filter | error: ${tenantResult.error.message}`);
+        const fallbackResult = await supabase
+          .from('event')
+          .select('*')
+          .eq('id', eventIdToLookup)
+          .maybeSingle();
+        ev = fallbackResult.data;
+        evErr = fallbackResult.error;
+      } else {
+        evErr = tenantResult.error;
+      }
+
       if (ev?.title) {
         eventData = ev;
         console.log(`[TransferRequest] Event resolved: ${ev.title} (${ev.id})`);
@@ -347,12 +367,29 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
   if (!event) {
     const fallbackEventId = booking.event_id || request.event_id;
     if (fallbackEventId) {
-      console.warn(`[TransferEmail] No pre-resolved event data, attempting fallback lookup | eventId: ${fallbackEventId}`);
-      const { data: fallbackEvent, error: eventError } = await supabase
+      console.warn(`[TransferEmail] No pre-resolved event data, attempting fallback lookup | eventId: ${fallbackEventId} | tenantId: ${tenantId}`);
+
+      const tenantResult = await supabase
         .from('event')
-        .select('*')
+        .select('id, title, start_date, end_date, location, venue, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
         .eq('id', fallbackEventId)
+        .eq('tenant_id', tenantId)
         .maybeSingle();
+
+      let fallbackEvent = tenantResult.data;
+      let eventError = tenantResult.error;
+
+      if (!fallbackEvent && tenantResult.error?.code === '42703') {
+        console.warn(`[TransferEmail] PostgREST schema cache stale, retrying without tenant_id filter | error: ${tenantResult.error.message}`);
+        const retryResult = await supabase
+          .from('event')
+          .select('*')
+          .eq('id', fallbackEventId)
+          .maybeSingle();
+        fallbackEvent = retryResult.data;
+        eventError = retryResult.error;
+      }
+
       if (fallbackEvent?.title) {
         eventName = fallbackEvent.title;
         event = fallbackEvent;
