@@ -7,6 +7,11 @@ export function useTenantBranding() {
   return useContext(TenantBrandingContext);
 }
 
+function isAdminRoute() {
+  const path = window.location.pathname;
+  return path.startsWith('/admin');
+}
+
 function injectGA4(measurementId) {
   if (!measurementId || !/^G-[A-Z0-9]{4,20}$/.test(measurementId)) {
     return;
@@ -54,7 +59,7 @@ export function TenantBrandingProvider({ children }) {
             document.title = data.branding.name;
           }
 
-          if (data.branding.ga4MeasurementId && !ga4Injected.current) {
+          if (data.branding.ga4MeasurementId && !ga4Injected.current && !isAdminRoute()) {
             injectGA4(data.branding.ga4MeasurementId);
             ga4Injected.current = true;
           }
@@ -71,13 +76,13 @@ export function TenantBrandingProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (!branding?.ga4MeasurementId) return;
+    if (!branding?.ga4MeasurementId || isAdminRoute()) return;
 
     let lastPath = window.location.pathname + window.location.search;
 
     const trackRouteChange = () => {
       const currentPath = window.location.pathname + window.location.search;
-      if (currentPath !== lastPath) {
+      if (currentPath !== lastPath && !currentPath.startsWith('/admin')) {
         lastPath = currentPath;
         if (typeof window.gtag === 'function') {
           window.gtag('event', 'page_view', {

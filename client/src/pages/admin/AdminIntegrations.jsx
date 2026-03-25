@@ -368,7 +368,7 @@ export default function AdminIntegrations() {
 
   const handleSaveGa4 = async () => {
     const trimmedId = ga4MeasurementId.trim();
-    if (trimmedId && !/^G-[A-Z0-9]+$/.test(trimmedId)) {
+    if (trimmedId && !/^G-[A-Z0-9]{4,20}$/.test(trimmedId)) {
       toast({
         title: 'Invalid format',
         description: 'GA4 Measurement ID should be in the format G-XXXXXXXXXX',
