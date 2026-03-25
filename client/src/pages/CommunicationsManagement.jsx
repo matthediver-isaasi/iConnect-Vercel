@@ -2168,22 +2168,60 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 <Label>Audience Segments</Label>
                 {editListAudiences.length > 0 && (
                   <div className="space-y-1">
-                    {editListAudiences.map((segment, idx) => (
-                      <div key={idx} className="flex items-center gap-2 border rounded-md p-2" data-testid={`edit-list-segment-${idx}`}>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm">{getSegmentSummary(segment)}</span>
+                    {editListAudiences.map((segment, idx) => {
+                      if (segment.type === 'individual_members') {
+                        const memberIds = segment.ids || [];
+                        const names = segment.names || {};
+                        return (
+                          <div key={idx} className="border rounded-md p-2 space-y-1" data-testid={`edit-list-segment-${idx}`}>
+                            <div className="text-xs font-medium text-muted-foreground px-1">Individual Members ({memberIds.length})</div>
+                            {memberIds.map(memberId => (
+                              <div key={memberId} className="flex items-center justify-between gap-2 pl-1 pr-0.5 py-0.5 text-sm" data-testid={`edit-list-ind-member-${memberId}`}>
+                                <span className="truncate">{names[memberId] || memberId}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0"
+                                  onClick={() => {
+                                    if (memberIds.length <= 1) {
+                                      setEditListAudiences(prev => prev.filter((_, i) => i !== idx));
+                                    } else {
+                                      setEditListAudiences(prev => {
+                                        const updated = [...prev];
+                                        const newIds = (updated[idx].ids || []).filter(id => id !== memberId);
+                                        const newNames = { ...(updated[idx].names || {}) };
+                                        delete newNames[memberId];
+                                        updated[idx] = { ...updated[idx], ids: newIds, names: newNames };
+                                        return updated;
+                                      });
+                                    }
+                                  }}
+                                  data-testid={`button-remove-ind-member-${memberId}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={idx} className="flex items-center gap-2 border rounded-md p-2" data-testid={`edit-list-segment-${idx}`}>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm">{getSegmentSummary(segment)}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => setEditListAudiences(prev => prev.filter((_, i) => i !== idx))}
+                            data-testid={`button-remove-edit-segment-${idx}`}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => setEditListAudiences(prev => prev.filter((_, i) => i !== idx))}
-                          data-testid={`button-remove-edit-segment-${idx}`}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
