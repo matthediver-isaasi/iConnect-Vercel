@@ -8,7 +8,7 @@ import { supabase } from '../_lib/database.js';
 import { getZoomAccessToken } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
-import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate, replacePlaceholders as sharedReplacePlaceholders, formatBodyAsHtml as sharedFormatBodyAsHtml, formatEventDate as sharedFormatEventDate } from '../_lib/eventConfirmationEmail.js';
+import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
 
 // Helper: Get Stripe client for a tenant
 async function getStripeClient(tenantId, feature) {
@@ -243,128 +243,6 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
   return sharedSendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl, pricingDetails);
 }
 
-function replacePlaceholders(template, data) {
-  const { event, booking } = data;
-  
-  let result = template || '';
-  
-  // Handle {{placeholder}} syntax
-  result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
-  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date));
-  result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
-  result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
-  result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
-  
-  // Handle [[placeholder]] syntax (member.* and attendee.* variants)
-  result = result.replace(/\[\[member\.first_name\]\]/gi, booking?.attendee_first_name || '');
-  result = result.replace(/\[\[member\.last_name\]\]/gi, booking?.attendee_last_name || '');
-  result = result.replace(/\[\[member\.email\]\]/gi, booking?.attendee_email || '');
-  result = result.replace(/\[\[attendee\.first_name\]\]/gi, booking?.attendee_first_name || '');
-  result = result.replace(/\[\[attendee\.last_name\]\]/gi, booking?.attendee_last_name || '');
-  result = result.replace(/\[\[attendee\.email\]\]/gi, booking?.attendee_email || '');
-  
-  // Handle event placeholders with [[]] syntax
-  result = result.replace(/\[\[event\.name\]\]/gi, event?.title || '');
-  result = result.replace(/\[\[event\.title\]\]/gi, event?.title || '');
-  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date));
-  result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
-  
-  // Handle booking/pricing placeholders
-  result = result.replace(/\{\{booking_id\}\}/gi, booking?.id || '');
-  result = result.replace(/\[\[booking\.id\]\]/gi, booking?.id || '');
-  result = result.replace(/\{\{booking_reference\}\}/gi, booking?.booking_reference || '');
-  result = result.replace(/\[\[booking\.reference\]\]/gi, booking?.booking_reference || '');
-  result = result.replace(/\[\[booking\.booking_reference\]\]/gi, booking?.booking_reference || '');
-  result = result.replace(/\{\{ticket_class\}\}/gi, booking?.ticket_class_name || 'Standard');
-  result = result.replace(/\[\[booking\.ticket_class\]\]/gi, booking?.ticket_class_name || 'Standard');
-  
-  const ticketPrice = Number(booking?.ticket_price || 0);
-  const totalCost = Number(booking?.total_cost || 0);
-  result = result.replace(/\{\{ticket_price\}\}/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
-  result = result.replace(/\[\[booking\.ticket_price\]\]/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
-  result = result.replace(/\{\{total_cost\}\}/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
-  result = result.replace(/\[\[booking\.total_cost\]\]/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
-  
-  // Pricing details (discounts, free tickets) - conditionally rendered sections
-  const pd = booking?.pricingDetails;
-  if (pd?.freeTickets > 0) {
-    result = result.replace(/\{\{#offer_discount\}\}([\s\S]*?)\{\{\/offer_discount\}\}/gi, '$1');
-    const discountDesc = pd.discountDescription || `${pd.freeTickets} free ticket(s)`;
-    result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
-    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
-    const discountSaving = `£${(pd.freeTickets * ticketPrice).toFixed(2)}`;
-    result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountSaving);
-    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountSaving);
-  } else if (pd?.discount > 0) {
-    result = result.replace(/\{\{#offer_discount\}\}([\s\S]*?)\{\{\/offer_discount\}\}/gi, '$1');
-    const discountDesc = pd.discountDescription || 'Discount';
-    result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
-    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
-    const discountAmount = `£${pd.discount.toFixed(2)}`;
-    result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountAmount);
-    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountAmount);
-  } else {
-    result = result.replace(/\{\{#offer_discount\}\}[\s\S]*?\{\{\/offer_discount\}\}/gi, '');
-    result = result.replace(/\{\{offer_discount_description\}\}/gi, '');
-    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, '');
-    result = result.replace(/\{\{offer_discount_amount\}\}/gi, '');
-    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, '');
-  }
-
-  // Handle zoom link - check event first, then booking (if field exists)
-  const zoomLink = event?.zoom_join_url || booking?.zoom_join_url || '';
-  if (zoomLink) {
-    result = result.replace(/\{\{#zoom_link\}\}([\s\S]*?)\{\{\/zoom_link\}\}/gi, '$1');
-    result = result.replace(/\{\{zoom_link\}\}/gi, zoomLink);
-    result = result.replace(/\[\[zoom_link\]\]/gi, zoomLink);
-  } else {
-    result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
-    result = result.replace(/\{\{zoom_link\}\}/gi, '');
-    result = result.replace(/\[\[zoom_link\]\]/gi, '');
-  }
-  
-  return result;
-}
-
-function formatEventDate(dateStr) {
-  if (!dateStr) return '';
-  try {
-    const date = new Date(dateStr);
-    return date.toLocaleString('en-GB', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZoneName: 'short'
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-function formatBodyAsHtml(body) {
-  if (!body) return '';
-  
-  // Check if the body already contains HTML tags
-  const hasHtmlTags = /<[a-z][\s\S]*>/i.test(body);
-  
-  if (hasHtmlTags) {
-    // Body is already HTML, wrap it but don't escape
-    return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${body}</div>`;
-  }
-  
-  // Body is plain text, convert to HTML
-  let html = body
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>')
-    .replace(/(https?:\/\/[^\s<]+)/gi, '<a href="$1">$1</a>');
-  
-  return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${html}</div>`;
-}
 
 async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) {
   if (!supabase) return;
