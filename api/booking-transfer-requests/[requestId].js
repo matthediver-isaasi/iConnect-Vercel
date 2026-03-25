@@ -67,7 +67,7 @@ export default async function handler(req, res) {
 
     const { data: booking, error: bookingError } = await supabase
       .from('booking')
-      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id, xero_invoice_id')
+      .select('id, attendee_email, attendee_first_name, attendee_last_name, member_id, event_id, status, booking_reference, booking_group_reference, tenant_id, xero_invoice_id, ticket_price, total_cost, ticket_class_name')
       .eq('id', request.booking_id)
       .eq('tenant_id', tenantId)
       .single();
@@ -148,16 +148,18 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to update request status' });
     }
 
-    sendTransferNotificationEmails({
-      request,
-      booking,
-      targetMember,
-      status,
-      tenantId,
-      reviewNotes: review_notes || null,
-    }).catch(err => {
-      console.error('[TransferRequest] Email notification error (non-blocking):', err.message);
-    });
+    try {
+      await sendTransferNotificationEmails({
+        request,
+        booking,
+        targetMember,
+        status,
+        tenantId,
+        reviewNotes: review_notes || null,
+      });
+    } catch (emailErr) {
+      console.error('[TransferRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', booking.id, '| requestId:', requestId);
+    }
 
     return res.json({ request: updated });
   } catch (err) {
@@ -283,17 +285,19 @@ async function updateXeroInvoiceDescription({ booking, originalFirstName, origin
 }
 
 async function sendTransferNotificationEmails({ request, booking, targetMember, status, tenantId, reviewNotes }) {
+  console.log(`[TransferEmail] Starting email notification | bookingId: ${booking.id} | status: ${status} | targetMember: ${targetMember?.email || 'none'}`);
+
   let eventName = 'an event';
-  let eventDetails = null;
+  let event = null;
   if (booking.event_id) {
-    const { data: event } = await supabase
+    const { data: eventData } = await supabase
       .from('event')
-      .select('title, start_date, end_date, location, venue')
+      .select('id, title, start_date, end_date, location, venue, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
       .eq('id', booking.event_id)
       .maybeSingle();
-    if (event?.title) {
-      eventName = event.title;
-      eventDetails = event;
+    if (eventData?.title) {
+      eventName = eventData.title;
+      event = eventData;
     }
   }
 
@@ -304,39 +308,48 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
   if (status === 'approved') {
     if (originalAttendeeEmail) {
       try {
-        const html = buildOriginalAttendeeEmail(originalAttendeeName, eventName, bookingRef);
+        console.log(`[TransferEmail] Sending cancellation notification to original attendee: ${originalAttendeeEmail}`);
+        const html = buildCancellationEmail(originalAttendeeName, eventName, bookingRef);
         const result = await sendEmail({
           to: originalAttendeeEmail,
-          subject: `Booking Transferred — ${eventName}`,
+          subject: `Booking Cancellation Confirmed — ${eventName}`,
           html,
           tenantId,
         });
         if (result?.success) {
-          console.log(`[TransferEmail] Sent transfer notification to original attendee: ${originalAttendeeEmail}`);
+          console.log(`[TransferEmail] Sent cancellation notification to original attendee: ${originalAttendeeEmail}`);
         } else {
-          console.error(`[TransferEmail] Failed to email original attendee ${originalAttendeeEmail}: ${result?.error || 'Unknown error'}`);
+          console.error(`[TransferEmail] Failed to email original attendee ${originalAttendeeEmail} | error: ${result?.error || 'Unknown error'}`);
         }
       } catch (err) {
-        console.error(`[TransferEmail] Failed to email original attendee ${originalAttendeeEmail}:`, err.message);
+        console.error(`[TransferEmail] Exception emailing original attendee ${originalAttendeeEmail}:`, err.stack || err.message);
       }
     }
 
-    if (targetMember.email) {
+    if (targetMember?.email) {
       try {
-        const html = buildNewAttendeeEmail(targetMember.first_name || 'there', eventName, bookingRef, eventDetails);
-        const result = await sendEmail({
-          to: targetMember.email,
-          subject: `Event Registration Confirmation — ${eventName}`,
-          html,
-          tenantId,
-        });
-        if (result?.success) {
-          console.log(`[TransferEmail] Sent registration confirmation to new attendee: ${targetMember.email}`);
-        } else {
-          console.error(`[TransferEmail] Failed to email new attendee ${targetMember.email}: ${result?.error || 'Unknown error'}`);
+        console.log(`[TransferEmail] Sending confirmation to new attendee: ${targetMember.email}`);
+        let sent = false;
+        if (booking.event_id) {
+          sent = await sendEventConfirmationEmail(booking, targetMember, event, tenantId);
+        }
+        if (!sent) {
+          console.log(`[TransferEmail] No event confirmation template configured, sending generic email`);
+          const html = buildGenericConfirmationEmail(targetMember.first_name || 'there', eventName, bookingRef, event);
+          const result = await sendEmail({
+            to: targetMember.email,
+            subject: `Event Registration Confirmation — ${eventName}`,
+            html,
+            tenantId,
+          });
+          if (result?.success) {
+            console.log(`[TransferEmail] Sent generic confirmation to new attendee: ${targetMember.email}`);
+          } else {
+            console.error(`[TransferEmail] Failed to email new attendee ${targetMember.email} | error: ${result?.error || 'Unknown error'}`);
+          }
         }
       } catch (err) {
-        console.error(`[TransferEmail] Failed to email new attendee ${targetMember.email}:`, err.message);
+        console.error(`[TransferEmail] Exception emailing new attendee ${targetMember.email}:`, err.stack || err.message);
       }
     }
   } else {
@@ -348,6 +361,7 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
 
     if (requester?.email) {
       try {
+        console.log(`[TransferEmail] Sending rejection notification to requester: ${requester.email}`);
         const html = buildRejectionEmail(requester.first_name || 'there', eventName, bookingRef, reviewNotes);
         const result = await sendEmail({
           to: requester.email,
@@ -358,33 +372,211 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
         if (result?.success) {
           console.log(`[TransferEmail] Sent rejection notification to requester: ${requester.email}`);
         } else {
-          console.error(`[TransferEmail] Failed to email requester ${requester.email}: ${result?.error || 'Unknown error'}`);
+          console.error(`[TransferEmail] Failed to email requester ${requester.email} | error: ${result?.error || 'Unknown error'}`);
         }
       } catch (err) {
-        console.error(`[TransferEmail] Failed to email requester ${requester.email}:`, err.message);
+        console.error(`[TransferEmail] Exception emailing requester ${requester.email}:`, err.stack || err.message);
       }
     }
   }
+
+  console.log(`[TransferEmail] Notification process complete | bookingId: ${booking.id}`);
 }
 
-function buildOriginalAttendeeEmail(name, eventName, bookingRef) {
+async function sendEventConfirmationEmail(booking, targetMember, event, tenantId) {
+  if (!booking.event_id) return false;
+
+  const { data: confirmationEmails, error: emailsError } = await supabase
+    .from('event_email')
+    .select('*')
+    .eq('event_id', booking.event_id)
+    .in('email_type', ['confirmation', 'booking_confirmation'])
+    .eq('is_enabled', true);
+
+  if (emailsError || !confirmationEmails || confirmationEmails.length === 0) {
+    return false;
+  }
+
+  console.log(`[TransferEmail] Found ${confirmationEmails.length} event confirmation email(s) to send`);
+
+  let zoomJoinUrl = null;
+  if (event?.zoom_meeting_id) {
+    const { data: zoomMeeting } = await supabase
+      .from('zoom_meeting')
+      .select('join_url')
+      .eq('id', event.zoom_meeting_id)
+      .single();
+    zoomJoinUrl = zoomMeeting?.join_url;
+  } else if (event?.zoom_webinar_id) {
+    const { data: zoomWebinar } = await supabase
+      .from('zoom_webinar')
+      .select('join_url')
+      .eq('id', event.zoom_webinar_id)
+      .single();
+    zoomJoinUrl = zoomWebinar?.join_url;
+  }
+
+  const eventData = { ...event, zoom_join_url: zoomJoinUrl };
+
+  const bookingData = {
+    id: booking.id || '',
+    attendee_first_name: targetMember.first_name || '',
+    attendee_last_name: targetMember.last_name || '',
+    attendee_email: targetMember.email || '',
+    booking_reference: booking.booking_reference || '',
+    ticket_price: booking.ticket_price || 0,
+    total_cost: booking.total_cost || 0,
+    ticket_class_name: booking.ticket_class_name || 'Standard',
+    pricingDetails: null,
+  };
+
+  let anySent = false;
+  for (const emailConfig of confirmationEmails) {
+    try {
+      const subject = replacePlaceholders(emailConfig.subject, { event: eventData, booking: bookingData });
+      const body = replacePlaceholders(emailConfig.body, { event: eventData, booking: bookingData });
+
+      const emailResult = await sendEmail({
+        to: targetMember.email,
+        subject,
+        html: formatBodyAsHtml(body),
+        tenantId: event?.tenant_id || tenantId,
+      });
+
+      if (emailResult?.success) {
+        console.log(`[TransferEmail] Sent event confirmation to new attendee: ${targetMember.email}`);
+        anySent = true;
+      } else {
+        console.error(`[TransferEmail] Event confirmation failed for ${targetMember.email}: ${emailResult?.error || 'Unknown'}`);
+      }
+    } catch (err) {
+      console.error(`[TransferEmail] Exception sending event confirmation:`, err.stack || err.message);
+    }
+  }
+
+  return anySent;
+}
+
+function replacePlaceholders(template, data) {
+  const { event, booking } = data;
+  let result = template || '';
+
+  result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
+  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date));
+  result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
+  result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
+
+  result = result.replace(/\[\[member\.first_name\]\]/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\[\[member\.last_name\]\]/gi, booking?.attendee_last_name || '');
+  result = result.replace(/\[\[member\.email\]\]/gi, booking?.attendee_email || '');
+  result = result.replace(/\[\[attendee\.first_name\]\]/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\[\[attendee\.last_name\]\]/gi, booking?.attendee_last_name || '');
+  result = result.replace(/\[\[attendee\.email\]\]/gi, booking?.attendee_email || '');
+
+  result = result.replace(/\[\[event\.name\]\]/gi, event?.title || '');
+  result = result.replace(/\[\[event\.title\]\]/gi, event?.title || '');
+  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event?.start_date));
+  result = result.replace(/\[\[event\.location\]\]/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
+
+  result = result.replace(/\{\{booking_id\}\}/gi, booking?.id || '');
+  result = result.replace(/\[\[booking\.id\]\]/gi, booking?.id || '');
+  result = result.replace(/\{\{booking_reference\}\}/gi, booking?.booking_reference || '');
+  result = result.replace(/\[\[booking\.reference\]\]/gi, booking?.booking_reference || '');
+  result = result.replace(/\[\[booking\.booking_reference\]\]/gi, booking?.booking_reference || '');
+  result = result.replace(/\{\{ticket_class\}\}/gi, booking?.ticket_class_name || 'Standard');
+  result = result.replace(/\[\[booking\.ticket_class\]\]/gi, booking?.ticket_class_name || 'Standard');
+
+  const ticketPrice = Number(booking?.ticket_price || 0);
+  const totalCost = Number(booking?.total_cost || 0);
+  result = result.replace(/\{\{ticket_price\}\}/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
+  result = result.replace(/\[\[booking\.ticket_price\]\]/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
+  result = result.replace(/\{\{total_cost\}\}/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
+  result = result.replace(/\[\[booking\.total_cost\]\]/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
+
+  const pd = booking?.pricingDetails;
+  if (pd?.freeTickets > 0 || pd?.discount > 0) {
+    result = result.replace(/\{\{#offer_discount\}\}([\s\S]*?)\{\{\/offer_discount\}\}/gi, '$1');
+    const discountDesc = pd.discountDescription || (pd.freeTickets > 0 ? `${pd.freeTickets} free ticket(s)` : 'Discount');
+    result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
+    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
+    const discountAmount = pd.freeTickets > 0 ? `£${(pd.freeTickets * ticketPrice).toFixed(2)}` : `£${pd.discount.toFixed(2)}`;
+    result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountAmount);
+    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountAmount);
+  } else {
+    result = result.replace(/\{\{#offer_discount\}\}[\s\S]*?\{\{\/offer_discount\}\}/gi, '');
+    result = result.replace(/\{\{offer_discount_description\}\}/gi, '');
+    result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, '');
+    result = result.replace(/\{\{offer_discount_amount\}\}/gi, '');
+    result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, '');
+  }
+
+  const zoomLink = event?.zoom_join_url || booking?.zoom_join_url || '';
+  if (zoomLink) {
+    result = result.replace(/\{\{#zoom_link\}\}([\s\S]*?)\{\{\/zoom_link\}\}/gi, '$1');
+    result = result.replace(/\{\{zoom_link\}\}/gi, zoomLink);
+    result = result.replace(/\[\[zoom_link\]\]/gi, zoomLink);
+  } else {
+    result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
+    result = result.replace(/\{\{zoom_link\}\}/gi, '');
+    result = result.replace(/\[\[zoom_link\]\]/gi, '');
+  }
+
+  return result;
+}
+
+function formatEventDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-GB', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatBodyAsHtml(body) {
+  if (!body) return '';
+  const hasHtmlTags = /<[a-z][\s\S]*>/i.test(body);
+  if (hasHtmlTags) {
+    return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${body}</div>`;
+  }
+  let html = body
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<]+)/gi, '<a href="$1">$1</a>');
+  return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${html}</div>`;
+}
+
+function buildCancellationEmail(name, eventName, bookingRef) {
+  const safeName = name || 'there';
   let body = '';
-  body += `<p>Hi ${name},</p>`;
-  body += `<p>Your ticket for <strong>${eventName}</strong> has been transferred to another member.</p>`;
+  body += `<p>Hi ${safeName},</p>`;
+  body += `<p>Your booking for <strong>${eventName}</strong> has been cancelled.</p>`;
 
   if (bookingRef) {
     body += `<p style="color: #666; font-size: 14px;">Booking reference: <strong>${bookingRef}</strong></p>`;
   }
 
-  body += `<p style="color: #666; font-size: 14px;">If you have any questions about this transfer, please don't hesitate to get in touch.</p>`;
+  body += `<p style="color: #666; font-size: 14px;">If you have any questions, please don't hesitate to get in touch.</p>`;
   return body;
 }
 
-function buildNewAttendeeEmail(name, eventName, bookingRef, eventDetails) {
+function buildGenericConfirmationEmail(name, eventName, bookingRef, eventDetails) {
+  const safeName = name || 'there';
   let body = '';
-  body += `<p>Hi ${name},</p>`;
+  body += `<p>Hi ${safeName},</p>`;
   body += `<p>You have been registered to attend <strong>${eventName}</strong>.</p>`;
-  body += `<p>A ticket has been transferred to you.</p>`;
 
   if (eventDetails) {
     body += `<div style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">`;
@@ -413,8 +605,9 @@ function buildNewAttendeeEmail(name, eventName, bookingRef, eventDetails) {
 }
 
 function buildRejectionEmail(name, eventName, bookingRef, reviewNotes) {
+  const safeName = name || 'there';
   let body = '';
-  body += `<p>Hi ${name},</p>`;
+  body += `<p>Hi ${safeName},</p>`;
   body += `<p>Your transfer request for <strong>${eventName}</strong> has been reviewed and <strong>was not approved</strong>.</p>`;
 
   if (bookingRef) {
@@ -424,7 +617,7 @@ function buildRejectionEmail(name, eventName, bookingRef, reviewNotes) {
   if (reviewNotes) {
     body += `<div style="margin: 20px 0; padding: 16px; background-color: #fff8e1; border-radius: 6px; border: 1px solid #ffe082;">`;
     body += `<p style="margin: 0 0 6px 0; font-weight: 600; color: #333;">Reviewer Notes</p>`;
-    body += `<p style="margin: 0; color: #555;">${reviewNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
+    body += `<p style="margin: 0; color: #555;">${String(reviewNotes).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
     body += `</div>`;
   }
 
