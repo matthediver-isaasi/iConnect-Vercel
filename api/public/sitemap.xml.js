@@ -71,11 +71,10 @@ export default async function handler(req, res) {
       return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Tenant not found</error>');
     }
 
-    // TEMPORARY BYPASS: allow sitemap on dev domains for testing
-    // const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
-    // if (!allowSearchIndexing) {
-    //   return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap not available</error>');
-    // }
+    const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
+    if (!allowSearchIndexing) {
+      return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap not available</error>');
+    }
 
     const baseUrl = getBaseUrl(req, tenant);
     const urls = [];
