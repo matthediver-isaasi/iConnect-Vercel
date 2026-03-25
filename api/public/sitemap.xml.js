@@ -71,12 +71,16 @@ export default async function handler(req, res) {
       return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Tenant not found</error>');
     }
 
+    console.log(`[Sitemap] Tenant resolved: id=${tenant.id}, slug=${tenant.slug}, name=${tenant.name}`);
+
     const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
     if (!allowSearchIndexing) {
+      console.log(`[Sitemap] Search indexing disabled for tenant ${tenant.slug}`);
       return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap not available</error>');
     }
 
     const baseUrl = getBaseUrl(req, tenant);
+    console.log(`[Sitemap] Base URL: ${baseUrl}`);
     const urls = [];
 
     urls.push({ loc: baseUrl + '/', changefreq: 'daily', priority: '1.0' });
@@ -99,14 +103,23 @@ export default async function handler(req, res) {
 
     urls.push({ loc: baseUrl + articlesListPath, changefreq: 'daily', priority: '0.8' });
 
-    const [eventsResult, articlesResult, newsResult, jobsResult, customPagesResult] = await Promise.all([
-      supabase
+    let eventsResult = await supabase
+      .from('event')
+      .select('id, slug, start_date, updated_at')
+      .eq('tenant_id', tenant.id)
+      .in('status', ['published', 'tbc'])
+      .order('start_date', { ascending: false });
+
+    if (eventsResult.error?.code === '42703') {
+      console.warn('[Sitemap] event.tenant_id not recognised by PostgREST, retrying without tenant filter');
+      eventsResult = await supabase
         .from('event')
         .select('id, slug, start_date, updated_at')
-        .eq('tenant_id', tenant.id)
         .in('status', ['published', 'tbc'])
-        .order('start_date', { ascending: false }),
+        .order('start_date', { ascending: false });
+    }
 
+    const [articlesResult, newsResult, jobsResult, customPagesResult] = await Promise.all([
       supabase
         .from('blog_post')
         .select('id, slug, author_id, guest_writer_id, published_date, updated_at')
@@ -135,6 +148,14 @@ export default async function handler(req, res) {
         .eq('status', 'published')
         .in('layout_type', ['public', 'hybrid'])
     ]);
+
+    if (eventsResult.error) console.error('[Sitemap] Events query error:', JSON.stringify(eventsResult.error));
+    if (articlesResult.error) console.error('[Sitemap] Articles query error:', JSON.stringify(articlesResult.error));
+    if (newsResult.error) console.error('[Sitemap] News query error:', JSON.stringify(newsResult.error));
+    if (jobsResult.error) console.error('[Sitemap] Jobs query error:', JSON.stringify(jobsResult.error));
+    if (customPagesResult.error) console.error('[Sitemap] Pages query error:', JSON.stringify(customPagesResult.error));
+
+    console.log(`[Sitemap] Query results - events: ${eventsResult.data?.length ?? 'null'}, articles: ${articlesResult.data?.length ?? 'null'}, news: ${newsResult.data?.length ?? 'null'}, jobs: ${jobsResult.data?.length ?? 'null'}, pages: ${customPagesResult.data?.length ?? 'null'}`);
 
     if (eventsResult.data) {
       for (const event of eventsResult.data) {

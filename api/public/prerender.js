@@ -76,7 +76,19 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
 
   query = query.in('status', ['published', 'tbc']);
 
-  const { data: event } = await query.single();
+  let { data: event, error } = await query.single();
+
+  if (error?.code === '42703') {
+    let fallbackQuery = supabaseClient
+      .from('event')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status');
+    if (slug) fallbackQuery = fallbackQuery.eq('slug', slug);
+    else if (eventId) fallbackQuery = fallbackQuery.eq('id', eventId);
+    fallbackQuery = fallbackQuery.in('status', ['published', 'tbc']);
+    const fallbackResult = await fallbackQuery.single();
+    event = fallbackResult.data;
+  }
+
   if (!event) return null;
 
   const desc = truncate(stripHtml(event.summary || event.description));
@@ -293,14 +305,22 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
       title: `Events | ${tenant.name}`,
       description: `Browse upcoming events from ${tenant.name}`,
       query: async () => {
-        const { data } = await supabaseClient
+        let result = await supabaseClient
           .from('event')
           .select('id, title, slug, start_date, location, summary')
           .eq('tenant_id', tenant.id)
           .in('status', ['published', 'tbc'])
           .order('start_date', { ascending: true })
           .limit(50);
-        return (data || []).map(e => `<li><strong>${escapeHtml(e.title)}</strong>${e.start_date ? ` - ${escapeHtml(new Date(e.start_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}${e.location ? ` | ${escapeHtml(e.location)}` : ''}</li>`).join('\n');
+        if (result.error?.code === '42703') {
+          result = await supabaseClient
+            .from('event')
+            .select('id, title, slug, start_date, location, summary')
+            .in('status', ['published', 'tbc'])
+            .order('start_date', { ascending: true })
+            .limit(50);
+        }
+        return (result.data || []).map(e => `<li><strong>${escapeHtml(e.title)}</strong>${e.start_date ? ` - ${escapeHtml(new Date(e.start_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}${e.location ? ` | ${escapeHtml(e.location)}` : ''}</li>`).join('\n');
       }
     },
     'PublicArticles': {
