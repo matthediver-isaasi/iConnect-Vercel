@@ -291,15 +291,21 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
   let eventName = 'an event';
   let event = null;
   if (booking.event_id) {
-    const { data: eventData } = await supabase
+    const { data: eventData, error: eventError } = await supabase
       .from('event')
       .select('id, title, start_date, end_date, location, venue, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
       .eq('id', booking.event_id)
+      .eq('tenant_id', tenantId)
       .maybeSingle();
     if (eventData?.title) {
       eventName = eventData.title;
       event = eventData;
+      console.log(`[TransferEmail] Event resolved | eventId: ${booking.event_id} | title: ${eventName}`);
+    } else {
+      console.warn(`[TransferEmail] Event lookup failed | eventId: ${booking.event_id} | tenantId: ${tenantId} | error: ${eventError?.message || 'no data returned'}`);
     }
+  } else {
+    console.warn(`[TransferEmail] No event_id on booking | bookingId: ${booking.id}`);
   }
 
   const originalAttendeeName = [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ') || 'there';
@@ -337,7 +343,7 @@ async function sendTransferNotificationEmails({ request, booking, targetMember, 
             last_name: targetMember.last_name || '',
             email: targetMember.email,
           };
-          const results = await sendConfirmationEmailsFromTemplate(booking.event_id, booking, attendee);
+          const results = await sendConfirmationEmailsFromTemplate(booking.event_id, booking, attendee, null, null, tenantId);
           sent = results && results.length > 0 && results.some(r => r.success);
           if (sent) {
             console.log(`[TransferEmail] Sent event confirmation template to new attendee: ${targetMember.email}`);

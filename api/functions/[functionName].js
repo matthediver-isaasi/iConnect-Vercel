@@ -239,8 +239,8 @@ async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
 
 // Helper: Send confirmation emails using event_email configuration
 // personalizedZoomUrl: Optional attendee-specific Zoom join URL from webinar registration
-async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null) {
-  return sharedSendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl, pricingDetails);
+async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null, tenantId = null) {
+  return sharedSendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl, pricingDetails, tenantId);
 }
 
 

@@ -1,7 +1,7 @@
 import { supabase } from './database.js';
 import { sendEmail } from './emailService.js';
 
-export async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null) {
+export async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null, pricingDetails = null, tenantId = null) {
   if (!supabase) return [];
 
   const results = [];
@@ -21,14 +21,17 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     console.log(`[sendConfirmationEmailsFromTemplate] Found ${confirmationEmails.length} confirmation email(s) to send`);
 
-    const { data: event, error: eventError } = await supabase
+    let eventQuery = supabase
       .from('event')
       .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
-      .eq('id', eventId)
-      .single();
+      .eq('id', eventId);
+    if (tenantId) {
+      eventQuery = eventQuery.eq('tenant_id', tenantId);
+    }
+    const { data: event, error: eventError } = await eventQuery.single();
 
     if (eventError || !event) {
-      console.error('[sendConfirmationEmailsFromTemplate] Event not found');
+      console.error(`[sendConfirmationEmailsFromTemplate] Event not found | eventId: ${eventId} | tenantId: ${tenantId || 'not provided'} | error: ${eventError?.message || 'no data'}`);
       return results;
     }
 
