@@ -1629,7 +1629,8 @@ const functionHandlers = {
                     balance_before: voucher.value,
                     balance_after: newValue,
                     type: 'booking_usage',
-                    created_at: new Date().toISOString()
+                    created_at: new Date().toISOString(),
+                    tenant_id: event.tenant_id || org.tenant_id || null
                   });
                 
                 if (vtxError) {
@@ -1667,7 +1668,8 @@ const functionHandlers = {
             balance_after: newTrainingFundBalance,
             reason: `Event booking: ${event.title || 'One-off Event'} (${bookingReference})`,
             created_by: member?.id || null,
-            created_date: new Date().toISOString()
+            created_date: new Date().toISOString(),
+            tenant_id: event.tenant_id || org.tenant_id || null
           });
         
         if (tfTxError) {
