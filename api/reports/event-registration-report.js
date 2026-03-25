@@ -143,9 +143,9 @@ export default async function handler(req, res) {
           const groupTicketTotal = members.reduce((sum, b) => sum + (Number(b.ticket_price) || 0), 0);
           const groupTotalCost = members.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0);
 
-          const groupVoucher = Number(first.voucher_amount) || 0;
-          const groupTrainingFund = Number(first.training_fund_amount) || 0;
-          const groupAccountAmount = Number(first.account_amount) || 0;
+          const groupVoucher = members.reduce((sum, b) => sum + (Number(b.voucher_amount) || 0), 0);
+          const groupTrainingFund = members.reduce((sum, b) => sum + (Number(b.training_fund_amount) || 0), 0);
+          const groupAccountAmount = members.reduce((sum, b) => sum + (Number(b.account_amount) || 0), 0);
           const groupDiscount = Math.max(0, groupTicketTotal - groupTotalCost);
 
           totalRevenue += groupTotalCost;
