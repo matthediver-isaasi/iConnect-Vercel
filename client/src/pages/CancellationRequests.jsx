@@ -42,6 +42,7 @@ export default function CancellationRequests() {
   const [discountCodeReplacement, setDiscountCodeReplacement] = useState({ create: false, newExpiryDate: "" });
   const [refundInFull, setRefundInFull] = useState(true);
   const [customRefundAmount, setCustomRefundAmount] = useState('');
+  const [creditNoteEmail, setCreditNoteEmail] = useState('');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -231,6 +232,9 @@ export default function CancellationRequests() {
           if (!refundInFull && customRefundAmount) {
             body.custom_refund_amount = parseFloat(customRefundAmount);
           }
+          if (creditNoteEmail.trim()) {
+            body.credit_note_email = creditNoteEmail.trim();
+          }
         }
 
         const response = await fetch('/api/booking-cancellation-requests/approve-group', {
@@ -263,6 +267,10 @@ export default function CancellationRequests() {
 
           if (action === 'approved' && !refundInFull && customRefundAmount) {
             body.custom_refund_amount = parseFloat(customRefundAmount);
+          }
+
+          if (action === 'approved' && creditNoteEmail.trim()) {
+            body.credit_note_email = creditNoteEmail.trim();
           }
 
           const response = await fetch(`/api/booking-cancellation-requests/${requestId}`, {
@@ -308,6 +316,8 @@ export default function CancellationRequests() {
           if (rr.stripeRefund && !rr.stripeRefund.success) warnings.push(`Stripe refund failed for £${Number(rr.stripeRefund.amount).toFixed(2)} — manual refund needed`);
           if (rr.xeroCreditNote?.success && rr.xeroCreditNote?.allocated) messages.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber}: £${Number(rr.xeroCreditNote.amount).toFixed(2)} (allocated${rr.xeroCreditNote.alreadyExisted ? ', already existed' : ''}${rr.xeroCreditNote.consolidated ? ', consolidated' : ''})`);
           if (rr.xeroCreditNote?.success && !rr.xeroCreditNote?.allocated) warnings.push(`Xero credit note ${rr.xeroCreditNote.creditNoteNumber} created for £${Number(rr.xeroCreditNote.amount).toFixed(2)} but not allocated — manual allocation needed`);
+          if (rr.xeroCreditNote?.success && rr.xeroCreditNote?.emailed) messages.push(`Credit note emailed to ${rr.xeroCreditNote.emailedTo}`);
+          if (rr.xeroCreditNote?.success && rr.xeroCreditNote?.emailed === false) warnings.push(`Failed to email credit note: ${rr.xeroCreditNote.emailError || 'unknown error'}`);
           if (rr.xeroCreditNote && !rr.xeroCreditNote.success && rr.xeroCreditNote.skipped) warnings.push(`Xero credit note skipped: ${rr.xeroCreditNote.reason}`);
           if (rr.xeroCreditNote && !rr.xeroCreditNote.success && !rr.xeroCreditNote.skipped) warnings.push(`Xero credit note failed for £${Number(rr.xeroCreditNote.amount).toFixed(2)} — manual action needed`);
         }
@@ -325,6 +335,7 @@ export default function CancellationRequests() {
       setDiscountCodeReplacement({ create: false, newExpiryDate: "" });
       setRefundInFull(true);
       setCustomRefundAmount('');
+      setCreditNoteEmail('');
       queryClient.invalidateQueries({ queryKey: ['cancellation-requests'] });
     } catch (error) {
       console.error('Review error:', error);
@@ -627,7 +638,7 @@ export default function CancellationRequests() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => { setReviewDialog({ ...group, action: 'rejected' }); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); }}
+                            onClick={() => { setReviewDialog({ ...group, action: 'rejected' }); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setCreditNoteEmail(''); }}
                             data-testid={`button-reject-${group.key}`}
                           >
                             <XCircle className="w-4 h-4 mr-1" />
@@ -635,7 +646,15 @@ export default function CancellationRequests() {
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => { setReviewDialog({ ...group, action: 'approved' }); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); }}
+                            onClick={() => {
+                              setReviewDialog({ ...group, action: 'approved' });
+                              setReviewNotes("");
+                              setVoucherReplacements({});
+                              setDiscountCodeReplacement({ create: false, newExpiryDate: "" });
+                              const isGrp = group.request_type === 'group';
+                              const fsi = isGrp ? group.items?.[0]?.groupFinancialSummary : group.items?.[0]?.financialSummary;
+                              setCreditNoteEmail(fsi?.invoicingEmail || '');
+                            }}
                             data-testid={`button-approve-${group.key}`}
                           >
                             <CheckCircle className="w-4 h-4 mr-1" />
@@ -652,7 +671,7 @@ export default function CancellationRequests() {
         )}
       </div>
 
-      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); } }}>
+      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); } }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -870,9 +889,24 @@ export default function CancellationRequests() {
                     )}
 
                     {hasXero && (
-                      <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-xero">
-                        <span>Xero Credit Note (#{fs.xeroInvoiceNumber})</span>
-                        <Badge variant="outline">£{fs.totalCost.toFixed(2)}</Badge>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-xero">
+                          <span>Xero Credit Note (#{fs.xeroInvoiceNumber})</span>
+                          <Badge variant="outline">£{fs.totalCost.toFixed(2)}</Badge>
+                        </div>
+                        <div className="pl-4 space-y-1">
+                          <Label htmlFor="credit-note-email" className="text-xs text-muted-foreground">
+                            Email credit note to (leave blank to skip)
+                          </Label>
+                          <Input
+                            id="credit-note-email"
+                            type="email"
+                            value={creditNoteEmail}
+                            onChange={(e) => setCreditNoteEmail(e.target.value)}
+                            placeholder="invoicing@example.com"
+                            data-testid="input-credit-note-email"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -960,7 +994,7 @@ export default function CancellationRequests() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); }}
+              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); }}
               data-testid="button-review-cancel"
             >
               Cancel

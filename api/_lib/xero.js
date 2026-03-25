@@ -436,6 +436,32 @@ export async function fetchXeroCreditNotePdf(creditNoteId, appTenantId) {
   return Buffer.from(pdfBuffer);
 }
 
+export async function emailXeroCreditNote({ appTenantId, creditNoteId, creditNoteNumber, toEmail, tenantId }) {
+  if (!creditNoteId) throw new Error('creditNoteId is required');
+  if (!toEmail) throw new Error('toEmail is required');
+
+  console.log(`[Xero] Fetching credit note ${creditNoteNumber || creditNoteId} PDF to email to ${toEmail}`);
+  const pdfBuffer = await fetchXeroCreditNotePdf(creditNoteId, appTenantId);
+
+  const { sendEmail } = await import('./emailService.js');
+
+  const filename = `credit-note-${creditNoteNumber || creditNoteId}.pdf`;
+  await sendEmail({
+    tenantId: tenantId || appTenantId,
+    to: toEmail,
+    subject: `Credit Note ${creditNoteNumber || ''}`.trim(),
+    html: `<p>Please find attached your credit note${creditNoteNumber ? ` (${creditNoteNumber})` : ''}.</p>`,
+    attachments: [{
+      filename,
+      data: pdfBuffer,
+      contentType: 'application/pdf',
+    }],
+  });
+
+  console.log(`[Xero] Credit note ${creditNoteNumber || creditNoteId} emailed to ${toEmail}`);
+  return { success: true, email: toEmail };
+}
+
 export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!invoiceId) throw new Error('invoiceId is required');

@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
-import { createXeroCreditNote } from '../_lib/xero.js';
+import { createXeroCreditNote, emailXeroCreditNote } from '../_lib/xero.js';
 import { sendEmail } from '../_lib/emailService.js';
 import Stripe from 'stripe';
 
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   }
 
   const tenantId = ctx.tenantId;
-  const { request_ids, status, review_notes, reversal_options, custom_refund_amount } = req.body;
+  const { request_ids, status, review_notes, reversal_options, custom_refund_amount, credit_note_email } = req.body;
 
   if (!request_ids || !Array.isArray(request_ids) || request_ids.length === 0) {
     return res.status(400).json({ error: 'request_ids is required and must be a non-empty array' });
@@ -97,7 +97,7 @@ export default async function handler(req, res) {
         }
       }
       const reversalOptions = reversal_options || {};
-      const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, custom_refund_amount);
+      const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, custom_refund_amount, credit_note_email);
       if (!result.success) {
         const isValidationError = result.error && result.error.includes('custom_refund_amount');
         const statusCode = isValidationError ? 400 : 500;
@@ -149,7 +149,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function processGroupCancellation(requests, tenantId, reversalOptions = {}, custom_refund_amount = null) {
+async function processGroupCancellation(requests, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null) {
   const reversalResults = {
     trainingFund: [],
     vouchers: [],
@@ -665,6 +665,24 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
                 if (cnUpdateError) {
                   console.warn(`[GroupApproval] Failed to store credit note on booking ${booking.id}: ${cnUpdateError.message}`);
+                }
+              }
+
+              if (credit_note_email) {
+                try {
+                  await emailXeroCreditNote({
+                    appTenantId: tenantId,
+                    creditNoteId: result.creditNoteId,
+                    creditNoteNumber: result.creditNoteNumber,
+                    toEmail: credit_note_email,
+                    tenantId,
+                  });
+                  reversalResults.xeroCreditNote.emailed = true;
+                  reversalResults.xeroCreditNote.emailedTo = credit_note_email;
+                } catch (emailErr) {
+                  console.error(`[GroupApproval] Failed to email credit note to ${credit_note_email}:`, emailErr.message);
+                  reversalResults.xeroCreditNote.emailed = false;
+                  reversalResults.xeroCreditNote.emailError = emailErr.message;
                 }
               }
             }

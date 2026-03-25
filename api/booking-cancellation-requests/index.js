@@ -237,6 +237,16 @@ async function handleGet(req, res) {
       bookingsMap = (bookings || []).reduce((acc, b) => { acc[b.id] = b; return acc; }, {});
     }
 
+    const orgIds = [...new Set(Object.values(bookingsMap).map(b => b.organization_id).filter(Boolean))];
+    let orgsMap = {};
+    if (orgIds.length > 0) {
+      const { data: orgs } = await supabase
+        .from('organization')
+        .select('id, invoicing_email')
+        .in('id', orgIds);
+      orgsMap = (orgs || []).reduce((acc, o) => { acc[o.id] = o; return acc; }, {});
+    }
+
     const eventIds = [...new Set([
       ...(requests || []).filter(r => r.event_id).map(r => r.event_id),
       ...Object.values(bookingsMap).filter(b => b.event_id).map(b => b.event_id),
@@ -338,6 +348,7 @@ async function handleGet(req, res) {
           paymentMethod: booking.payment_method,
           xeroInvoiceId: booking.xero_invoice_id || null,
           xeroInvoiceNumber: booking.xero_invoice_number || null,
+          invoicingEmail: booking.organization_id ? (orgsMap[booking.organization_id]?.invoicing_email || null) : null,
         };
       }
 
@@ -368,6 +379,7 @@ async function handleGet(req, res) {
       let stripePaymentIntentId = null;
       let xeroInvoiceId = null;
       let xeroInvoiceNumber = null;
+      let invoicingEmail = null;
       let paymentMethod = null;
       const allVoucherDetails = [];
       let discountCode = null;
@@ -395,6 +407,7 @@ async function handleGet(req, res) {
             xeroInvoiceNumber = fs.xeroInvoiceNumber;
           }
         }
+        if (!invoicingEmail && fs.invoicingEmail) invoicingEmail = fs.invoicingEmail;
         if (!paymentMethod && fs.paymentMethod) paymentMethod = fs.paymentMethod;
         if (fs.voucherDetails) {
           for (const vd of fs.voucherDetails) {
@@ -423,6 +436,7 @@ async function handleGet(req, res) {
         paymentMethod,
         xeroInvoiceId,
         xeroInvoiceNumber,
+        invoicingEmail,
         ticketCount: groupItems.length,
         consolidated: true,
         hasMultipleStripeIntents,
