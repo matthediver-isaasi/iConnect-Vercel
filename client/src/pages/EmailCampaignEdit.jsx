@@ -51,6 +51,9 @@ export default function EmailCampaignEdit() {
   const [showRecipientListDialog, setShowRecipientListDialog] = useState(false);
   const [recipientList, setRecipientList] = useState([]);
   const [loadingRecipientList, setLoadingRecipientList] = useState(false);
+  const [serverRecipientCount, setServerRecipientCount] = useState(null);
+  const [loadingServerCount, setLoadingServerCount] = useState(false);
+  const [recipientCountMismatch, setRecipientCountMismatch] = useState(false);
   const [recipientPage, setRecipientPage] = useState(1);
   const RECIPIENTS_PER_PAGE = 50;
 
@@ -192,11 +195,6 @@ export default function EmailCampaignEdit() {
         ...prev,
         target_audiences: [{ type: 'audience_list', ids: selectedListIds }]
       }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        target_audiences: []
-      }));
     }
   }, [selectedListIds]);
 
@@ -322,16 +320,15 @@ export default function EmailCampaignEdit() {
 
     setSaving(true);
     try {
-      let saveData = { ...formData };
-      if (selectedListIds.length > 0) {
-        saveData.target_audiences = [{ type: 'audience_list', ids: selectedListIds }];
-        saveData.target_type = 'audience_list';
-        saveData.target_ids = selectedListIds;
-      } else {
-        saveData.target_type = 'all_members';
-        saveData.target_ids = [];
-        saveData.target_audiences = [];
+      if (selectedListIds.length === 0) {
+        toast.error('Please select at least one audience list before saving');
+        setSaving(false);
+        return;
       }
+      let saveData = { ...formData };
+      saveData.target_audiences = [{ type: 'audience_list', ids: selectedListIds }];
+      saveData.target_type = 'audience_list';
+      saveData.target_ids = selectedListIds;
       if (saveData.communication_category_id === '') {
         saveData.communication_category_id = null;
       }
@@ -414,6 +411,33 @@ export default function EmailCampaignEdit() {
       toast.error(error.message);
     } finally {
       setTestSending(false);
+    }
+  };
+
+  const handleOpenSendConfirm = async () => {
+    if (!isEditing || !id) return;
+    setShowSendConfirmDialog(true);
+    setLoadingServerCount(true);
+    setServerRecipientCount(null);
+    setRecipientCountMismatch(false);
+    try {
+      const response = await fetch('/api/email-campaigns/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ campaignId: id, preview: true })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setServerRecipientCount(data.recipientCount);
+        if (recipientPreviewCount !== null && data.recipientCount !== recipientPreviewCount) {
+          setRecipientCountMismatch(true);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch server-side recipient count:', e);
+    } finally {
+      setLoadingServerCount(false);
     }
   };
 
@@ -545,7 +569,7 @@ export default function EmailCampaignEdit() {
           </Button>
           {isEditing && (
             <Button
-              onClick={() => setShowSendConfirmDialog(true)}
+              onClick={handleOpenSendConfirm}
               disabled={!canSendCampaign || sending}
               className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
               data-testid="button-send-campaign"
@@ -1071,12 +1095,12 @@ export default function EmailCampaignEdit() {
               <span className="font-medium truncate max-w-[250px]">{formData.subject}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Recipients</span>
+              <span className="text-muted-foreground">Recipients (saved campaign)</span>
               <span className="font-medium">
-                {loadingRecipientCount ? (
+                {loadingServerCount ? (
                   <Loader2 className="w-4 h-4 animate-spin inline" />
-                ) : recipientPreviewCount !== null ? (
-                  `${recipientPreviewCount} recipient${recipientPreviewCount === 1 ? '' : 's'}`
+                ) : serverRecipientCount !== null ? (
+                  `${serverRecipientCount} recipient${serverRecipientCount === 1 ? '' : 's'}`
                 ) : (
                   'Calculating...'
                 )}
@@ -1093,11 +1117,20 @@ export default function EmailCampaignEdit() {
               </div>
             )}
           </div>
-          {recipientPreviewCount === 0 && (
+          {recipientCountMismatch && serverRecipientCount !== null && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                No recipients found for the selected targeting. Please check your recipient settings.
+                Recipient count mismatch detected. The saved campaign will send to <strong>{serverRecipientCount}</strong> recipients,
+                but your current form shows {recipientPreviewCount}. Please save your changes first before sending.
+              </AlertDescription>
+            </Alert>
+          )}
+          {!loadingServerCount && serverRecipientCount === 0 && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                No recipients found for the saved campaign targeting. Please check your audience list settings.
               </AlertDescription>
             </Alert>
           )}
@@ -1111,7 +1144,7 @@ export default function EmailCampaignEdit() {
             </Button>
             <Button
               onClick={handleSendCampaign}
-              disabled={sending || recipientPreviewCount === 0}
+              disabled={sending || loadingServerCount || serverRecipientCount === 0 || serverRecipientCount === null || recipientCountMismatch}
               className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
               data-testid="button-confirm-send"
             >

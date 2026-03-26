@@ -31,6 +31,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Name and subject are required' });
     }
 
+    if (campaignData.target_type === 'all_members') {
+      return res.status(400).json({ error: 'Setting target_type to all_members is not allowed. Please select a specific audience.' });
+    }
+    if (Array.isArray(campaignData.target_audiences)) {
+      for (const seg of campaignData.target_audiences) {
+        if (seg.type === 'all_members') {
+          return res.status(400).json({ error: 'Audience segment type all_members is not allowed. Please select a specific audience.' });
+        }
+      }
+    }
+
     const result = await createCampaign(campaignData, tenantId, memberId);
 
     if (!result.success) {

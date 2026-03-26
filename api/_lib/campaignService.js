@@ -356,6 +356,36 @@ async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
   return allRecords;
 }
 
+const ALLOWED_SEGMENT_TYPES = new Set([
+  'audience_list', 'individual_members', 'role', 'organisation', 
+  'communication_category', 'form', 'member_group', 'event_attendees'
+]);
+
+function validateCampaignTargeting(campaign) {
+  const audiences = campaign.target_audiences;
+  const hasAudiences = Array.isArray(audiences) && audiences.length > 0;
+
+  if (hasAudiences) {
+    for (const segment of audiences) {
+      if (!segment.type || !ALLOWED_SEGMENT_TYPES.has(segment.type)) {
+        return { valid: false, reason: `Invalid or disallowed audience segment type: "${segment.type}". Campaigns cannot target all members.` };
+      }
+      if (!Array.isArray(segment.ids) || segment.ids.length === 0) {
+        return { valid: false, reason: `Audience segment "${segment.type}" has no IDs configured.` };
+      }
+    }
+    return { valid: true };
+  }
+
+  if (campaign.target_type && campaign.target_type !== 'all_members' && 
+      ALLOWED_SEGMENT_TYPES.has(campaign.target_type) &&
+      Array.isArray(campaign.target_ids) && campaign.target_ids.length > 0) {
+    return { valid: true };
+  }
+
+  return { valid: false, reason: 'Campaign has no audience targeting configured. Please select an audience list before sending.' };
+}
+
 async function getRecipientsForSegment(targetType, targetIds, tenantId) {
   let recipients = [];
 
@@ -824,6 +854,12 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt) {
       return { success: false, error: `Cannot schedule campaign with status: ${campaign.status}` };
     }
 
+    const targetingValidation = validateCampaignTargeting(campaign);
+    if (!targetingValidation.valid) {
+      console.error(`[Campaign Service] BLOCKED SCHEDULE: Campaign ${campaignId} - ${targetingValidation.reason}`);
+      return { success: false, error: targetingValidation.reason };
+    }
+
     const { error: updateError } = await supabase
       .from('email_campaign')
       .update({ 
@@ -1212,6 +1248,13 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
 
     if (claimError || !claimedCampaign) {
       return { success: false, error: 'Campaign is already being sent or has been sent' };
+    }
+
+    const targetingValidation = validateCampaignTargeting(campaign);
+    if (!targetingValidation.valid) {
+      console.error(`[Campaign Service] BLOCKED SEND: Campaign ${campaignId} - ${targetingValidation.reason}`);
+      await updateCampaign(campaignId, { status: 'draft' }, tenantId).catch(() => {});
+      return { success: false, error: targetingValidation.reason };
     }
 
     let recipientsResult;
