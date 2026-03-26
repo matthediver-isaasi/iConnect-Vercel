@@ -45,6 +45,8 @@ export default function CancellationRequests() {
   const [creditNoteEmail, setCreditNoteEmail] = useState('');
   const [selectedTickets, setSelectedTickets] = useState({});
   const [sendEmails, setSendEmails] = useState(true);
+  const [allocationTrainingFund, setAllocationTrainingFund] = useState('');
+  const [allocationVouchers, setAllocationVouchers] = useState({});
 
   useEffect(() => {
     if (isAccessReady) {
@@ -247,10 +249,26 @@ export default function CancellationRequests() {
         };
         if (action === 'approved') {
           body.reversal_options = reversalOpts;
-          if (!refundInFull && customRefundAmount) {
-            const parsedAmt = parseFloat(customRefundAmount);
-            body.custom_refund_amount = parsedAmt;
-            body.refund_allocation = { stripeAmount: parsedAmt };
+          if (!refundInFull) {
+            const allocation = {};
+            if (customRefundAmount) {
+              const parsedAmt = parseFloat(customRefundAmount);
+              body.custom_refund_amount = parsedAmt;
+              allocation.stripeAmount = parsedAmt;
+            }
+            if (allocationTrainingFund !== '') {
+              allocation.trainingFundAmount = parseFloat(allocationTrainingFund) || 0;
+            }
+            const voucherAllocs = {};
+            for (const [vid, val] of Object.entries(allocationVouchers)) {
+              if (val !== '') voucherAllocs[vid] = parseFloat(val) || 0;
+            }
+            if (Object.keys(voucherAllocs).length > 0) {
+              allocation.vouchers = voucherAllocs;
+            }
+            if (Object.keys(allocation).length > 0) {
+              body.refund_allocation = allocation;
+            }
           }
           if (creditNoteEmail.trim()) {
             body.credit_note_email = creditNoteEmail.trim();
@@ -286,10 +304,26 @@ export default function CancellationRequests() {
             body.reversal_options = reversalOpts;
           }
 
-          if (action === 'approved' && !refundInFull && customRefundAmount) {
-            const parsedAmt = parseFloat(customRefundAmount);
-            body.custom_refund_amount = parsedAmt;
-            body.refund_allocation = { stripeAmount: parsedAmt };
+          if (action === 'approved' && !refundInFull) {
+            const allocation = {};
+            if (customRefundAmount) {
+              const parsedAmt = parseFloat(customRefundAmount);
+              body.custom_refund_amount = parsedAmt;
+              allocation.stripeAmount = parsedAmt;
+            }
+            if (allocationTrainingFund !== '') {
+              allocation.trainingFundAmount = parseFloat(allocationTrainingFund) || 0;
+            }
+            const voucherAllocs = {};
+            for (const [vid, val] of Object.entries(allocationVouchers)) {
+              if (val !== '') voucherAllocs[vid] = parseFloat(val) || 0;
+            }
+            if (Object.keys(voucherAllocs).length > 0) {
+              allocation.vouchers = voucherAllocs;
+            }
+            if (Object.keys(allocation).length > 0) {
+              body.refund_allocation = allocation;
+            }
           }
 
           if (action === 'approved' && creditNoteEmail.trim()) {
@@ -361,6 +395,8 @@ export default function CancellationRequests() {
       setCreditNoteEmail('');
       setSelectedTickets({});
       setSendEmails(true);
+      setAllocationTrainingFund('');
+      setAllocationVouchers({});
       queryClient.invalidateQueries({ queryKey: ['cancellation-requests'] });
     } catch (error) {
       console.error('Review error:', error);
@@ -720,7 +756,7 @@ export default function CancellationRequests() {
         )}
       </div>
 
-      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); } }}>
+      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); setAllocationTrainingFund(''); setAllocationVouchers({}); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -931,9 +967,35 @@ export default function CancellationRequests() {
 
                   <div className="space-y-2 text-sm">
                     {hasTrainingFund && (
-                      <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-training-fund">
-                        <span>Training Fund Reinstatement</span>
-                        <Badge variant="outline">£{fs.trainingFundAmount.toFixed(2)}</Badge>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-training-fund">
+                          <span>Training Fund Reinstatement</span>
+                          <Badge variant="outline">£{fs.trainingFundAmount.toFixed(2)}</Badge>
+                        </div>
+                        {!refundInFull && (
+                          <div className="pl-4 space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                              Custom amount (max: £{fs.trainingFundAmount.toFixed(2)})
+                            </Label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">£</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={fs.trainingFundAmount}
+                                value={allocationTrainingFund}
+                                onChange={(e) => setAllocationTrainingFund(e.target.value)}
+                                className="pl-7"
+                                placeholder={fs.trainingFundAmount.toFixed(2)}
+                                data-testid="input-allocation-training-fund"
+                              />
+                            </div>
+                            {allocationTrainingFund !== '' && parseFloat(allocationTrainingFund) > fs.trainingFundAmount && (
+                              <p className="text-xs text-destructive">Cannot exceed £{fs.trainingFundAmount.toFixed(2)}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -945,9 +1007,35 @@ export default function CancellationRequests() {
                         </div>
                         {fs.voucherDetails?.map((v) => {
                           if (!v.expired) return (
-                            <div key={v.voucherId} className="flex items-center gap-2 pl-4 text-xs text-muted-foreground" data-testid={`row-voucher-detail-${v.voucherId}`}>
-                              <CheckCircle className="w-3 h-3 text-green-600 shrink-0" />
-                              <span>Voucher {v.code}: £{parseFloat(v.amount).toFixed(2)} will be reinstated</span>
+                            <div key={v.voucherId} className="space-y-1 pl-4" data-testid={`row-voucher-detail-${v.voucherId}`}>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <CheckCircle className="w-3 h-3 text-green-600 shrink-0" />
+                                <span>Voucher {v.code}: £{parseFloat(v.amount).toFixed(2)} will be reinstated</span>
+                              </div>
+                              {!refundInFull && (
+                                <div className="pl-5 space-y-1">
+                                  <Label className="text-xs text-muted-foreground">
+                                    Custom reinstatement (max: £{parseFloat(v.amount).toFixed(2)})
+                                  </Label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">£</span>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max={parseFloat(v.amount)}
+                                      value={allocationVouchers[v.voucherId] || ''}
+                                      onChange={(e) => setAllocationVouchers(prev => ({ ...prev, [v.voucherId]: e.target.value }))}
+                                      className="pl-7"
+                                      placeholder={parseFloat(v.amount).toFixed(2)}
+                                      data-testid={`input-allocation-voucher-${v.voucherId}`}
+                                    />
+                                  </div>
+                                  {allocationVouchers[v.voucherId] && parseFloat(allocationVouchers[v.voucherId]) > parseFloat(v.amount) && (
+                                    <p className="text-xs text-destructive">Cannot exceed £{parseFloat(v.amount).toFixed(2)}</p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                           return (
@@ -1150,7 +1238,7 @@ export default function CancellationRequests() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); }}
+              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); setAllocationTrainingFund(''); setAllocationVouchers({}); }}
               data-testid="button-review-cancel"
             >
               Cancel

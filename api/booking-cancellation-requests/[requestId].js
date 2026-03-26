@@ -85,7 +85,7 @@ export default async function handler(req, res) {
       const effectiveAmount = (custom_refund_amount !== undefined && custom_refund_amount !== null)
         ? custom_refund_amount
         : (refund_allocation?.stripeAmount !== undefined ? refund_allocation.stripeAmount : null);
-      const cancellationResult = await processCancellation(request, tenantId, reversalOptions, effectiveAmount, credit_note_email);
+      const cancellationResult = await processCancellation(request, tenantId, reversalOptions, effectiveAmount, credit_note_email, refund_allocation);
       if (!cancellationResult.success) {
         const isValidationError = cancellationResult.error && cancellationResult.error.includes('custom_refund_amount');
         const statusCode = isValidationError ? 400 : 500;
@@ -135,7 +135,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function processCancellation(request, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null) {
+async function processCancellation(request, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null, refund_allocation = null) {
   const reversalResults = {
     trainingFund: null,
     vouchers: [],
@@ -214,8 +214,17 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
     // --- Training Fund Reinstatement ---
     if (booking.training_fund_amount > 0 && org) {
       try {
+        let refundTrainingAmount = booking.training_fund_amount;
+        if (refund_allocation && refund_allocation.trainingFundAmount !== undefined) {
+          const allocatedAmt = parseFloat(refund_allocation.trainingFundAmount) || 0;
+          refundTrainingAmount = Math.min(allocatedAmt, booking.training_fund_amount);
+        }
+        if (refundTrainingAmount <= 0) {
+          reversalResults.trainingFund = { amount: 0, success: true, skipped: true };
+          console.log(`[CancellationRequest] Training fund refund skipped per allocation`);
+        } else {
         const currentBalance = org.training_fund_balance || 0;
-        const newBalance = currentBalance + booking.training_fund_amount;
+        const newBalance = currentBalance + refundTrainingAmount;
 
         await supabase
           .from('organization')
@@ -225,7 +234,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
         await supabase.from('training_fund_transaction').insert({
           organization_id: org.id,
           type: 'cancellation_refund',
-          amount: booking.training_fund_amount,
+          amount: refundTrainingAmount,
           balance_before: currentBalance,
           balance_after: newBalance,
           reason: `Cancellation refund: ${booking.booking_reference || booking.id}`,
@@ -236,8 +245,9 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
         });
 
         org.training_fund_balance = newBalance;
-        reversalResults.trainingFund = { amount: booking.training_fund_amount, success: true };
-        console.log(`[CancellationRequest] Training fund reinstated: £${booking.training_fund_amount}`);
+        reversalResults.trainingFund = { amount: refundTrainingAmount, success: true };
+        console.log(`[CancellationRequest] Training fund reinstated: £${refundTrainingAmount}`);
+        }
       } catch (err) {
         console.error('[CancellationRequest] Training fund reinstatement error:', err);
         reversalResults.trainingFund = { amount: booking.training_fund_amount, success: false, error: err.message };
@@ -282,8 +292,19 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
 
             const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
 
+            let voucherRefundAmount = vtx.amount;
+            if (refund_allocation && refund_allocation.vouchers && refund_allocation.vouchers[String(voucher.id)] !== undefined) {
+              const allocatedVoucherAmt = parseFloat(refund_allocation.vouchers[String(voucher.id)]) || 0;
+              voucherRefundAmount = Math.min(allocatedVoucherAmt, vtx.amount);
+              if (voucherRefundAmount <= 0) {
+                reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: 0, success: true, skipped: true });
+                console.log(`[CancellationRequest] Voucher ${voucher.code} refund skipped per allocation`);
+                continue;
+              }
+            }
+
             if (!isExpired) {
-              const newValue = voucher.value + vtx.amount;
+              const newValue = voucher.value + voucherRefundAmount;
               await supabase
                 .from('voucher')
                 .update({ value: newValue, status: 'active' })
@@ -297,7 +318,7 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
                 event_title: vtx.event_title || 'Cancellation refund',
                 member_id: booking.member_id,
                 member_email: vtx.member_email || booking.attendee_email,
-                amount: vtx.amount,
+                amount: voucherRefundAmount,
                 balance_before: voucher.value,
                 balance_after: newValue,
                 type: 'cancellation_refund',
@@ -305,8 +326,8 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
                 tenant_id: tenantId
               });
 
-              reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: true, reinstated: true });
-              console.log(`[CancellationRequest] Voucher ${voucher.code} reinstated: £${vtx.amount}`);
+              reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherRefundAmount, success: true, reinstated: true });
+              console.log(`[CancellationRequest] Voucher ${voucher.code} reinstated: £${voucherRefundAmount}`);
             } else {
               // Voucher expired — check if admin wants a replacement
               const replacementOption = reversalOptions.voucherReplacements?.find(r => String(r.voucherId) === String(voucher.id));

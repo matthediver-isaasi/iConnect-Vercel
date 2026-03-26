@@ -223,8 +223,23 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
       if (booking.training_fund_amount > 0 && org) {
         try {
+          const totalTrainingFundFromBookings = bookings.reduce((sum, b) => sum + (parseFloat(b.training_fund_amount) || 0), 0);
+          let refundTrainingAmount = booking.training_fund_amount;
+          if (refund_allocation && refund_allocation.trainingFundAmount !== undefined) {
+            const allocatedTotal = parseFloat(refund_allocation.trainingFundAmount) || 0;
+            if (allocatedTotal <= 0) {
+              console.log(`[GroupApproval] Training fund refund skipped per allocation (0) for booking ${booking.id}`);
+              refundTrainingAmount = 0;
+            } else if (allocatedTotal < totalTrainingFundFromBookings) {
+              const ratio = allocatedTotal / totalTrainingFundFromBookings;
+              refundTrainingAmount = Math.round(booking.training_fund_amount * ratio * 100) / 100;
+            }
+          }
+          if (refundTrainingAmount <= 0) {
+            reversalResults.trainingFund.push({ bookingId: booking.id, amount: 0, success: true, skipped: true });
+          } else {
           const currentBalance = org.training_fund_balance || 0;
-          const newBalance = currentBalance + booking.training_fund_amount;
+          const newBalance = currentBalance + refundTrainingAmount;
 
           await supabase
             .from('organization')
@@ -234,7 +249,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
           await supabase.from('training_fund_transaction').insert({
             organization_id: org.id,
             type: 'cancellation_refund',
-            amount: booking.training_fund_amount,
+            amount: refundTrainingAmount,
             balance_before: currentBalance,
             balance_after: newBalance,
             reason: `Cancellation refund: ${booking.booking_reference || booking.id}`,
@@ -245,8 +260,9 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
           });
 
           org.training_fund_balance = newBalance;
-          reversalResults.trainingFund.push({ bookingId: booking.id, amount: booking.training_fund_amount, success: true });
-          console.log(`[GroupApproval] Training fund reinstated: £${booking.training_fund_amount} for booking ${booking.id}`);
+          reversalResults.trainingFund.push({ bookingId: booking.id, amount: refundTrainingAmount, success: true });
+          console.log(`[GroupApproval] Training fund reinstated: £${refundTrainingAmount} for booking ${booking.id}`);
+          }
         } catch (err) {
           console.error(`[GroupApproval] Training fund reinstatement error for booking ${booking.id}:`, err);
           reversalResults.trainingFund.push({ bookingId: booking.id, amount: booking.training_fund_amount, success: false, error: err.message });
@@ -361,8 +377,19 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
 
             const isExpired = voucher.expires_at && new Date(voucher.expires_at) < new Date();
 
+            let voucherRefundAmount = vtx.amount;
+            if (refund_allocation && refund_allocation.vouchers && refund_allocation.vouchers[String(voucher.id)] !== undefined) {
+              const allocatedVoucherAmt = parseFloat(refund_allocation.vouchers[String(voucher.id)]) || 0;
+              voucherRefundAmount = Math.min(allocatedVoucherAmt, vtx.amount);
+              if (voucherRefundAmount <= 0) {
+                reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: 0, success: true, skipped: true });
+                console.log(`[GroupApproval] Voucher ${voucher.code} refund skipped per allocation`);
+                continue;
+              }
+            }
+
             if (!isExpired) {
-              const newValue = voucher.value + vtx.amount;
+              const newValue = voucher.value + voucherRefundAmount;
               await supabase
                 .from('voucher')
                 .update({ value: newValue, status: 'active' })
@@ -376,7 +403,7 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
                 event_title: vtx.event_title || 'Group cancellation refund',
                 member_id: firstBooking.member_id,
                 member_email: vtx.member_email || firstBooking.attendee_email,
-                amount: vtx.amount,
+                amount: voucherRefundAmount,
                 balance_before: voucher.value,
                 balance_after: newValue,
                 type: 'cancellation_refund',
@@ -384,8 +411,8 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
                 tenant_id: tenantId
               });
 
-              reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: vtx.amount, success: true, reinstated: true });
-              console.log(`[GroupApproval] Voucher ${voucher.code} reinstated: £${vtx.amount}`);
+              reversalResults.vouchers.push({ voucherId: voucher.id, code: voucher.code, amount: voucherRefundAmount, success: true, reinstated: true });
+              console.log(`[GroupApproval] Voucher ${voucher.code} reinstated: £${voucherRefundAmount}`);
             } else {
               const replacementOption = reversalOptions.voucherReplacements?.find(r => String(r.voucherId) === String(voucher.id));
               if (replacementOption && replacementOption.newExpiryDate) {
