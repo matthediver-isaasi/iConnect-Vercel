@@ -70,7 +70,8 @@ export default function EmailCampaignEdit() {
     design_json: null,
     target_audiences: [],
     communication_category_id: '',
-    scheduled_at: ''
+    scheduled_at: '',
+    is_test_mode: false
   });
   const [editorMode, setEditorMode] = useState('visual');
 
@@ -131,7 +132,8 @@ export default function EmailCampaignEdit() {
         design_json: parsedDesign || null,
         target_audiences: audiences,
         communication_category_id: campaign.communication_category_id || '',
-        scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : ''
+        scheduled_at: campaign.scheduled_at ? new Date(campaign.scheduled_at).toISOString().slice(0, 16) : '',
+        is_test_mode: campaign.is_test_mode || false
       });
       setScheduleMode(campaign.scheduled_at ? 'scheduled' : 'immediate');
     }
@@ -875,6 +877,40 @@ export default function EmailCampaignEdit() {
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-lg">
+              <TestTube2 className="w-5 h-5 text-blue-600" />
+              Test Mode
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border hover-elevate">
+              <input
+                type="checkbox"
+                checked={formData.is_test_mode}
+                onChange={(e) => setFormData(prev => ({ ...prev, is_test_mode: e.target.checked }))}
+                className="w-4 h-4 mt-0.5"
+                data-testid="checkbox-test-mode"
+              />
+              <div>
+                <div className="font-medium">Enable test mode</div>
+                <div className="text-sm text-muted-foreground">
+                  When enabled, the full sending pipeline runs (recipients queued, batches processed, statuses updated) but Mailgun will not deliver the emails. Use this to safely validate campaign setup and audience targeting.
+                </div>
+              </div>
+            </label>
+            {formData.is_test_mode && (
+              <Alert className="mt-3">
+                <TestTube2 className="h-4 w-4" />
+                <AlertDescription>
+                  Test mode is active. No emails will be delivered to recipients when this campaign is sent.
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
               <Code className="w-5 h-5 text-blue-600" />
               Email Content
             </CardTitle>
@@ -1117,6 +1153,22 @@ export default function EmailCampaignEdit() {
               </div>
             )}
           </div>
+          {campaign?.is_test_mode && (
+            <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+              <TestTube2 className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-800 dark:text-blue-200">
+                <strong>Test Mode</strong> — No emails will be delivered. The full pipeline will run but Mailgun will not send any messages.
+              </AlertDescription>
+            </Alert>
+          )}
+          {formData.is_test_mode !== (campaign?.is_test_mode || false) && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Test mode setting has unsaved changes. The saved campaign has test mode <strong>{campaign?.is_test_mode ? 'enabled' : 'disabled'}</strong>, but your current form has it <strong>{formData.is_test_mode ? 'enabled' : 'disabled'}</strong>. Please save your changes first.
+              </AlertDescription>
+            </Alert>
+          )}
           {recipientCountMismatch && serverRecipientCount !== null && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
@@ -1144,7 +1196,7 @@ export default function EmailCampaignEdit() {
             </Button>
             <Button
               onClick={handleSendCampaign}
-              disabled={sending || loadingServerCount || serverRecipientCount === 0 || serverRecipientCount === null || recipientCountMismatch}
+              disabled={sending || loadingServerCount || serverRecipientCount === 0 || serverRecipientCount === null || recipientCountMismatch || formData.is_test_mode !== (campaign?.is_test_mode || false)}
               className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
               data-testid="button-confirm-send"
             >

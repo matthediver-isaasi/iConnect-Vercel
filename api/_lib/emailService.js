@@ -205,7 +205,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, unsubscribeUrl = null, attachments = null, testMode = false }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -290,6 +290,11 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       const mailtoAddress = `unsubscribe@${domain}`;
       messageData['h:List-Unsubscribe'] = `<mailto:${mailtoAddress}>, <${unsubscribeUrl}>`;
       messageData['h:List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+    }
+
+    if (testMode) {
+      messageData['o:testmode'] = 'yes';
+      console.log(`[Email Service] Test mode enabled — Mailgun will accept but not deliver this email`);
     }
 
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {

@@ -759,7 +759,15 @@ export default function EmailCampaigns() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            {getStatusBadge(campaign.status)}
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {getStatusBadge(campaign.status)}
+                              {campaign.is_test_mode && (
+                                <Badge variant="outline" className="border-blue-500 text-blue-600" data-testid={`badge-test-mode-${campaign.id}`}>
+                                  <TestTube2 className="w-3 h-3 mr-1" />
+                                  Test
+                                </Badge>
+                              )}
+                            </div>
                             {campaign.status === 'sending' && campaign.total_recipients > 0 && (
                               <span className="text-xs text-amber-600" data-testid={`text-sending-progress-${campaign.id}`}>
                                 {campaign.sent_count || 0} / {campaign.total_recipients} sent
@@ -1057,6 +1065,15 @@ export default function EmailCampaigns() {
                       )}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+
+              {previewData?.campaign?.is_test_mode && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 p-3 flex items-start gap-2">
+                  <TestTube2 className="w-4 h-4 mt-0.5 text-blue-600 shrink-0" />
+                  <div className="text-sm text-blue-800 dark:text-blue-200">
+                    <span className="font-semibold">Test Mode</span> — No emails will be delivered. The full pipeline will run but Mailgun will not send any messages.
+                  </div>
                 </div>
               )}
 

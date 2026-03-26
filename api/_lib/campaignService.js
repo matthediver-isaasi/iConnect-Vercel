@@ -1224,7 +1224,8 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
       skipFooter: designInfo.skipFooter,
       contentWidth: designInfo.contentWidth,
       enableTracking: true,
-      unsubscribeUrl: oneClickUnsubscribeUrl
+      unsubscribeUrl: oneClickUnsubscribeUrl,
+      testMode: !!campaign.is_test_mode
     });
 
     if (result.success) {
