@@ -13,7 +13,7 @@ import {
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
-  ChevronDown, ChevronRight, ExternalLink, Download
+  ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -40,6 +40,9 @@ export default function EmailCampaigns() {
   const [searchingMembers, setSearchingMembers] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [duplicating, setDuplicating] = useState(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [campaignToCancel, setCampaignToCancel] = useState(null);
+  const [cancelling, setCancelling] = useState(null);
   const [statsDetailView, setStatsDetailView] = useState(false);
   const [statsRecipients, setStatsRecipients] = useState([]);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
@@ -212,6 +215,34 @@ export default function EmailCampaigns() {
       toast.error(error.message);
     } finally {
       setDuplicating(null);
+    }
+  };
+
+  const handleCancelCampaign = async () => {
+    if (!campaignToCancel) return;
+    setCancelling(campaignToCancel.id);
+    setShowCancelConfirm(false);
+    try {
+      const response = await fetch(`/api/email-campaigns/${campaignToCancel.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'cancel' })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to cancel campaign');
+      }
+
+      const result = await response.json();
+      toast.success(`Campaign stopped. ${result.alreadySent} emails already sent, ${result.cancelledRecipients} cancelled.`);
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setCancelling(null);
+      setCampaignToCancel(null);
     }
   };
 
@@ -788,6 +819,26 @@ export default function EmailCampaigns() {
                                 </Button>
                               </>
                             )}
+                            {(campaign.status === 'sending' || campaign.status === 'scheduled') && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setCampaignToCancel(campaign);
+                                  setShowCancelConfirm(true);
+                                }}
+                                disabled={cancelling === campaign.id}
+                                title="Stop Campaign"
+                                className="text-destructive hover:text-destructive"
+                                data-testid={`button-cancel-${campaign.id}`}
+                              >
+                                {cancelling === campaign.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Square className="w-4 h-4" />
+                                )}
+                              </Button>
+                            )}
                             {campaign.status === 'sent' && (
                               <Button
                                 variant="ghost"
@@ -852,6 +903,44 @@ export default function EmailCampaigns() {
             </Button>
             <Button variant="destructive" onClick={handleDeleteCampaign}>
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+              Stop Campaign
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  Are you sure you want to stop "{campaignToCancel?.name}"?
+                </p>
+                {campaignToCancel?.status === 'sending' && (
+                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                    This campaign is currently sending. Some emails may have already been delivered.
+                    Stopping will cancel all remaining unsent emails.
+                  </div>
+                )}
+                {campaignToCancel?.status === 'scheduled' && (
+                  <p className="text-muted-foreground">
+                    This campaign is scheduled but has not started sending yet. No emails have been sent.
+                  </p>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowCancelConfirm(false); setCampaignToCancel(null); }} data-testid="button-cancel-stop-dismiss">
+              Keep Running
+            </Button>
+            <Button variant="destructive" onClick={handleCancelCampaign} data-testid="button-cancel-stop-confirm">
+              <Square className="w-4 h-4 mr-2" />
+              Stop Campaign
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -263,6 +263,95 @@ export async function duplicateCampaign(campaignId, tenantId, createdBy) {
   }
 }
 
+export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
+  if (!supabase) {
+    return { success: false, error: 'Database not configured' };
+  }
+
+  try {
+    const { data: campaign, error: fetchError } = await supabase
+      .from('email_campaign')
+      .select('id, status, name, total_recipients')
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (fetchError || !campaign) {
+      return { success: false, error: 'Campaign not found' };
+    }
+
+    if (campaign.status !== 'sending' && campaign.status !== 'scheduled') {
+      return { success: false, error: `Cannot cancel campaign with status: ${campaign.status}. Only sending or scheduled campaigns can be cancelled.` };
+    }
+
+    const cancelledAt = new Date().toISOString();
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('email_campaign')
+      .update({
+        status: 'cancelled',
+        cancelled_at: cancelledAt,
+        cancelled_by: cancelledBy,
+        updated_at: cancelledAt
+      })
+      .eq('id', campaignId)
+      .eq('tenant_id', tenantId)
+      .in('status', ['sending', 'scheduled'])
+      .select('id');
+
+    if (updateError) throw updateError;
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return { success: false, error: `Campaign status has already changed and cannot be cancelled. Current status: ${campaign.status}` };
+    }
+
+    let cancelledRecipients = 0;
+    let alreadySent = 0;
+
+    if (campaign.status === 'sending') {
+      const { count: pendingCount } = await supabase
+        .from('email_campaign_recipient')
+        .select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId)
+        .in('status', ['pending', 'processing']);
+
+      const { error: recipientError } = await supabase
+        .from('email_campaign_recipient')
+        .update({ status: 'cancelled' })
+        .eq('campaign_id', campaignId)
+        .in('status', ['pending', 'processing']);
+
+      if (recipientError) {
+        console.error('[Campaign Service] Error cancelling pending recipients:', recipientError);
+      }
+
+      cancelledRecipients = pendingCount || 0;
+
+      const { count: sentCount } = await supabase
+        .from('email_campaign_recipient')
+        .select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId)
+        .in('status', ['sent', 'delivered', 'opened', 'clicked']);
+
+      alreadySent = sentCount || 0;
+    }
+
+    console.log(`[Campaign Service] Campaign ${campaignId} (${campaign.name}) CANCELLED by ${cancelledBy || 'unknown'} — ${alreadySent} already sent, ${cancelledRecipients} cancelled`);
+
+    return {
+      success: true,
+      cancelled: true,
+      campaignId,
+      campaignName: campaign.name,
+      alreadySent,
+      cancelledRecipients,
+      cancelledAt
+    };
+  } catch (err) {
+    console.error('[Campaign Service] Error cancelling campaign:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export async function deleteCampaign(campaignId, tenantId) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
@@ -1010,6 +1099,12 @@ export async function processSendingCampaigns() {
 
       const campaign = campaignResult.campaign;
 
+      if (campaign.status === 'cancelled') {
+        console.log(`[Campaign Service] Campaign ${sc.id} (${sc.name}) was cancelled — stopping batch processing`);
+        results.push({ campaignId: sc.id, name: sc.name, status: 'cancelled' });
+        continue;
+      }
+
       const { data: tenant } = await supabase
         .from('tenant')
         .select('slug')
@@ -1022,6 +1117,11 @@ export async function processSendingCampaigns() {
 
       if (batchResult.remaining === 0) {
         const freshCampaign = await getCampaign(sc.id, sc.tenant_id);
+        if (freshCampaign.campaign?.status === 'cancelled') {
+          console.log(`[Campaign Service] Campaign ${sc.id} was cancelled during batch — not marking as sent`);
+          results.push({ campaignId: sc.id, name: sc.name, status: 'cancelled' });
+          continue;
+        }
         await updateCampaign(sc.id, {
           status: 'sent',
           completed_at: new Date().toISOString(),
@@ -1309,6 +1409,18 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null) {
     const batchResult = await sendBatch(campaignId, tenantId, updatedCampaign, tenantSlug, requestHost);
 
     if (batchResult.remaining === 0) {
+      const finalCheck = await getCampaign(campaignId, tenantId);
+      if (finalCheck.campaign?.status === 'cancelled') {
+        console.log(`[Campaign Service] Campaign ${campaignId} was cancelled during send — not marking as sent`);
+        return {
+          success: true,
+          status: 'cancelled',
+          totalRecipients: recipients.length,
+          sent: batchResult.sent,
+          failed: batchResult.failed,
+          remaining: 0
+        };
+      }
       await updateCampaign(campaignId, {
         status: 'sent',
         completed_at: new Date().toISOString()

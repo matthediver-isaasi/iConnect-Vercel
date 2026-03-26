@@ -1,5 +1,5 @@
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
+import { getCampaign, updateCampaign, deleteCampaign, duplicateCampaign, cancelCampaign, getCampaignStats, getClickHeatmapData, getCampaignRecipients } from '../_lib/campaignService.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
@@ -57,6 +57,17 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: result.error });
       }
       return res.status(201).json(result.campaign);
+    }
+    if (action === 'cancel') {
+      if (!tenantContext.memberId) {
+        return res.status(401).json({ error: 'Authentication required to cancel a campaign' });
+      }
+      const result = await cancelCampaign(id, tenantId, tenantContext.memberId);
+      if (!result.success) {
+        const statusCode = result.error?.includes('Cannot cancel') || result.error?.includes('already changed') ? 400 : result.error?.includes('not found') ? 404 : 500;
+        return res.status(statusCode).json({ error: result.error });
+      }
+      return res.json(result);
     }
     return res.status(400).json({ error: 'Invalid action' });
   }
