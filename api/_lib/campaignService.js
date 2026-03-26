@@ -866,11 +866,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     const communicationCategoryId = campaign.communication_category_id;
     if (communicationCategoryId) {
       const beforeCategory = allRecipients.length;
-      const memberRecipients = allRecipients.filter(r => r.member_id || r.id);
-      const memberIds = [...new Set(memberRecipients.map(r => r.member_id || r.id).filter(Boolean))];
+      const memberIds = [...new Set(allRecipients.map(r => r.member_id).filter(Boolean))];
 
       if (memberIds.length > 0) {
-        const unsubscribedMemberIds = new Set();
+        const subscribedMemberIds = new Set();
         const PAGE_SIZE = 100;
 
         for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
@@ -879,34 +878,33 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
             .from('member_communication_preference')
             .select('member_id')
             .eq('category_id', communicationCategoryId)
-            .eq('is_subscribed', false)
+            .eq('is_subscribed', true)
             .in('member_id', batch);
 
           if (prefError) {
-            console.error(`[Campaign Service] Error fetching category opt-outs for batch ${i / PAGE_SIZE + 1}:`, prefError.message || prefError);
+            console.error(`[Campaign Service] Error fetching category subscriptions for batch ${i / PAGE_SIZE + 1}:`, prefError.message || prefError);
           }
 
           if (prefs && prefs.length > 0) {
             for (const p of prefs) {
-              unsubscribedMemberIds.add(p.member_id);
+              subscribedMemberIds.add(p.member_id);
             }
           }
         }
 
-        console.log(`[Campaign Service] Category opt-out filter: excluded ${unsubscribedMemberIds.size} members for category ${communicationCategoryId}`);
+        const excludedCount = memberIds.length - subscribedMemberIds.size;
+        console.log(`[Campaign Service] Category subscription filter: ${subscribedMemberIds.size} members subscribed, ${excludedCount} excluded (no record or unsubscribed) for category ${communicationCategoryId}`);
 
         if (detailedLists) {
           const catMemberRemoved = allRecipients.filter(r => {
-            const memberId = r.member_id || r.id;
-            return memberId && unsubscribedMemberIds.has(memberId);
+            return r.member_id && !subscribedMemberIds.has(r.member_id);
           });
           categoryOptOutList.push(...catMemberRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
         }
 
         allRecipients = allRecipients.filter(r => {
-          const memberId = r.member_id || r.id;
-          if (!memberId) return true;
-          return !unsubscribedMemberIds.has(memberId);
+          if (!r.member_id) return true;
+          return subscribedMemberIds.has(r.member_id);
         });
       }
 
