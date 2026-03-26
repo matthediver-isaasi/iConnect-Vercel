@@ -368,6 +368,9 @@ export default function EmailCampaignEdit() {
       const result = await response.json();
       toast.success(isEditing ? 'Campaign updated' : 'Campaign created');
       queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+      if (isEditing) {
+        queryClient.invalidateQueries({ queryKey: ['email-campaign', id] });
+      }
       
       if (!isEditing && result.id) {
         navigate(`/EmailCampaignEdit/${result.id}`, { replace: true });
