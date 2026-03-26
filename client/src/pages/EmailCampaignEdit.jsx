@@ -38,6 +38,7 @@ export default function EmailCampaignEdit() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewMode, setPreviewMode] = useState('desktop');
   const [recipientPreviewCount, setRecipientPreviewCount] = useState(null);
+  const [recipientStats, setRecipientStats] = useState(null);
   const [loadingRecipientCount, setLoadingRecipientCount] = useState(false);
   const [showTestEmailDialog, setShowTestEmailDialog] = useState(false);
   const [testEmailAddress, setTestEmailAddress] = useState('');
@@ -204,6 +205,7 @@ export default function EmailCampaignEdit() {
     const fetchRecipientCount = async () => {
       if (selectedListIds.length === 0) {
         setRecipientPreviewCount(null);
+        setRecipientStats(null);
         return;
       }
 
@@ -225,6 +227,7 @@ export default function EmailCampaignEdit() {
         if (response.ok) {
           const data = await response.json();
           setRecipientPreviewCount(data.recipientCount);
+          setRecipientStats(data.stats || null);
         }
       } catch (e) {
         console.error('Failed to fetch recipient count:', e);
@@ -743,20 +746,51 @@ export default function EmailCampaignEdit() {
             {hasAudienceSelected && (
               <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md p-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                    <Mail className="w-4 h-4" />
+                  <div className="flex-1 min-w-0">
                     {loadingRecipientCount ? (
-                      <span className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Calculating recipients...
-                      </span>
+                        <span>Calculating recipients...</span>
+                      </div>
+                    ) : recipientPreviewCount !== null && recipientStats ? (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                          <Mail className="w-4 h-4 flex-shrink-0" />
+                          <span className="font-medium">
+                            {recipientStats.finalCount} {recipientStats.finalCount === 1 ? 'recipient' : 'recipients'} will receive this email
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground ml-6 space-y-0.5">
+                          <div data-testid="text-audience-total">Audience total: {recipientStats.totalAudience}</div>
+                          {recipientStats.globalOptOuts > 0 && (
+                            <div data-testid="text-global-optouts" className="text-orange-600 dark:text-orange-400">
+                              Globally opted out: -{recipientStats.globalOptOuts}
+                            </div>
+                          )}
+                          {formData.communication_category_id && recipientStats.categoryOptOuts > 0 && (
+                            <div data-testid="text-category-optouts" className="text-orange-600 dark:text-orange-400">
+                              Category opted out: -{recipientStats.categoryOptOuts}
+                            </div>
+                          )}
+                          {recipientStats.duplicatesRemoved > 0 && (
+                            <div data-testid="text-duplicates-removed">
+                              Duplicates removed: -{recipientStats.duplicatesRemoved}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     ) : recipientPreviewCount !== null ? (
-                      <span className="font-medium">
-                        {recipientPreviewCount} {recipientPreviewCount === 1 ? 'recipient' : 'recipients'} will receive this email
-                        {formData.communication_category_id && ' (after category filtering)'}
-                      </span>
+                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                        <Mail className="w-4 h-4" />
+                        <span className="font-medium">
+                          {recipientPreviewCount} {recipientPreviewCount === 1 ? 'recipient' : 'recipients'} will receive this email
+                        </span>
+                      </div>
                     ) : (
-                      <span>Calculating...</span>
+                      <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                        <Mail className="w-4 h-4" />
+                        <span>Calculating...</span>
+                      </div>
                     )}
                   </div>
                   {recipientPreviewCount !== null && recipientPreviewCount > 0 && (

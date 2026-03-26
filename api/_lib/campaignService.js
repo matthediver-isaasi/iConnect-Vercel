@@ -837,7 +837,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
       allRecipients.push(...segRecipients);
     }
 
+    const totalAudience = allRecipients.length;
+
     // Step 1: Remove members with global opt-out (communications_opted_out_all flag)
+    const beforeGlobal = allRecipients.length;
     allRecipients = allRecipients.filter(r => r.communications_opted_out_all !== true);
 
     // Step 1b: Remove emails with global unsubscribe record
@@ -849,10 +852,13 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
 
     const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
     allRecipients = allRecipients.filter(r => !globalUnsubSet.has(r.email.toLowerCase()));
+    const globalOptOuts = beforeGlobal - allRecipients.length;
 
     // Step 2: Filter by campaign's communication category (subscription category funnel)
+    let categoryOptOuts = 0;
     const communicationCategoryId = campaign.communication_category_id;
     if (communicationCategoryId) {
+      const beforeCategory = allRecipients.length;
       const memberRecipients = allRecipients.filter(r => r.member_id || r.id);
       const memberIds = [...new Set(memberRecipients.map(r => r.member_id || r.id).filter(Boolean))];
 
@@ -905,9 +911,11 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
         const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));
         allRecipients = allRecipients.filter(r => !categoryUnsubSet.has(r.email.toLowerCase()));
       }
+      categoryOptOuts = beforeCategory - allRecipients.length;
     }
 
     // Deduplicate by email
+    const beforeDedup = allRecipients.length;
     const uniqueRecipients = [];
     const seenEmails = new Set();
     for (const r of allRecipients) {
@@ -917,12 +925,21 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
         uniqueRecipients.push(r);
       }
     }
+    const duplicatesRemoved = beforeDedup - uniqueRecipients.length;
+
+    const stats = {
+      totalAudience,
+      globalOptOuts,
+      categoryOptOuts,
+      duplicatesRemoved,
+      finalCount: uniqueRecipients.length,
+    };
 
     if (countOnly) {
-      return { success: true, count: uniqueRecipients.length };
+      return { success: true, count: uniqueRecipients.length, stats };
     }
 
-    return { success: true, recipients: uniqueRecipients };
+    return { success: true, recipients: uniqueRecipients, stats };
   } catch (err) {
     console.error('[Campaign Service] Error getting recipients:', err);
     return { success: false, error: err.message };

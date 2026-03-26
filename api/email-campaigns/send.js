@@ -35,7 +35,8 @@ export default async function handler(req, res) {
     const response = {
       success: true,
       preview: true,
-      recipientCount: recipientsResult.recipients.length
+      recipientCount: recipientsResult.recipients.length,
+      stats: recipientsResult.stats || null,
     };
 
     if (previewList === true) {
