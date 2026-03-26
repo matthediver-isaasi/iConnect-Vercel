@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   }
 
   const tenantId = ctx.tenantId;
-  const { request_ids, status, review_notes, reversal_options, custom_refund_amount, credit_note_email } = req.body;
+  const { request_ids, status, review_notes, reversal_options, custom_refund_amount, credit_note_email, suppress_emails, refund_allocation } = req.body;
 
   if (!request_ids || !Array.isArray(request_ids) || request_ids.length === 0) {
     return res.status(400).json({ error: 'request_ids is required and must be a non-empty array' });
@@ -66,11 +66,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Some requests are not pending or not found: ${missing.join(', ')}` });
     }
 
-    const nonGroupRequests = pendingRequests.filter(r => r.request_type !== 'group');
-    if (nonGroupRequests.length > 0) {
-      return res.status(400).json({ error: 'All requests must be of type "group". Use the individual approval endpoint for non-group requests.' });
-    }
-
     const groupRefs = [...new Set(pendingRequests.map(r => r.booking_group_reference).filter(Boolean))];
     if (groupRefs.length === 0) {
       return res.status(400).json({ error: 'All requests must have a booking_group_reference for group approval' });
@@ -97,7 +92,8 @@ export default async function handler(req, res) {
         }
       }
       const reversalOptions = reversal_options || {};
-      const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, custom_refund_amount, credit_note_email);
+      const effectiveCustomRefund = refund_allocation?.stripeAmount ?? custom_refund_amount;
+      const result = await processGroupCancellation(pendingRequests, tenantId, reversalOptions, effectiveCustomRefund, credit_note_email, refund_allocation);
       if (!result.success) {
         const isValidationError = result.error && result.error.includes('custom_refund_amount');
         const statusCode = isValidationError ? 400 : 500;
@@ -129,16 +125,20 @@ export default async function handler(req, res) {
       console.warn(`[GroupApproval] Expected to update ${request_ids.length} requests but only ${updatedRows?.length || 0} were still pending — possible concurrent approval`);
     }
 
-    try {
-      await sendGroupNotificationEmails({
-        requests: pendingRequests,
-        status,
-        tenantId,
-        reviewNotes: review_notes || null,
-        reversalResults,
-      });
-    } catch (emailErr) {
-      console.error('[GroupApproval] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| requestIds:', request_ids);
+    if (suppress_emails) {
+      console.log(`[GroupApproval] Notification emails suppressed by reviewer for ${pendingRequests.length} request(s)`);
+    } else {
+      try {
+        await sendGroupNotificationEmails({
+          requests: pendingRequests,
+          status,
+          tenantId,
+          reviewNotes: review_notes || null,
+          reversalResults,
+        });
+      } catch (emailErr) {
+        console.error('[GroupApproval] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| requestIds:', request_ids);
+      }
     }
 
     console.log(`[GroupApproval] ${status} ${pendingRequests.length} group cancellation request(s)`);
@@ -149,7 +149,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function processGroupCancellation(requests, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null) {
+async function processGroupCancellation(requests, tenantId, reversalOptions = {}, custom_refund_amount = null, credit_note_email = null, refund_allocation = null) {
   const reversalResults = {
     trainingFund: [],
     vouchers: [],

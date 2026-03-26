@@ -362,7 +362,7 @@ async function handleGet(req, res) {
     });
 
     const groupFinancialSummaries = {};
-    const pendingGroupRequests = enrichedRequests.filter(r => r.status === 'pending' && r.request_type === 'group' && r.booking_group_reference);
+    const pendingGroupRequests = enrichedRequests.filter(r => r.status === 'pending' && r.booking_group_reference);
     const groupsByRef = {};
     for (const r of pendingGroupRequests) {
       if (!groupsByRef[r.booking_group_reference]) groupsByRef[r.booking_group_reference] = [];
@@ -445,7 +445,7 @@ async function handleGet(req, res) {
     }
 
     for (const r of enrichedRequests) {
-      if (r.request_type === 'group' && r.booking_group_reference && groupFinancialSummaries[r.booking_group_reference]) {
+      if (r.booking_group_reference && groupFinancialSummaries[r.booking_group_reference]) {
         r.groupFinancialSummary = groupFinancialSummaries[r.booking_group_reference];
       }
     }

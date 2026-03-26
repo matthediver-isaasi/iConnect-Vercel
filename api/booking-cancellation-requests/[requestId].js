@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Request ID is required' });
   }
 
-  const { status, review_notes, reversal_options, custom_refund_amount, credit_note_email } = req.body;
+  const { status, review_notes, reversal_options, custom_refund_amount, credit_note_email, suppress_emails } = req.body;
 
   if (!status || !['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'status must be "approved" or "rejected"' });
@@ -106,16 +106,20 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to update request status' });
     }
 
-    try {
-      await sendCancellationNotificationEmails({
-        request,
-        status,
-        tenantId,
-        reviewNotes: review_notes || null,
-        reversalResults,
-      });
-    } catch (emailErr) {
-      console.error('[CancellationRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', request.booking_id, '| requestId:', requestId);
+    if (suppress_emails) {
+      console.log(`[CancellationRequest] Notification emails suppressed by reviewer | requestId: ${requestId}`);
+    } else {
+      try {
+        await sendCancellationNotificationEmails({
+          request,
+          status,
+          tenantId,
+          reviewNotes: review_notes || null,
+          reversalResults,
+        });
+      } catch (emailErr) {
+        console.error('[CancellationRequest] Email notification error (non-blocking):', emailErr.stack || emailErr.message, '| bookingId:', request.booking_id, '| requestId:', requestId);
+      }
     }
 
     return res.json({ request: updated, reversalResults });

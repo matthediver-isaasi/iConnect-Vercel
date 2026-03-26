@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw, DollarSign, AlertTriangle, RotateCcw, ArrowRightLeft } from "lucide-react";
+import { Search, Calendar, User, Ticket, CheckCircle, XCircle, Clock, AlertCircle, Loader2, RefreshCw, DollarSign, AlertTriangle, RotateCcw, ArrowRightLeft, Mail, MailX } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -43,6 +43,8 @@ export default function CancellationRequests() {
   const [refundInFull, setRefundInFull] = useState(true);
   const [customRefundAmount, setCustomRefundAmount] = useState('');
   const [creditNoteEmail, setCreditNoteEmail] = useState('');
+  const [selectedTickets, setSelectedTickets] = useState({});
+  const [sendEmails, setSendEmails] = useState(true);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -106,7 +108,7 @@ export default function CancellationRequests() {
     const groups = {};
     for (const req of requests) {
       const baseKey = req.booking_group_reference || req.booking_id;
-      const key = `${baseKey}::${req.request_type || 'individual'}`;
+      const key = req.booking_group_reference ? baseKey : `${baseKey}::${req.request_type || 'individual'}`;
       if (!groups[key]) {
         groups[key] = {
           key: baseKey,
@@ -115,11 +117,15 @@ export default function CancellationRequests() {
           member: req.member,
           request_type: req.request_type,
           reason: req.reason,
+          reasons: [],
           created_at: req.created_at,
           items: [],
         };
       }
       groups[key].items.push(req);
+      if (req.reason && !groups[key].reasons.includes(req.reason)) {
+        groups[key].reasons.push(req.reason);
+      }
     }
     return Object.values(groups);
   }, [requests]);
@@ -205,8 +211,18 @@ export default function CancellationRequests() {
     setProcessing(true);
 
     try {
-      const requestIds = reviewDialog.items.map(i => i.id);
-      const isGroupRequest = reviewDialog.request_type === 'group';
+      const allItems = reviewDialog.items;
+      const selected = allItems.filter(i => selectedTickets[i.id] !== false);
+      const requestIds = selected.map(i => i.id);
+
+      if (requestIds.length === 0) {
+        toast.error('Please select at least one ticket');
+        setProcessing(false);
+        return;
+      }
+
+      const hasGroupRef = !!reviewDialog.booking_group_reference;
+      const useGroupEndpoint = hasGroupRef && requestIds.length > 1;
 
       const voucherReplacementsList = Object.entries(voucherReplacements)
         .filter(([, v]) => v.create && v.newExpiryDate)
@@ -221,11 +237,12 @@ export default function CancellationRequests() {
 
       let allReversalResults = [];
 
-      if (isGroupRequest) {
+      if (useGroupEndpoint) {
         const body = {
           request_ids: requestIds,
           status: action,
           review_notes: reviewNotes.trim() || null,
+          suppress_emails: !sendEmails,
         };
         if (action === 'approved') {
           body.reversal_options = reversalOpts;
@@ -259,6 +276,7 @@ export default function CancellationRequests() {
           const body = {
             status: action,
             review_notes: reviewNotes.trim() || null,
+            suppress_emails: !sendEmails,
           };
 
           if (action === 'approved' && i === 0) {
@@ -293,10 +311,10 @@ export default function CancellationRequests() {
       }
 
       if (action === 'approved') {
-        const messages = [`${requestIds.length} ticket(s) cancellation approved${isGroupRequest ? ' (consolidated)' : ''}`];
+        const messages = [`${requestIds.length} ticket(s) cancellation approved${useGroupEndpoint ? ' (consolidated)' : ''}`];
         const warnings = [];
         for (const rr of allReversalResults) {
-          if (isGroupRequest) {
+          if (useGroupEndpoint) {
             const totalTF = (rr.trainingFund || []).filter(t => t.success).reduce((sum, t) => sum + t.amount, 0);
             if (totalTF > 0) messages.push(`Training fund: £${totalTF.toFixed(2)} reinstated`);
             const programCount = (rr.programTickets || []).filter(p => p.success).length;
@@ -336,6 +354,8 @@ export default function CancellationRequests() {
       setRefundInFull(true);
       setCustomRefundAmount('');
       setCreditNoteEmail('');
+      setSelectedTickets({});
+      setSendEmails(true);
       queryClient.invalidateQueries({ queryKey: ['cancellation-requests'] });
     } catch (error) {
       console.error('Review error:', error);
@@ -585,8 +605,8 @@ export default function CancellationRequests() {
                       )}
 
                       {!isTransfer && allPending && (() => {
-                        const isGroup = group.request_type === 'group';
-                        const fs = isGroup ? firstItem.groupFinancialSummary : firstItem.financialSummary;
+                        const hasGrpFS = !!firstItem.groupFinancialSummary;
+                        const fs = hasGrpFS ? firstItem.groupFinancialSummary : firstItem.financialSummary;
                         if (!fs) return null;
                         const items = [];
                         if (fs.trainingFundAmount > 0) items.push(`Training Fund: £${fs.trainingFundAmount.toFixed(2)}`);
@@ -600,7 +620,7 @@ export default function CancellationRequests() {
                           <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground" data-testid="row-financial-preview">
                             <DollarSign className="w-3 h-3 shrink-0" />
                             <span>{items.join(' · ')}</span>
-                            {isGroup && fs.consolidated && (
+                            {hasGrpFS && fs.consolidated && (
                               <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
                                 Consolidated
                               </Badge>
@@ -614,10 +634,20 @@ export default function CancellationRequests() {
                         );
                       })()}
 
-                      {group.reason && (
+                      {(group.reasons?.length > 0 || group.reason) && (
                         <div className="p-3 bg-slate-50 rounded-md border border-slate-200">
-                          <p className="text-xs font-medium text-slate-500 mb-1">Reason</p>
-                          <p className="text-sm text-slate-700">{group.reason}</p>
+                          <p className="text-xs font-medium text-slate-500 mb-1">
+                            {group.reasons?.length > 1 ? 'Reasons' : 'Reason'}
+                          </p>
+                          {group.reasons?.length > 1 ? (
+                            <ul className="text-sm text-slate-700 list-disc pl-4 space-y-1">
+                              {group.reasons.map((r, idx) => (
+                                <li key={idx}>{r}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-slate-700">{group.reasons?.[0] || group.reason}</p>
+                          )}
                         </div>
                       )}
 
@@ -638,7 +668,17 @@ export default function CancellationRequests() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => { setReviewDialog({ ...group, action: 'rejected' }); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setCreditNoteEmail(''); }}
+                            onClick={() => {
+                              const tickets = {};
+                              group.items.forEach(i => { tickets[i.id] = true; });
+                              setSelectedTickets(tickets);
+                              setReviewDialog({ ...group, action: 'rejected' });
+                              setReviewNotes("");
+                              setVoucherReplacements({});
+                              setDiscountCodeReplacement({ create: false, newExpiryDate: "" });
+                              setCreditNoteEmail('');
+                              setSendEmails(true);
+                            }}
                             data-testid={`button-reject-${group.key}`}
                           >
                             <XCircle className="w-4 h-4 mr-1" />
@@ -647,12 +687,16 @@ export default function CancellationRequests() {
                           <Button
                             size="sm"
                             onClick={() => {
+                              const tickets = {};
+                              group.items.forEach(i => { tickets[i.id] = true; });
+                              setSelectedTickets(tickets);
                               setReviewDialog({ ...group, action: 'approved' });
                               setReviewNotes("");
                               setVoucherReplacements({});
                               setDiscountCodeReplacement({ create: false, newExpiryDate: "" });
-                              const isGrp = group.request_type === 'group';
-                              const fsi = isGrp ? group.items?.[0]?.groupFinancialSummary : group.items?.[0]?.financialSummary;
+                              setSendEmails(true);
+                              const hasGrpRef = !!group.booking_group_reference;
+                              const fsi = hasGrpRef ? group.items?.[0]?.groupFinancialSummary : group.items?.[0]?.financialSummary;
                               setCreditNoteEmail(fsi?.invoicingEmail || '');
                             }}
                             data-testid={`button-approve-${group.key}`}
@@ -671,8 +715,8 @@ export default function CancellationRequests() {
         )}
       </div>
 
-      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); } }}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {reviewDialog?._type === 'transfer'
@@ -685,8 +729,8 @@ export default function CancellationRequests() {
                     ? 'Approving will transfer the ticket to the target member.'
                     : 'Rejecting will keep the ticket with the current attendee. The requester will be notified.')
                 : (reviewDialog?.action === 'approved'
-                    ? `Approving will cancel ${reviewDialog?.items?.length || 0} ticket(s) and reverse applicable financial items.${reviewDialog?.request_type === 'group' ? ' Stripe refund and Xero credit note will be consolidated into a single transaction.' : ''}`
-                    : `Rejecting will keep the ticket(s) active. The member will see their request was declined.`)}
+                    ? `Approving will cancel the selected ticket(s) and reverse applicable financial items.${reviewDialog?.booking_group_reference && (reviewDialog?.items?.length || 0) > 1 ? ' Multiple tickets from the same group will be consolidated into a single Stripe refund and Xero credit note.' : ''}`
+                    : `Rejecting will keep the selected ticket(s) active. The member will see their request was declined.`)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -695,10 +739,39 @@ export default function CancellationRequests() {
                 <p className="text-sm font-medium" data-testid="text-review-event">
                   {reviewDialog.event?.title || 'Unknown Event'}
                 </p>
+                {reviewDialog.items?.length > 1 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {Object.values(selectedTickets).filter(Boolean).length} of {reviewDialog.items.length} ticket(s) selected
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const allSelected = reviewDialog.items.every(i => selectedTickets[i.id] !== false);
+                        const newState = {};
+                        reviewDialog.items.forEach(i => { newState[i.id] = !allSelected; });
+                        setSelectedTickets(newState);
+                      }}
+                      data-testid="button-toggle-all-tickets"
+                    >
+                      {reviewDialog.items.every(i => selectedTickets[i.id] !== false) ? 'Deselect All' : 'Select All'}
+                    </Button>
+                  </div>
+                )}
                 {reviewDialog.items?.map(item => (
-                  <div key={item.id} className="flex items-center gap-2 text-sm p-2 bg-muted rounded-md">
+                  <div key={item.id} className={`flex items-center gap-2 text-sm p-2 rounded-md ${selectedTickets[item.id] === false ? 'bg-muted/50 opacity-60' : 'bg-muted'}`}>
+                    {reviewDialog.items.length > 1 && (
+                      <input
+                        type="checkbox"
+                        checked={selectedTickets[item.id] !== false}
+                        onChange={(e) => setSelectedTickets(prev => ({ ...prev, [item.id]: e.target.checked }))}
+                        className="h-4 w-4 rounded border-gray-300 shrink-0 cursor-pointer accent-primary"
+                        data-testid={`checkbox-ticket-${item.id}`}
+                      />
+                    )}
                     <User className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <span className="truncate block">
                         {item.booking?.attendee_first_name && item.booking?.attendee_last_name
                           ? `${item.booking.attendee_first_name} ${item.booking.attendee_last_name}`
@@ -710,6 +783,16 @@ export default function CancellationRequests() {
                         </span>
                       )}
                     </div>
+                    {item.booking?.ticket_class_name && (
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {item.booking.ticket_class_name}
+                      </Badge>
+                    )}
+                    {item.booking?.total_cost && (
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        £{parseFloat(item.booking.total_cost).toFixed(2)}
+                      </span>
+                    )}
                   </div>
                 ))}
                 {reviewDialog._type === 'transfer' && reviewDialog.target_member && (
@@ -735,15 +818,33 @@ export default function CancellationRequests() {
                     </div>
                   </div>
                 )}
+
+                {reviewDialog?._type !== 'transfer' && reviewDialog?.reasons?.length > 0 && (
+                  <div className="p-3 bg-muted rounded-md" data-testid="section-review-reasons">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">
+                      {reviewDialog.reasons.length > 1 ? 'Reasons given' : 'Reason given'}
+                    </p>
+                    {reviewDialog.reasons.length > 1 ? (
+                      <ul className="text-sm list-disc pl-4 space-y-1">
+                        {reviewDialog.reasons.map((r, idx) => (
+                          <li key={idx}>{r}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm">{reviewDialog.reasons[0]}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
             {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
-              const isGroupReview = reviewDialog?.request_type === 'group';
-              const fs = isGroupReview
+              const hasGroupFS = !!reviewDialog?.items?.[0]?.groupFinancialSummary;
+              const fs = hasGroupFS
                 ? reviewDialog?.items?.[0]?.groupFinancialSummary
                 : reviewDialog?.items?.[0]?.financialSummary;
               if (!fs) return null;
+              const selectedCount = reviewDialog?.items?.filter(i => selectedTickets[i.id] !== false).length || 0;
               const hasTrainingFund = fs.trainingFundAmount > 0;
               const hasVoucher = fs.voucherAmount > 0;
               const hasDiscount = fs.discountCodeAmount > 0;
@@ -758,14 +859,14 @@ export default function CancellationRequests() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <RotateCcw className="w-4 h-4 text-muted-foreground" />
                     <p className="text-sm font-medium">Financial Reversal Summary</p>
-                    {isGroupReview && fs.consolidated && (
+                    {hasGroupFS && fs.consolidated && (
                       <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
-                        Consolidated ({fs.ticketCount} tickets)
+                        Consolidated ({selectedCount} of {fs.ticketCount} tickets)
                       </Badge>
                     )}
                   </div>
 
-                  {isGroupReview && (fs.hasMultipleStripeIntents || fs.hasMultipleXeroInvoices) && (
+                  {hasGroupFS && (fs.hasMultipleStripeIntents || fs.hasMultipleXeroInvoices) && (
                     <div className="p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="warning-multi-financial">
                       <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-400">
                         <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -915,8 +1016,8 @@ export default function CancellationRequests() {
             })()}
 
             {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
-              const isGroupReview = reviewDialog?.request_type === 'group';
-              const fs = isGroupReview
+              const hasGroupFS2 = !!reviewDialog?.items?.[0]?.groupFinancialSummary;
+              const fs = hasGroupFS2
                 ? reviewDialog?.items?.[0]?.groupFinancialSummary
                 : reviewDialog?.items?.[0]?.financialSummary;
               const hasStripeRefund = fs?.stripePaymentIntentId && fs?.cardAmount > 0;
@@ -977,6 +1078,23 @@ export default function CancellationRequests() {
               );
             })()}
 
+            {reviewDialog?._type !== 'transfer' && (
+              <div className="flex items-center justify-between gap-4 p-3 border rounded-md" data-testid="section-email-toggle">
+                <div className="flex items-center gap-2">
+                  {sendEmails ? <Mail className="w-4 h-4 text-muted-foreground" /> : <MailX className="w-4 h-4 text-muted-foreground" />}
+                  <Label htmlFor="send-emails" className="text-sm font-medium cursor-pointer">
+                    Send notification emails
+                  </Label>
+                </div>
+                <Switch
+                  id="send-emails"
+                  checked={sendEmails}
+                  onCheckedChange={setSendEmails}
+                  data-testid="switch-send-emails"
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 Notes (optional)
@@ -989,12 +1107,17 @@ export default function CancellationRequests() {
                 rows={3}
                 data-testid="input-review-notes"
               />
+              <p className="text-xs text-muted-foreground">
+                {sendEmails
+                  ? 'These notes will be included in the notification email sent to the ticket holder and/or booker.'
+                  : 'Notification emails are suppressed. Notes will only be stored for internal reference.'}
+              </p>
             </div>
           </div>
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); }}
+              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); }}
               data-testid="button-review-cancel"
             >
               Cancel
@@ -1002,7 +1125,7 @@ export default function CancellationRequests() {
             <Button
               variant={reviewDialog?.action === 'approved' ? 'default' : 'destructive'}
               onClick={() => reviewDialog?._type === 'transfer' ? handleTransferReview(reviewDialog?.action) : handleReview(reviewDialog?.action)}
-              disabled={processing || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && (!(parseFloat(customRefundAmount) > 0) || parseFloat(customRefundAmount) > ((() => { const fs = (reviewDialog?.request_type === 'group' ? reviewDialog?.items?.[0]?.groupFinancialSummary : reviewDialog?.items?.[0]?.financialSummary); const hs = fs?.stripePaymentIntentId && fs?.cardAmount > 0; const sm = hs ? (fs?.cardAmount || 0) : Infinity; const xm = fs?.xeroInvoiceId ? (fs?.totalCost || 0) : Infinity; return Math.min(sm, xm, fs?.totalCost || 0); })())))}
+              disabled={processing || (reviewDialog?._type !== 'transfer' && Object.values(selectedTickets).filter(Boolean).length === 0 && reviewDialog?.items?.length > 1) || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && (!(parseFloat(customRefundAmount) > 0) || parseFloat(customRefundAmount) > ((() => { const fs = (reviewDialog?.items?.[0]?.groupFinancialSummary || reviewDialog?.items?.[0]?.financialSummary); const hs = fs?.stripePaymentIntentId && fs?.cardAmount > 0; const sm = hs ? (fs?.cardAmount || 0) : Infinity; const xm = fs?.xeroInvoiceId ? (fs?.totalCost || 0) : Infinity; return Math.min(sm, xm, fs?.totalCost || 0); })())))}
               data-testid="button-review-confirm"
             >
               {processing ? (
@@ -1013,12 +1136,16 @@ export default function CancellationRequests() {
               ) : reviewDialog?.action === 'approved' ? (
                 <>
                   <CheckCircle className="w-4 h-4 mr-1" />
-                  Confirm Approval
+                  {reviewDialog?.items?.length > 1
+                    ? `Approve ${Object.values(selectedTickets).filter(Boolean).length} Selected`
+                    : 'Confirm Approval'}
                 </>
               ) : (
                 <>
                   <XCircle className="w-4 h-4 mr-1" />
-                  Confirm Rejection
+                  {reviewDialog?.items?.length > 1
+                    ? `Reject ${Object.values(selectedTickets).filter(Boolean).length} Selected`
+                    : 'Confirm Rejection'}
                 </>
               )}
             </Button>
