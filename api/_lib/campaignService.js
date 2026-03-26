@@ -322,6 +322,7 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
 
       if (recipientError) {
         console.error('[Campaign Service] Error cancelling pending recipients:', recipientError);
+        return { success: false, error: 'Campaign status set to cancelled but failed to cancel pending recipients. Please retry or check manually.' };
       }
 
       cancelledRecipients = pendingCount || 0;

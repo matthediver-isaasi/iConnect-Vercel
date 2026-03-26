@@ -42,6 +42,8 @@ export default function EmailCampaigns() {
   const [duplicating, setDuplicating] = useState(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [campaignToCancel, setCampaignToCancel] = useState(null);
+  const [cancelPreviewStats, setCancelPreviewStats] = useState(null);
+  const [loadingCancelPreview, setLoadingCancelPreview] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [statsDetailView, setStatsDetailView] = useState(false);
   const [statsRecipients, setStatsRecipients] = useState([]);
@@ -218,6 +220,32 @@ export default function EmailCampaigns() {
     }
   };
 
+  const handleOpenCancelDialog = async (campaign) => {
+    setCampaignToCancel(campaign);
+    setCancelPreviewStats(null);
+    setShowCancelConfirm(true);
+
+    if (campaign.status === 'sending') {
+      setLoadingCancelPreview(true);
+      try {
+        const response = await fetch(`/api/email-campaigns/${campaign.id}?stats=true`, {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const sent = data.stats?.sent || 0;
+          const total = data.stats?.total || 0;
+          const pending = total - sent - (data.stats?.bounced || 0) - (data.stats?.failed || 0);
+          setCancelPreviewStats({ sent, pending: Math.max(0, pending), total });
+        }
+      } catch (e) {
+        // Stats are informational — dialog still works without them
+      } finally {
+        setLoadingCancelPreview(false);
+      }
+    }
+  };
+
   const handleCancelCampaign = async () => {
     if (!campaignToCancel) return;
     setCancelling(campaignToCancel.id);
@@ -243,6 +271,7 @@ export default function EmailCampaigns() {
     } finally {
       setCancelling(null);
       setCampaignToCancel(null);
+      setCancelPreviewStats(null);
     }
   };
 
@@ -823,10 +852,7 @@ export default function EmailCampaigns() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => {
-                                  setCampaignToCancel(campaign);
-                                  setShowCancelConfirm(true);
-                                }}
+                                onClick={() => handleOpenCancelDialog(campaign)}
                                 disabled={cancelling === campaign.id}
                                 title="Stop Campaign"
                                 className="text-destructive hover:text-destructive"
@@ -921,14 +947,38 @@ export default function EmailCampaigns() {
                   Are you sure you want to stop "{campaignToCancel?.name}"?
                 </p>
                 {campaignToCancel?.status === 'sending' && (
-                  <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                    This campaign is currently sending. Some emails may have already been delivered.
-                    Stopping will cancel all remaining unsent emails.
-                  </div>
+                  <>
+                    <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                      This campaign is currently sending. Some emails may have already been delivered.
+                      Stopping will cancel all remaining unsent emails.
+                    </div>
+                    {loadingCancelPreview ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading delivery status...
+                      </div>
+                    ) : cancelPreviewStats ? (
+                      <div className="rounded-md border p-3 text-sm space-y-1">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Already sent:</span>
+                          <span className="font-medium">{cancelPreviewStats.sent} emails</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Will be cancelled:</span>
+                          <span className="font-medium text-destructive">{cancelPreviewStats.pending} emails</span>
+                        </div>
+                        <div className="flex justify-between border-t pt-1 mt-1">
+                          <span className="text-muted-foreground">Total recipients:</span>
+                          <span className="font-medium">{cancelPreviewStats.total}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
                 {campaignToCancel?.status === 'scheduled' && (
                   <p className="text-muted-foreground">
                     This campaign is scheduled but has not started sending yet. No emails have been sent.
+                    {campaignToCancel.total_recipients ? ` ${campaignToCancel.total_recipients} emails will be cancelled.` : ''}
                   </p>
                 )}
               </div>
