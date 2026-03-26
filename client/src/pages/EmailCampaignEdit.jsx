@@ -51,7 +51,9 @@ export default function EmailCampaignEdit() {
 
   const [showRecipientListDialog, setShowRecipientListDialog] = useState(false);
   const [recipientList, setRecipientList] = useState([]);
+  const [recipientDetailedLists, setRecipientDetailedLists] = useState(null);
   const [loadingRecipientList, setLoadingRecipientList] = useState(false);
+  const [recipientTab, setRecipientTab] = useState('filtered');
   const [serverRecipientCount, setServerRecipientCount] = useState(null);
   const [loadingServerCount, setLoadingServerCount] = useState(false);
   const [recipientCountMismatch, setRecipientCountMismatch] = useState(false);
@@ -799,6 +801,7 @@ export default function EmailCampaignEdit() {
                         setLoadingRecipientList(true);
                         setShowRecipientListDialog(true);
                         setRecipientPage(1);
+                        setRecipientTab('filtered');
                         try {
                           const response = await fetch('/api/email-campaigns/send', {
                             method: 'POST',
@@ -815,6 +818,7 @@ export default function EmailCampaignEdit() {
                           if (response.ok) {
                             const data = await response.json();
                             setRecipientList(data.recipients || []);
+                            setRecipientDetailedLists(data.detailedLists || null);
                           }
                         } catch (e) {
                           console.error('Failed to fetch recipient list:', e);
@@ -1256,79 +1260,131 @@ export default function EmailCampaignEdit() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="w-5 h-5" />
-              Recipient List ({recipientList.length})
+              Recipient Breakdown
             </DialogTitle>
             <DialogDescription>
-              Combined, deduplicated list of all recipients across audience segments
+              View audience members at each filtering stage
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-auto">
-            {loadingRecipientList ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : recipientList.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">No recipients found</div>
-            ) : (
-              <>
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-background border-b">
-                    <tr>
-                      <th className="text-left py-2 px-3 font-medium">#</th>
-                      <th className="text-left py-2 px-3 font-medium">Email</th>
-                      <th className="text-left py-2 px-3 font-medium">Name</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recipientList
-                      .slice((recipientPage - 1) * RECIPIENTS_PER_PAGE, recipientPage * RECIPIENTS_PER_PAGE)
-                      .map((r, i) => (
-                        <tr key={i} className="border-b last:border-b-0" data-testid={`recipient-row-${i}`}>
-                          <td className="py-2 px-3 text-muted-foreground">{(recipientPage - 1) * RECIPIENTS_PER_PAGE + i + 1}</td>
-                          <td className="py-2 px-3">{r.email}</td>
-                          <td className="py-2 px-3">{[r.firstName, r.lastName].filter(Boolean).join(' ') || '—'}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-                {recipientList.length > RECIPIENTS_PER_PAGE && (
-                  <div className="flex items-center justify-between gap-2 pt-3 px-3 border-t">
-                    <span className="text-sm text-muted-foreground">
-                      Page {recipientPage} of {Math.ceil(recipientList.length / RECIPIENTS_PER_PAGE)}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" disabled={recipientPage <= 1}
-                        onClick={() => setRecipientPage(p => p - 1)} data-testid="button-recipients-prev">
-                        <ChevronLeft className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" disabled={recipientPage >= Math.ceil(recipientList.length / RECIPIENTS_PER_PAGE)}
-                        onClick={() => setRecipientPage(p => p + 1)} data-testid="button-recipients-next">
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+          {loadingRecipientList ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <Tabs value={recipientTab} onValueChange={(v) => { setRecipientTab(v); setRecipientPage(1); }} className="flex-1 min-h-0 flex flex-col">
+              <TabsList className="w-full flex-wrap justify-start gap-1" data-testid="tabs-recipient-breakdown">
+                <TabsTrigger value="audience" data-testid="tab-audience">
+                  Audience ({recipientDetailedLists?.audience?.length ?? 0})
+                </TabsTrigger>
+                <TabsTrigger value="global-optouts" data-testid="tab-global-optouts">
+                  Global Opt-Outs ({recipientDetailedLists?.globalOptOuts?.length ?? 0})
+                </TabsTrigger>
+                {formData.communication_category_id && (
+                  <TabsTrigger value="category-optouts" data-testid="tab-category-optouts">
+                    Category Opt-Outs ({recipientDetailedLists?.categoryOptOuts?.length ?? 0})
+                  </TabsTrigger>
                 )}
-              </>
-            )}
-          </div>
+                <TabsTrigger value="filtered" data-testid="tab-filtered">
+                  Will Receive ({recipientList.length})
+                </TabsTrigger>
+              </TabsList>
+              {(() => {
+                const tabDataMap = {
+                  'audience': recipientDetailedLists?.audience || [],
+                  'global-optouts': recipientDetailedLists?.globalOptOuts || [],
+                  'category-optouts': recipientDetailedLists?.categoryOptOuts || [],
+                  'filtered': recipientList,
+                };
+                const activeList = tabDataMap[recipientTab] || [];
+                const totalPages = Math.ceil(activeList.length / RECIPIENTS_PER_PAGE);
+                const pageItems = activeList.slice((recipientPage - 1) * RECIPIENTS_PER_PAGE, recipientPage * RECIPIENTS_PER_PAGE);
+                return (
+                  <div className="flex-1 min-h-0 flex flex-col mt-2">
+                    <div className="flex-1 min-h-0 overflow-auto">
+                      {activeList.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          {recipientTab === 'global-optouts' ? 'No global opt-outs' :
+                           recipientTab === 'category-optouts' ? 'No category opt-outs' :
+                           recipientTab === 'audience' ? 'No audience members' :
+                           'No recipients'}
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 bg-background border-b z-10">
+                            <tr>
+                              <th className="text-left py-2 px-3 font-medium">#</th>
+                              <th className="text-left py-2 px-3 font-medium">Email</th>
+                              <th className="text-left py-2 px-3 font-medium">Name</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {pageItems.map((r, i) => (
+                              <tr key={i} className="border-b last:border-b-0" data-testid={`recipient-row-${recipientTab}-${i}`}>
+                                <td className="py-2 px-3 text-muted-foreground">{(recipientPage - 1) * RECIPIENTS_PER_PAGE + i + 1}</td>
+                                <td className="py-2 px-3">{r.email}</td>
+                                <td className="py-2 px-3">{[r.firstName, r.lastName].filter(Boolean).join(' ') || '\u2014'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between gap-2 pt-3 px-3 border-t">
+                        <span className="text-sm text-muted-foreground">
+                          Page {recipientPage} of {totalPages}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Button variant="outline" size="sm" disabled={recipientPage <= 1}
+                            onClick={() => setRecipientPage(p => p - 1)} data-testid="button-recipients-prev">
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <Button variant="outline" size="sm" disabled={recipientPage >= totalPages}
+                            onClick={() => setRecipientPage(p => p + 1)} data-testid="button-recipients-next">
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </Tabs>
+          )}
           <DialogFooter className="gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                if (recipientList.length === 0) return;
-                const csv = ['Email,First Name,Last Name', ...recipientList.map(r =>
+                const tabDataMap = {
+                  'audience': recipientDetailedLists?.audience || [],
+                  'global-optouts': recipientDetailedLists?.globalOptOuts || [],
+                  'category-optouts': recipientDetailedLists?.categoryOptOuts || [],
+                  'filtered': recipientList,
+                };
+                const activeList = tabDataMap[recipientTab] || [];
+                if (activeList.length === 0) return;
+                const tabLabel = recipientTab === 'audience' ? 'audience' : recipientTab === 'global-optouts' ? 'global_optouts' : recipientTab === 'category-optouts' ? 'category_optouts' : 'filtered_recipients';
+                const csv = ['Email,First Name,Last Name', ...activeList.map(r =>
                   `"${(r.email || '').replace(/"/g, '""')}","${(r.firstName || '').replace(/"/g, '""')}","${(r.lastName || '').replace(/"/g, '""')}"`
                 )].join('\n');
                 const blob = new Blob([csv], { type: 'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'recipients.csv';
+                a.download = `${tabLabel}.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
               }}
-              disabled={recipientList.length === 0}
+              disabled={(() => {
+                const tabDataMap = {
+                  'audience': recipientDetailedLists?.audience || [],
+                  'global-optouts': recipientDetailedLists?.globalOptOuts || [],
+                  'category-optouts': recipientDetailedLists?.categoryOptOuts || [],
+                  'filtered': recipientList,
+                };
+                return (tabDataMap[recipientTab] || []).length === 0;
+              })()}
               data-testid="button-export-csv"
             >
               <Download className="w-4 h-4 mr-1" />

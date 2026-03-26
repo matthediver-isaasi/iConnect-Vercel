@@ -27,10 +27,16 @@ export default async function handler(req, res) {
       fakeCampaign.communication_category_id = communicationCategoryId;
     }
     
-    const recipientsResult = await getTargetRecipients(fakeCampaign, tenantId);
+    const recipientsResult = await getTargetRecipients(fakeCampaign, tenantId, false, previewList === true);
     if (!recipientsResult.success) {
       return res.status(500).json({ error: recipientsResult.error });
     }
+
+    const mapRecipient = r => ({
+      email: r.email,
+      firstName: r.first_name,
+      lastName: r.last_name
+    });
 
     const response = {
       success: true,
@@ -40,11 +46,14 @@ export default async function handler(req, res) {
     };
 
     if (previewList === true) {
-      response.recipients = recipientsResult.recipients.map(r => ({
-        email: r.email,
-        firstName: r.first_name,
-        lastName: r.last_name
-      }));
+      response.recipients = recipientsResult.recipients.map(mapRecipient);
+      if (recipientsResult.detailedLists) {
+        response.detailedLists = {
+          audience: (recipientsResult.detailedLists.audience || []).map(mapRecipient),
+          globalOptOuts: (recipientsResult.detailedLists.globalOptOuts || []).map(mapRecipient),
+          categoryOptOuts: (recipientsResult.detailedLists.categoryOptOuts || []).map(mapRecipient),
+        };
+      }
     }
 
     return res.json(response);

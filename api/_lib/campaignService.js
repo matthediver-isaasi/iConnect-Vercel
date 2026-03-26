@@ -818,7 +818,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
   return recipients;
 }
 
-export async function getTargetRecipients(campaign, tenantId, countOnly = false) {
+export async function getTargetRecipients(campaign, tenantId, countOnly = false, detailedLists = false) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
   }
@@ -838,9 +838,11 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
     }
 
     const totalAudience = allRecipients.length;
+    const rawAudienceList = detailedLists ? allRecipients.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })) : null;
 
     // Step 1: Remove members with global opt-out (communications_opted_out_all flag)
     const beforeGlobal = allRecipients.length;
+    const globalFlagRemoved = detailedLists ? allRecipients.filter(r => r.communications_opted_out_all === true) : [];
     allRecipients = allRecipients.filter(r => r.communications_opted_out_all !== true);
 
     // Step 1b: Remove emails with global unsubscribe record
@@ -851,11 +853,16 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
       .eq('unsubscribe_type', 'all');
 
     const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
+    const globalEmailRemoved = detailedLists ? allRecipients.filter(r => globalUnsubSet.has(r.email.toLowerCase())) : [];
     allRecipients = allRecipients.filter(r => !globalUnsubSet.has(r.email.toLowerCase()));
     const globalOptOuts = beforeGlobal - allRecipients.length;
+    const globalOptOutList = detailedLists
+      ? [...globalFlagRemoved, ...globalEmailRemoved].map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name }))
+      : null;
 
     // Step 2: Filter by campaign's communication category (subscription category funnel)
     let categoryOptOuts = 0;
+    let categoryOptOutList = detailedLists ? [] : null;
     const communicationCategoryId = campaign.communication_category_id;
     if (communicationCategoryId) {
       const beforeCategory = allRecipients.length;
@@ -888,6 +895,14 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
 
         console.log(`[Campaign Service] Category opt-out filter: excluded ${unsubscribedMemberIds.size} members for category ${communicationCategoryId}`);
 
+        if (detailedLists) {
+          const catMemberRemoved = allRecipients.filter(r => {
+            const memberId = r.member_id || r.id;
+            return memberId && unsubscribedMemberIds.has(memberId);
+          });
+          categoryOptOutList.push(...catMemberRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
+        }
+
         allRecipients = allRecipients.filter(r => {
           const memberId = r.member_id || r.id;
           if (!memberId) return true;
@@ -909,6 +924,10 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
 
       if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
         const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));
+        if (detailedLists) {
+          const catEmailRemoved = allRecipients.filter(r => categoryUnsubSet.has(r.email.toLowerCase()));
+          categoryOptOutList.push(...catEmailRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
+        }
         allRecipients = allRecipients.filter(r => !categoryUnsubSet.has(r.email.toLowerCase()));
       }
       categoryOptOuts = beforeCategory - allRecipients.length;
@@ -939,7 +958,15 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false)
       return { success: true, count: uniqueRecipients.length, stats };
     }
 
-    return { success: true, recipients: uniqueRecipients, stats };
+    const result = { success: true, recipients: uniqueRecipients, stats };
+    if (detailedLists) {
+      result.detailedLists = {
+        audience: rawAudienceList,
+        globalOptOuts: globalOptOutList,
+        categoryOptOuts: categoryOptOutList,
+      };
+    }
+    return result;
   } catch (err) {
     console.error('[Campaign Service] Error getting recipients:', err);
     return { success: false, error: err.message };
