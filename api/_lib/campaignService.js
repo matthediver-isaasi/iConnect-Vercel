@@ -506,8 +506,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
 
       recipients = members.filter(m => 
         m.email && 
-        !unsubscribedIds.has(m.id) &&
-        m.communications_opted_out_all !== true
+        !unsubscribedIds.has(m.id)
       );
     }
 
@@ -588,9 +587,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
         if (members) allMembers.push(...members);
       }
 
-      recipients = allMembers.filter(m => 
-        m.email && m.communications_opted_out_all !== true
-      );
+      recipients = allMembers.filter(m => m.email);
     }
   } else if (targetType === 'role' && targetIds.length > 0) {
     const members = await fetchAllMembersPaginated(
@@ -599,18 +596,14 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
       { roleIds: targetIds }
     );
 
-    recipients = members.filter(m => 
-      m.email && m.communications_opted_out_all !== true
-    );
+    recipients = members.filter(m => m.email);
   } else if (targetType === 'all_members') {
     const members = await fetchAllMembersPaginated(
       tenantId,
       'id, email, first_name, last_name, communications_opted_out_all'
     );
 
-    recipients = members.filter(m => 
-      m.email && m.communications_opted_out_all !== true
-    );
+    recipients = members.filter(m => m.email);
   } else if (targetType === 'individual_members' && targetIds.length > 0) {
     const allMembers = [];
     const idBatchSize = 500;
@@ -627,9 +620,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
       if (members) allMembers.push(...members);
     }
 
-    recipients = allMembers.filter(m =>
-      m.email && m.communications_opted_out_all !== true
-    );
+    recipients = allMembers.filter(m => m.email);
   } else if (targetType === 'form' && targetIds.length > 0) {
     const { data: forms } = await supabase
       .from('form')
@@ -664,7 +655,6 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
             .in('category_id', categoryIds)
             .eq('is_subscribed', true)
             .eq('member.tenant_id', tenantId)
-            .eq('member.communications_opted_out_all', false)
             .range(offset, offset + PAGE_SIZE - 1);
 
           if (prefError) {
@@ -681,7 +671,8 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId) {
                   member_id: m.id,
                   email: m.email,
                   first_name: m.first_name,
-                  last_name: m.last_name
+                  last_name: m.last_name,
+                  communications_opted_out_all: m.communications_opted_out_all
                 });
               }
             }
