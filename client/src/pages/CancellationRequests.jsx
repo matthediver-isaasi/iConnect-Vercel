@@ -47,6 +47,7 @@ export default function CancellationRequests() {
   const [sendEmails, setSendEmails] = useState(true);
   const [allocationTrainingFund, setAllocationTrainingFund] = useState('');
   const [allocationVouchers, setAllocationVouchers] = useState({});
+  const [customInvoiceAmount, setCustomInvoiceAmount] = useState('');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -259,6 +260,9 @@ export default function CancellationRequests() {
             if (allocationTrainingFund !== '') {
               allocation.trainingFundAmount = parseFloat(allocationTrainingFund) || 0;
             }
+            if (customInvoiceAmount !== '') {
+              allocation.invoiceAmount = parseFloat(customInvoiceAmount) || 0;
+            }
             const voucherAllocs = {};
             for (const [vid, val] of Object.entries(allocationVouchers)) {
               if (val !== '') voucherAllocs[vid] = parseFloat(val) || 0;
@@ -323,12 +327,21 @@ export default function CancellationRequests() {
               const ratio = (thisFS.trainingFundAmount || 0) / totalSelectedTraining;
               allocation.trainingFundAmount = Math.round((parseFloat(allocationTrainingFund) || 0) * ratio * 100) / 100;
             }
-            const voucherAllocs = {};
-            for (const [vid, val] of Object.entries(allocationVouchers)) {
-              if (val !== '') voucherAllocs[vid] = parseFloat(val) || 0;
+            if (customInvoiceAmount !== '') {
+              const totalSelectedInvoice = selItems.reduce((sum, it) => sum + (it.financialSummary?.totalCost || 0), 0);
+              if (totalSelectedInvoice > 0) {
+                const ratio = (thisFS.totalCost || 0) / totalSelectedInvoice;
+                allocation.invoiceAmount = Math.round((parseFloat(customInvoiceAmount) || 0) * ratio * 100) / 100;
+              }
             }
-            if (Object.keys(voucherAllocs).length > 0) {
-              allocation.vouchers = voucherAllocs;
+            if (i === 0) {
+              const voucherAllocs = {};
+              for (const [vid, val] of Object.entries(allocationVouchers)) {
+                if (val !== '') voucherAllocs[vid] = parseFloat(val) || 0;
+              }
+              if (Object.keys(voucherAllocs).length > 0) {
+                allocation.vouchers = voucherAllocs;
+              }
             }
             if (Object.keys(allocation).length > 0) {
               body.refund_allocation = allocation;
@@ -406,6 +419,7 @@ export default function CancellationRequests() {
       setSendEmails(true);
       setAllocationTrainingFund('');
       setAllocationVouchers({});
+      setCustomInvoiceAmount('');
       queryClient.invalidateQueries({ queryKey: ['cancellation-requests'] });
     } catch (error) {
       console.error('Review error:', error);
@@ -765,7 +779,7 @@ export default function CancellationRequests() {
         )}
       </div>
 
-      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); setAllocationTrainingFund(''); setAllocationVouchers({}); } }}>
+      <Dialog open={!!reviewDialog} onOpenChange={(open) => { if (!open) { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); setAllocationTrainingFund(''); setAllocationVouchers({}); setCustomInvoiceAmount(''); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -1178,6 +1192,32 @@ export default function CancellationRequests() {
                           <span>Xero Credit Note (#{fs.xeroInvoiceNumber})</span>
                           <Badge variant="outline">£{xeroMax.toFixed(2)}</Badge>
                         </div>
+                        {!refundInFull && (
+                          <div className="pl-4 space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                              Custom credit note amount (max: £{xeroMax.toFixed(2)})
+                            </Label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">£</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                max={xeroMax}
+                                value={customInvoiceAmount}
+                                onChange={(e) => setCustomInvoiceAmount(e.target.value)}
+                                className="pl-7"
+                                placeholder={xeroMax.toFixed(2)}
+                                data-testid="input-custom-invoice-amount"
+                              />
+                            </div>
+                            {customInvoiceAmount !== '' && (parseFloat(customInvoiceAmount) <= 0 || parseFloat(customInvoiceAmount) > xeroMax) && (
+                              <p className="text-xs text-destructive">
+                                {parseFloat(customInvoiceAmount) <= 0 ? 'Amount must be greater than zero' : `Cannot exceed £${xeroMax.toFixed(2)}`}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <div className="pl-4 space-y-1">
                           <Label htmlFor="credit-note-email" className="text-xs text-muted-foreground">
                             Email credit note to (leave blank to skip)
@@ -1208,8 +1248,10 @@ export default function CancellationRequests() {
                           setCustomRefundAmount('');
                           setAllocationTrainingFund('');
                           setAllocationVouchers({});
+                          setCustomInvoiceAmount('');
                         } else {
                           if (stripeMax > 0) setCustomRefundAmount(stripeMax.toFixed(2));
+                          if (xeroMax > 0) setCustomInvoiceAmount(xeroMax.toFixed(2));
                           if (fs.trainingFundAmount > 0) setAllocationTrainingFund(fs.trainingFundAmount.toFixed(2));
                           const vAllocs = {};
                           (fs.voucherDetails || []).forEach(v => {
@@ -1269,7 +1311,7 @@ export default function CancellationRequests() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); setAllocationTrainingFund(''); setAllocationVouchers({}); }}
+              onClick={() => { setReviewDialog(null); setReviewNotes(""); setVoucherReplacements({}); setDiscountCodeReplacement({ create: false, newExpiryDate: "" }); setRefundInFull(true); setCustomRefundAmount(''); setCreditNoteEmail(''); setSelectedTickets({}); setSendEmails(true); setAllocationTrainingFund(''); setAllocationVouchers({}); setCustomInvoiceAmount(''); }}
               data-testid="button-review-cancel"
             >
               Cancel

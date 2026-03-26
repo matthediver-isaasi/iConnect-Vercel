@@ -636,7 +636,15 @@ async function processGroupCancellation(requests, tenantId, reversalOptions = {}
         const xeroInvoiceId = bookingsWithXero[0].xero_invoice_id;
         const bookingsForThisInvoice = bookings.filter(b => b.xero_invoice_id === xeroInvoiceId);
         const fullCreditAmount = bookingsForThisInvoice.reduce((sum, b) => sum + (parseFloat(b.total_cost) || 0), 0);
-        const totalCreditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : fullCreditAmount;
+        let totalCreditAmount = fullCreditAmount;
+        if (refund_allocation && refund_allocation.invoiceAmount !== undefined) {
+          const invoiceAlloc = parseFloat(refund_allocation.invoiceAmount);
+          if (Number.isFinite(invoiceAlloc) && invoiceAlloc > 0) {
+            totalCreditAmount = Math.min(invoiceAlloc, fullCreditAmount);
+          }
+        } else if (effectiveRefundAmount !== null) {
+          totalCreditAmount = effectiveRefundAmount;
+        }
 
         if (totalCreditAmount > 0) {
           const xeroBooking = bookingsWithXero[0];

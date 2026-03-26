@@ -588,7 +588,15 @@ async function processCancellation(request, tenantId, reversalOptions = {}, cust
     // --- Xero Credit Note ---
     if (booking.xero_invoice_id) {
       try {
-        const creditAmount = effectiveRefundAmount !== null ? effectiveRefundAmount : totalCost;
+        let creditAmount = totalCost;
+        if (refund_allocation && refund_allocation.invoiceAmount !== undefined) {
+          const invoiceAlloc = parseFloat(refund_allocation.invoiceAmount);
+          if (Number.isFinite(invoiceAlloc) && invoiceAlloc > 0) {
+            creditAmount = Math.min(invoiceAlloc, totalCost);
+          }
+        } else if (effectiveRefundAmount !== null) {
+          creditAmount = effectiveRefundAmount;
+        }
 
         if (creditAmount > 0) {
           const result = await createXeroCreditNote({
