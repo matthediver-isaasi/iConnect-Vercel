@@ -292,8 +292,15 @@ export default function CancellationRequests() {
           allReversalResults.push(result.reversalResults);
         }
       } else {
+        const selItems = allItems.filter(item => requestIds.includes(item.id));
+        const totalSelectedCost = selItems.reduce((sum, item) => sum + (item.financialSummary?.totalCost || 0), 0);
+        const totalSelectedCard = selItems.reduce((sum, item) => sum + (item.financialSummary?.cardAmount || 0), 0);
+        const totalSelectedTraining = selItems.reduce((sum, item) => sum + (item.financialSummary?.trainingFundAmount || 0), 0);
+
         for (let i = 0; i < requestIds.length; i++) {
           const requestId = requestIds[i];
+          const thisItem = selItems.find(it => it.id === requestId);
+          const thisFS = thisItem?.financialSummary;
           const body = {
             status: action,
             review_notes: reviewNotes.trim() || null,
@@ -304,15 +311,17 @@ export default function CancellationRequests() {
             body.reversal_options = reversalOpts;
           }
 
-          if (action === 'approved' && !refundInFull) {
+          if (action === 'approved' && !refundInFull && thisFS) {
             const allocation = {};
-            if (customRefundAmount) {
-              const parsedAmt = parseFloat(customRefundAmount);
-              body.custom_refund_amount = parsedAmt;
-              allocation.stripeAmount = parsedAmt;
+            if (customRefundAmount && totalSelectedCard > 0) {
+              const ratio = (thisFS.cardAmount || 0) / totalSelectedCard;
+              const perTicketStripe = Math.round(parseFloat(customRefundAmount) * ratio * 100) / 100;
+              body.custom_refund_amount = perTicketStripe;
+              allocation.stripeAmount = perTicketStripe;
             }
-            if (allocationTrainingFund !== '') {
-              allocation.trainingFundAmount = parseFloat(allocationTrainingFund) || 0;
+            if (allocationTrainingFund !== '' && totalSelectedTraining > 0) {
+              const ratio = (thisFS.trainingFundAmount || 0) / totalSelectedTraining;
+              allocation.trainingFundAmount = Math.round((parseFloat(allocationTrainingFund) || 0) * ratio * 100) / 100;
             }
             const voucherAllocs = {};
             for (const [vid, val] of Object.entries(allocationVouchers)) {
@@ -894,6 +903,8 @@ export default function CancellationRequests() {
               } else if (hasGroupFS && !allTicketsSelected) {
                 let totalTrainingFund = 0, totalVoucher = 0, totalDiscount = 0, totalCard = 0, totalAccount = 0, totalCost = 0;
                 let stripePaymentIntentId = null, xeroInvoiceId = null, xeroInvoiceNumber = null, paymentMethod = null, invoicingEmail = null;
+                const seenVoucherIds = new Set();
+                const collectedVoucherDetails = [];
                 for (const item of selItems) {
                   const ifs = item.financialSummary;
                   if (!ifs) continue;
@@ -907,10 +918,18 @@ export default function CancellationRequests() {
                   if (ifs.xeroInvoiceId && !xeroInvoiceId) { xeroInvoiceId = ifs.xeroInvoiceId; xeroInvoiceNumber = ifs.xeroInvoiceNumber; }
                   if (ifs.invoicingEmail && !invoicingEmail) invoicingEmail = ifs.invoicingEmail;
                   if (ifs.paymentMethod && !paymentMethod) paymentMethod = ifs.paymentMethod;
+                  if (ifs.voucherDetails) {
+                    for (const vd of ifs.voucherDetails) {
+                      if (!seenVoucherIds.has(vd.voucherId)) {
+                        seenVoucherIds.add(vd.voucherId);
+                        collectedVoucherDetails.push(vd);
+                      }
+                    }
+                  }
                 }
                 fs = {
                   trainingFundAmount: totalTrainingFund, voucherAmount: totalVoucher,
-                  voucherDetails: groupFS?.voucherDetails || [],
+                  voucherDetails: collectedVoucherDetails,
                   discountCodeAmount: totalDiscount, discountCode: groupFS?.discountCode || null,
                   stripePaymentIntentId, cardAmount: totalCard, accountAmount: totalAccount,
                   totalCost, paymentMethod, xeroInvoiceId, xeroInvoiceNumber, invoicingEmail,
@@ -1185,14 +1204,26 @@ export default function CancellationRequests() {
                       checked={refundInFull}
                       onCheckedChange={(checked) => {
                         setRefundInFull(checked);
-                        if (checked) setCustomRefundAmount('');
+                        if (checked) {
+                          setCustomRefundAmount('');
+                          setAllocationTrainingFund('');
+                          setAllocationVouchers({});
+                        } else {
+                          if (stripeMax > 0) setCustomRefundAmount(stripeMax.toFixed(2));
+                          if (fs.trainingFundAmount > 0) setAllocationTrainingFund(fs.trainingFundAmount.toFixed(2));
+                          const vAllocs = {};
+                          (fs.voucherDetails || []).forEach(v => {
+                            if (!v.expired) vAllocs[v.voucherId] = parseFloat(v.amount).toFixed(2);
+                          });
+                          if (Object.keys(vAllocs).length > 0) setAllocationVouchers(vAllocs);
+                        }
                       }}
                       data-testid="switch-refund-in-full"
                     />
                   </div>
-                  {!refundInFull && !hasStripe && (
+                  {!refundInFull && (
                     <p className="text-xs text-muted-foreground">
-                      Custom refund amounts are only adjustable for Stripe-paid bookings.
+                      Refund amounts pre-populated by preference: Stripe/Invoice, then Training Fund, then Vouchers. Adjust amounts as needed.
                     </p>
                   )}
                 </div>
