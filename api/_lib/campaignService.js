@@ -866,7 +866,11 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     const communicationCategoryId = campaign.communication_category_id;
     if (communicationCategoryId) {
       const beforeCategory = allRecipients.length;
-      const memberIds = [...new Set(allRecipients.map(r => r.member_id).filter(Boolean))];
+      const resolveMemberId = (r) => {
+        if (r.member_id === null) return null;
+        return r.member_id || r.id;
+      };
+      const memberIds = [...new Set(allRecipients.map(resolveMemberId).filter(Boolean))];
 
       if (memberIds.length > 0) {
         const subscribedMemberIds = new Set();
@@ -897,14 +901,16 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
 
         if (detailedLists) {
           const catMemberRemoved = allRecipients.filter(r => {
-            return r.member_id && !subscribedMemberIds.has(r.member_id);
+            const memberId = resolveMemberId(r);
+            return memberId && !subscribedMemberIds.has(memberId);
           });
           categoryOptOutList.push(...catMemberRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
         }
 
         allRecipients = allRecipients.filter(r => {
-          if (!r.member_id) return true;
-          return subscribedMemberIds.has(r.member_id);
+          const memberId = resolveMemberId(r);
+          if (!memberId) return true;
+          return subscribedMemberIds.has(memberId);
         });
       }
 
