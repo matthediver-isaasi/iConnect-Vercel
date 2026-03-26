@@ -972,6 +972,13 @@ export default function EmailCampaigns() {
                           <span className="font-medium">{cancelPreviewStats.total}</span>
                         </div>
                       </div>
+                    ) : campaignToCancel?.total_recipients ? (
+                      <div className="rounded-md border p-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Total recipients:</span>
+                          <span className="font-medium">{campaignToCancel.total_recipients}</span>
+                        </div>
+                      </div>
                     ) : null}
                   </>
                 )}

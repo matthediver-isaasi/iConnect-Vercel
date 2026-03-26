@@ -307,13 +307,13 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
     let cancelledRecipients = 0;
     let alreadySent = 0;
 
-    if (campaign.status === 'sending') {
-      const { count: pendingCount } = await supabase
-        .from('email_campaign_recipient')
-        .select('*', { count: 'exact', head: true })
-        .eq('campaign_id', campaignId)
-        .in('status', ['pending', 'processing']);
+    const { count: pendingCount } = await supabase
+      .from('email_campaign_recipient')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId)
+      .in('status', ['pending', 'processing']);
 
+    if (pendingCount > 0) {
       const { error: recipientError } = await supabase
         .from('email_campaign_recipient')
         .update({ status: 'cancelled' })
@@ -324,17 +324,17 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
         console.error('[Campaign Service] Error cancelling pending recipients:', recipientError);
         return { success: false, error: 'Campaign status set to cancelled but failed to cancel pending recipients. Please retry or check manually.' };
       }
-
-      cancelledRecipients = pendingCount || 0;
-
-      const { count: sentCount } = await supabase
-        .from('email_campaign_recipient')
-        .select('*', { count: 'exact', head: true })
-        .eq('campaign_id', campaignId)
-        .in('status', ['sent', 'delivered', 'opened', 'clicked']);
-
-      alreadySent = sentCount || 0;
     }
+
+    cancelledRecipients = pendingCount || 0;
+
+    const { count: sentCount } = await supabase
+      .from('email_campaign_recipient')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId)
+      .in('status', ['sent', 'delivered', 'opened', 'clicked']);
+
+    alreadySent = sentCount || 0;
 
     console.log(`[Campaign Service] Campaign ${campaignId} (${campaign.name}) CANCELLED by ${cancelledBy || 'unknown'} — ${alreadySent} already sent, ${cancelledRecipients} cancelled`);
 
