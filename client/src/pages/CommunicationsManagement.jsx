@@ -2147,14 +2147,14 @@ CREATE POLICY "Service role has full access to member_communication_preference"
         </Dialog>
 
         <Dialog open={showEditListDialog} onOpenChange={setShowEditListDialog}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingList ? 'Edit List' : 'Create List'}</DialogTitle>
               <DialogDescription>
                 {editingList ? 'Update the name or audience segments for this list.' : 'Define a reusable audience list for your email campaigns.'}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-2">
+            <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
               <div className="space-y-2">
                 <Label>List Name</Label>
                 <Input
