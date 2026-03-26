@@ -1235,7 +1235,8 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
           sent_at: new Date().toISOString(),
           mailgun_message_id: result.messageId ? result.messageId.replace(/^<|>$/g, '') : result.messageId
         })
-        .eq('id', recipient.id);
+        .eq('id', recipient.id)
+        .eq('status', 'processing');
       return 'sent';
     } else {
       await supabase
@@ -1244,7 +1245,8 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
           status: 'failed',
           error_message: result.error
         })
-        .eq('id', recipient.id);
+        .eq('id', recipient.id)
+        .eq('status', 'processing');
       return 'failed';
     }
   } catch (err) {
@@ -1255,7 +1257,8 @@ async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, reques
         status: 'failed',
         error_message: err.message
       })
-      .eq('id', recipient.id);
+      .eq('id', recipient.id)
+      .eq('status', 'processing');
     return 'failed';
   }
 }
@@ -1287,6 +1290,22 @@ async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requestHost
 
   if (claimedRecipients.length === 0) {
     return { sent: 0, failed: 0, remaining: 0 };
+  }
+
+  const { data: campaignCheck } = await supabase
+    .from('email_campaign')
+    .select('status')
+    .eq('id', campaignId)
+    .single();
+
+  if (campaignCheck?.status === 'cancelled') {
+    console.log(`[Campaign Service] Campaign ${campaignId} cancelled — releasing ${claimedRecipients.length} claimed recipients`);
+    await supabase
+      .from('email_campaign_recipient')
+      .update({ status: 'cancelled' })
+      .in('id', claimedRecipients.map(r => r.id))
+      .eq('status', 'processing');
+    return { sent: 0, failed: 0, remaining: 0, cancelled: true };
   }
 
   const designInfo = parseCampaignDesign(campaign);
