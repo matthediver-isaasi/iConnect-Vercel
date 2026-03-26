@@ -370,6 +370,7 @@ async function handleGet(req, res) {
     }
 
     for (const [ref, groupItems] of Object.entries(groupsByRef)) {
+      if (groupItems.length < 2) continue;
       let totalTrainingFund = 0;
       let totalVoucher = 0;
       let totalDiscount = 0;

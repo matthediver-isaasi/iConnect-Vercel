@@ -222,7 +222,8 @@ export default function CancellationRequests() {
       }
 
       const hasGroupRef = !!reviewDialog.booking_group_reference;
-      const useGroupEndpoint = hasGroupRef && requestIds.length > 1;
+      const allSelected = requestIds.length === allItems.length;
+      const useGroupEndpoint = hasGroupRef && allSelected && requestIds.length > 1;
 
       const voucherReplacementsList = Object.entries(voucherReplacements)
         .filter(([, v]) => v.create && v.newExpiryDate)
@@ -247,7 +248,9 @@ export default function CancellationRequests() {
         if (action === 'approved') {
           body.reversal_options = reversalOpts;
           if (!refundInFull && customRefundAmount) {
-            body.custom_refund_amount = parseFloat(customRefundAmount);
+            const parsedAmt = parseFloat(customRefundAmount);
+            body.custom_refund_amount = parsedAmt;
+            body.refund_allocation = { stripeAmount: parsedAmt };
           }
           if (creditNoteEmail.trim()) {
             body.credit_note_email = creditNoteEmail.trim();
@@ -284,7 +287,9 @@ export default function CancellationRequests() {
           }
 
           if (action === 'approved' && !refundInFull && customRefundAmount) {
-            body.custom_refund_amount = parseFloat(customRefundAmount);
+            const parsedAmt = parseFloat(customRefundAmount);
+            body.custom_refund_amount = parsedAmt;
+            body.refund_allocation = { stripeAmount: parsedAmt };
           }
 
           if (action === 'approved' && creditNoteEmail.trim()) {
@@ -839,12 +844,47 @@ export default function CancellationRequests() {
             )}
 
             {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
+              const selItems = reviewDialog?.items?.filter(i => selectedTickets[i.id] !== false) || [];
+              const selectedCount = selItems.length;
+              const totalCount = reviewDialog?.items?.length || 0;
+              const allTicketsSelected = selectedCount === totalCount;
+
               const hasGroupFS = !!reviewDialog?.items?.[0]?.groupFinancialSummary;
-              const fs = hasGroupFS
-                ? reviewDialog?.items?.[0]?.groupFinancialSummary
-                : reviewDialog?.items?.[0]?.financialSummary;
+              const groupFS = reviewDialog?.items?.[0]?.groupFinancialSummary;
+
+              let fs;
+              if (hasGroupFS && allTicketsSelected) {
+                fs = groupFS;
+              } else if (hasGroupFS && !allTicketsSelected) {
+                let totalTrainingFund = 0, totalVoucher = 0, totalDiscount = 0, totalCard = 0, totalAccount = 0, totalCost = 0;
+                let stripePaymentIntentId = null, xeroInvoiceId = null, xeroInvoiceNumber = null, paymentMethod = null, invoicingEmail = null;
+                for (const item of selItems) {
+                  const ifs = item.financialSummary;
+                  if (!ifs) continue;
+                  totalTrainingFund += ifs.trainingFundAmount || 0;
+                  totalVoucher += ifs.voucherAmount || 0;
+                  totalDiscount += ifs.discountCodeAmount || 0;
+                  totalCard += ifs.cardAmount || 0;
+                  totalAccount += ifs.accountAmount || 0;
+                  totalCost += ifs.totalCost || 0;
+                  if (ifs.stripePaymentIntentId && !stripePaymentIntentId) stripePaymentIntentId = ifs.stripePaymentIntentId;
+                  if (ifs.xeroInvoiceId && !xeroInvoiceId) { xeroInvoiceId = ifs.xeroInvoiceId; xeroInvoiceNumber = ifs.xeroInvoiceNumber; }
+                  if (ifs.invoicingEmail && !invoicingEmail) invoicingEmail = ifs.invoicingEmail;
+                  if (ifs.paymentMethod && !paymentMethod) paymentMethod = ifs.paymentMethod;
+                }
+                fs = {
+                  trainingFundAmount: totalTrainingFund, voucherAmount: totalVoucher,
+                  voucherDetails: groupFS?.voucherDetails || [],
+                  discountCodeAmount: totalDiscount, discountCode: groupFS?.discountCode || null,
+                  stripePaymentIntentId, cardAmount: totalCard, accountAmount: totalAccount,
+                  totalCost, paymentMethod, xeroInvoiceId, xeroInvoiceNumber, invoicingEmail,
+                  ticketCount: selectedCount, consolidated: false,
+                };
+              } else {
+                fs = reviewDialog?.items?.[0]?.financialSummary;
+              }
+
               if (!fs) return null;
-              const selectedCount = reviewDialog?.items?.filter(i => selectedTickets[i.id] !== false).length || 0;
               const hasTrainingFund = fs.trainingFundAmount > 0;
               const hasVoucher = fs.voucherAmount > 0;
               const hasDiscount = fs.discountCodeAmount > 0;
@@ -854,28 +894,36 @@ export default function CancellationRequests() {
 
               if (!hasAnything) return null;
 
+              const stripeMax = hasStripe ? (fs.cardAmount || 0) : 0;
+              const xeroMax = hasXero ? (fs.totalCost || 0) : 0;
+
               return (
                 <div className="space-y-3" data-testid="section-financial-summary">
                   <div className="flex items-center gap-2 flex-wrap">
                     <RotateCcw className="w-4 h-4 text-muted-foreground" />
                     <p className="text-sm font-medium">Financial Reversal Summary</p>
-                    {hasGroupFS && fs.consolidated && (
+                    {hasGroupFS && allTicketsSelected && fs.consolidated && (
                       <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
-                        Consolidated ({selectedCount} of {fs.ticketCount} tickets)
+                        Consolidated ({selectedCount} tickets)
+                      </Badge>
+                    )}
+                    {hasGroupFS && !allTicketsSelected && (
+                      <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
+                        {selectedCount} of {totalCount} selected (individual processing)
                       </Badge>
                     )}
                   </div>
 
-                  {hasGroupFS && (fs.hasMultipleStripeIntents || fs.hasMultipleXeroInvoices) && (
+                  {hasGroupFS && allTicketsSelected && (groupFS?.hasMultipleStripeIntents || groupFS?.hasMultipleXeroInvoices) && (
                     <div className="p-3 border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 rounded-md" data-testid="warning-multi-financial">
                       <div className="flex items-center gap-2 text-xs text-orange-700 dark:text-orange-400">
                         <AlertTriangle className="w-3 h-3 shrink-0" />
                         <span>
-                          {fs.hasMultipleStripeIntents && fs.hasMultipleXeroInvoices
-                            ? 'This group has multiple Stripe payment intents and Xero invoices. Consolidated approval will be rejected — use individual ticket approvals instead.'
-                            : fs.hasMultipleStripeIntents
-                              ? 'This group has multiple Stripe payment intents. Consolidated refund will be rejected — use individual ticket approvals instead.'
-                              : 'This group has multiple Xero invoices. Consolidated credit note will be rejected — use individual ticket approvals instead.'}
+                          {groupFS.hasMultipleStripeIntents && groupFS.hasMultipleXeroInvoices
+                            ? 'This group has multiple Stripe payment intents and Xero invoices. Consolidated approval will be rejected — deselect some tickets to process individually.'
+                            : groupFS.hasMultipleStripeIntents
+                              ? 'This group has multiple Stripe payment intents. Consolidated refund will be rejected — deselect some tickets to process individually.'
+                              : 'This group has multiple Xero invoices. Consolidated credit note will be rejected — deselect some tickets to process individually.'}
                         </span>
                       </div>
                     </div>
@@ -982,18 +1030,46 @@ export default function CancellationRequests() {
                       </div>
                     )}
 
-                    {hasStripe && fs.cardAmount > 0 && (
-                      <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-stripe">
-                        <span>Stripe Refund</span>
-                        <Badge variant="outline">£{fs.cardAmount.toFixed(2)}</Badge>
+                    {hasStripe && stripeMax > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-stripe">
+                          <span>Stripe Refund</span>
+                          <Badge variant="outline">£{stripeMax.toFixed(2)}</Badge>
+                        </div>
+                        {!refundInFull && (
+                          <div className="pl-4 space-y-1">
+                            <Label className="text-xs text-muted-foreground">
+                              Custom Stripe refund (max: £{stripeMax.toFixed(2)})
+                            </Label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">£</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                max={stripeMax}
+                                value={customRefundAmount}
+                                onChange={(e) => setCustomRefundAmount(e.target.value)}
+                                className="pl-7"
+                                placeholder={stripeMax.toFixed(2)}
+                                data-testid="input-custom-stripe-amount"
+                              />
+                            </div>
+                            {customRefundAmount !== '' && (parseFloat(customRefundAmount) <= 0 || parseFloat(customRefundAmount) > stripeMax) && (
+                              <p className="text-xs text-destructive" data-testid="text-stripe-error">
+                                {parseFloat(customRefundAmount) <= 0 ? 'Amount must be greater than zero' : `Cannot exceed £${stripeMax.toFixed(2)}`}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {hasXero && (
+                    {hasXero && xeroMax > 0 && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between p-2 bg-muted rounded-md" data-testid="row-xero">
                           <span>Xero Credit Note (#{fs.xeroInvoiceNumber})</span>
-                          <Badge variant="outline">£{fs.totalCost.toFixed(2)}</Badge>
+                          <Badge variant="outline">£{xeroMax.toFixed(2)}</Badge>
                         </div>
                         <div className="pl-4 space-y-1">
                           <Label htmlFor="credit-note-email" className="text-xs text-muted-foreground">
@@ -1011,27 +1087,8 @@ export default function CancellationRequests() {
                       </div>
                     )}
                   </div>
-                </div>
-              );
-            })()}
 
-            {reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && (() => {
-              const hasGroupFS2 = !!reviewDialog?.items?.[0]?.groupFinancialSummary;
-              const fs = hasGroupFS2
-                ? reviewDialog?.items?.[0]?.groupFinancialSummary
-                : reviewDialog?.items?.[0]?.financialSummary;
-              const hasStripeRefund = fs?.stripePaymentIntentId && fs?.cardAmount > 0;
-              const stripeMax = hasStripeRefund ? (fs?.cardAmount || 0) : Infinity;
-              const xeroMax = fs?.xeroInvoiceId ? (fs?.totalCost || 0) : Infinity;
-              const maxAmount = Math.min(stripeMax, xeroMax, fs?.totalCost || 0);
-              if (maxAmount <= 0) return null;
-              const parsedAmount = parseFloat(customRefundAmount);
-              const isValidAmount = !refundInFull && parsedAmount > 0 && parsedAmount <= maxAmount;
-              const showError = !refundInFull && customRefundAmount !== '' && !isValidAmount;
-
-              return (
-                <div className="space-y-3 p-3 border rounded-md" data-testid="section-refund-options">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between gap-4 pt-2 border-t">
                     <Label htmlFor="refund-in-full" className="text-sm font-medium cursor-pointer">
                       Refund in full
                     </Label>
@@ -1045,34 +1102,10 @@ export default function CancellationRequests() {
                       data-testid="switch-refund-in-full"
                     />
                   </div>
-                  {!refundInFull && (
-                    <div className="space-y-2">
-                      <Label htmlFor="custom-refund-amount" className="text-sm text-muted-foreground">
-                        Refund amount (max: £{maxAmount.toFixed(2)})
-                      </Label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">£</span>
-                        <Input
-                          id="custom-refund-amount"
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          max={maxAmount}
-                          value={customRefundAmount}
-                          onChange={(e) => setCustomRefundAmount(e.target.value)}
-                          className="pl-7"
-                          placeholder="0.00"
-                          data-testid="input-custom-refund-amount"
-                        />
-                      </div>
-                      {showError && (
-                        <p className="text-xs text-destructive" data-testid="text-refund-error">
-                          {parsedAmount <= 0
-                            ? 'Amount must be greater than zero'
-                            : `Amount cannot exceed £${maxAmount.toFixed(2)}`}
-                        </p>
-                      )}
-                    </div>
+                  {!refundInFull && !hasStripe && (
+                    <p className="text-xs text-muted-foreground">
+                      Custom refund amounts are only adjustable for Stripe-paid bookings.
+                    </p>
                   )}
                 </div>
               );
@@ -1125,7 +1158,7 @@ export default function CancellationRequests() {
             <Button
               variant={reviewDialog?.action === 'approved' ? 'default' : 'destructive'}
               onClick={() => reviewDialog?._type === 'transfer' ? handleTransferReview(reviewDialog?.action) : handleReview(reviewDialog?.action)}
-              disabled={processing || (reviewDialog?._type !== 'transfer' && Object.values(selectedTickets).filter(Boolean).length === 0 && reviewDialog?.items?.length > 1) || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && (!(parseFloat(customRefundAmount) > 0) || parseFloat(customRefundAmount) > ((() => { const fs = (reviewDialog?.items?.[0]?.groupFinancialSummary || reviewDialog?.items?.[0]?.financialSummary); const hs = fs?.stripePaymentIntentId && fs?.cardAmount > 0; const sm = hs ? (fs?.cardAmount || 0) : Infinity; const xm = fs?.xeroInvoiceId ? (fs?.totalCost || 0) : Infinity; return Math.min(sm, xm, fs?.totalCost || 0); })())))}
+              disabled={processing || (reviewDialog?._type !== 'transfer' && reviewDialog?.items?.length > 1 && Object.values(selectedTickets).filter(Boolean).length === 0) || (reviewDialog?.action === 'approved' && reviewDialog?._type !== 'transfer' && !refundInFull && customRefundAmount !== '' && (parseFloat(customRefundAmount) <= 0))}
               data-testid="button-review-confirm"
             >
               {processing ? (

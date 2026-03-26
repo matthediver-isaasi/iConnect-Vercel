@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Request ID is required' });
   }
 
-  const { status, review_notes, reversal_options, custom_refund_amount, credit_note_email, suppress_emails } = req.body;
+  const { status, review_notes, reversal_options, custom_refund_amount, refund_allocation, credit_note_email, suppress_emails } = req.body;
 
   if (!status || !['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'status must be "approved" or "rejected"' });
@@ -72,14 +72,20 @@ export default async function handler(req, res) {
     let reversalResults = null;
 
     if (status === 'approved') {
-      if (custom_refund_amount !== undefined && custom_refund_amount !== null) {
-        const parsed = parseFloat(custom_refund_amount);
+      const effectiveRefundAmount = (custom_refund_amount !== undefined && custom_refund_amount !== null) 
+        ? custom_refund_amount 
+        : (refund_allocation?.stripeAmount !== undefined ? refund_allocation.stripeAmount : null);
+      if (effectiveRefundAmount !== undefined && effectiveRefundAmount !== null) {
+        const parsed = parseFloat(effectiveRefundAmount);
         if (!Number.isFinite(parsed) || parsed <= 0) {
           return res.status(400).json({ error: 'custom_refund_amount must be a positive number' });
         }
       }
       const reversalOptions = reversal_options || {};
-      const cancellationResult = await processCancellation(request, tenantId, reversalOptions, custom_refund_amount, credit_note_email);
+      const effectiveAmount = (custom_refund_amount !== undefined && custom_refund_amount !== null)
+        ? custom_refund_amount
+        : (refund_allocation?.stripeAmount !== undefined ? refund_allocation.stripeAmount : null);
+      const cancellationResult = await processCancellation(request, tenantId, reversalOptions, effectiveAmount, credit_note_email);
       if (!cancellationResult.success) {
         const isValidationError = cancellationResult.error && cancellationResult.error.includes('custom_refund_amount');
         const statusCode = isValidationError ? 400 : 500;
