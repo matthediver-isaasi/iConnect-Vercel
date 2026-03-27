@@ -641,7 +641,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, memberCustomValuesLoading]);
 
   // Helper to evaluate a rule condition
-  const evaluateCondition = (triggerValue, operator, value) => {
+  const evaluateSingleCondition = (triggerValue, operator, value) => {
     switch (operator) {
       case 'equals':
         if (Array.isArray(triggerValue)) {
@@ -669,6 +669,34 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       default:
         return false;
     }
+  };
+
+  const evaluateRuleConditions = (rule, currentFormValues) => {
+    if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
+      const triggerValue = currentFormValues[rule.trigger_field_id];
+      return evaluateSingleCondition(triggerValue, rule.operator, rule.value);
+    }
+
+    if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+      const logic = rule.logic || 'and';
+      const results = rule.conditions.map((condition) => {
+        if (!condition.field_id) return false;
+        const triggerValue = currentFormValues[condition.field_id];
+        return evaluateSingleCondition(triggerValue, condition.operator, condition.value);
+      });
+
+      if (logic === 'and') {
+        return results.every(r => r === true);
+      } else {
+        return results.some(r => r === true);
+      }
+    }
+
+    return false;
+  };
+
+  const evaluateCondition = (triggerValue, operator, value) => {
+    return evaluateSingleCondition(triggerValue, operator, value);
   };
 
   const pageIdSet = useMemo(() => {
@@ -759,10 +787,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const pageVisibility = {};
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      const conditionMet = evaluateRuleConditions(rule, formValues);
 
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
@@ -875,22 +902,17 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const fieldDisability = {};
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      const conditionMet = evaluateRuleConditions(rule, formValues);
 
-      // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          // Handle consolidated visibility action format
           if (action.action_type === 'visibility' && action.field_states) {
             for (const [fieldId, state] of Object.entries(action.field_states)) {
               if (!fieldDisability[fieldId]) {
                 fieldDisability[fieldId] = { enableRules: [], disableRules: [] };
               }
-              // enabled: true means "enable when condition met" (starts disabled)
-              // enabled: false means "disable when condition met" (starts enabled)
               if (state.enabled === true) {
                 fieldDisability[fieldId].enableRules.push(conditionMet);
               } else if (state.enabled === false) {
@@ -898,7 +920,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               }
             }
           }
-          // Handle legacy enable/disable action format
           else if (action.action_type === 'enable' || action.action_type === 'disable') {
             const targetIds = action.target_field_ids || [];
             targetIds.forEach(fieldId => {
@@ -992,12 +1013,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     
     // First pass: identify all active actions and build field->action mapping
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      const conditionMet = evaluateRuleConditions(rule, formValues);
       
-      // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
           if (action.action_type === 'set_value' && action.target_field_id) {
@@ -1132,10 +1151,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const nowActiveRoleActions = new Set();
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      const conditionMet = evaluateRuleConditions(rule, formValues);
       
       if (conditionMet && rule.actions && Array.isArray(rule.actions)) {
         rule.actions.forEach((action, actionIndex) => {
