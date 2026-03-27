@@ -1,0 +1,28 @@
+{
+  "name": "ComplexEventTrack",
+  "type": "object",
+  "properties": {
+    "complex_event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Parent complex event ID"
+    },
+    "name": {
+      "type": "string",
+      "description": "Track name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Track description"
+    },
+    "colour": {
+      "type": "string",
+      "description": "Hex colour code for the track label"
+    },
+    "display_order": {
+      "type": "integer",
+      "description": "Display order within the event"
+    }
+  },
+  "required": ["complex_event_id", "name"]
+}

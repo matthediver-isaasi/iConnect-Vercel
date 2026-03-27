@@ -188,6 +188,9 @@ const entityToTable = {
   'MemberBookmark': 'member_bookmark',
   'MemberMembershipHistory': 'member_membership_history',
   'MemberMembershipInvoicing': 'member_membership_invoicing',
+  'ComplexEvent': 'complex_event',
+  'ComplexEventTrack': 'complex_event_track',
+  'ComplexEventSession': 'complex_event_session',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -684,7 +687,8 @@ export default async function handler(req, res) {
               'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
               'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
               'DynamicDirectory',
-              'IEditPage', 'IEditPageElement'
+              'IEditPage', 'IEditPageElement',
+              'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -865,7 +869,8 @@ export default async function handler(req, res) {
             'Award', 'OfflineAward', 'OfflineAwardAssignment', 'EngagementAward', 'EngagementAwardAssignment',
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'DynamicDirectory',
-            'IEditPage', 'IEditPageElement'
+            'IEditPage', 'IEditPageElement',
+            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction'];

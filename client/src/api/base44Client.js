@@ -274,6 +274,9 @@ class EntitiesProxy {
   get ForumReport() { return this._getEntity('ForumReport'); }
   get ForumModerationLog() { return this._getEntity('ForumModerationLog'); }
   get MemberBookmark() { return this._getEntity('MemberBookmark'); }
+  get ComplexEvent() { return this._getEntity('ComplexEvent'); }
+  get ComplexEventTrack() { return this._getEntity('ComplexEventTrack'); }
+  get ComplexEventSession() { return this._getEntity('ComplexEventSession'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets

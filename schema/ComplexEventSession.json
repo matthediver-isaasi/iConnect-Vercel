@@ -1,0 +1,51 @@
+{
+  "name": "ComplexEventSession",
+  "type": "object",
+  "properties": {
+    "complex_event_track_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Parent track ID"
+    },
+    "title": {
+      "type": "string",
+      "description": "Session title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Rich text description (HTML)"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Session image URL"
+    },
+    "speaker_names": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of speaker names"
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Session start datetime"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Session end datetime"
+    },
+    "location": {
+      "type": "string",
+      "description": "Physical address or 'virtual'"
+    },
+    "is_online": {
+      "type": "boolean",
+      "description": "Whether this session is virtual"
+    },
+    "display_order": {
+      "type": "integer",
+      "description": "Display order within the track"
+    }
+  },
+  "required": ["complex_event_track_id", "title"]
+}

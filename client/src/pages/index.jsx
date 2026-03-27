@@ -308,6 +308,9 @@ import GroupBookingPage from "./GroupBookingPage";
 
 import MembershipFees from "./MembershipFees";
 
+import ComplexEvents from "./ComplexEvents";
+import CreateComplexEvent from "./CreateComplexEvent";
+
 import TenantSignup from "./TenantSignup";
 
 import DomainSettings from "./DomainSettings";
@@ -627,6 +630,9 @@ const PAGES = {
     ForumManagement: ForumManagement,
     
     AIReports: AIReports,
+    
+    ComplexEvents: ComplexEvents,
+    CreateComplexEvent: CreateComplexEvent,
 }
 
 function _getCurrentPage(url) {
@@ -960,6 +966,9 @@ function PagesContent() {
                 
                 <Route path="/ReportsDashboard" element={<ReportsDashboard />} />
                 <Route path="/AIReports" element={<AIReports />} />
+                
+                <Route path="/ComplexEvents" element={<ComplexEvents />} />
+                <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />
