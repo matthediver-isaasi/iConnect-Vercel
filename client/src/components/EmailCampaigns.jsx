@@ -23,6 +23,7 @@ export default function EmailCampaigns() {
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [campaignToDelete, setCampaignToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [showStatsDialog, setShowStatsDialog] = useState(false);
@@ -175,8 +176,9 @@ export default function EmailCampaigns() {
   };
 
   const handleDeleteCampaign = async () => {
-    if (!campaignToDelete) return;
+    if (!campaignToDelete || isDeleting) return;
 
+    setIsDeleting(true);
     try {
       const response = await fetch(`/api/email-campaigns/${campaignToDelete.id}`, {
         method: 'DELETE',
@@ -191,6 +193,8 @@ export default function EmailCampaigns() {
       setCampaignToDelete(null);
     } catch (error) {
       toast.error(error.message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -932,11 +936,11 @@ export default function EmailCampaigns() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDeleteCampaign}>
-              Delete
+            <Button variant="destructive" onClick={handleDeleteCampaign} disabled={isDeleting} data-testid="button-confirm-delete">
+              {isDeleting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Deleting...</> : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
