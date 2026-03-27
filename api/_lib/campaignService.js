@@ -35,7 +35,7 @@ async function enrichCampaignCounts(campaign) {
   if (!['sent', 'sending'].includes(campaign.status)) return campaign;
 
   try {
-    const [sentResult, openedResult, clickedResult, deliveredResult] = await Promise.all([
+    const [sentResult, openedResult, clickedResult, deliveredResult, pendingSentResult] = await Promise.all([
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).in('status', ['sent', 'delivered', 'opened', 'clicked']),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
@@ -44,6 +44,10 @@ async function enrichCampaignCounts(campaign) {
         .eq('campaign_id', campaign.id).gt('click_count', 0),
       supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
         .eq('campaign_id', campaign.id).in('status', ['delivered', 'opened', 'clicked']),
+      supabase.from('email_campaign_recipient').select('*', { count: 'exact', head: true })
+        .eq('campaign_id', campaign.id).eq('status', 'sent')
+        .not('mailgun_message_id', 'is', null)
+        .lt('sent_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()),
     ]);
 
     if (sentResult.error) throw sentResult.error;
@@ -55,6 +59,7 @@ async function enrichCampaignCounts(campaign) {
     const liveOpenedCount = openedResult.count || 0;
     const liveClickedCount = clickedResult.count || 0;
     const liveDeliveredCount = deliveredResult.count || 0;
+    const likelyDeliveredCount = (pendingSentResult.count || 0);
 
     const needsUpdate = campaign.sent_count !== liveSentCount ||
       campaign.opened_count !== liveOpenedCount ||
@@ -78,7 +83,8 @@ async function enrichCampaignCounts(campaign) {
       sent_count: liveSentCount,
       opened_count: liveOpenedCount,
       clicked_count: liveClickedCount,
-      delivered_count: liveDeliveredCount
+      delivered_count: liveDeliveredCount,
+      likely_delivered_count: likelyDeliveredCount
     };
   } catch (err) {
     console.warn('[Campaign Service] Failed to enrich campaign counts:', campaign.id, err.message);
@@ -1591,6 +1597,7 @@ export async function getCampaignStats(campaignId, tenantId) {
     const stats = {
       total: totalCount,
       sent: statusSentCount + statusDeliveredCount + statusOpenedCount + statusClickedCount,
+      sent_only: statusSentCount,
       delivered: statusDeliveredCount + statusOpenedCount + statusClickedCount,
       opened: hasOpensCount,
       clicked: hasClicksCount,

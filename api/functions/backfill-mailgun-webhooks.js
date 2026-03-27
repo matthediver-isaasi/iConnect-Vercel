@@ -4,6 +4,43 @@ import { registerMailgunWebhooks } from '../_lib/emailDomainService.js';
 
 const ALLOWED_ORIGINS = ['https://iconn.app', 'https://www.iconn.app'];
 const BACKFILL_API_KEY = process.env.BACKFILL_API_KEY;
+const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
+const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
+
+async function getWebhookRegistrations(mailgunDomain) {
+  if (!MAILGUN_API_KEY) return { success: false, error: 'MAILGUN_API_KEY not configured' };
+
+  const apiBase = MAILGUN_REGION === 'eu'
+    ? 'https://api.eu.mailgun.net'
+    : 'https://api.mailgun.net';
+  const authHeader = 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64');
+
+  try {
+    const response = await fetch(`${apiBase}/v3/domains/${mailgunDomain}/webhooks`, {
+      method: 'GET',
+      headers: { 'Authorization': authHeader }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error(`[Backfill Webhooks] Failed to GET webhooks for ${mailgunDomain}:`, errorData);
+      return { success: false, error: JSON.stringify(errorData) };
+    }
+
+    const data = await response.json();
+    const webhooks = data.webhooks || {};
+    const registrations = {};
+    for (const [eventType, config] of Object.entries(webhooks)) {
+      registrations[eventType] = config.urls || config.url || null;
+    }
+
+    console.log(`[Backfill Webhooks] Current registrations for ${mailgunDomain}:`, JSON.stringify(registrations, null, 2));
+    return { success: true, registrations };
+  } catch (err) {
+    console.error(`[Backfill Webhooks] Error fetching webhooks for ${mailgunDomain}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
 
 function getAllowedOrigin(requestOrigin) {
   if (!requestOrigin) return ALLOWED_ORIGINS[0];
@@ -77,7 +114,9 @@ export default async function handler(req, res) {
       }
 
       try {
+        const diagnosticBefore = await getWebhookRegistrations(emailDomain);
         const webhookResult = await registerMailgunWebhooks(emailDomain);
+        const diagnosticAfter = await getWebhookRegistrations(emailDomain);
         results.push({
           tenant_id: tenant.id,
           slug: tenant.slug,
@@ -85,7 +124,11 @@ export default async function handler(req, res) {
           is_custom: tenant.settings?.email_domain?.is_custom || false,
           status: webhookResult.success ? 'success' : 'failed',
           summary: webhookResult.summary,
-          details: webhookResult.results
+          details: webhookResult.results,
+          diagnostics: {
+            before: diagnosticBefore.success ? diagnosticBefore.registrations : { error: diagnosticBefore.error },
+            after: diagnosticAfter.success ? diagnosticAfter.registrations : { error: diagnosticAfter.error }
+          }
         });
       } catch (err) {
         results.push({

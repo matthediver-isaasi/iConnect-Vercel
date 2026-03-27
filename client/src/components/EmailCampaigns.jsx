@@ -13,7 +13,8 @@ import {
   Mail, Plus, Pencil, Trash2, Send, Eye, BarChart3, Copy,
   Loader2, Calendar, Clock, Users, MousePointerClick,
   CheckCircle2, TrendingUp, TestTube2, Target, MailOpen, Link2, Search,
-  ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle
+  ChevronDown, ChevronRight, ExternalLink, Download, Square, AlertTriangle,
+  RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 import { base44 } from "@/api/base44Client";
@@ -53,6 +54,7 @@ export default function EmailCampaigns() {
   const [statsCampaignId, setStatsCampaignId] = useState(null);
   const [expandedRecipients, setExpandedRecipients] = useState(new Set());
   const [statsLinkFilter, setStatsLinkFilter] = useState(null);
+  const [syncingStats, setSyncingStats] = useState(false);
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['email-campaigns'],
@@ -417,6 +419,7 @@ export default function EmailCampaigns() {
       setStatsData({
         name: campaignData.name,
         sent: stats.sent || 0,
+        sent_only: stats.sent_only || 0,
         delivered: stats.delivered || 0,
         opened: stats.opened || 0,
         clicked: stats.clicked || 0,
@@ -556,6 +559,38 @@ export default function EmailCampaigns() {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  };
+
+  const handleSyncMailgunEvents = async () => {
+    if (!statsCampaignId) return;
+    setSyncingStats(true);
+    try {
+      const response = await fetch('/api/functions/sync-mailgun-events', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: statsCampaignId })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to sync events');
+      }
+
+      const result = await response.json();
+      const { summary } = result;
+      toast.success(`Sync complete: ${summary.processed} events processed, ${summary.skipped} skipped`);
+
+      const campaign = campaigns.find(c => c.id === statsCampaignId);
+      if (campaign) {
+        await handleViewStats(campaign);
+      }
+      queryClient.invalidateQueries({ queryKey: ['email-campaigns'] });
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setSyncingStats(false);
+    }
   };
 
   const toggleRecipientExpand = (recipientId) => {
@@ -1175,6 +1210,20 @@ export default function EmailCampaigns() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleSyncMailgunEvents}
+                  disabled={syncingStats || !statsCampaignId}
+                  data-testid="button-sync-mailgun-stats"
+                >
+                  {syncingStats ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                  )}
+                  {syncingStats ? 'Syncing...' : 'Sync with Mailgun'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleExportStatsCSV}
                   disabled={!statsData}
                   data-testid="button-export-stats-csv"
@@ -1235,6 +1284,20 @@ export default function EmailCampaigns() {
                   </div>
                 ))}
               </div>
+
+              {statsData.sent_only > 0 && statsData.delivered < statsData.sent && (
+                <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="warning-incomplete-stats">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <span className="font-medium text-amber-800 dark:text-amber-200">
+                      {statsData.sent_only} recipients still showing as "sent" without delivery confirmation.
+                    </span>
+                    <span className="text-amber-700 dark:text-amber-300 ml-1">
+                      This may indicate delayed or missing webhook data from Mailgun. Use "Sync with Mailgun" to recover missing events.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-4">
                 {[

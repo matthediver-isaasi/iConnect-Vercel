@@ -64,23 +64,48 @@ export default async function handler(req, res) {
 
         const { data: existingRec } = await supabase
           .from('email_campaign_recipient')
-          .select('click_count, clicked_at')
+          .select('click_count, clicked_at, delivered_at, status')
           .eq('id', recipientId)
           .single();
 
         const newClickCount = (existingRec?.click_count || 0) + 1;
         const clickUpdate = { click_count: newClickCount };
         const isFirstClick = !existingRec?.clicked_at;
+        const needsDeliveryInference = !existingRec?.delivered_at;
 
         if (isFirstClick) {
           clickUpdate.status = 'clicked';
           clickUpdate.clicked_at = new Date().toISOString();
         }
 
+        if (needsDeliveryInference) {
+          clickUpdate.delivered_at = new Date().toISOString();
+        }
+
         await supabase
           .from('email_campaign_recipient')
           .update(clickUpdate)
           .eq('id', recipientId);
+
+        if (needsDeliveryInference) {
+          try {
+            const { error: rpcErr } = await supabase.rpc('increment_campaign_counter', {
+              p_campaign_id: campaignId,
+              p_column_name: 'delivered_count'
+            });
+            if (rpcErr) throw rpcErr;
+          } catch {
+            const { data: camp } = await supabase
+              .from('email_campaign')
+              .select('delivered_count')
+              .eq('id', campaignId)
+              .single();
+            await supabase
+              .from('email_campaign')
+              .update({ delivered_count: (camp?.delivered_count || 0) + 1 })
+              .eq('id', campaignId);
+          }
+        }
 
         if (isFirstClick) {
           try {
