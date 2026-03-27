@@ -1246,6 +1246,24 @@ export default function FormViewPage() {
     }
   };
 
+  const handleImageButtonAutoAdvance = (field) => {
+    if (field.type !== 'image_buttons' || field.auto_advance === false) return;
+    setTimeout(() => {
+      if (form.layout_type === 'card_swipe') {
+        const visibleCardFields = filterVisibleFields(form.fields);
+        const currentIdx = visibleCardFields.findIndex(f => f.id === field.id);
+        if (currentIdx >= 0 && currentIdx < visibleCardFields.length - 1) {
+          setCurrentStep(currentIdx + 1);
+        }
+      } else {
+        const pages = form.pages || [];
+        if (pages.length > 1 && currentPageIndex < pages.length - 1) {
+          goToNextPage();
+        }
+      }
+    }, 350);
+  };
+
   // Helper to filter visible fields
   // hiddenFieldIds already includes fields with "show" rules as hidden by default
   // Also excludes due_diligence fields which should not be shown to end users
@@ -2102,7 +2120,10 @@ export default function FormViewPage() {
                 key={currentStep}
                 field={currentField}
                 value={formValues[currentField.id]}
-                onChange={(value) => handleFieldChange(currentField.id, value)}
+                onChange={(value) => {
+                  handleFieldChange(currentField.id, value);
+                  handleImageButtonAutoAdvance(currentField);
+                }}
                 memberInfo={memberData}
                 organizationInfo={effectiveOrganizationInfo}
                 disabled={disabledFieldIds.has(currentField.id)}
@@ -2212,13 +2233,15 @@ export default function FormViewPage() {
                     )}
                   </Button>
                 ) : (
-                  <Button
-                    onClick={() => setCurrentStep(currentStep + 1)}
-                    disabled={!canProceed}
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4 ml-2" />
-                  </Button>
+                  !(currentField?.type === 'image_buttons' && currentField?.auto_advance !== false && currentField?.hide_next_button === true && !disabledFieldIds.has(currentField?.id)) && (
+                    <Button
+                      onClick={() => setCurrentStep(currentStep + 1)}
+                      disabled={!canProceed}
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  )
                 )}
               </div>
             </div>
@@ -2351,7 +2374,10 @@ export default function FormViewPage() {
                   key={field.id}
                   field={field}
                   value={formValues[field.id]}
-                  onChange={(value) => handleFieldChange(field.id, value)}
+                  onChange={(value) => {
+                    handleFieldChange(field.id, value);
+                    handleImageButtonAutoAdvance(field);
+                  }}
                   memberInfo={memberData}
                   organizationInfo={effectiveOrganizationInfo}
                   disabled={disabledFieldIds.has(field.id)}
@@ -2574,13 +2600,15 @@ export default function FormViewPage() {
                 
                 {/* Next/Submit button */}
                 {hasPages && !isLastPage ? (
-                  <Button
-                    onClick={goToNextPage}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4 ml-2" />
-                  </Button>
+                  !(displayFields.some(f => f.type === 'image_buttons' && f.auto_advance !== false && f.hide_next_button === true && !disabledFieldIds.has(f.id))) ? (
+                    <Button
+                      onClick={goToNextPage}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  ) : null
                 ) : (
                   <Button
                     onClick={handleSubmit}

@@ -63,6 +63,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
   { value: 'image', label: 'Image (Display Only)' },
+  { value: 'image_buttons', label: 'Image Buttons' },
   { value: 'signature', label: 'Signature' },
 ];
 
@@ -343,7 +344,7 @@ function FieldMappingSection({
                           <SelectValue placeholder="Select field..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {fields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
+                          {fields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
                             <SelectItem key={field.id} value={field.id}>
                               {field.label || field.type}
                             </SelectItem>
@@ -870,6 +871,9 @@ function LogicRulesSection({
     }
     if (field.type === 'checkbox') {
       return field.options || [];
+    }
+    if (field.type === 'image_buttons') {
+      return (field.image_options || []).map(opt => ({ value: opt.value, label: opt.label || opt.value }));
     }
     return [];
   };
@@ -2326,7 +2330,7 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
     updateField(originalIndex, { field_mappings: newMappings });
   };
 
-  const mappableFormFields = allFields.filter(f => f.id !== field.id && f.type !== 'membership_payment' && f.type !== 'instructions' && f.type !== 'image');
+  const mappableFormFields = allFields.filter(f => f.id !== field.id && f.type !== 'membership_payment' && f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons');
 
   return (
     <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -2542,6 +2546,8 @@ function FieldCard({
                 <img src={field.image_url} alt={field.image_alt || ''} className="w-8 h-8 object-cover rounded flex-shrink-0" />
               ) : field.type === 'image' ? (
                 <ImageIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              ) : field.type === 'image_buttons' ? (
+                <ImageIcon className="w-4 h-4 text-blue-400 flex-shrink-0" />
               ) : null}
               <span className="text-sm font-medium text-slate-700 truncate">
                 {field.label || 'Untitled Field'}
@@ -2609,6 +2615,14 @@ function FieldCard({
                       onValueChange={(value) => {
                         if (value) {
                           const updates = { type: value };
+                          if (value === 'image_buttons' && (!field.image_options || field.image_options.length < 2)) {
+                            updates.image_options = [
+                              { image_url: null, label: '', value: 'option_1' },
+                              { image_url: null, label: '', value: 'option_2' }
+                            ];
+                            updates.auto_advance = true;
+                            updates.hide_next_button = false;
+                          }
                           updateField(originalIndex, updates);
                         }
                       }}
@@ -3598,6 +3612,213 @@ function FieldCard({
                 </div>
               )}
 
+
+              {/* Image Buttons Field Configuration */}
+              {field.type === 'image_buttons' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Image Button Options</Label>
+                  <p className="text-xs text-slate-500 mb-2">Configure 2-5 clickable image options. Each records a value like a radio button.</p>
+                  
+                  {(field.image_options || []).map((option, optIndex) => (
+                    <div key={optIndex} className="space-y-2 p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-slate-600">Option {optIndex + 1}</span>
+                        {(field.image_options || []).length > 2 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const newOptions = [...(field.image_options || [])];
+                              newOptions.splice(optIndex, 1);
+                              updateField(originalIndex, { image_options: newOptions });
+                            }}
+                            data-testid={`button-remove-image-option-${field.id}-${optIndex}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+
+                      {option.image_url ? (
+                        <div className="space-y-2">
+                          <div className="relative rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                            <img 
+                              src={option.image_url} 
+                              alt={option.label || `Option ${optIndex + 1}`} 
+                              className="w-full max-h-32 object-contain"
+                              data-testid={`img-option-preview-${field.id}-${optIndex}`}
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const newOptions = [...(field.image_options || [])];
+                              newOptions[optIndex] = { ...newOptions[optIndex], image_url: null };
+                              updateField(originalIndex, { image_options: newOptions });
+                            }}
+                            data-testid={`button-remove-option-image-${field.id}-${optIndex}`}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Remove Image
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <label 
+                            className="flex flex-col items-center justify-center gap-1 p-4 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                            data-testid={`label-upload-option-image-${field.id}-${optIndex}`}
+                          >
+                            <Upload className="w-5 h-5 text-slate-400" />
+                            <span className="text-xs text-slate-500">Upload image</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              data-testid={`input-upload-option-image-${field.id}-${optIndex}`}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                try {
+                                  const result = await uploadFileWithProgress(file, {
+                                    type: UPLOAD_TYPES.PAGE,
+                                    onProgress: null
+                                  });
+                                  const newOptions = [...(field.image_options || [])];
+                                  newOptions[optIndex] = { ...newOptions[optIndex], image_url: result.file_url };
+                                  updateField(originalIndex, { image_options: newOptions });
+                                  toast.success('Image uploaded successfully');
+                                } catch (err) {
+                                  toast.error(err.message || 'Failed to upload image');
+                                }
+                              }}
+                            />
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400">or</span>
+                            <Input
+                              placeholder="Paste image URL and press Enter..."
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const url = e.target.value.trim();
+                                  if (url) {
+                                    const newOptions = [...(field.image_options || [])];
+                                    newOptions[optIndex] = { ...newOptions[optIndex], image_url: url };
+                                    updateField(originalIndex, { image_options: newOptions });
+                                  }
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const url = e.target.value.trim();
+                                if (url) {
+                                  const newOptions = [...(field.image_options || [])];
+                                  newOptions[optIndex] = { ...newOptions[optIndex], image_url: url };
+                                  updateField(originalIndex, { image_options: newOptions });
+                                }
+                              }}
+                              data-testid={`input-option-image-url-${field.id}-${optIndex}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Label (caption)</Label>
+                        <Input
+                          value={option.label || ''}
+                          onChange={(e) => {
+                            const newOptions = [...(field.image_options || [])];
+                            newOptions[optIndex] = { ...newOptions[optIndex], label: e.target.value };
+                            updateField(originalIndex, { image_options: newOptions });
+                          }}
+                          placeholder="Optional caption..."
+                          data-testid={`input-option-label-${field.id}-${optIndex}`}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Value (for logic)</Label>
+                        <Input
+                          value={option.value || ''}
+                          onChange={(e) => {
+                            const newOptions = [...(field.image_options || [])];
+                            newOptions[optIndex] = { ...newOptions[optIndex], value: e.target.value };
+                            updateField(originalIndex, { image_options: newOptions });
+                          }}
+                          placeholder="Value recorded on selection..."
+                          data-testid={`input-option-value-${field.id}-${optIndex}`}
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  {(field.image_options || []).length < 5 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const current = field.image_options || [];
+                        if (current.length >= 5) return;
+                        const newOptions = [...current, { image_url: null, label: '', value: `option_${current.length + 1}` }];
+                        updateField(originalIndex, { image_options: newOptions });
+                      }}
+                      data-testid={`button-add-image-option-${field.id}`}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Option
+                    </Button>
+                  )}
+
+                  {(!field.image_options || field.image_options.length < 2) && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const defaultOptions = [
+                            { image_url: null, label: '', value: 'option_1' },
+                            { image_url: null, label: '', value: 'option_2' }
+                          ];
+                          updateField(originalIndex, { image_options: defaultOptions });
+                        }}
+                        data-testid={`button-init-image-options-${field.id}`}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Initialize Options (min 2)
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Label className="text-xs font-medium">Auto-advance on click</Label>
+                        <p className="text-xs text-slate-500">Automatically go to the next page when an image is clicked</p>
+                      </div>
+                      <Switch
+                        checked={field.auto_advance !== false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { auto_advance: checked })}
+                        data-testid={`switch-auto-advance-${field.id}`}
+                      />
+                    </div>
+
+                    {field.auto_advance !== false && (
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <Label className="text-xs font-medium">Hide Next button</Label>
+                          <p className="text-xs text-slate-500">Hide the Next button when auto-advance is enabled</p>
+                        </div>
+                        <Switch
+                          checked={field.hide_next_button === true}
+                          onCheckedChange={(checked) => updateField(originalIndex, { hide_next_button: checked })}
+                          data-testid={`switch-hide-next-${field.id}`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Contact Field - Contract Template Selection */}
               {field.type === 'contact' && (
@@ -5212,7 +5433,7 @@ export default function FormBuilderPage() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="_none">-- None --</SelectItem>
-                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
+                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
                                         <SelectItem key={field.id} value={field.id}>
                                           {field.label || field.id}
                                         </SelectItem>
@@ -5237,7 +5458,7 @@ export default function FormBuilderPage() {
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="_none">-- None --</SelectItem>
-                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
+                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
                                         <SelectItem key={field.id} value={field.id}>
                                           {field.label || field.id}
                                         </SelectItem>

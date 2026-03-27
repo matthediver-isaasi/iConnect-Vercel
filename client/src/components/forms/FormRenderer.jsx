@@ -1611,6 +1611,77 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   };
 
+  if (field.type === 'image_buttons') {
+    const imageOptions = field.image_options || [];
+    return (
+      <div className="space-y-2">
+        {field.label && (
+          <div>
+            <Label>{field.label}</Label>
+            {field.description && (
+              <p className="text-sm text-slate-500 mt-1">{field.description}</p>
+            )}
+          </div>
+        )}
+        <div 
+          className="flex flex-wrap gap-3 justify-center"
+          data-testid={`image-buttons-${field.id}`}
+        >
+          {imageOptions.map((option, idx) => {
+            const isSelected = value === option.value;
+            return (
+              <button
+                key={idx}
+                type="button"
+                disabled={isFieldDisabled}
+                onClick={() => {
+                  if (!isFieldDisabled) {
+                    onChange(option.value);
+                  }
+                }}
+                className={cn(
+                  "relative flex flex-col items-center gap-2 p-2 rounded-md border-2 transition-all cursor-pointer",
+                  "hover-elevate active-elevate-2",
+                  "flex-1 min-w-[100px] max-w-[200px]",
+                  isSelected 
+                    ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" 
+                    : "border-slate-200 bg-white",
+                  isFieldDisabled && "opacity-50 cursor-not-allowed"
+                )}
+                data-testid={`image-button-${field.id}-${idx}`}
+              >
+                {isSelected && (
+                  <div className="absolute top-1 right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center z-10">
+                    <Check className="w-3 h-3 text-white" />
+                  </div>
+                )}
+                {option.image_url ? (
+                  <img 
+                    src={option.image_url} 
+                    alt={option.label || `Option ${idx + 1}`}
+                    className="w-full h-24 object-cover rounded"
+                  />
+                ) : (
+                  <div className="w-full h-24 bg-slate-100 rounded flex items-center justify-center text-slate-400 text-xs">
+                    No image
+                  </div>
+                )}
+                {option.label && (
+                  <span className={cn(
+                    "text-xs font-medium text-center",
+                    isSelected ? "text-blue-700" : "text-slate-600"
+                  )}>
+                    {option.label}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   if (field.type === 'image') {
     return (
       <div 
