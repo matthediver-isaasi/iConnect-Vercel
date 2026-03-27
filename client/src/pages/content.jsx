@@ -2,8 +2,10 @@ import React, { useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function ContentPage() {
+  const { memberInfo } = useMemberAccess();
   // Try hash-based routing as fallback since query params are being stripped
   const urlParams = new URLSearchParams(window.location.search);
   const querySlug = urlParams.get('page');
@@ -123,6 +125,7 @@ export default function ContentPage() {
         <IEditElementRenderer
           key={element.id}
           element={element}
+          memberInfo={memberInfo}
           isFirst={index === 0}
         />
       ))}

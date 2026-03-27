@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import Events from "./Events";
 
 export default function HomePageRedirect() {
+  const { memberInfo } = useMemberAccess();
   const { data: homePageSlug, isLoading: settingsLoading } = useQuery({
     queryKey: ['home-page-setting'],
     queryFn: async () => {
@@ -61,6 +63,7 @@ export default function HomePageRedirect() {
         <IEditElementRenderer
           key={element.id}
           element={element}
+          memberInfo={memberInfo}
           isPreview={false}
         />
       ))}

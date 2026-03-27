@@ -385,7 +385,7 @@ export default function DynamicPage() {
     <div className="w-full" data-testid={`dynamic-page-${slug}`}>
       {elements.map((element, index) => (
         <React.Fragment key={element.id}>
-          <IEditElementRenderer element={element} />
+          <IEditElementRenderer element={element} memberInfo={memberInfo} />
           {/* Insert below-first-element banners after the first element */}
           {index === 0 && belowFirstElementBanners.length > 0 && (
             <div className="w-full">
