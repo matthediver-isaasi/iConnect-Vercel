@@ -404,7 +404,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Prefill: Fetch member entity when form has prefill_source = 'member'
   // Only enabled for authenticated users to prevent 401 errors on public pages
-  const { data: prefillMember } = useQuery({
+  const { data: prefillMember, isLoading: prefillMemberLoading } = useQuery({
     queryKey: ['prefill-member-embed', prefillMemberId],
     queryFn: async () => {
       const allMembers = await base44.entities.Member.listAll();
@@ -414,8 +414,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Prefill: Fetch organization entity when form has prefill_source = 'organization'
-  // Only enabled for authenticated users to prevent 401 errors on public pages
-  const { data: prefillOrg } = useQuery({
+  const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
     queryKey: ['prefill-org-embed', prefillOrgId],
     queryFn: async () => {
       const allOrgs = await base44.entities.Organization.listAll();
@@ -460,6 +459,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     },
     enabled: !!memberInfo && !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
   });
+
+  const isPrefillLoading = form && form.prefill_source && form.prefill_source !== 'none' && !prefillApplied && !!memberInfo && (
+    (form.prefill_source === 'member' && (prefillMemberLoading || memberCustomValuesLoading)) ||
+    (form.prefill_source === 'organization' && prefillOrgLoading)
+  );
 
   // Find the organisation_dropdown field (if any) to determine selected org for domain validation
   const orgDropdownField = useMemo(() => {
@@ -1634,6 +1638,22 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     paddingBottom: `${vertical_padding}px`,
     position: 'relative'
   };
+
+  if (isPrefillLoading) {
+    return (
+      <div id={anchor || undefined} style={containerStyle}>
+        <div className="relative mx-auto px-4" style={{ maxWidth: `${content_max_width}px` }}>
+          {renderHeaderSection()}
+          <Card className="iedit-form-styled !rounded-none" style={getCardStyle()}>
+            <CardContent className="p-12 text-center">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+              <p className="text-sm text-slate-500">Loading your details...</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (submitted) {
     return (
