@@ -35,11 +35,14 @@ function escapeXml(str) {
 
 function getBaseUrl(req, tenant) {
   const protocol = 'https';
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0];
   if (tenant.domain) {
+    if (host.startsWith('www.') && !tenant.domain.startsWith('www.')) {
+      return `${protocol}://www.${tenant.domain}`;
+    }
     return `${protocol}://${tenant.domain}`;
   }
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-  return `${protocol}://${host.split(':')[0]}`;
+  return `${protocol}://${host}`;
 }
 
 function formatDate(dateStr) {
@@ -228,7 +231,7 @@ export default async function handler(req, res) {
 
     if (customPagesResult.data) {
       for (const page of customPagesResult.data) {
-        const path = `/ViewPage?slug=${encodeURIComponent(page.slug)}`;
+        const path = `/${encodeURIComponent(page.slug)}`;
         urls.push({
           loc: baseUrl + path,
           lastmod: null,

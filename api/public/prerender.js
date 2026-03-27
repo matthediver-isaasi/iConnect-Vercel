@@ -53,11 +53,14 @@ function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, og
 
 function getBaseUrl(req, tenant) {
   const protocol = 'https';
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0];
   if (tenant.domain) {
+    if (host.startsWith('www.') && !tenant.domain.startsWith('www.')) {
+      return `${protocol}://www.${tenant.domain}`;
+    }
     return `${protocol}://${tenant.domain}`;
   }
-  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-  return `${protocol}://${host.split(':')[0]}`;
+  return `${protocol}://${host}`;
 }
 
 async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
@@ -289,7 +292,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl) {
   return {
     title: `${page.title} | ${tenant.name}`,
     description: desc,
-    ogUrl: `${baseUrl}/ViewPage?slug=${page.slug}`,
+    ogUrl: `${baseUrl}/${page.slug}`,
     bodyContent: `
       <article>
         <h2>${escapeHtml(page.title)}</h2>
@@ -492,6 +495,13 @@ export default async function handler(req, res) {
             break;
           }
         }
+      }
+    }
+
+    if (!pageData) {
+      const bareSlugMatch = requestPath.match(/^\/([a-z][a-z0-9-]+)$/);
+      if (bareSlugMatch) {
+        pageData = await renderCustomPage(supabase, tenant, decodeURIComponent(bareSlugMatch[1]), baseUrl);
       }
     }
 

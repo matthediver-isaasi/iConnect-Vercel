@@ -30,6 +30,7 @@ const PUBLIC_ROUTE_PATTERNS = [
   /^\/JobBoard$/,
   /^\/JobDetails/,
   /^\/OrganisationDirectory$/,
+  /^\/Resources\/?$/,
   /^\/events\/[^/]+/,
   /^\/articles\/[^/]+\/[^/]+/,
   /^\/NewsView/,
