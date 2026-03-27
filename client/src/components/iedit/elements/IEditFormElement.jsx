@@ -407,8 +407,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const { data: prefillMember, isLoading: prefillMemberLoading } = useQuery({
     queryKey: ['prefill-member-embed', prefillMemberId],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.find(m => m.id === prefillMemberId);
+      return base44.entities.Member.get(prefillMemberId);
     },
     enabled: !!memberInfo && !!prefillMemberId && form?.prefill_source === 'member'
   });
@@ -417,8 +416,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
     queryKey: ['prefill-org-embed', prefillOrgId],
     queryFn: async () => {
-      const allOrgs = await base44.entities.Organization.listAll();
-      return allOrgs.find(o => o.id === prefillOrgId);
+      return base44.entities.Organization.get(prefillOrgId);
     },
     enabled: !!memberInfo && !!prefillOrgId && form?.prefill_source === 'organization'
   });
