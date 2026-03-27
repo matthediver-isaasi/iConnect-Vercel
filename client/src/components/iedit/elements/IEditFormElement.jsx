@@ -104,10 +104,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [validationErrors, setValidationErrors] = useState([]);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   
-  // Get URL parameters
+  // Get URL parameters, falling back to logged-in user when no URL params present
   const urlParams = new URLSearchParams(window.location.search);
-  const prefillMemberId = urlParams.get('member_id');
-  const prefillOrgId = urlParams.get('organization_id');
+  const prefillMemberId = urlParams.get('member_id') || (memberInfo?.id || null);
+  const prefillOrgId = urlParams.get('organization_id') || (memberInfo?.organization_id || null);
   const draftToken = urlParams.get('draft');
   
   // Draft save state
