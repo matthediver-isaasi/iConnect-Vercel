@@ -310,6 +310,8 @@ import MembershipFees from "./MembershipFees";
 
 import ComplexEvents from "./ComplexEvents";
 import CreateComplexEvent from "./CreateComplexEvent";
+import PublicComplexEvents from "./PublicComplexEvents";
+import ComplexEventDetail from "./ComplexEventDetail";
 
 import TenantSignup from "./TenantSignup";
 
@@ -633,6 +635,8 @@ const PAGES = {
     
     ComplexEvents: ComplexEvents,
     CreateComplexEvent: CreateComplexEvent,
+    PublicComplexEvents: PublicComplexEvents,
+    ComplexEventDetail: ComplexEventDetail,
 }
 
 function _getCurrentPage(url) {
@@ -969,6 +973,8 @@ function PagesContent() {
                 
                 <Route path="/ComplexEvents" element={<ComplexEvents />} />
                 <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
+                <Route path="/PublicComplexEvents" element={<PublicComplexEvents />} />
+                <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />

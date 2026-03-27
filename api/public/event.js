@@ -56,7 +56,8 @@ export default async function handler(req, res) {
         registration_closes_at,
         slug,
         seo_title,
-        seo_description
+        seo_description,
+        is_complex
       `)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc']);
@@ -139,7 +140,8 @@ export default async function handler(req, res) {
       registration_closes_at: event.registration_closes_at,
       slug: event.slug || null,
       seo_title: event.seo_title || null,
-      seo_description: event.seo_description || null
+      seo_description: event.seo_description || null,
+      is_complex: event.is_complex || false
     };
 
     return res.status(200).json(publicEvent);

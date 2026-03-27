@@ -532,6 +532,29 @@ class PublicClient {
       body: JSON.stringify({ email })
     });
   }
+
+  async listComplexEvents() {
+    return this._fetch('/api/public/complex-events');
+  }
+
+  async getComplexEventSessions(eventId) {
+    if (!eventId) return [];
+    return this._fetch(`/api/complex-event-sessions/public?event_id=${eventId}`);
+  }
+
+  async submitComplexEventBooking(data) {
+    return this._fetch('/api/public/complex-event-booking', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  async createComplexEventPaymentIntent(data) {
+    return this._fetch('/api/public/complex-event-payment-intent', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
 }
 
 // Export singleton instance

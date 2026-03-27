@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -25,6 +26,22 @@ export default async function handler(req, res) {
   }
 
   try {
+    const tenant = await resolveTenantFromRequest(req);
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { data: event, error: eventError } = await supabase
+      .from('event')
+      .select('id, tenant_id')
+      .eq('id', event_id)
+      .eq('tenant_id', tenant.id)
+      .single();
+
+    if (eventError || !event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
     const baseFields = 'id, event_id, title, description, start_time, end_time, duration_minutes, timezone, delivery_mode, track_name, sort_order, status, zoom_type';
 
     const { data, error } = await supabase
