@@ -61,10 +61,21 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Form not found' });
     }
 
-    // Reject forms that require authentication - these cannot be embedded publicly
     if (form.require_authentication) {
-      return res.status(403).json({ 
-        error: 'This form requires authentication and cannot be embedded publicly',
+      const previewFields = (form.fields || []).map(f => ({
+        id: f.id,
+        label: f.label,
+        type: f.type,
+        required: f.required
+      }));
+      return res.json({
+        name: form.name,
+        slug: form.slug,
+        description: form.description,
+        fields: previewFields,
+        is_active: form.is_active,
+        layout_type: form.layout_type,
+        submit_button_text: form.submit_button_text,
         require_authentication: true
       });
     }
