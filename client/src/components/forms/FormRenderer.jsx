@@ -663,7 +663,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             />
             {maxLimit && (
               <p className={`text-xs text-right ${isOverLimit ? 'text-red-500 font-medium' : 'text-slate-400'}`}>
-                {currentCount} / {maxLimit} {isWordLimit ? 'words' : ''}
+                {currentCount} / {maxLimit}{isWordLimit ? ' words' : ''}
               </p>
             )}
           </div>
