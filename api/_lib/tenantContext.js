@@ -168,9 +168,11 @@ export const entityTenantScope = {
   'MemberMembershipHistory': TENANT_SCOPE.TENANT,
   'MemberMembershipInvoicing': TENANT_SCOPE.TENANT,
   
+  // COMPLEX EVENTS - Multi-track event module
   'ComplexEvent': TENANT_SCOPE.TENANT,
   'ComplexEventTrack': TENANT_SCOPE.TENANT,
   'ComplexEventSession': TENANT_SCOPE.TENANT,
+  'ComplexEventTicketClass': TENANT_SCOPE.TENANT,
 };
 
 /**

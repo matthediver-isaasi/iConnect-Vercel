@@ -103,6 +103,7 @@ const entityToTable = {
   'ComplexEvent': 'complex_event',
   'ComplexEventTrack': 'complex_event_track',
   'ComplexEventSession': 'complex_event_session',
+  'ComplexEventTicketClass': 'complex_event_ticket_class',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -140,7 +141,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, check role-based cross-member access
-    if (entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId) {
+    if ((entity === 'OrganizationPreferenceValue' || entity === 'ComplexEvent' || entity === 'ComplexEventTrack' || entity === 'ComplexEventSession' || entity === 'ComplexEventTicketClass') && tenantCtx.tenantId) {
       allowsTenantWideAccess = true;
     }
     if (entity === 'MemberPreferenceValue' && tenantCtx.tenantId && tenantCtx.roleId) {
@@ -200,7 +201,7 @@ export default async function handler(req, res) {
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
-            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
+            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -417,7 +418,7 @@ export default async function handler(req, res) {
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
-            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
+            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -550,7 +551,7 @@ export default async function handler(req, res) {
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
-            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
+            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

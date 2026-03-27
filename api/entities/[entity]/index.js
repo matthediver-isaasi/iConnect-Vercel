@@ -191,6 +191,7 @@ const entityToTable = {
   'ComplexEvent': 'complex_event',
   'ComplexEventTrack': 'complex_event_track',
   'ComplexEventSession': 'complex_event_session',
+  'ComplexEventTicketClass': 'complex_event_ticket_class',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
@@ -238,7 +239,7 @@ export default async function handler(req, res) {
     // Exceptions that allow tenant-wide access:
     // - OrganizationPreferenceValue: for viewing org details on the /organisations page
     // - Booking with event_id filter: for viewing all event attendees (access controlled by RBAC button visibility)
-    let allowsTenantWideAccess = entity === 'OrganizationPreferenceValue' && tenantCtx.tenantId;
+    let allowsTenantWideAccess = (entity === 'OrganizationPreferenceValue' || entity === 'ComplexEvent' || entity === 'ComplexEventTrack' || entity === 'ComplexEventSession' || entity === 'ComplexEventTicketClass') && tenantCtx.tenantId;
     
     // MemberPreferenceValue: check role-based permission before granting cross-member access
     if (entity === 'MemberPreferenceValue' && tenantCtx.tenantId && tenantCtx.roleId) {
@@ -688,7 +689,7 @@ export default async function handler(req, res) {
               'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
               'DynamicDirectory',
               'IEditPage', 'IEditPageElement',
-              'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
+              'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -870,7 +871,7 @@ export default async function handler(req, res) {
             'OrganisationAward', 'OrganisationAwardAssignment', 'AwardClassification', 'AwardSublevel',
             'DynamicDirectory',
             'IEditPage', 'IEditPageElement',
-            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession'
+            'ComplexEvent', 'ComplexEventTrack', 'ComplexEventSession', 'ComplexEventTicketClass'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction'];
