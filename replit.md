@@ -28,6 +28,7 @@ A unified identity system manages user authentication, multi-tenant ownership, a
 -   **Membership Tier System:** Supports pricing based on organization or member attributes with historical versioning, pro-rata pricing, and cron-based renewals.
 -   **Booking Cancellation Requests:** Members and admins can initiate cancellation requests for tickets or groups, which go through an admin review queue. Approved cancellations handle Stripe refunds and Xero credit note creation.
 -   **Booking Transfer Requests:** Members and admins can initiate ticket transfer requests within the same organization, subject to admin review. Transfers update attendee details and Xero invoice line items where applicable. Supports public/guest ticket transfers via manual entry.
+-   **Complex Event Sessions:** Multi-session (complex) events support individual sessions with per-session Zoom meeting/webinar integration. Each virtual/hybrid session can have its own Zoom link, host, and registration settings. Sessions are stored in the `complex_event_session` table. Booking confirmation auto-registers attendees for Zoom webinar sessions. Session schedules with join links (for booked attendees) are displayed on the public event detail page.
 -   **Discount Codes:** Supports targeting discounts by organization, member, role, or member group, with per-member usage tracking. Discount codes can also be restricted to specific events.
 -   **Organization Directory Type Filter:** Allows filtering visible organizations in the directory based on their type.
 

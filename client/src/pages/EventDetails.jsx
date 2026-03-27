@@ -296,6 +296,16 @@ export default function EventDetailsPage() {
     enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
   });
 
+  const { data: eventSessions = [] } = useQuery({
+    queryKey: ['event-sessions', event?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/complex-event-sessions/public?event_id=${event.id}`, { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!event?.id && !!event?.is_complex
+  });
+
   // Query for all system settings (using public endpoint for unauthenticated access)
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['public-system-settings'],
@@ -1383,6 +1393,81 @@ export default function EventDetailsPage() {
                         </>
                       )}
                     </Button>
+                  </div>
+                </CardContent>
+              )}
+
+              {/* Sessions Schedule */}
+              {eventSessions.length > 0 && (
+                <CardContent className="pt-6 border-t border-slate-200">
+                  <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    Sessions
+                  </h3>
+                  <div className="space-y-3">
+                    {eventSessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className="p-3 rounded-lg border border-slate-200 space-y-2"
+                        data-testid={`session-card-${session.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-slate-900">{session.title}</div>
+                            {session.track_name && (
+                              <Badge variant="outline" className="text-xs mt-1">{session.track_name}</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {session.delivery_mode === 'virtual' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Video className="h-3 w-3 mr-1" />Virtual
+                              </Badge>
+                            )}
+                            {session.delivery_mode === 'hybrid' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Video className="h-3 w-3 mr-1" />Hybrid
+                              </Badge>
+                            )}
+                            {session.delivery_mode === 'in_person' && (
+                              <Badge variant="secondary" className="text-xs">
+                                <MapPin className="h-3 w-3 mr-1" />In-Person
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        {session.start_time && (
+                          <div className="text-sm text-slate-600 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {new Date(session.start_time).toLocaleString(undefined, {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                            {session.duration_minutes && ` (${session.duration_minutes} min)`}
+                          </div>
+                        )}
+                        {session.description && (
+                          <p className="text-sm text-slate-500">{session.description}</p>
+                        )}
+                        {session.zoom_join_url && (session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid') && (
+                          <div className="pt-2">
+                            <a
+                              href={session.zoom_join_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                              data-testid={`link-session-zoom-${session.id}`}
+                            >
+                              <Video className="h-4 w-4" />
+                              Join Zoom {session.zoom_type === 'webinar' ? 'Webinar' : 'Meeting'}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               )}

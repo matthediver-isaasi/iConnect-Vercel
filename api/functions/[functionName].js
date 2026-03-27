@@ -5,7 +5,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
-import { getZoomAccessToken } from '../_lib/zoomClient.js';
+import { getZoomAccessToken, getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
@@ -2133,6 +2133,108 @@ const functionHandlers = {
       }
     }
 
+    // Register attendees for virtual sessions in complex events (per-session Zoom webinar registration)
+    let sessionZoomRegistrationResults = [];
+    if (event.is_complex) {
+      try {
+        let sessionQuery = supabase
+          .from('complex_event_session')
+          .select('*')
+          .eq('event_id', eventId)
+          .eq('status', 'scheduled')
+          .in('delivery_mode', ['virtual', 'hybrid'])
+          .not('zoom_webinar_id', 'is', null);
+
+        if (event.tenant_id) {
+          sessionQuery = sessionQuery.eq('tenant_id', event.tenant_id);
+        }
+
+        const { data: virtualSessions } = await sessionQuery;
+
+        if (virtualSessions && virtualSessions.length > 0) {
+          console.log(`[createOneOffEventBooking] Found ${virtualSessions.length} virtual sessions with Zoom webinars`);
+
+          const bookedTrack = (ticketClassName || '').trim().toLowerCase();
+
+          for (const session of virtualSessions) {
+            if (!session.zoom_registration_required) {
+              console.log(`[createOneOffEventBooking] Session "${session.title}" does not require registration, skipping`);
+              continue;
+            }
+
+            if (session.start_time && new Date(session.start_time) <= new Date()) {
+              console.log(`[createOneOffEventBooking] Session "${session.title}" has already started, skipping`);
+              continue;
+            }
+
+            const sessionTrack = (session.track_name || '').trim().toLowerCase();
+            if (sessionTrack) {
+              if (!bookedTrack || sessionTrack !== bookedTrack) {
+                console.log(`[createOneOffEventBooking] Session "${session.title}" track "${session.track_name}" does not match booking track "${ticketClassName || '(none)'}", skipping`);
+                continue;
+              }
+            }
+
+            try {
+              const zoomToken = event.tenant_id
+                ? await getZoomAccessTokenForTenant(event.tenant_id)
+                : await getZoomAccessToken();
+
+              for (const attendee of bookingAttendees) {
+                try {
+                  const zoomResponse = await fetch(
+                    `https://api.zoom.us/v2/webinars/${session.zoom_webinar_id}/registrants`,
+                    {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${zoomToken}`,
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({
+                        first_name: attendee.first_name || attendee.firstName || 'Guest',
+                        last_name: attendee.last_name || attendee.lastName || 'Attendee',
+                        email: attendee.email,
+                        auto_approve: true
+                      })
+                    }
+                  );
+
+                  if (zoomResponse.ok) {
+                    const zoomData = await zoomResponse.json();
+                    console.log(`[createOneOffEventBooking] ✓ Registered ${attendee.email} for session "${session.title}", registrant_id: ${zoomData.registrant_id}`);
+                    sessionZoomRegistrationResults.push({
+                      session_id: session.id,
+                      session_title: session.title,
+                      email: attendee.email,
+                      success: true,
+                      registrant_id: zoomData.registrant_id,
+                      join_url: zoomData.join_url
+                    });
+                  } else {
+                    const errorData = await zoomResponse.json().catch(() => ({}));
+                    if (errorData.code === 3027) {
+                      console.log(`[createOneOffEventBooking] ${attendee.email} already registered for session "${session.title}"`);
+                      sessionZoomRegistrationResults.push({ session_id: session.id, email: attendee.email, success: true, already_registered: true });
+                    } else {
+                      console.error(`[createOneOffEventBooking] Session zoom registration error for ${attendee.email}:`, errorData);
+                      sessionZoomRegistrationResults.push({ session_id: session.id, email: attendee.email, success: false, error: errorData.message });
+                    }
+                  }
+                } catch (regErr) {
+                  console.error(`[createOneOffEventBooking] Session zoom exception for ${attendee.email}:`, regErr.message);
+                  sessionZoomRegistrationResults.push({ session_id: session.id, email: attendee.email, success: false, error: regErr.message });
+                }
+              }
+            } catch (tokenErr) {
+              console.error('[createOneOffEventBooking] Failed to get token for session registration:', tokenErr.message);
+            }
+          }
+        }
+      } catch (sessionErr) {
+        console.error('[createOneOffEventBooking] Error fetching complex event sessions:', sessionErr.message);
+      }
+    }
+
     // If paying to account, create an account charge record
     let xeroInvoiceResult = null;
     let xeroDebug = {
@@ -2881,6 +2983,13 @@ const functionHandlers = {
         webinar_id: event.zoom_webinar_id,
         registrations: zoomRegistrationResults,
         all_successful: zoomRegistrationResults.every(r => r.success !== false)
+      };
+    }
+
+    if (sessionZoomRegistrationResults.length > 0) {
+      response.session_zoom_registration = {
+        registrations: sessionZoomRegistrationResults,
+        all_successful: sessionZoomRegistrationResults.every(r => r.success !== false)
       };
     }
 

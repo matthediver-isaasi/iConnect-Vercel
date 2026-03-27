@@ -47,6 +47,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { createPageUrl, getEventUrl } from "@/utils";
 import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import ComplexEventSessions from "@/components/events/ComplexEventSessions";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -107,6 +108,8 @@ export default function CreateEvent() {
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
+  const [isComplexEvent, setIsComplexEvent] = useState(false);
+  const [complexSessions, setComplexSessions] = useState([]);
   const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
@@ -566,7 +569,53 @@ export default function CreateEvent() {
 
   const createEventMutation = useMutation({
     mutationFn: async (eventData) => {
-      return base44.entities.Event.create(eventData);
+      const { _complexSessions, ...cleanEventData } = eventData;
+      const createdEvent = await base44.entities.Event.create(cleanEventData);
+      
+      if (_complexSessions && _complexSessions.length > 0 && createdEvent?.id) {
+        const sessionErrors = [];
+        for (const session of _complexSessions) {
+          try {
+            const isVirtual = session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid';
+            const sessionResponse = await fetch('/api/complex-event-sessions', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event_id: createdEvent.id,
+                title: session.title,
+                description: session.description || null,
+                start_time: session.start_time || null,
+                end_time: session.end_time || null,
+                duration_minutes: session.duration_minutes || 60,
+                timezone: session.timezone || 'Europe/London',
+                delivery_mode: session.delivery_mode,
+                track_name: session.track_name || null,
+                sort_order: session.sort_order || 0,
+                zoom_type: isVirtual ? session.zoom_type : null,
+                zoom_host_id: isVirtual ? session.zoom_host_id : null,
+                zoom_host_email: isVirtual ? session.zoom_host_email : null,
+                zoom_registration_required: isVirtual && session.zoom_type === 'webinar' ? session.zoom_registration_required : false,
+                auto_create_zoom: isVirtual && session.zoom_link_mode !== 'link_existing' ? session.auto_create_zoom : false,
+                link_existing_zoom_id: isVirtual && session.zoom_link_mode === 'link_existing' ? session.link_existing_zoom_id : null,
+                link_existing_zoom_type: isVirtual && session.zoom_link_mode === 'link_existing' ? (session.zoom_type || 'meeting') : null
+              })
+            });
+            if (!sessionResponse.ok) {
+              const errData = await sessionResponse.json().catch(() => ({}));
+              throw new Error(errData.error || `HTTP ${sessionResponse.status}`);
+            }
+          } catch (err) {
+            console.error('Failed to create session:', err);
+            sessionErrors.push(session.title || 'Unnamed session');
+          }
+        }
+        if (sessionErrors.length > 0) {
+          toast.error(`Failed to create ${sessionErrors.length} session(s): ${sessionErrors.join(', ')}. You can add them later from the Edit Event page.`);
+        }
+      }
+      
+      return createdEvent;
     },
     onSuccess: () => {
       toast.success('Event created successfully');
@@ -751,6 +800,7 @@ export default function CreateEvent() {
       cta_override_url: formData.cta_override_url || null,
       // TBC events can still be online, but webinar is optional
       is_online: isOnline,
+      is_complex: isComplexEvent,
       status: eventTiming,
       event_state: eventState
     };
@@ -800,6 +850,21 @@ export default function CreateEvent() {
         ticket_classes: formattedTicketClasses,
         allowGuestsToViewAllTickets: allowGuestsToViewAllTickets
       };
+    }
+
+    if (isComplexEvent && complexSessions.length > 0) {
+      for (let i = 0; i < complexSessions.length; i++) {
+        const session = complexSessions[i];
+        if (!session.title || session.title.trim() === '') {
+          errors.push(`Session ${i + 1}: Please enter a title`);
+        }
+      }
+      if (errors.length > 0) {
+        setValidationErrors(errors);
+        setShowValidationDialog(true);
+        return;
+      }
+      eventData._complexSessions = complexSessions;
     }
 
     console.log('[CreateEvent] All validation passed, calling mutation with eventData:', JSON.stringify(eventData, null, 2));
@@ -2475,6 +2540,69 @@ export default function CreateEvent() {
               />
             </CardContent>
           </Card>
+
+          {/* Complex Event Sessions */}
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-blue-600" />
+                Multi-Session Event
+              </CardTitle>
+              <CardDescription>Enable this to add multiple sessions with individual schedules and Zoom integration</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                <div>
+                  <p className="font-medium text-slate-900">
+                    {isComplexEvent ? 'Complex Event (Multi-Session)' : 'Simple Event (Single Session)'}
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    {isComplexEvent
+                      ? 'This event has multiple sessions, each with its own schedule and optional Zoom link'
+                      : 'Standard single-session event'
+                    }
+                  </p>
+                </div>
+                <Switch
+                  checked={isComplexEvent}
+                  onCheckedChange={(checked) => {
+                    setIsComplexEvent(checked);
+                    if (checked && complexSessions.length === 0) {
+                      const initialSession = {
+                        _tempId: `session-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                        title: '',
+                        description: '',
+                        start_time: '',
+                        end_time: '',
+                        duration_minutes: 60,
+                        timezone: formData.timezone || 'Europe/London',
+                        delivery_mode: 'in_person',
+                        track_name: '',
+                        sort_order: 0,
+                        zoom_type: 'meeting',
+                        zoom_host_id: '',
+                        zoom_host_email: '',
+                        zoom_registration_required: false,
+                        auto_create_zoom: true,
+                        _expanded: true
+                      };
+                      setComplexSessions([initialSession]);
+                    }
+                  }}
+                  data-testid="switch-complex-event"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {isComplexEvent && (
+            <ComplexEventSessions
+              sessions={complexSessions}
+              onSessionsChange={setComplexSessions}
+              timezoneOptions={timezoneOptions}
+              eventTimezone={formData.timezone}
+            />
+          )}
 
           <div className="flex items-center justify-end gap-4">
             <Button
