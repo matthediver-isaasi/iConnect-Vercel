@@ -3957,7 +3957,29 @@ function FieldCard({
                   
                   {field.type === 'textarea' && (
                     <div className="pt-3 border-t border-slate-200 mt-3">
-                      <Label className="text-xs font-medium text-slate-700">Maximum Characters (Optional)</Label>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Label className="text-xs font-medium text-slate-700">
+                          Maximum {(field.limit_type === 'words') ? 'Words' : 'Characters'} (Optional)
+                        </Label>
+                        <div className="flex rounded-md border border-slate-200 overflow-visible text-xs ml-auto">
+                          <button
+                            type="button"
+                            className={`px-2 py-0.5 ${(!field.limit_type || field.limit_type === 'characters') ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}
+                            onClick={() => updateField(originalIndex, { limit_type: 'characters' })}
+                            data-testid={`btn-limit-chars-${field.id}`}
+                          >
+                            Characters
+                          </button>
+                          <button
+                            type="button"
+                            className={`px-2 py-0.5 ${field.limit_type === 'words' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}
+                            onClick={() => updateField(originalIndex, { limit_type: 'words' })}
+                            data-testid={`btn-limit-words-${field.id}`}
+                          >
+                            Words
+                          </button>
+                        </div>
+                      </div>
                       <Input
                         type="number"
                         min="1"
@@ -3966,7 +3988,7 @@ function FieldCard({
                           max_characters: e.target.value ? parseInt(e.target.value, 10) : null 
                         })}
                         placeholder="No limit"
-                        className="h-8 text-xs mt-2"
+                        className="h-8 text-xs"
                         data-testid={`input-max-characters-${field.id}`}
                       />
                       <p className="text-xs text-slate-500 mt-1">Leave blank for no limit</p>

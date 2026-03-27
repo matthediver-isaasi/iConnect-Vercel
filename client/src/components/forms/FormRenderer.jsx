@@ -641,25 +641,29 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         );
 
       case 'textarea': {
-        const charCount = (value || '').length;
-        const maxChars = field.max_characters;
-        const isOverLimit = maxChars && charCount > maxChars;
+        const isWordLimit = field.limit_type === 'words';
+        const maxLimit = field.max_characters;
+        const textVal = value || '';
+        const currentCount = isWordLimit
+          ? (textVal.trim() === '' ? 0 : textVal.trim().split(/\s+/).length)
+          : textVal.length;
+        const isOverLimit = maxLimit && currentCount > maxLimit;
         return (
           <div className="space-y-1">
             <Textarea
-              value={value || ''}
+              value={textVal}
               onChange={(e) => onChange(e.target.value)}
               placeholder={field.placeholder}
               required={field.required}
               disabled={isFieldDisabled}
               autoFocus={autoFocus}
-              maxLength={maxChars || undefined}
+              maxLength={(!isWordLimit && maxLimit) ? maxLimit : undefined}
               className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${isOverLimit ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
               rows={5}
             />
-            {maxChars && (
+            {maxLimit && (
               <p className={`text-xs text-right ${isOverLimit ? 'text-red-500 font-medium' : 'text-slate-400'}`}>
-                {charCount} / {maxChars}
+                {currentCount} / {maxLimit} {isWordLimit ? 'words' : ''}
               </p>
             )}
           </div>

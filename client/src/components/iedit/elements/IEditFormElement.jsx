@@ -1210,11 +1210,17 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return false;
     }
 
-    const overLimitFields = pageFields.filter(field =>
-      field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
-    );
+    const overLimitFields = pageFields.filter(field => {
+      if (field.type !== 'textarea' || !field.max_characters) return false;
+      const text = formValues[field.id] || '';
+      if (field.limit_type === 'words') {
+        const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+        return wordCount > field.max_characters;
+      }
+      return text.length > field.max_characters;
+    });
     if (overLimitFields.length > 0) {
-      toast.error(`Character limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
+      toast.error(`${overLimitFields[0]?.limit_type === 'words' ? 'Word' : 'Character'} limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
       return false;
     }
 
@@ -1451,13 +1457,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return;
     }
 
-    const overLimitFields = visibleFields.filter(field =>
-      field.type === 'textarea' && field.max_characters && (formValues[field.id] || '').length > field.max_characters
-    );
+    const overLimitFields = visibleFields.filter(field => {
+      if (field.type !== 'textarea' || !field.max_characters) return false;
+      const text = formValues[field.id] || '';
+      if (field.limit_type === 'words') {
+        const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+        return wordCount > field.max_characters;
+      }
+      return text.length > field.max_characters;
+    });
     if (overLimitFields.length > 0) {
-      const errors = overLimitFields.map(f => `Character limit exceeded: ${f.label}`);
+      const limitLabel = overLimitFields[0]?.limit_type === 'words' ? 'Word' : 'Character';
+      const errors = overLimitFields.map(f => `${f.limit_type === 'words' ? 'Word' : 'Character'} limit exceeded: ${f.label}`);
       setValidationErrors(errors);
-      toast.error(`Character limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
+      toast.error(`${limitLabel} limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
       return;
     }
 
