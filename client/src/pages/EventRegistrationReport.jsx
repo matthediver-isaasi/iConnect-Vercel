@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash } from "lucide-react";
+import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -171,6 +171,7 @@ export default function EventRegistrationReport() {
         searchText: e.title,
         startDate: e.start_date,
         internalRef: e.internal_reference,
+        isComplex: e.is_complex,
       }));
   }, [eventsForTypeAhead]);
 
@@ -293,7 +294,8 @@ export default function EventRegistrationReport() {
           (a.attendee_last_name || '').toLowerCase().includes(q) ||
           (a.attendee_email || '').toLowerCase().includes(q) ||
           (organizations[a.organization_id] || '').toLowerCase().includes(q) ||
-          (a.ticket_class_name || '').toLowerCase().includes(q)
+          (a.ticket_class_name || '').toLowerCase().includes(q) ||
+          (a.track_access || '').toLowerCase().includes(q)
         ) ||
         (group.groupPayment.purchaseOrderNumber || '').toLowerCase().includes(q) ||
         (group.groupPayment.bookingReference || '').toLowerCase().includes(q) ||
@@ -379,12 +381,14 @@ export default function EventRegistrationReport() {
 
     const headers = [
       'Event',
+      'Complex Event',
       'Internal Reference',
       'Booking Group',
       'Name',
       'Email',
       'Organisation',
       'Ticket Type',
+      'Track Access',
       'Ticket Price',
       'Group Discount',
       'Group Total',
@@ -409,12 +413,14 @@ export default function EventRegistrationReport() {
         const isFirstInGroup = idx === 0;
         rows.push([
           group.eventTitle || '',
+          group.isComplexEvent ? 'Yes' : 'No',
           group.internalReference || '',
           group.isGroup ? (group.groupRef || 'Group') : '',
           `${a.attendee_first_name || ''} ${a.attendee_last_name || ''}`.trim(),
           a.attendee_email || '',
           organizations[a.organization_id] || (a.is_guest_booking ? 'Guest' : 'Non-member'),
           a.ticket_class_name || '',
+          a.track_access || '',
           Number(a.ticket_price || 0).toFixed(2),
           isFirstInGroup ? (gp.discount || 0).toFixed(2) : '',
           isFirstInGroup ? (gp.totalCost || 0).toFixed(2) : '',
@@ -579,11 +585,15 @@ export default function EventRegistrationReport() {
                 data-testid="input-filter-event-name"
                 renderItem={(item) => (
                   <div>
-                    <div className="font-medium truncate">{item.label}</div>
+                    <div className="font-medium truncate flex items-center gap-1">
+                      {item.isComplex && <Layers className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
+                      {item.label}
+                    </div>
                     {item.startDate && (
                       <div className="text-xs text-muted-foreground">
                         {format(parseISO(item.startDate), 'dd MMM yyyy')}
                         {item.internalRef ? ` \u00B7 ${item.internalRef}` : ''}
+                        {item.isComplex ? ' \u00B7 Complex' : ''}
                       </div>
                     )}
                   </div>
@@ -785,6 +795,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Int. Ref</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Organisation</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '120px' }}>Ticket</th>
+                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap" style={{ maxWidth: '100px' }}>Tracks</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Discount</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Total</th>
@@ -817,7 +828,17 @@ export default function EventRegistrationReport() {
                                   <div className="text-xs text-muted-foreground">{attendee.attendee_email}</div>
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''}>
-                                  {group.eventTitle || '-'}
+                                  <div className="flex items-center gap-1">
+                                    {group.isComplexEvent && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Layers className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Complex event</TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    <span className="truncate">{group.eventTitle || '-'}</span>
+                                  </div>
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap" data-testid={`text-internal-ref-${attendee.id}`}>
                                   {group.internalReference ? (
@@ -828,6 +849,11 @@ export default function EventRegistrationReport() {
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '120px' }} title={attendee.ticket_class_name || ''}>{attendee.ticket_class_name || '-'}</td>
+                                <td className="py-3 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '100px' }} title={attendee.track_access || ''} data-testid={`text-track-access-${attendee.id}`}>
+                                  {attendee.track_access ? (
+                                    <span className="text-xs">{attendee.track_access}</span>
+                                  ) : '-'}
+                                </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.discount > 0 ? <span className="text-green-600">-{formatCurrency(gp.discount)}</span> : '-'}
@@ -895,7 +921,17 @@ export default function EventRegistrationReport() {
                                 {isFirst ? (
                                   <>
                                     <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '160px' }} title={group.eventTitle || ''} rowSpan={group.attendeeCount}>
-                                      {group.eventTitle || '-'}
+                                      <div className="flex items-center gap-1">
+                                        {group.isComplexEvent && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Layers className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>Complex event</TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                        <span className="truncate">{group.eventTitle || '-'}</span>
+                                      </div>
                                     </td>
                                     <td className="py-2 pr-3 whitespace-nowrap" rowSpan={group.attendeeCount} data-testid={`text-internal-ref-${attendee.id}`}>
                                       {group.internalReference ? (
@@ -908,6 +944,11 @@ export default function EventRegistrationReport() {
                                   {orgName ? orgName : <span className="italic text-muted-foreground">{isGuest ? 'Guest' : 'Non-member'}</span>}
                                 </td>
                                 <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '120px' }} title={attendee.ticket_class_name || ''}>{attendee.ticket_class_name || '-'}</td>
+                                <td className="py-2 pr-3 whitespace-nowrap truncate" style={{ maxWidth: '100px' }} title={attendee.track_access || ''} data-testid={`text-track-access-${attendee.id}`}>
+                                  {attendee.track_access ? (
+                                    <span className="text-xs">{attendee.track_access}</span>
+                                  ) : '-'}
+                                </td>
                                 <td className="py-2 pr-3 text-right whitespace-nowrap">{formatCurrency(attendee.ticket_price)}</td>
                                 {isFirst ? (
                                   <>
@@ -951,7 +992,7 @@ export default function EventRegistrationReport() {
                       {filteredGroups.length > 0 && (
                         <tfoot>
                           <tr className="border-t-2 font-medium">
-                            <td className="pt-3 pr-3" colSpan={6}>
+                            <td className="pt-3 pr-3" colSpan={7}>
                               Totals ({totalAttendees} attendees, {filteredGroups.length} bookings)
                             </td>
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">

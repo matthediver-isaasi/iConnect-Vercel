@@ -77,7 +77,7 @@ export default async function handler(req, res) {
   }
 
   const { eventId } = req.query;
-  const { emails } = req.body;
+  const { emails, ticket_class_id, ticket_class_name } = req.body;
 
   if (!eventId) {
     return res.status(400).json({ error: 'Event ID is required' });
@@ -99,6 +99,42 @@ export default async function handler(req, res) {
     if (eventError || !event) {
       console.error('[Admin Import Attendees] Event not found:', eventError);
       return res.status(404).json({ error: 'Event not found' });
+    }
+
+    let resolvedTicketClassId = ticket_class_id || null;
+    let resolvedTicketClassName = ticket_class_name || null;
+
+    if (event.is_complex && !resolvedTicketClassId) {
+      const { data: defaultTicketClass } = await supabase
+        .from('complex_event_ticket_class')
+        .select('id, name')
+        .eq('complex_event_id', eventId)
+        .order('price', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (defaultTicketClass) {
+        resolvedTicketClassId = defaultTicketClass.id;
+        resolvedTicketClassName = resolvedTicketClassName || defaultTicketClass.name;
+        console.log(`[Admin Import Attendees] Using default ticket class: ${defaultTicketClass.name} (${defaultTicketClass.id})`);
+      }
+    }
+
+    if (event.is_complex && resolvedTicketClassId) {
+      const { data: tc } = await supabase
+        .from('complex_event_ticket_class')
+        .select('id, name')
+        .eq('id', resolvedTicketClassId)
+        .eq('complex_event_id', eventId)
+        .maybeSingle();
+
+      if (!tc) {
+        return res.status(400).json({ error: 'Invalid ticket class for this event' });
+      }
+
+      if (!resolvedTicketClassName) {
+        resolvedTicketClassName = tc.name;
+      }
     }
 
     const normalizedEmails = [...new Set(emails.map(e => e.toLowerCase().trim()).filter(e => e && e.includes('@')))];
@@ -166,7 +202,11 @@ export default async function handler(req, res) {
           ticket_price: 0,
           booking_reference: bookingReference,
           status: 'confirmed',
-          payment_method: 'admin_import'
+          payment_method: 'admin_import',
+          ...(resolvedTicketClassId ? { ticket_class_id: resolvedTicketClassId } : {}),
+          ...(resolvedTicketClassName ? { ticket_class_name: resolvedTicketClassName } : {}),
+          ...(event.is_complex ? { is_one_off_event: true } : {}),
+          ...(event.tenant_id ? { tenant_id: event.tenant_id } : {}),
         };
 
         const { error: insertError } = await supabase

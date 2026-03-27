@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
     const { data: events, error: eventsError } = await supabase
       .from('event')
-      .select('id, title, start_date, status, internal_reference')
+      .select('id, title, start_date, status, internal_reference, is_complex')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
 
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
       if (targetEventIds.length > 0) {
         let bookingQuery = supabase
           .from('booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, is_guest_booking, status, created_at')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, is_guest_booking, status, created_at')
           .in('event_id', targetEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -101,7 +101,25 @@ export default async function handler(req, res) {
 
         const eventMap = {};
         for (const ev of (events || [])) {
-          eventMap[ev.id] = { title: ev.title, internal_reference: ev.internal_reference };
+          eventMap[ev.id] = { title: ev.title, internal_reference: ev.internal_reference, is_complex: ev.is_complex };
+        }
+
+        const complexEventIds = Object.entries(eventMap)
+          .filter(([, ev]) => ev.is_complex)
+          .map(([id]) => id);
+
+        let ticketClassMap = {};
+        if (complexEventIds.length > 0) {
+          const { data: ticketClasses } = await supabase
+            .from('complex_event_ticket_class')
+            .select('id, name, linked_track_ids, all_tracks, complex_event_id')
+            .in('complex_event_id', complexEventIds);
+
+          if (ticketClasses) {
+            for (const tc of ticketClasses) {
+              ticketClassMap[tc.id] = tc;
+            }
+          }
         }
 
         const orgIds = [...new Set(bookings.map(b => b.organization_id).filter(Boolean))];
@@ -174,6 +192,7 @@ export default async function handler(req, res) {
             attendeeCount: members.length,
             eventTitle: eventInfo.title || '',
             internalReference: eventInfo.internal_reference || '',
+            isComplexEvent: eventInfo.is_complex || false,
             groupPayment: {
               ticketTotal: groupTicketTotal,
               totalCost: groupTotalCost,
@@ -189,20 +208,25 @@ export default async function handler(req, res) {
               xeroInvoiceId: first.xero_invoice_id,
               bookingReference: first.booking_reference,
             },
-            attendees: members.map(b => ({
-              id: b.id,
-              attendee_first_name: b.attendee_first_name,
-              attendee_last_name: b.attendee_last_name,
-              attendee_email: b.attendee_email,
-              ticket_class_name: b.ticket_class_name,
-              ticket_price: b.ticket_price,
-              total_cost: b.total_cost,
-              organization_id: b.organization_id,
-              is_guest_booking: b.is_guest_booking,
-              member_id: b.member_id,
-              status: b.status,
-              created_at: b.created_at,
-            })),
+            attendees: members.map(b => {
+              const tcInfo = b.ticket_class_id ? ticketClassMap[b.ticket_class_id] : null;
+              return {
+                id: b.id,
+                attendee_first_name: b.attendee_first_name,
+                attendee_last_name: b.attendee_last_name,
+                attendee_email: b.attendee_email,
+                ticket_class_name: b.ticket_class_name,
+                ticket_class_id: b.ticket_class_id || null,
+                ticket_price: b.ticket_price,
+                total_cost: b.total_cost,
+                organization_id: b.organization_id,
+                is_guest_booking: b.is_guest_booking,
+                member_id: b.member_id,
+                status: b.status,
+                created_at: b.created_at,
+                track_access: tcInfo ? (tcInfo.all_tracks ? 'All Tracks' : (tcInfo.linked_track_ids || []).length + ' track(s)') : null,
+              };
+            }),
           });
         }
 

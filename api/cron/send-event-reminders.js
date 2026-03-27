@@ -1,5 +1,6 @@
 import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
+import { fetchComplexEventData } from '../_lib/eventConfirmationEmail.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -69,13 +70,14 @@ export default async function handler(req, res) {
             attendee_first_name,
             attendee_last_name,
             event_id,
-            status
+            status,
+            ticket_class_id,
+            ticket_class_name
           `)
           .eq('id', scheduledEmail.booking_id)
           .single();
 
         if (bookingError) {
-          // PGRST116 = "The result contains 0 rows" - treat as not found
           if (bookingError.code === 'PGRST116') {
             console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in database`);
             await markAsFailed(scheduledEmail.id, 'Booking not found (may have been deleted)');
@@ -102,7 +104,7 @@ export default async function handler(req, res) {
 
         const { data: event, error: eventError } = await supabase
           .from('event')
-          .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
+          .select('id, title, start_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
           .eq('id', eventEmail.event_id)
           .single();
 
@@ -113,7 +115,6 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // Fetch zoom link if event has a zoom meeting or webinar
         let zoomJoinUrl = null;
         if (event.zoom_meeting_id) {
           const { data: zoomMeeting } = await supabase
@@ -131,17 +132,29 @@ export default async function handler(req, res) {
           zoomJoinUrl = zoomWebinar?.join_url;
         }
         
-        // Attach zoom link to event object for placeholder replacement
         event.zoom_join_url = zoomJoinUrl;
+
+        let complexEventData = null;
+        if (event.is_complex) {
+          complexEventData = await fetchComplexEventData(
+            event.id,
+            booking.ticket_class_id,
+            booking.ticket_class_name,
+            event.tenant_id
+          );
+          console.log(`[cron/send-event-reminders] Fetched complex event data: ${complexEventData?.sessions?.length || 0} sessions`);
+        }
 
         const subject = replacePlaceholders(eventEmail.subject, {
           event,
-          booking
+          booking,
+          complexEventData
         });
 
         const body = replacePlaceholders(eventEmail.body, {
           event,
-          booking
+          booking,
+          complexEventData
         });
 
         const emailResult = await sendEmail({
@@ -208,18 +221,16 @@ async function markAsCancelled(emailId) {
 }
 
 function replacePlaceholders(template, data) {
-  const { event, booking } = data;
+  const { event, booking, complexEventData } = data;
   
   let result = template;
   
-  // Handle {{placeholder}} syntax
   result = result.replace(/\{\{event_name\}\}/gi, event.title || '');
   result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event.start_date));
   result = result.replace(/\{\{event_location\}\}/gi, event.is_online ? 'Online Event' : (event.location || ''));
   result = result.replace(/\{\{attendee_first_name\}\}/gi, booking.attendee_first_name || '');
   result = result.replace(/\{\{attendee_last_name\}\}/gi, booking.attendee_last_name || '');
   
-  // Handle [[placeholder]] syntax (member.* and attendee.* variants)
   result = result.replace(/\[\[member\.first_name\]\]/gi, booking.attendee_first_name || '');
   result = result.replace(/\[\[member\.last_name\]\]/gi, booking.attendee_last_name || '');
   result = result.replace(/\[\[member\.email\]\]/gi, booking.attendee_email || '');
@@ -227,13 +238,11 @@ function replacePlaceholders(template, data) {
   result = result.replace(/\[\[attendee\.last_name\]\]/gi, booking.attendee_last_name || '');
   result = result.replace(/\[\[attendee\.email\]\]/gi, booking.attendee_email || '');
   
-  // Handle event placeholders with [[]] syntax
   result = result.replace(/\[\[event\.name\]\]/gi, event.title || '');
   result = result.replace(/\[\[event\.title\]\]/gi, event.title || '');
   result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event.start_date));
   result = result.replace(/\[\[event\.location\]\]/gi, event.is_online ? 'Online Event' : (event.location || ''));
   
-  // Handle zoom link - check event first, then booking (if field exists)
   const zoomLink = event.zoom_join_url || booking.zoom_join_url || '';
   if (zoomLink) {
     result = result.replace(/\{\{#zoom_link\}\}([\s\S]*?)\{\{\/zoom_link\}\}/gi, '$1');
@@ -243,6 +252,38 @@ function replacePlaceholders(template, data) {
     result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
     result = result.replace(/\{\{zoom_link\}\}/gi, '');
     result = result.replace(/\[\[zoom_link\]\]/gi, '');
+  }
+
+  if (complexEventData) {
+    const scheduleHtml = complexEventData.sessionScheduleHtml || '';
+    const trackList = (complexEventData.accessibleTracks || []).join(', ');
+
+    if (scheduleHtml) {
+      result = result.replace(/\{\{#session_schedule\}\}([\s\S]*?)\{\{\/session_schedule\}\}/gi, '$1');
+    } else {
+      result = result.replace(/\{\{#session_schedule\}\}[\s\S]*?\{\{\/session_schedule\}\}/gi, '');
+    }
+    result = result.replace(/\{\{session_schedule\}\}/gi, scheduleHtml);
+    result = result.replace(/\[\[session_schedule\]\]/gi, scheduleHtml);
+    result = result.replace(/\{\{track_name\}\}/gi, trackList);
+    result = result.replace(/\[\[booking\.track_name\]\]/gi, trackList);
+    result = result.replace(/\[\[track_name\]\]/gi, trackList);
+
+    const sessionZoomLinks = (complexEventData.sessions || [])
+      .filter(s => s.zoom_join_url)
+      .map(s => `${s.title}: ${s.zoom_join_url}`)
+      .join('\n');
+    result = result.replace(/\{\{session_zoom_links\}\}/gi, sessionZoomLinks);
+    result = result.replace(/\[\[session_zoom_links\]\]/gi, sessionZoomLinks);
+  } else {
+    result = result.replace(/\{\{#session_schedule\}\}[\s\S]*?\{\{\/session_schedule\}\}/gi, '');
+    result = result.replace(/\{\{session_schedule\}\}/gi, '');
+    result = result.replace(/\[\[session_schedule\]\]/gi, '');
+    result = result.replace(/\{\{track_name\}\}/gi, '');
+    result = result.replace(/\[\[booking\.track_name\]\]/gi, '');
+    result = result.replace(/\[\[track_name\]\]/gi, '');
+    result = result.replace(/\{\{session_zoom_links\}\}/gi, '');
+    result = result.replace(/\[\[session_zoom_links\]\]/gi, '');
   }
   
   return result;
@@ -269,15 +310,12 @@ function formatEventDate(dateStr) {
 function formatBodyAsHtml(body) {
   if (!body) return '';
   
-  // Check if the body already contains HTML tags
   const hasHtmlTags = /<[a-z][\s\S]*>/i.test(body);
   
   if (hasHtmlTags) {
-    // Body is already HTML, wrap it but don't escape
     return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${body}</div>`;
   }
   
-  // Body is plain text, convert to HTML
   let html = body
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

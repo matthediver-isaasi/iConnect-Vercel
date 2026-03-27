@@ -23,7 +23,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     let eventQuery = supabase
       .from('event')
-      .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
+      .select('id, title, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id')
       .eq('id', eventId);
     if (tenantId) {
       eventQuery = eventQuery.eq('tenant_id', tenantId);
@@ -60,6 +60,11 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       console.log(`[sendConfirmationEmailsFromTemplate] Using Zoom link for ${attendee?.email || booking?.attendee_email}: ${zoomJoinUrl.substring(0, 50)}...`);
     }
 
+    let complexEventData = null;
+    if (event.is_complex) {
+      complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id);
+    }
+
     const bookingData = {
       id: booking?.id || '',
       attendee_first_name: attendee?.first_name || booking?.attendee_first_name || '',
@@ -74,8 +79,8 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     for (const emailConfig of confirmationEmails) {
       try {
-        const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData });
-        const body = replacePlaceholders(emailConfig.body, { event, booking: bookingData });
+        const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
+        const body = replacePlaceholders(emailConfig.body, { event, booking: bookingData, complexEventData });
 
         const emailResult = await sendEmail({
           to: bookingData.attendee_email,
@@ -104,8 +109,129 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
   return results;
 }
 
+async function fetchComplexEventData(eventId, ticketClassId, ticketClassName, tenantId) {
+  try {
+    let ticketClass = null;
+    if (ticketClassId) {
+      const { data } = await supabase
+        .from('complex_event_ticket_class')
+        .select('id, name, linked_track_ids, all_tracks')
+        .eq('id', ticketClassId)
+        .eq('complex_event_id', eventId)
+        .maybeSingle();
+      ticketClass = data;
+    }
+
+    let sessionQuery = supabase
+      .from('complex_event_session')
+      .select('id, title, description, start_time, end_time, delivery_mode, track_name, zoom_join_url, zoom_webinar_id, zoom_meeting_id, location')
+      .eq('event_id', eventId)
+      .eq('status', 'scheduled')
+      .order('start_time', { ascending: true })
+      .order('sort_order', { ascending: true });
+
+    if (tenantId) {
+      sessionQuery = sessionQuery.eq('tenant_id', tenantId);
+    }
+
+    const { data: sessions } = await sessionQuery;
+
+    if (!sessions || sessions.length === 0) {
+      return { sessions: [], ticketClass, accessibleTracks: [], sessionScheduleHtml: '' };
+    }
+
+    let accessibleSessions = sessions;
+    const accessibleTracks = [];
+
+    if (ticketClass && !ticketClass.all_tracks && ticketClass.linked_track_ids?.length > 0) {
+      const { data: tracks } = await supabase
+        .from('complex_event_track')
+        .select('id, name')
+        .in('id', ticketClass.linked_track_ids);
+
+      const trackNames = (tracks || []).map(t => t.name?.trim().toLowerCase());
+      accessibleTracks.push(...(tracks || []).map(t => t.name));
+
+      accessibleSessions = sessions.filter(s => {
+        if (!s.track_name) return true;
+        return trackNames.includes(s.track_name.trim().toLowerCase());
+      });
+    } else {
+      const uniqueTracks = [...new Set(sessions.map(s => s.track_name).filter(Boolean))];
+      accessibleTracks.push(...uniqueTracks);
+    }
+
+    const sessionScheduleHtml = buildSessionScheduleHtml(accessibleSessions);
+
+    return {
+      sessions: accessibleSessions,
+      ticketClass,
+      accessibleTracks,
+      sessionScheduleHtml
+    };
+  } catch (err) {
+    console.error('[fetchComplexEventData] Error:', err.message);
+    return { sessions: [], ticketClass: null, accessibleTracks: [], sessionScheduleHtml: '' };
+  }
+}
+
+function buildSessionScheduleHtml(sessions) {
+  if (!sessions || sessions.length === 0) return '';
+
+  const rows = sessions.map(s => {
+    const startTime = s.start_time ? formatSessionTime(s.start_time) : 'TBC';
+    const endTime = s.end_time ? formatSessionTime(s.end_time) : '';
+    const timeRange = endTime ? `${startTime} - ${endTime}` : startTime;
+    const locationStr = s.delivery_mode === 'virtual' ? 'Online' : (s.location || '');
+    const zoomLink = s.zoom_join_url || '';
+
+    let locationCell = locationStr;
+    if (zoomLink) {
+      locationCell = `<a href="${zoomLink}" style="color: #2563eb; text-decoration: underline;">Join via Zoom</a>`;
+      if (locationStr && s.delivery_mode === 'hybrid') {
+        locationCell = `${locationStr} / ${locationCell}`;
+      }
+    }
+
+    const trackBadge = s.track_name ? `<span style="display:inline-block;background:#e5e7eb;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px;">${s.track_name}</span>` : '';
+
+    return `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;white-space:nowrap;vertical-align:top;">${timeRange}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;"><strong>${s.title || ''}</strong>${trackBadge}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;">${locationCell}</td>
+    </tr>`;
+  }).join('');
+
+  return `<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+    <thead>
+      <tr style="background:#f3f4f6;">
+        <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #d1d5db;font-weight:600;">Time</th>
+        <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #d1d5db;font-weight:600;">Session</th>
+        <th style="padding:8px 12px;text-align:left;border-bottom:2px solid #d1d5db;font-weight:600;">Location</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function formatSessionTime(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
 export function replacePlaceholders(template, data) {
-  const { event, booking } = data;
+  const { event, booking, complexEventData } = data;
 
   let result = template || '';
 
@@ -137,10 +263,10 @@ export function replacePlaceholders(template, data) {
 
   const ticketPrice = Number(booking?.ticket_price || 0);
   const totalCost = Number(booking?.total_cost || 0);
-  result = result.replace(/\{\{ticket_price\}\}/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
-  result = result.replace(/\[\[booking\.ticket_price\]\]/gi, ticketPrice > 0 ? `£${ticketPrice.toFixed(2)}` : 'Free');
-  result = result.replace(/\{\{total_cost\}\}/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
-  result = result.replace(/\[\[booking\.total_cost\]\]/gi, totalCost > 0 ? `£${totalCost.toFixed(2)}` : 'Free');
+  result = result.replace(/\{\{ticket_price\}\}/gi, ticketPrice > 0 ? `\u00A3${ticketPrice.toFixed(2)}` : 'Free');
+  result = result.replace(/\[\[booking\.ticket_price\]\]/gi, ticketPrice > 0 ? `\u00A3${ticketPrice.toFixed(2)}` : 'Free');
+  result = result.replace(/\{\{total_cost\}\}/gi, totalCost > 0 ? `\u00A3${totalCost.toFixed(2)}` : 'Free');
+  result = result.replace(/\[\[booking\.total_cost\]\]/gi, totalCost > 0 ? `\u00A3${totalCost.toFixed(2)}` : 'Free');
 
   const pd = booking?.pricingDetails;
   if (pd?.freeTickets > 0) {
@@ -148,7 +274,7 @@ export function replacePlaceholders(template, data) {
     const discountDesc = pd.discountDescription || `${pd.freeTickets} free ticket(s)`;
     result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
     result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
-    const discountSaving = `£${(pd.freeTickets * ticketPrice).toFixed(2)}`;
+    const discountSaving = `\u00A3${(pd.freeTickets * ticketPrice).toFixed(2)}`;
     result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountSaving);
     result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountSaving);
   } else if (pd?.discount > 0) {
@@ -156,7 +282,7 @@ export function replacePlaceholders(template, data) {
     const discountDesc = pd.discountDescription || 'Discount';
     result = result.replace(/\{\{offer_discount_description\}\}/gi, discountDesc);
     result = result.replace(/\[\[booking\.offer_discount_description\]\]/gi, discountDesc);
-    const discountAmount = `£${pd.discount.toFixed(2)}`;
+    const discountAmount = `\u00A3${pd.discount.toFixed(2)}`;
     result = result.replace(/\{\{offer_discount_amount\}\}/gi, discountAmount);
     result = result.replace(/\[\[booking\.offer_discount_amount\]\]/gi, discountAmount);
   } else {
@@ -176,6 +302,39 @@ export function replacePlaceholders(template, data) {
     result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
     result = result.replace(/\{\{zoom_link\}\}/gi, '');
     result = result.replace(/\[\[zoom_link\]\]/gi, '');
+  }
+
+  if (complexEventData) {
+    const scheduleHtml = complexEventData.sessionScheduleHtml || '';
+    const trackList = (complexEventData.accessibleTracks || []).join(', ');
+
+    if (scheduleHtml) {
+      result = result.replace(/\{\{#session_schedule\}\}([\s\S]*?)\{\{\/session_schedule\}\}/gi, '$1');
+    } else {
+      result = result.replace(/\{\{#session_schedule\}\}[\s\S]*?\{\{\/session_schedule\}\}/gi, '');
+    }
+    result = result.replace(/\{\{session_schedule\}\}/gi, scheduleHtml);
+    result = result.replace(/\[\[session_schedule\]\]/gi, scheduleHtml);
+
+    result = result.replace(/\{\{track_name\}\}/gi, trackList);
+    result = result.replace(/\[\[booking\.track_name\]\]/gi, trackList);
+    result = result.replace(/\[\[track_name\]\]/gi, trackList);
+
+    const sessionZoomLinks = (complexEventData.sessions || [])
+      .filter(s => s.zoom_join_url)
+      .map(s => `${s.title}: ${s.zoom_join_url}`)
+      .join('\n');
+    result = result.replace(/\{\{session_zoom_links\}\}/gi, sessionZoomLinks);
+    result = result.replace(/\[\[session_zoom_links\]\]/gi, sessionZoomLinks);
+  } else {
+    result = result.replace(/\{\{#session_schedule\}\}[\s\S]*?\{\{\/session_schedule\}\}/gi, '');
+    result = result.replace(/\{\{session_schedule\}\}/gi, '');
+    result = result.replace(/\[\[session_schedule\]\]/gi, '');
+    result = result.replace(/\{\{track_name\}\}/gi, '');
+    result = result.replace(/\[\[booking\.track_name\]\]/gi, '');
+    result = result.replace(/\[\[track_name\]\]/gi, '');
+    result = result.replace(/\{\{session_zoom_links\}\}/gi, '');
+    result = result.replace(/\[\[session_zoom_links\]\]/gi, '');
   }
 
   return result;
@@ -217,3 +376,5 @@ export function formatBodyAsHtml(body) {
 
   return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${html}</div>`;
 }
+
+export { fetchComplexEventData, buildSessionScheduleHtml };
