@@ -615,7 +615,8 @@ function LogicRulesSection({
   onRulesChange,
   prefillSource = 'none',
   customFields = [],
-  roles = []
+  roles = [],
+  pages = []
 }) {
   // Track the last rules JSON we migrated to detect new data
   const lastMigratedJsonRef = React.useRef(null);
@@ -1662,18 +1663,80 @@ function LogicRulesSection({
                             {isConsolidatedVisibility ? (
                               <div>
                                 <p className="text-xs text-slate-500 mb-3">
-                                  Configure visibility and enabled state for each field. Leave as "Inherit" for no change.
+                                  Configure visibility and enabled state for each field or page. Leave as "Inherit" for no change.
                                 </p>
-                                {availableTargetFields.length === 0 ? (
+                                {availableTargetFields.length === 0 && pages.length === 0 ? (
                                   <p className="text-xs text-slate-400">Add more fields to configure visibility</p>
                                 ) : (
                                   <div className="border rounded-lg overflow-hidden">
                                     <div className="grid grid-cols-[1fr,120px,120px] gap-2 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 border-b">
-                                      <div>Field</div>
+                                      <div>Target</div>
                                       <div className="text-center">Visibility</div>
                                       <div className="text-center">State</div>
                                     </div>
-                                    <div className="max-h-64 overflow-y-auto">
+                                    <div className="max-h-80 overflow-y-auto">
+                                      {pages.length > 0 && (
+                                        <>
+                                          <div className="px-3 py-1.5 bg-blue-50 border-b border-blue-100">
+                                            <span className="text-xs font-semibold text-blue-700 flex items-center gap-1">
+                                              <FileText className="w-3 h-3" />
+                                              Pages
+                                            </span>
+                                          </div>
+                                          {pages.map((page, pageIdx) => {
+                                            const pageState = (action.field_states || {})[page.id] || { visible: null };
+                                            return (
+                                              <div
+                                                key={page.id}
+                                                className={`grid grid-cols-[1fr,120px,120px] gap-2 px-3 py-2 text-xs items-center ${pageIdx % 2 === 0 ? 'bg-blue-50/30' : 'bg-white'}`}
+                                                data-testid={`visibility-row-page-${index}-${actionIndex}-${page.id}`}
+                                              >
+                                                <div className="font-medium truncate flex items-center gap-1" title={page.title}>
+                                                  <FileText className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                                                  {page.title || `Page ${pageIdx + 1}`}
+                                                </div>
+                                                <div className="flex justify-center">
+                                                  <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => updateFieldVisibilityState(rule.id, action.id, page.id, 'visible', true)}
+                                                      className={`px-2 py-1 text-xs ${pageState.visible === true ? 'bg-green-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                      title="Show page when condition is met"
+                                                      data-testid={`btn-show-page-${index}-${actionIndex}-${page.id}`}
+                                                    >
+                                                      <Eye className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => updateFieldVisibilityState(rule.id, action.id, page.id, 'visible', null)}
+                                                      className={`px-2 py-1 text-xs border-l border-r border-slate-200 ${pageState.visible === null ? 'bg-slate-200 text-slate-700' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                                                      title="Inherit (no change)"
+                                                      data-testid={`btn-inherit-vis-page-${index}-${actionIndex}-${page.id}`}
+                                                    >
+                                                      —
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => updateFieldVisibilityState(rule.id, action.id, page.id, 'visible', false)}
+                                                      className={`px-2 py-1 text-xs ${pageState.visible === false ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                      title="Hide page when condition is met"
+                                                      data-testid={`btn-hide-page-${index}-${actionIndex}-${page.id}`}
+                                                    >
+                                                      <EyeOff className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                                <div className="flex justify-center">
+                                                  <span className="text-xs text-slate-400">—</span>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                          <div className="px-3 py-1.5 bg-slate-50 border-b border-t border-slate-100">
+                                            <span className="text-xs font-semibold text-slate-600">Fields</span>
+                                          </div>
+                                        </>
+                                      )}
                                       {availableTargetFields.map((field, fieldIdx) => {
                                         const fieldState = (action.field_states || {})[field.id] || { visible: null, enabled: null };
                                         return (
@@ -6104,18 +6167,30 @@ export default function FormBuilderPage() {
                   prefillSource={formData.prefill_source || 'none'}
                   customFields={customFields}
                   roles={roles}
+                  pages={formData.pages || []}
                   onRulesChange={(rules) => {
                     const fieldsWithShowRules = new Set();
+                    const pagesWithShowRules = new Set();
+                    const pageIds = new Set((formData.pages || []).map(p => p.id));
                     rules.forEach(rule => {
-                      // Handle new multi-action format
                       if (rule.actions && Array.isArray(rule.actions)) {
                         for (const action of rule.actions) {
+                          if (action.action_type === 'visibility' && action.field_states) {
+                            for (const [id, state] of Object.entries(action.field_states)) {
+                              if (state.visible === true) {
+                                if (pageIds.has(id)) {
+                                  pagesWithShowRules.add(id);
+                                } else {
+                                  fieldsWithShowRules.add(id);
+                                }
+                              }
+                            }
+                          }
                           if (action.action_type === 'show' && action.target_field_ids?.length) {
                             action.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
                           }
                         }
                       }
-                      // Handle legacy format
                       else if (rule.action === 'show' && rule.target_field_ids?.length) {
                         rule.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
                       }
@@ -6123,14 +6198,17 @@ export default function FormBuilderPage() {
                     setFormData(prev => {
                       const updatedFields = prev.fields.map(field => ({
                         ...field,
-                        // If field is targeted by a show rule, mark it as starts_hidden
-                        // Otherwise preserve the existing starts_hidden value (manual toggle)
                         starts_hidden: fieldsWithShowRules.has(field.id) || field.starts_hidden
+                      }));
+                      const updatedPages = (prev.pages || []).map(page => ({
+                        ...page,
+                        starts_hidden: pagesWithShowRules.has(page.id) || page.starts_hidden
                       }));
                       return { 
                         ...prev, 
                         visibility_rules: rules,
-                        fields: updatedFields
+                        fields: updatedFields,
+                        pages: updatedPages
                       };
                     });
                   }}

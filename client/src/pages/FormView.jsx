@@ -938,6 +938,11 @@ export default function FormViewPage() {
     return evaluateSingleCondition(triggerValue, operator, value);
   };
 
+  const formPages = form?.pages || [];
+  const pageIdSet = useMemo(() => {
+    return new Set(formPages.map(p => p.id));
+  }, [formPages]);
+
   // Compute initial hidden fields from field.starts_hidden property
   // This property is set by FormBuilder when a 'show' rule targets the field
   // Fallback: Also check visibility_rules for legacy forms without starts_hidden
@@ -953,30 +958,24 @@ export default function FormViewPage() {
       }
     }
     console.log('[FormView Init] Initial hidden fields from starts_hidden:', Array.from(hidden));
-    console.log('[FormView Init] All fields with starts_hidden property:', form?.fields?.map(f => ({id: f.id, label: f.label, starts_hidden: f.starts_hidden})));
     
     // Fallback: For legacy forms, compute from visibility_rules
     if (hidden.size === 0 && form?.visibility_rules?.length > 0) {
       for (const rule of form.visibility_rules) {
-        // Handle new multi-action format
         if (rule.actions && Array.isArray(rule.actions)) {
           for (const action of rule.actions) {
-            // Handle consolidated visibility action format
             if (action.action_type === 'visibility' && action.field_states) {
               for (const [fieldId, state] of Object.entries(action.field_states)) {
-                // If visible is explicitly true, field starts hidden (needs condition to show)
-                if (state.visible === true) {
+                if (state.visible === true && !pageIdSet.has(fieldId)) {
                   hidden.add(fieldId);
                 }
               }
             }
-            // Handle legacy show action format
             else if (action.action_type === 'show' && action.target_field_ids?.length) {
               action.target_field_ids.forEach(id => hidden.add(id));
             }
           }
         }
-        // Handle legacy format
         else if (rule.action === 'show' && rule.target_field_ids?.length) {
           rule.target_field_ids.forEach(id => hidden.add(id));
         }
@@ -984,47 +983,74 @@ export default function FormViewPage() {
     }
     
     return hidden;
-  }, [form?.fields, form?.visibility_rules]);
+  }, [form?.fields, form?.visibility_rules, pageIdSet]);
 
-  // Evaluate visibility rules to determine which fields should be hidden
-  // Key principle: Fields with "show" rules START HIDDEN and only become visible when condition is met
-  const hiddenFieldIds = useMemo(() => {
-    // Start with fields that have starts_hidden = true (regardless of visibility rules)
-    const hidden = new Set(initialHiddenFieldIds);
-    
-    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
-      return hidden;
+  const initialHiddenPageIds = useMemo(() => {
+    const hidden = new Set();
+    for (const page of formPages) {
+      if (page.starts_hidden === true || page.starts_hidden === 'true') {
+        hidden.add(page.id);
+      }
     }
-    
-    // Track which fields should be shown/hidden based on rule evaluation
-    const fieldVisibility = {};
-    
-    for (const rule of form.visibility_rules) {
-      // Skip rules without conditions (new format) or trigger_field_id (legacy format)
-      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
-      
-      // Evaluate conditions using AND/OR logic for new format, or single condition for legacy
-      const conditionMet = evaluateRuleConditions(rule, formValues);
-
-      // Handle new multi-action format
-      if (rule.actions && Array.isArray(rule.actions)) {
-        for (const action of rule.actions) {
-          // Handle consolidated visibility action format
-          if (action.action_type === 'visibility' && action.field_states) {
-            for (const [fieldId, state] of Object.entries(action.field_states)) {
-              if (!fieldVisibility[fieldId]) {
-                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
-              }
-              // visible: true means "show when condition met" (starts hidden)
-              // visible: false means "hide when condition met" (starts visible)
-              if (state.visible === true) {
-                fieldVisibility[fieldId].showRules.push(conditionMet);
-              } else if (state.visible === false) {
-                fieldVisibility[fieldId].hideRules.push(conditionMet);
+    if (form?.visibility_rules?.length > 0) {
+      for (const rule of form.visibility_rules) {
+        if (rule.actions && Array.isArray(rule.actions)) {
+          for (const action of rule.actions) {
+            if (action.action_type === 'visibility' && action.field_states) {
+              for (const [id, state] of Object.entries(action.field_states)) {
+                if (state.visible === true && pageIdSet.has(id)) {
+                  hidden.add(id);
+                }
               }
             }
           }
-          // Handle legacy show/hide action format
+        }
+      }
+    }
+    return hidden;
+  }, [formPages, form?.visibility_rules, pageIdSet]);
+
+  // Evaluate visibility rules to determine which fields and pages should be hidden
+  // Key principle: Fields with "show" rules START HIDDEN and only become visible when condition is met
+  const { hiddenFieldIds, hiddenPageIds } = useMemo(() => {
+    const hiddenFields = new Set(initialHiddenFieldIds);
+    const hiddenPages = new Set(initialHiddenPageIds);
+    
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      if (hiddenPages.size > 0) {
+        for (const field of (form?.fields || [])) {
+          if (field.page_id && hiddenPages.has(field.page_id)) {
+            hiddenFields.add(field.id);
+          }
+        }
+      }
+      return { hiddenFieldIds: hiddenFields, hiddenPageIds: hiddenPages };
+    }
+    
+    const fieldVisibility = {};
+    const pageVisibility = {};
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
+      
+      const conditionMet = evaluateRuleConditions(rule, formValues);
+
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'visibility' && action.field_states) {
+            for (const [targetId, state] of Object.entries(action.field_states)) {
+              const isPage = pageIdSet.has(targetId);
+              const visMap = isPage ? pageVisibility : fieldVisibility;
+              if (!visMap[targetId]) {
+                visMap[targetId] = { showRules: [], hideRules: [] };
+              }
+              if (state.visible === true) {
+                visMap[targetId].showRules.push(conditionMet);
+              } else if (state.visible === false) {
+                visMap[targetId].hideRules.push(conditionMet);
+              }
+            }
+          }
           else if (action.action_type === 'show' || action.action_type === 'hide') {
             const targetIds = action.target_field_ids || [];
             targetIds.forEach(fieldId => {
@@ -1040,7 +1066,6 @@ export default function FormViewPage() {
           }
         }
       }
-      // Handle legacy format
       else if (rule.target_field_ids?.length) {
         rule.target_field_ids.forEach(fieldId => {
           if (!fieldVisibility[fieldId]) {
@@ -1055,27 +1080,48 @@ export default function FormViewPage() {
       }
     }
     
-    // Update hidden set based on evaluated rules
-    console.log('[FormView Visibility] Evaluating visibility rules, fieldVisibility:', fieldVisibility);
     for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
-      // For show rules: if ANY show rule is satisfied, remove from hidden set
       const anyShowConditionMet = showRules.some(result => result === true);
       if (anyShowConditionMet) {
-        console.log(`[FormView Visibility] Field ${fieldId}: show rule met, removing from hidden`);
-        hidden.delete(fieldId);
+        hiddenFields.delete(fieldId);
       }
-      
-      // For hide rules: if ANY hide rule is satisfied, add to hidden set
       const anyHideConditionMet = hideRules.some(result => result === true);
       if (anyHideConditionMet) {
-        console.log(`[FormView Visibility] Field ${fieldId}: hide rule met, adding to hidden`);
-        hidden.add(fieldId);
+        hiddenFields.add(fieldId);
       }
     }
-    console.log('[FormView Visibility] Final hidden set:', Array.from(hidden));
+
+    for (const [pageId, { showRules, hideRules }] of Object.entries(pageVisibility)) {
+      const anyShowConditionMet = showRules.some(result => result === true);
+      if (anyShowConditionMet) {
+        hiddenPages.delete(pageId);
+      }
+      const anyHideConditionMet = hideRules.some(result => result === true);
+      if (anyHideConditionMet) {
+        hiddenPages.add(pageId);
+      }
+    }
+
+    if (hiddenPages.size > 0) {
+      for (const field of (form?.fields || [])) {
+        if (field.page_id && hiddenPages.has(field.page_id)) {
+          hiddenFields.add(field.id);
+        }
+      }
+    }
     
-    return hidden;
-  }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
+    return { hiddenFieldIds: hiddenFields, hiddenPageIds: hiddenPages };
+  }, [form?.visibility_rules, form?.fields, formValues, initialHiddenFieldIds, initialHiddenPageIds, pageIdSet]);
+
+  const visiblePagesForClamp = useMemo(() => {
+    return (form?.pages || []).filter(p => !hiddenPageIds.has(p.id));
+  }, [form?.pages, hiddenPageIds]);
+
+  useEffect(() => {
+    if (visiblePagesForClamp.length > 0 && currentPageIndex >= visiblePagesForClamp.length) {
+      setCurrentPageIndex(Math.max(0, visiblePagesForClamp.length - 1));
+    }
+  }, [visiblePagesForClamp, currentPageIndex]);
 
   // Build a dependency map: trigger field ID -> Set of target field IDs affected by that trigger
   const triggerDependencyMap = useMemo(() => {
@@ -1256,8 +1302,8 @@ export default function FormViewPage() {
           setCurrentStep(currentIdx + 1);
         }
       } else {
-        const pages = form.pages || [];
-        if (pages.length > 1 && currentPageIndex < pages.length - 1) {
+        const vPages = visiblePagesForClamp;
+        if (vPages.length > 1 && currentPageIndex < vPages.length - 1) {
           goToNextPage();
         }
       }
@@ -2258,7 +2304,8 @@ export default function FormViewPage() {
 
   // Standard layout with optional pages
   const pages = form.pages || [];
-  const hasPages = pages.length > 0;
+  const visiblePages = pages.filter(p => !hiddenPageIds.has(p.id));
+  const hasPages = visiblePages.length > 0;
   
   // Get fields for current page (or all fields if no pages)
   // Unassigned fields (page_id === null) are shown on the first page for backwards compatibility
@@ -2266,9 +2313,8 @@ export default function FormViewPage() {
     if (!hasPages) {
       return form.fields;
     }
-    const currentPage = pages[currentPageIndex];
+    const currentPage = visiblePages[currentPageIndex];
     if (currentPageIndex === 0) {
-      // Include unassigned fields on the first page
       return form.fields.filter(f => f.page_id === currentPage?.id || !f.page_id);
     }
     return form.fields.filter(f => f.page_id === currentPage?.id);
@@ -2310,7 +2356,7 @@ export default function FormViewPage() {
 
   const goToNextPage = () => {
     if (validateCurrentPage()) {
-      setCurrentPageIndex(prev => Math.min(prev + 1, pages.length - 1));
+      setCurrentPageIndex(prev => Math.min(prev + 1, visiblePages.length - 1));
       scrollToForm();
     }
   };
@@ -2321,8 +2367,8 @@ export default function FormViewPage() {
   };
   
   const isFirstPage = currentPageIndex === 0;
-  const isLastPage = !hasPages || currentPageIndex === pages.length - 1;
-  const currentPage = hasPages ? pages[currentPageIndex] : null;
+  const isLastPage = !hasPages || currentPageIndex === visiblePages.length - 1;
+  const currentPage = hasPages ? visiblePages[currentPageIndex] : null;
   const displayFields = filterVisibleFields(getCurrentPageFields());
 
   return (
@@ -2340,11 +2386,11 @@ export default function FormViewPage() {
                     {currentPage?.title || `Page ${currentPageIndex + 1}`}
                   </span>
                   <span className="text-sm text-slate-500">
-                    {currentPageIndex + 1} of {pages.length}
+                    {currentPageIndex + 1} of {visiblePages.length}
                   </span>
                 </div>
                 <div className="flex gap-1">
-                  {pages.map((_, index) => (
+                  {visiblePages.map((_, index) => (
                     <div
                       key={index}
                       className={`h-1.5 flex-1 rounded-full transition-colors ${

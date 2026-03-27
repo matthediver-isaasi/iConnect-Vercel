@@ -671,6 +671,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }
   };
 
+  const pageIdSet = useMemo(() => {
+    return new Set((form?.pages || []).map(p => p.id));
+  }, [form?.pages]);
+
   // Compute initial hidden fields from field.starts_hidden property
   // Also check visibility_rules for legacy forms without starts_hidden
   const initialHiddenFieldIds = useMemo(() => {
@@ -686,25 +690,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     // Also check legacy visibility_rules (always, not just as fallback)
     if (form?.visibility_rules?.length > 0) {
       for (const rule of form.visibility_rules) {
-        // Handle new multi-action format
         if (rule.actions && Array.isArray(rule.actions)) {
           for (const action of rule.actions) {
-            // Handle consolidated visibility action format
             if (action.action_type === 'visibility' && action.field_states) {
               for (const [fieldId, state] of Object.entries(action.field_states)) {
-                // If visible is explicitly true, field starts hidden (needs condition to show)
-                if (state.visible === true) {
+                if (state.visible === true && !pageIdSet.has(fieldId)) {
                   hidden.add(fieldId);
                 }
               }
             }
-            // Handle legacy show action format
             else if (action.action_type === 'show' && action.target_field_ids?.length) {
               action.target_field_ids.forEach(id => hidden.add(id));
             }
           }
         }
-        // Handle legacy format
         else if (rule.action === 'show' && rule.target_field_ids?.length) {
           rule.target_field_ids.forEach(id => hidden.add(id));
         }
@@ -712,17 +711,52 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }
     
     return hidden;
-  }, [form?.fields, form?.visibility_rules]);
+  }, [form?.fields, form?.visibility_rules, pageIdSet]);
 
-  // Evaluate visibility rules to determine which fields should be hidden
-  const hiddenFieldIds = useMemo(() => {
-    const hidden = new Set(initialHiddenFieldIds);
+  const initialHiddenPageIds = useMemo(() => {
+    const hidden = new Set();
+    for (const page of (form?.pages || [])) {
+      if (page.starts_hidden === true || page.starts_hidden === 'true') {
+        hidden.add(page.id);
+      }
+    }
+    if (form?.visibility_rules?.length > 0) {
+      for (const rule of form.visibility_rules) {
+        if (rule.actions && Array.isArray(rule.actions)) {
+          for (const action of rule.actions) {
+            if (action.action_type === 'visibility' && action.field_states) {
+              for (const [id, state] of Object.entries(action.field_states)) {
+                if (state.visible === true && pageIdSet.has(id)) {
+                  hidden.add(id);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return hidden;
+  }, [form?.pages, form?.visibility_rules, pageIdSet]);
+
+  // Evaluate visibility rules to determine which fields and pages should be hidden
+  const { hiddenFieldIds, hiddenPageIds } = useMemo(() => {
+    const hiddenFields = new Set(initialHiddenFieldIds);
+    const hiddenPages = new Set(initialHiddenPageIds);
     
     if (!form?.visibility_rules || form.visibility_rules.length === 0) {
-      return hidden;
+      // Even with no rules, fields on hidden pages should be hidden
+      if (hiddenPages.size > 0) {
+        for (const field of (form?.fields || [])) {
+          if (field.page_id && hiddenPages.has(field.page_id)) {
+            hiddenFields.add(field.id);
+          }
+        }
+      }
+      return { hiddenFieldIds: hiddenFields, hiddenPageIds: hiddenPages };
     }
     
     const fieldVisibility = {};
+    const pageVisibility = {};
     
     for (const rule of form.visibility_rules) {
       if (!rule.trigger_field_id) continue;
@@ -730,25 +764,22 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       const triggerValue = formValues[rule.trigger_field_id];
       const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
 
-      // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          // Handle consolidated visibility action format
           if (action.action_type === 'visibility' && action.field_states) {
-            for (const [fieldId, state] of Object.entries(action.field_states)) {
-              if (!fieldVisibility[fieldId]) {
-                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+            for (const [targetId, state] of Object.entries(action.field_states)) {
+              const isPage = pageIdSet.has(targetId);
+              const visMap = isPage ? pageVisibility : fieldVisibility;
+              if (!visMap[targetId]) {
+                visMap[targetId] = { showRules: [], hideRules: [] };
               }
-              // visible: true means "show when condition met" (starts hidden)
-              // visible: false means "hide when condition met" (starts visible)
               if (state.visible === true) {
-                fieldVisibility[fieldId].showRules.push(conditionMet);
+                visMap[targetId].showRules.push(conditionMet);
               } else if (state.visible === false) {
-                fieldVisibility[fieldId].hideRules.push(conditionMet);
+                visMap[targetId].hideRules.push(conditionMet);
               }
             }
           }
-          // Handle legacy show/hide action format
           else if (action.action_type === 'show' || action.action_type === 'hide') {
             const targetIds = action.target_field_ids || [];
             targetIds.forEach(fieldId => {
@@ -764,7 +795,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           }
         }
       }
-      // Handle legacy format
       else if (rule.target_field_ids?.length) {
         rule.target_field_ids.forEach(fieldId => {
           if (!fieldVisibility[fieldId]) {
@@ -779,21 +809,41 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       }
     }
     
-    // Update hidden set based on evaluated rules
+    // Update hidden fields based on evaluated rules
     for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
       const anyShowConditionMet = showRules.some(result => result === true);
       if (anyShowConditionMet) {
-        hidden.delete(fieldId);
+        hiddenFields.delete(fieldId);
       }
-      
       const anyHideConditionMet = hideRules.some(result => result === true);
       if (anyHideConditionMet) {
-        hidden.add(fieldId);
+        hiddenFields.add(fieldId);
+      }
+    }
+
+    // Update hidden pages based on evaluated rules
+    for (const [pageId, { showRules, hideRules }] of Object.entries(pageVisibility)) {
+      const anyShowConditionMet = showRules.some(result => result === true);
+      if (anyShowConditionMet) {
+        hiddenPages.delete(pageId);
+      }
+      const anyHideConditionMet = hideRules.some(result => result === true);
+      if (anyHideConditionMet) {
+        hiddenPages.add(pageId);
+      }
+    }
+
+    // Fields on hidden pages are also hidden
+    if (hiddenPages.size > 0) {
+      for (const field of (form?.fields || [])) {
+        if (field.page_id && hiddenPages.has(field.page_id)) {
+          hiddenFields.add(field.id);
+        }
       }
     }
     
-    return hidden;
-  }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
+    return { hiddenFieldIds: hiddenFields, hiddenPageIds: hiddenPages };
+  }, [form?.visibility_rules, form?.fields, formValues, initialHiddenFieldIds, initialHiddenPageIds, pageIdSet]);
 
   // Helper to filter visible fields
   // Also excludes due_diligence fields which should not be shown to end users
@@ -1116,13 +1166,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Page navigation helpers for standard layout with pages
   const pages = form?.pages || [];
-  const hasPages = pages.length > 0 && form?.layout_type === 'standard';
+  const visiblePages = useMemo(() => {
+    return pages.filter(p => !hiddenPageIds.has(p.id));
+  }, [pages, hiddenPageIds]);
+  const hasPages = visiblePages.length > 0 && form?.layout_type === 'standard';
 
   const getCurrentPageFields = () => {
     if (!hasPages) {
       return form?.fields || [];
     }
-    const currentPage = pages[currentPageIndex];
+    const currentPage = visiblePages[currentPageIndex];
     if (currentPageIndex === 0) {
       return (form?.fields || []).filter(f => f.page_id === currentPage?.id || !f.page_id);
     }
@@ -1163,7 +1216,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const goToNextPage = () => {
     if (validateCurrentPage()) {
-      setCurrentPageIndex(prev => Math.min(prev + 1, pages.length - 1));
+      setCurrentPageIndex(prev => Math.min(prev + 1, visiblePages.length - 1));
       scrollToForm();
     }
   };
@@ -1173,9 +1226,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     scrollToForm();
   };
 
+  // Clamp currentPageIndex if visiblePages changed and index is out of bounds
+  useEffect(() => {
+    if (hasPages && currentPageIndex >= visiblePages.length) {
+      setCurrentPageIndex(Math.max(0, visiblePages.length - 1));
+    }
+  }, [visiblePages.length, currentPageIndex, hasPages]);
+
   const isFirstPage = currentPageIndex === 0;
-  const isLastPage = !hasPages || currentPageIndex === pages.length - 1;
-  const currentPage = hasPages ? pages[currentPageIndex] : null;
+  const isLastPage = !hasPages || currentPageIndex === visiblePages.length - 1;
+  const currentPage = hasPages ? visiblePages[currentPageIndex] : null;
   const displayFields = filterVisibleFields(getCurrentPageFields());
 
   const NON_INPUT_FIELD_TYPES = useMemo(() => new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']), []);
@@ -1847,11 +1907,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     {currentPage?.title || `Page ${currentPageIndex + 1}`}
                   </span>
                   <span className="text-sm text-slate-500">
-                    {currentPageIndex + 1} of {pages.length}
+                    {currentPageIndex + 1} of {visiblePages.length}
                   </span>
                 </div>
                 <div className="flex gap-1">
-                  {pages.map((_, index) => (
+                  {visiblePages.map((_, index) => (
                     <div
                       key={index}
                       className={`h-1.5 flex-1 rounded-full transition-colors ${
