@@ -359,33 +359,21 @@ export async function deleteCampaign(campaignId, tenantId) {
   }
 
   try {
-    const BATCH_SIZE = 1000;
     let deletedTotal = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const { data: batch, error: fetchErr } = await supabase
+      const { error: delErr, count } = await supabase
         .from('email_campaign_recipient')
-        .select('id')
+        .delete({ count: 'exact' })
         .eq('campaign_id', campaignId)
-        .limit(BATCH_SIZE);
-
-      if (fetchErr) throw fetchErr;
-
-      if (!batch || batch.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      const ids = batch.map(r => r.id);
-      const { error: delErr } = await supabase
-        .from('email_campaign_recipient')
-        .delete()
-        .in('id', ids);
+        .limit(1000);
 
       if (delErr) throw delErr;
-      deletedTotal += ids.length;
-      hasMore = batch.length === BATCH_SIZE;
+
+      const removed = count || 0;
+      deletedTotal += removed;
+      hasMore = removed > 0;
     }
 
     if (deletedTotal > 0) {
