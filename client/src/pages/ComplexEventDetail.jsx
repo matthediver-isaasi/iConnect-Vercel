@@ -535,11 +535,16 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     return parsed;
   }, [event]);
 
-  const ticketClasses = useMemo(() => {
+  const allTicketClasses = useMemo(() => {
     if (!pricingConfig?.ticket_classes?.length) return [];
+    return pricingConfig.ticket_classes;
+  }, [pricingConfig]);
+
+  const ticketClasses = useMemo(() => {
+    if (!allTicketClasses.length) return [];
     const isGuest = !memberInfo;
 
-    let filtered = pricingConfig.ticket_classes
+    let filtered = allTicketClasses
       .filter(tc => {
         const vis = tc.visibility_mode || (tc.is_public ? 'members_and_public' : 'members_only');
         if (isGuest) return vis === 'members_and_public' || vis === 'public_only';
@@ -560,7 +565,33 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       id: String(tc.id),
       price: Number(tc.price) || 0
     }));
-  }, [pricingConfig, memberInfo, filterTrackId]);
+  }, [allTicketClasses, memberInfo, filterTrackId]);
+
+  const noTicketsReason = useMemo(() => {
+    if (ticketClasses.length > 0) return null;
+    if (!allTicketClasses.length) return 'none';
+
+    const isGuest = !memberInfo;
+    let trackMatched = allTicketClasses;
+    if (filterTrackId) {
+      trackMatched = allTicketClasses.filter(tc => {
+        if (tc.all_tracks) return true;
+        const linkedIds = (tc.linked_track_ids || []).map(String);
+        return linkedIds.includes(String(filterTrackId));
+      });
+    }
+    if (trackMatched.length === 0) return 'no-track-tickets';
+
+    if (isGuest) {
+      const hasRestrictedTickets = trackMatched.some(tc => {
+        const vis = tc.visibility_mode || (tc.is_public ? 'members_and_public' : 'members_only');
+        return vis === 'members_only';
+      });
+      if (hasRestrictedTickets) return 'members-only';
+    }
+
+    return 'none';
+  }, [ticketClasses, allTicketClasses, memberInfo, filterTrackId]);
 
   useEffect(() => {
     if (ticketClasses.length > 0) {
@@ -970,9 +1001,20 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       </Button>
 
       {ticketClasses.length === 0 && (
-        <p className="text-sm text-center text-slate-500">
-          {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
-        </p>
+        <div className="text-sm text-center space-y-2">
+          {noTicketsReason === 'members-only' ? (
+            <>
+              <p className="text-slate-600 font-medium">Tickets for this track are available to members only.</p>
+              <p className="text-slate-500">Please log in with your member account to view and register for available tickets.</p>
+            </>
+          ) : noTicketsReason === 'no-track-tickets' ? (
+            <p className="text-slate-500">No tickets are currently assigned to this track.</p>
+          ) : (
+            <p className="text-slate-500">
+              {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1220,9 +1262,16 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </Button>
 
         {ticketClasses.length === 0 && (
-          <p className="text-sm text-center text-slate-500">
-            No tickets are currently available for public registration.
-          </p>
+          <div className="text-sm text-center space-y-2">
+            {noTicketsReason === 'members-only' ? (
+              <>
+                <p className="text-slate-600 font-medium">Tickets are available to members only.</p>
+                <p className="text-slate-500">Please log in with your member account to view and register for available tickets.</p>
+              </>
+            ) : (
+              <p className="text-slate-500">No tickets are currently available for public registration.</p>
+            )}
+          </div>
         )}
       </CardContent>
       {stripeDialog}

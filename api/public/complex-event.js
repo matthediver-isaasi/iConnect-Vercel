@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getSessionMember } from '../_lib/session.js';
-import { isTicketVisibleToUser } from '../_lib/complexEventPricing.js';
+
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -82,7 +82,6 @@ export default async function handler(req, res) {
     } catch (e) {}
 
     const publicTicketClasses = (ticketClasses || [])
-      .filter(tc => isTicketVisibleToUser(tc, isMember))
       .map(tc => ({
         id: tc.id,
         name: tc.name,
