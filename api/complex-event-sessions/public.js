@@ -55,26 +55,28 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to list tracks' });
     }
 
-    const trackIds = (tracks || []).map(t => t.id);
-
-    if (trackIds.length === 0) {
-      return res.json([]);
-    }
-
     const trackMap = {};
-    for (const track of tracks) {
+    for (const track of (tracks || [])) {
       trackMap[track.id] = track;
     }
+    const trackIds = Object.keys(trackMap);
 
     const sessionFields = 'id, complex_event_track_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, zoom_join_url, zoom_registration_url, zoom_registration_required, delivery_mode, zoom_type';
 
-    const { data, error } = await supabase
+    let sessionQuery = supabase
       .from('complex_event_session')
       .select(sessionFields)
-      .in('complex_event_track_id', trackIds)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true })
       .order('start_time', { ascending: true });
+
+    if (trackIds.length > 0) {
+      sessionQuery = sessionQuery.in('complex_event_track_id', trackIds);
+    } else {
+      return res.json([]);
+    }
+
+    const { data, error } = await sessionQuery;
 
     if (error) {
       console.error('[Sessions] Public list error:', error);
