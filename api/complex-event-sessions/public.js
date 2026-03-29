@@ -60,7 +60,7 @@ export default async function handler(req, res) {
     }
     const trackIds = Object.keys(trackMap);
 
-    const sessionFields = 'id, complex_event_track_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, delivery_mode';
+    const sessionFields = 'id, complex_event_track_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order';
 
     let sessionQuery = supabase
       .from('complex_event_session')

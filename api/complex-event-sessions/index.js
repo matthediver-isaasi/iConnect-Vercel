@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantUser.tenant_id;
 
-  const ADMIN_LIST_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, timezone, delivery_mode, created_at, updated_at';
+  const ADMIN_LIST_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -90,7 +90,6 @@ export default async function handler(req, res) {
         start_time,
         end_time,
         timezone = 'Europe/London',
-        delivery_mode = 'in_person',
         display_order = 0,
         speaker_names,
         is_online = false,
@@ -156,9 +155,7 @@ export default async function handler(req, res) {
         end_time: end_time ? convertLocalTimeToUTC(end_time, timezone) : null,
         location: location || null,
         is_online: is_online || false,
-        display_order,
-        delivery_mode: delivery_mode || null,
-        timezone: timezone || null
+        display_order
       };
 
       const { data: session, error: insertError } = await supabase

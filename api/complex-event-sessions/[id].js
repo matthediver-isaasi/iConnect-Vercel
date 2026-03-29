@@ -29,7 +29,7 @@ export default async function handler(req, res) {
 
   const { id } = req.query;
 
-  const ADMIN_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, timezone, delivery_mode, created_at, updated_at';
+  const ADMIN_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
 
       const ALLOWED_FIELDS = [
         'title', 'description', 'start_time', 'end_time',
-        'timezone', 'delivery_mode', 'display_order', 'location',
+        'display_order', 'location',
         'is_online', 'speaker_names', 'image_url', 'complex_event_track_id'
       ];
       const dbUpdates = { updated_at: new Date().toISOString() };
@@ -81,7 +81,7 @@ export default async function handler(req, res) {
         }
       }
 
-      const tz = dbUpdates.timezone || existing.timezone || 'Europe/London';
+      const tz = body.timezone || 'Europe/London';
       if (dbUpdates.start_time) {
         dbUpdates.start_time = convertLocalTimeToUTC(dbUpdates.start_time, tz);
       }
