@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,10 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
-  Calendar, MapPin, Monitor
+  Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
+  Bird, Check, X
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { base44 } from "@/api/base44Client";
@@ -64,6 +67,36 @@ function generateId() {
   return `tmp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
+const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
+  _localId: generateId(),
+  name: isDefault ? "Standard Ticket" : "",
+  price: "",
+  is_free: false,
+  role_ids: [],
+  is_default: isDefault,
+  visibility_mode: 'members_only',
+  role_match_only: false,
+  offer_type: "none",
+  bogo_logic_type: "buy_x_get_y_free",
+  bogo_buy_quantity: "",
+  bogo_get_free_quantity: "",
+  bulk_discount_threshold: "",
+  bulk_discount_percentage: "",
+  available_count: "",
+  is_unlimited_tickets: true,
+  vat_rate_key: defaultVatRate?.taxType || null,
+  vat_rate_label: defaultVatRate?.name || null,
+  vat_rate_percentage: defaultVatRate?.effectiveRate || null,
+  is_group_ticket: false,
+  group_size: "",
+  group_cutoff_date: "",
+  early_bird_enabled: false,
+  early_bird_price: "",
+  early_bird_deadline: "",
+  all_tracks: true,
+  linked_track_ids: [],
+});
+
 export default function CreateComplexEvent() {
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -105,6 +138,39 @@ export default function CreateComplexEvent() {
   });
   const [speakerInput, setSpeakerInput] = useState("");
 
+  const [ticketClasses, setTicketClasses] = useState([]);
+  const [expandedTickets, setExpandedTickets] = useState({});
+  const [ticketsInitialized, setTicketsInitialized] = useState(false);
+
+  const { data: roles = [], isLoading: loadingRoles } = useQuery({
+    queryKey: ['/api/entities/Role'],
+    queryFn: () => base44.entities.Role.list({ sort: { name: 'asc' } })
+  });
+
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['/api/entities/SystemSettings'],
+    queryFn: () => base44.entities.SystemSettings.list()
+  });
+
+  const defaultVatRate = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_default_vat_rate');
+    if (setting?.setting_value) {
+      try { return JSON.parse(setting.setting_value); } catch { return null; }
+    }
+    return null;
+  }, [systemSettings]);
+
+  const availableVatRates = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'xero_vat_rates');
+    if (setting?.setting_value) {
+      try {
+        const parsed = JSON.parse(setting.setting_value);
+        return parsed.rates || [];
+      } catch { return []; }
+    }
+    return [];
+  }, [systemSettings]);
+
   const { data: existingEvent, isLoading: loadingEvent } = useQuery({
     queryKey: ["/api/entities/ComplexEvent", editId],
     queryFn: () => base44.entities.ComplexEvent.get(editId),
@@ -137,6 +203,56 @@ export default function CreateComplexEvent() {
     },
     enabled: isEditMode && existingTracks.length > 0,
   });
+
+  const { data: existingTicketClasses = [] } = useQuery({
+    queryKey: ["/api/entities/ComplexEventTicketClass", editId],
+    queryFn: () =>
+      base44.entities.ComplexEventTicketClass.list({
+        filter: { complex_event_id: editId },
+        sort: { display_order: "asc" },
+      }),
+    enabled: isEditMode,
+  });
+
+  useEffect(() => {
+    if (isEditMode && existingTicketClasses.length > 0 && !ticketsInitialized) {
+      const loaded = existingTicketClasses.map(tc => ({
+        _localId: tc.id,
+        _dbId: tc.id,
+        name: tc.name || "",
+        price: tc.price != null ? String(Number(tc.price)) : "",
+        is_free: tc.is_free || false,
+        role_ids: tc.role_ids || [],
+        is_default: false,
+        visibility_mode: tc.visibility_mode || 'members_only',
+        role_match_only: tc.role_match_only || false,
+        offer_type: tc.offer_type || "none",
+        bogo_logic_type: tc.bogo_logic_type || "buy_x_get_y_free",
+        bogo_buy_quantity: tc.bogo_buy_quantity != null ? String(tc.bogo_buy_quantity) : "",
+        bogo_get_free_quantity: tc.bogo_get_free_quantity != null ? String(tc.bogo_get_free_quantity) : "",
+        bulk_discount_threshold: tc.bulk_discount_threshold != null ? String(tc.bulk_discount_threshold) : "",
+        bulk_discount_percentage: tc.bulk_discount_percentage != null ? String(tc.bulk_discount_percentage) : "",
+        available_count: tc.available_count != null ? String(tc.available_count) : "",
+        is_unlimited_tickets: tc.is_unlimited_tickets !== false,
+        vat_rate_key: tc.vat_rate_key || null,
+        vat_rate_label: tc.vat_rate_label || null,
+        vat_rate_percentage: tc.vat_rate_percentage || null,
+        is_group_ticket: tc.is_group_ticket || false,
+        group_size: tc.group_size != null ? String(tc.group_size) : "",
+        group_cutoff_date: tc.group_cutoff_date || "",
+        early_bird_enabled: tc.early_bird_enabled || false,
+        early_bird_price: tc.early_bird_price != null ? String(Number(tc.early_bird_price)) : "",
+        early_bird_deadline: tc.early_bird_deadline ? tc.early_bird_deadline.slice(0, 16) : "",
+        all_tracks: tc.all_tracks !== false,
+        linked_track_ids: tc.linked_track_ids || [],
+      }));
+      setTicketClasses(loaded);
+      setTicketsInitialized(true);
+      if (loaded.length > 0) {
+        setExpandedTickets({ [loaded[0]._localId]: true });
+      }
+    }
+  }, [existingTicketClasses, isEditMode, ticketsInitialized]);
 
   useEffect(() => {
     if (existingEvent && isEditMode) {
@@ -328,6 +444,59 @@ export default function CreateComplexEvent() {
     }));
   };
 
+  const addTicketClass = () => {
+    const newTicket = createEmptyTicketClass(ticketClasses.length === 0, defaultVatRate);
+    setTicketClasses(prev => [...prev, newTicket]);
+    setExpandedTickets(prev => ({ ...prev, [newTicket._localId]: true }));
+  };
+
+  const removeTicketClass = (localId) => {
+    setTicketClasses(prev => prev.filter(t => t._localId !== localId));
+  };
+
+  const updateTicketClass = (localId, field, value) => {
+    setTicketClasses(prev => prev.map(t =>
+      t._localId === localId ? { ...t, [field]: value } : t
+    ));
+  };
+
+  const setTicketFree = (localId, isFree) => {
+    setTicketClasses(prev => prev.map(t =>
+      t._localId === localId ? { ...t, is_free: isFree, price: isFree ? '0' : t.price } : t
+    ));
+  };
+
+  const toggleRoleForTicket = (localId, roleId) => {
+    setTicketClasses(prev => prev.map(t => {
+      if (t._localId !== localId) return t;
+      const currentRoles = t.role_ids || [];
+      const newRoles = currentRoles.includes(roleId)
+        ? currentRoles.filter(id => id !== roleId)
+        : [...currentRoles, roleId];
+      return { ...t, role_ids: newRoles };
+    }));
+  };
+
+  const toggleExpandTicket = (localId) => {
+    setExpandedTickets(prev => ({ ...prev, [localId]: !prev[localId] }));
+  };
+
+  const getRoleNames = (roleIds) => {
+    if (!roleIds || roleIds.length === 0) return "All Roles";
+    return roleIds.map(id => roles.find(r => r.id === id)?.name || 'Unknown').join(', ');
+  };
+
+  const toggleTrackForTicket = (localId, trackId) => {
+    setTicketClasses(prev => prev.map(t => {
+      if (t._localId !== localId) return t;
+      const current = t.linked_track_ids || [];
+      const updated = current.includes(trackId)
+        ? current.filter(id => id !== trackId)
+        : [...current, trackId];
+      return { ...t, linked_track_ids: updated };
+    }));
+  };
+
   const handleSave = async () => {
     if (!formData.title.trim()) {
       toast.error("Event title is required");
@@ -378,6 +547,7 @@ export default function CreateComplexEvent() {
         }
       }
 
+      const trackIdMap = {};
       for (let ti = 0; ti < tracks.length; ti++) {
         const track = tracks[ti];
         const trackPayload = {
@@ -396,6 +566,8 @@ export default function CreateComplexEvent() {
           const created = await base44.entities.ComplexEventTrack.create(trackPayload);
           trackId = created.id;
         }
+        trackIdMap[track._localId] = trackId;
+        if (track.id) trackIdMap[track.id] = trackId;
 
         if (isEditMode && track.id) {
           const existingSessionIds = existingSessions
@@ -433,7 +605,56 @@ export default function CreateComplexEvent() {
         }
       }
 
+      if (isEditMode) {
+        const existingDbIds = existingTicketClasses.map(tc => tc.id);
+        const currentDbIds = ticketClasses.filter(t => t._dbId).map(t => t._dbId);
+        const deletedIds = existingDbIds.filter(id => !currentDbIds.includes(id));
+        for (const tcId of deletedIds) {
+          await base44.entities.ComplexEventTicketClass.delete(tcId);
+        }
+      }
+
+      for (let ti = 0; ti < ticketClasses.length; ti++) {
+        const ticket = ticketClasses[ti];
+        const tcPayload = {
+          complex_event_id: eventId,
+          name: ticket.name || "Standard Ticket",
+          price: parseFloat(ticket.price) || 0,
+          is_free: ticket.is_free || false,
+          early_bird_enabled: ticket.early_bird_enabled || false,
+          early_bird_price: ticket.early_bird_enabled && ticket.early_bird_price ? parseFloat(ticket.early_bird_price) : null,
+          early_bird_deadline: ticket.early_bird_enabled && ticket.early_bird_deadline ? ticket.early_bird_deadline : null,
+          is_group_ticket: ticket.is_group_ticket || false,
+          group_size: ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
+          group_cutoff_date: ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null,
+          vat_rate_key: ticket.vat_rate_key || null,
+          vat_rate_label: ticket.vat_rate_label || null,
+          vat_rate_percentage: ticket.vat_rate_percentage || null,
+          visibility_mode: ticket.visibility_mode || 'members_only',
+          role_ids: ticket.role_ids || [],
+          role_match_only: ticket.role_match_only || false,
+          offer_type: ticket.offer_type || 'none',
+          bogo_logic_type: ticket.offer_type === 'bogo' ? (ticket.bogo_logic_type || 'buy_x_get_y_free') : null,
+          bogo_buy_quantity: ticket.offer_type === 'bogo' && ticket.bogo_buy_quantity ? parseInt(ticket.bogo_buy_quantity) : null,
+          bogo_get_free_quantity: ticket.offer_type === 'bogo' && ticket.bogo_get_free_quantity ? parseInt(ticket.bogo_get_free_quantity) : null,
+          bulk_discount_threshold: ticket.offer_type === 'bulk_discount' && ticket.bulk_discount_threshold ? parseInt(ticket.bulk_discount_threshold) : null,
+          bulk_discount_percentage: ticket.offer_type === 'bulk_discount' && ticket.bulk_discount_percentage ? parseFloat(ticket.bulk_discount_percentage) : null,
+          available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
+          is_unlimited_tickets: ticket.is_unlimited_tickets !== false,
+          linked_track_ids: ticket.all_tracks ? [] : (ticket.linked_track_ids || []).map(id => trackIdMap[id] || id),
+          all_tracks: ticket.all_tracks !== false,
+          display_order: ti,
+        };
+
+        if (ticket._dbId) {
+          await base44.entities.ComplexEventTicketClass.update(ticket._dbId, tcPayload);
+        } else {
+          await base44.entities.ComplexEventTicketClass.create(tcPayload);
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEvent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass"] });
       toast.success(isEditMode ? "Complex event updated" : "Complex event created");
       window.location.href = createPageUrl("ComplexEvents");
     } catch (err) {
@@ -455,6 +676,7 @@ export default function CreateComplexEvent() {
   const sections = [
     { id: "details", label: "Event Details" },
     { id: "tracks", label: "Tracks & Sessions" },
+    { id: "tickets", label: "Tickets" },
   ];
 
   return (
@@ -880,6 +1102,465 @@ export default function CreateComplexEvent() {
                 </Card>
               ))
             )}
+          </div>
+        )}
+      </div>
+
+      <div className={`space-y-6 ${activeSection !== 'tickets' ? 'hidden' : ''}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold text-slate-800">Ticket Classes</h3>
+          <Button onClick={addTicketClass} data-testid="button-add-ticket-class">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Ticket Class
+          </Button>
+        </div>
+
+        {ticketClasses.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center text-slate-500">
+              <Ticket className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+              <p className="font-medium">No ticket classes yet</p>
+              <p className="text-sm">Add ticket classes to allow registrations for this event</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {ticketClasses.map((ticket, idx) => (
+              <Card key={ticket._localId}>
+                <CardContent className="p-0">
+                  <div
+                    className="flex flex-wrap items-center justify-between gap-2 p-4 cursor-pointer hover-elevate"
+                    onClick={() => toggleExpandTicket(ticket._localId)}
+                    data-testid={`ticket-header-${ticket._localId}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Ticket className="w-4 h-4 text-slate-400" />
+                      <div>
+                        <span className="font-medium text-slate-700">
+                          {ticket.name || `Ticket ${idx + 1}`}
+                        </span>
+                        <span className="ml-2 text-sm text-slate-400">
+                          {ticket.is_free ? 'Free' : ticket.price ? `£${ticket.price}` : 'No price set'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={ticket.visibility_mode !== 'members_only' ? 'default' : 'secondary'}>
+                        {ticket.visibility_mode === 'members_and_public' ? 'Members & Public' : ticket.visibility_mode === 'public_only' ? 'Public Only' : 'Members Only'}
+                      </Badge>
+                      {!ticket.all_tracks && (
+                        <Badge variant="outline">{ticket.linked_track_ids.length} track(s)</Badge>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => { e.stopPropagation(); removeTicketClass(ticket._localId); }}
+                        data-testid={`button-remove-ticket-${ticket._localId}`}
+                      >
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </Button>
+                      {expandedTickets[ticket._localId] ? (
+                        <ChevronUp className="w-4 h-4 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                  </div>
+
+                  {expandedTickets[ticket._localId] && (
+                    <div className="border-t p-4 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Ticket Name</Label>
+                          <Input
+                            value={ticket.name}
+                            onChange={(e) => updateTicketClass(ticket._localId, 'name', e.target.value)}
+                            placeholder="e.g. Standard, VIP, Student"
+                            data-testid={`input-ticket-name-${ticket._localId}`}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Visibility</Label>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <div
+                              className={`flex items-center gap-2 p-3 rounded-md border-2 cursor-pointer transition-colors ${
+                                (ticket.visibility_mode || 'members_only') === 'members_only'
+                                  ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
+                              }`}
+                              onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'members_only')}
+                              data-testid={`visibility-members-only-${ticket._localId}`}
+                            >
+                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                                (ticket.visibility_mode || 'members_only') === 'members_only' ? 'border-blue-500' : 'border-slate-300'
+                              }`}>
+                                {(ticket.visibility_mode || 'members_only') === 'members_only' && (
+                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">Members Only</p>
+                                <p className="text-xs text-slate-500">Logged-in members only</p>
+                              </div>
+                            </div>
+                            <div
+                              className={`flex items-center gap-2 p-3 rounded-md border-2 cursor-pointer transition-colors ${
+                                ticket.visibility_mode === 'members_and_public'
+                                  ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
+                              }`}
+                              onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'members_and_public')}
+                              data-testid={`visibility-members-and-public-${ticket._localId}`}
+                            >
+                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                                ticket.visibility_mode === 'members_and_public' ? 'border-blue-500' : 'border-slate-300'
+                              }`}>
+                                {ticket.visibility_mode === 'members_and_public' && (
+                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">Members & Public</p>
+                                <p className="text-xs text-slate-500">Both members and visitors</p>
+                              </div>
+                            </div>
+                            <div
+                              className={`flex items-center gap-2 p-3 rounded-md border-2 cursor-pointer transition-colors ${
+                                ticket.visibility_mode === 'public_only'
+                                  ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
+                              }`}
+                              onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'public_only')}
+                              data-testid={`visibility-public-only-${ticket._localId}`}
+                            >
+                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                                ticket.visibility_mode === 'public_only' ? 'border-blue-500' : 'border-slate-300'
+                              }`}>
+                                {ticket.visibility_mode === 'public_only' && (
+                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">Public Only</p>
+                                <p className="text-xs text-slate-500">Non-logged in visitors only</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Price (£)</Label>
+                          <div className="flex items-center gap-3">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={ticket.is_free ? '0' : ticket.price}
+                              onChange={(e) => updateTicketClass(ticket._localId, 'price', e.target.value)}
+                              disabled={ticket.is_free}
+                              className="flex-1"
+                              data-testid={`input-ticket-price-${ticket._localId}`}
+                            />
+                            <div className="flex items-center gap-1.5">
+                              <Switch
+                                checked={ticket.is_free}
+                                onCheckedChange={(val) => setTicketFree(ticket._localId, val)}
+                                data-testid={`switch-free-${ticket._localId}`}
+                              />
+                              <Label className="text-sm">Free</Label>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Availability</Label>
+                          <div className="flex items-center gap-3">
+                            <Input
+                              type="number"
+                              min="1"
+                              value={ticket.is_unlimited_tickets ? '' : ticket.available_count}
+                              onChange={(e) => updateTicketClass(ticket._localId, 'available_count', e.target.value)}
+                              disabled={ticket.is_unlimited_tickets}
+                              placeholder="Ticket limit"
+                              className="flex-1"
+                              data-testid={`input-ticket-count-${ticket._localId}`}
+                            />
+                            <div className="flex items-center gap-1.5">
+                              <Switch
+                                checked={ticket.is_unlimited_tickets}
+                                onCheckedChange={(val) => {
+                                  updateTicketClass(ticket._localId, 'is_unlimited_tickets', val);
+                                  if (val) updateTicketClass(ticket._localId, 'available_count', '');
+                                }}
+                                data-testid={`switch-unlimited-${ticket._localId}`}
+                              />
+                              <Label className="text-sm">Unlimited</Label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {availableVatRates.length > 0 && (
+                        <div className="space-y-1.5">
+                          <Label>VAT Rate</Label>
+                          <Select
+                            value={ticket.vat_rate_key || '_none'}
+                            onValueChange={(val) => {
+                              if (val === '_none') {
+                                updateTicketClass(ticket._localId, 'vat_rate_key', null);
+                                updateTicketClass(ticket._localId, 'vat_rate_label', null);
+                                updateTicketClass(ticket._localId, 'vat_rate_percentage', null);
+                              } else {
+                                const rate = availableVatRates.find(r => r.taxType === val);
+                                if (rate) {
+                                  updateTicketClass(ticket._localId, 'vat_rate_key', rate.taxType);
+                                  updateTicketClass(ticket._localId, 'vat_rate_label', rate.name);
+                                  updateTicketClass(ticket._localId, 'vat_rate_percentage', rate.effectiveRate);
+                                }
+                              }
+                            }}
+                          >
+                            <SelectTrigger data-testid={`select-vat-${ticket._localId}`}>
+                              <SelectValue placeholder="No VAT" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No VAT</SelectItem>
+                              {availableVatRates.map((rate) => (
+                                <SelectItem key={rate.taxType} value={rate.taxType}>
+                                  {rate.name} ({rate.effectiveRate}%)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5">
+                        <Label>Role Restrictions</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start" data-testid={`button-roles-${ticket._localId}`}>
+                              <Users className="w-4 h-4 mr-2" />
+                              {getRoleNames(ticket.role_ids)}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 max-h-60 overflow-y-auto">
+                            {roles.map((role) => (
+                              <div
+                                key={role.id}
+                                className="flex items-center gap-2 p-1.5 cursor-pointer hover-elevate rounded"
+                                onClick={() => toggleRoleForTicket(ticket._localId, role.id)}
+                              >
+                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                  (ticket.role_ids || []).includes(role.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'
+                                }`}>
+                                  {(ticket.role_ids || []).includes(role.id) && <Check className="w-3 h-3 text-white" />}
+                                </div>
+                                <span className="text-sm">{role.name}</span>
+                              </div>
+                            ))}
+                          </PopoverContent>
+                        </Popover>
+                        {(ticket.role_ids || []).length > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Switch
+                              checked={ticket.role_match_only}
+                              onCheckedChange={(val) => updateTicketClass(ticket._localId, 'role_match_only', val)}
+                              data-testid={`switch-role-match-${ticket._localId}`}
+                            />
+                            <Label className="text-sm text-slate-600">Only show to members with matching roles</Label>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border rounded-md p-3 space-y-3">
+                        <h5 className="font-medium text-sm text-slate-700">Track Access</h5>
+                        <div className="flex items-center gap-1.5">
+                          <Switch
+                            checked={ticket.all_tracks}
+                            onCheckedChange={(val) => {
+                              updateTicketClass(ticket._localId, 'all_tracks', val);
+                              if (val) updateTicketClass(ticket._localId, 'linked_track_ids', []);
+                            }}
+                            data-testid={`switch-all-tracks-${ticket._localId}`}
+                          />
+                          <Label className="text-sm">Access to all tracks</Label>
+                        </div>
+                        {!ticket.all_tracks && (
+                          <div className="space-y-1.5">
+                            {tracks.length === 0 ? (
+                              <p className="text-sm text-slate-400">No tracks created yet. Add tracks in the Tracks & Sessions tab.</p>
+                            ) : (
+                              tracks.map((track) => (
+                                <div
+                                  key={track._localId}
+                                  className="flex items-center gap-2 p-1.5 cursor-pointer hover-elevate rounded"
+                                  onClick={() => toggleTrackForTicket(ticket._localId, track.id || track._localId)}
+                                >
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                    (ticket.linked_track_ids || []).includes(track.id || track._localId) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'
+                                  }`}>
+                                    {(ticket.linked_track_ids || []).includes(track.id || track._localId) && (
+                                      <Check className="w-3 h-3 text-white" />
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {track.colour && (
+                                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: track.colour }} />
+                                    )}
+                                    <span className="text-sm">{track.name || 'Untitled Track'}</span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border rounded-md p-3 space-y-3">
+                        <div className="flex items-center gap-1.5">
+                          <Switch
+                            checked={ticket.early_bird_enabled}
+                            onCheckedChange={(val) => updateTicketClass(ticket._localId, 'early_bird_enabled', val)}
+                            data-testid={`switch-early-bird-${ticket._localId}`}
+                          />
+                          <Label className="text-sm font-medium text-slate-700">Early Bird Pricing</Label>
+                        </div>
+                        {ticket.early_bird_enabled && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Early Bird Price (£)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={ticket.early_bird_price}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'early_bird_price', e.target.value)}
+                                data-testid={`input-early-bird-price-${ticket._localId}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Deadline</Label>
+                              <Input
+                                type="datetime-local"
+                                value={ticket.early_bird_deadline}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'early_bird_deadline', e.target.value)}
+                                data-testid={`input-early-bird-deadline-${ticket._localId}`}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border rounded-md p-3 space-y-3">
+                        <div className="flex items-center gap-1.5">
+                          <Switch
+                            checked={ticket.is_group_ticket}
+                            onCheckedChange={(val) => updateTicketClass(ticket._localId, 'is_group_ticket', val)}
+                            data-testid={`switch-group-${ticket._localId}`}
+                          />
+                          <Label className="text-sm font-medium text-slate-700">Group Ticket</Label>
+                        </div>
+                        {ticket.is_group_ticket && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Group Size</Label>
+                              <Input
+                                type="number"
+                                min="2"
+                                value={ticket.group_size}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'group_size', e.target.value)}
+                                data-testid={`input-group-size-${ticket._localId}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Cutoff Date</Label>
+                              <Input
+                                type="date"
+                                value={ticket.group_cutoff_date}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'group_cutoff_date', e.target.value)}
+                                data-testid={`input-group-cutoff-${ticket._localId}`}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Special Offers</Label>
+                        <RadioGroup
+                          value={ticket.offer_type}
+                          onValueChange={(val) => updateTicketClass(ticket._localId, 'offer_type', val)}
+                          className="flex flex-wrap gap-3"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="none" id={`offer-none-${ticket._localId}`} />
+                            <Label htmlFor={`offer-none-${ticket._localId}`} className="text-sm">None</Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="bogo" id={`offer-bogo-${ticket._localId}`} />
+                            <Label htmlFor={`offer-bogo-${ticket._localId}`} className="text-sm">BOGO</Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="bulk_discount" id={`offer-bulk-${ticket._localId}`} />
+                            <Label htmlFor={`offer-bulk-${ticket._localId}`} className="text-sm">Bulk Discount</Label>
+                          </div>
+                        </RadioGroup>
+
+                        {ticket.offer_type === 'bogo' && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Buy Quantity</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                value={ticket.bogo_buy_quantity}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'bogo_buy_quantity', e.target.value)}
+                                data-testid={`input-bogo-buy-${ticket._localId}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Get Free Quantity</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                value={ticket.bogo_get_free_quantity}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'bogo_get_free_quantity', e.target.value)}
+                                data-testid={`input-bogo-free-${ticket._localId}`}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {ticket.offer_type === 'bulk_discount' && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Minimum Quantity</Label>
+                              <Input
+                                type="number"
+                                min="2"
+                                value={ticket.bulk_discount_threshold}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'bulk_discount_threshold', e.target.value)}
+                                data-testid={`input-bulk-threshold-${ticket._localId}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Discount %</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={ticket.bulk_discount_percentage}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'bulk_discount_percentage', e.target.value)}
+                                data-testid={`input-bulk-percentage-${ticket._localId}`}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
           </div>
         )}
       </div>
