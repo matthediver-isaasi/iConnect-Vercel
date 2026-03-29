@@ -435,13 +435,21 @@ export default function PaymentOptions({
   onShowTermsModal = null,
   checkGuestEmailIsMember = null,
   checkingMemberEmail = false,
-  guestEmailIsMember = false
+  guestEmailIsMember = false,
+  isComplexEvent = false,
+  complexEventApi = null,
+  onComplexBookingComplete = null,
+  renderAsCard = true
 }) {
-  // Payment state for one-off events
+  const [internalSubmitting, setInternalSubmitting] = useState(false);
+  const isSubmitting = submitting !== undefined ? submitting : internalSubmitting;
+  const doSetSubmitting = setSubmitting || setInternalSubmitting;
+
   const [selectedVouchers, setSelectedVouchers] = useState([]);
   const [trainingFundAmount, setTrainingFundAmount] = useState(0);
-  // For non-logged-in users (public checkout), default to card payment
-  const [remainingBalancePaymentMethod, setRemainingBalancePaymentMethod] = useState(memberInfo ? 'account' : 'card');
+  const [remainingBalancePaymentMethod, setRemainingBalancePaymentMethod] = useState(
+    isComplexEvent ? 'card' : (memberInfo ? 'account' : 'card')
+  );
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
@@ -509,6 +517,10 @@ export default function PaymentOptions({
         setStripeAvailable(true);
         return;
       }
+      if (isComplexEvent) {
+        setStripeAvailable(true);
+        return;
+      }
       try {
         const response = await base44.functions.invoke('getStripePublishableKey', { feature: 'events' });
         if (response.data.publishableKey) {
@@ -520,7 +532,7 @@ export default function PaymentOptions({
       }
     };
     initStripe();
-  }, []);
+  }, [isComplexEvent]);
 
   // Handle 3D Secure redirect return
   // When a user returns from 3D Secure bank verification, the URL will contain
@@ -656,8 +668,9 @@ export default function PaymentOptions({
     enabled: isOneOffEvent && !!organizationInfo?.id
   });
 
-  // Calculate tickets required based on registration mode
-  const ticketsRequired = registrationMode === 'links' ? numberOfLinks : attendees.filter(a => a.isValid).length;
+  const ticketsRequired = isComplexEvent 
+    ? attendees.length 
+    : (registrationMode === 'links' ? numberOfLinks : attendees.filter(a => a.isValid).length);
 
   // Get available program tickets for this specific event's program
   const availableProgramTickets = event.program_tag && organizationInfo?.program_ticket_balances 
@@ -710,26 +723,45 @@ export default function PaymentOptions({
     setApplyingDiscount(true);
 
     try {
-      const response = await base44.functions.invoke('applyDiscountCode', {
-        code: discountCodeInput.trim().toUpperCase(),
-        eventId: event?.id,
-        memberEmail: memberInfo?.email || guestInfo?.email,
-        amount: totalCost
-      });
-
-      if (response.data.valid) {
-        setAppliedDiscount({
-          ...response.data,
-          code: discountCodeInput.trim().toUpperCase()
+      if (isComplexEvent && complexEventApi?.validateDiscountCode) {
+        const result = await complexEventApi.validateDiscountCode({
+          code: discountCodeInput.trim().toUpperCase(),
+          event_id: event?.id,
+          ticket_class_id: selectedTicketClass?.id,
+          attendee_count: ticketsRequired
         });
-        toast.success(`Discount code applied! You save £${response.data.discount_amount.toFixed(2)}`);
+        if (result.valid) {
+          setAppliedDiscount({
+            ...result,
+            code: discountCodeInput.trim().toUpperCase()
+          });
+          toast.success(`Discount code applied! You save £${result.discount_amount.toFixed(2)}`);
+        } else {
+          toast.error(result.error || result.reason || 'Invalid discount code');
+          setAppliedDiscount(null);
+        }
       } else {
-        toast.error(response.data.error || 'Invalid discount code');
-        setAppliedDiscount(null);
+        const response = await base44.functions.invoke('applyDiscountCode', {
+          code: discountCodeInput.trim().toUpperCase(),
+          eventId: event?.id,
+          memberEmail: memberInfo?.email || guestInfo?.email,
+          amount: totalCost
+        });
+
+        if (response.data.valid) {
+          setAppliedDiscount({
+            ...response.data,
+            code: discountCodeInput.trim().toUpperCase()
+          });
+          toast.success(`Discount code applied! You save £${response.data.discount_amount.toFixed(2)}`);
+        } else {
+          toast.error(response.data.error || 'Invalid discount code');
+          setAppliedDiscount(null);
+        }
       }
     } catch (error) {
       console.error('Error applying discount:', error);
-      const errorMessage = error.response?.data?.error || 'Invalid discount code';
+      const errorMessage = error.response?.data?.error || error.message || 'Invalid discount code';
       toast.error(errorMessage);
       setAppliedDiscount(null);
     } finally {
@@ -789,7 +821,7 @@ export default function PaymentOptions({
       return;
     }
 
-    setSubmitting(true);
+    doSetSubmitting(true);
 
     try {
       const response = await base44.functions.invoke('createBooking', {
@@ -819,62 +851,67 @@ export default function PaymentOptions({
     } catch (error) {
       toast.error(error.response?.data?.error || "Failed to create booking");
     } finally {
-      setSubmitting(false);
+      doSetSubmitting(false);
     }
   };
 
-  // Handle one-off event booking with payment
   const handleOneOffBooking = async () => {
     console.log('[PaymentOptions] handleOneOffBooking called', {
       isGuestCheckout,
+      isComplexEvent,
       ticketsRequired,
       totalCost,
       remainingBalance,
       remainingBalancePaymentMethod,
-      guestInfo: guestInfo ? { email: guestInfo.email, first_name: guestInfo.first_name } : null,
       attendeesCount: attendees?.length
     });
 
-    if (isGuestCheckout && checkGuestEmailIsMember) {
-      const isMember = await checkGuestEmailIsMember();
-      if (isMember) return;
-    }
+    if (isComplexEvent) {
+      if (ticketsRequired === 0) {
+        toast.error("Please add at least one attendee");
+        return;
+      }
+    } else {
+      if (isGuestCheckout && checkGuestEmailIsMember) {
+        const isMember = await checkGuestEmailIsMember();
+        if (isMember) return;
+      }
 
-    // For guest checkout, skip member-specific validations
-    if (!isGuestCheckout) {
-      // Validate attendees
-      if (registrationMode === 'colleagues' || registrationMode === 'self') {
-        const invalidAttendees = attendees.filter(a => {
-          const needsManualName = !a.isSelf && 
-                                 (a.validationStatus === 'unregistered_domain_match' || 
-                                  a.validationStatus === 'external');
-          
-          if (needsManualName && (!a.first_name || !a.last_name)) {
-            return true;
+      if (!isGuestCheckout) {
+        if (registrationMode === 'colleagues' || registrationMode === 'self') {
+          const invalidAttendees = attendees.filter(a => {
+            const needsManualName = !a.isSelf && 
+                                   (a.validationStatus === 'unregistered_domain_match' || 
+                                    a.validationStatus === 'external');
+            
+            if (needsManualName && (!a.first_name || !a.last_name)) {
+              return true;
+            }
+            
+            return false;
+          });
+
+          if (invalidAttendees.length > 0) {
+            toast.error('Please provide first and last names for all attendees');
+            return;
           }
-          
-          return false;
-        });
+        }
 
-        if (invalidAttendees.length > 0) {
-          toast.error('Please provide first and last names for all attendees');
+        if (registrationMode === 'colleagues' && attendees.some(a => !a.isValid)) {
+          toast.error("Please remove or fix invalid attendee emails");
           return;
         }
       }
 
-      if (registrationMode === 'colleagues' && attendees.some(a => !a.isValid)) {
-        toast.error("Please remove or fix invalid attendee emails");
+      if (ticketsRequired === 0) {
+        toast.error(isGuestCheckout ? "Please fill in your details" : "Please add at least one attendee");
         return;
       }
     }
 
-    if (ticketsRequired === 0) {
-      toast.error(isGuestCheckout ? "Please fill in your details" : "Please add at least one attendee");
-      return;
-    }
-
-    // Determine email for Stripe payment - use guest email for guest checkout
-    const paymentEmail = isGuestCheckout ? guestInfo?.email : memberInfo?.email;
+    const paymentEmail = isComplexEvent 
+      ? (attendees[0]?.email || memberInfo?.email)
+      : (isGuestCheckout ? guestInfo?.email : memberInfo?.email);
 
     // If paying by card and there's a remaining balance, create Stripe payment intent
     // For guest checkout, card is the only payment option
@@ -910,102 +947,66 @@ export default function PaymentOptions({
   const proceedToStripePayment = async (paymentEmail) => {
     const chargeAmount = remainingBalance;
     console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount);
-    setSubmitting(true);
+    doSetSubmitting(true);
     try {
-      const attendeeEmails = isGuestCheckout 
-        ? (guestInfo?.email ? [guestInfo.email] : [])
-        : attendees.filter(a => a.isValid).map(a => a.email).filter(Boolean);
-      
-      const response = await base44.functions.invoke('createStripePaymentIntent', {
-        amount: chargeAmount,
-        currency: 'gbp',
-        memberEmail: paymentEmail,
-        metadata: {
+      let clientSecret, paymentIntentId;
+
+      if (isComplexEvent && complexEventApi) {
+        const piPayload = {
           event_id: event.id,
-          event_title: (event.title || '').substring(0, 200),
-          organization_id: organizationInfo?.id || null,
-          booking_type: isGuestCheckout ? 'guest_one_off_event' : 'one_off_event',
-          is_guest: isGuestCheckout ? 'true' : 'false',
-          attendee_emails: attendeeEmails.slice(0, 5).join(',').substring(0, 450),
-          ticket_class: selectedTicketClass?.name || 'default',
-          tickets_required: String(ticketsRequired),
-          member_email: paymentEmail
-        }
-      });
-
-      console.log('[PaymentOptions] Stripe payment intent response:', response.data);
-      if (response.data.success) {
-        setStripeClientSecret(response.data.clientSecret);
-        setStripePaymentIntentId(response.data.paymentIntentId);
-        
-        // Build and save booking payload to sessionStorage BEFORE showing Stripe modal.
-        // This ensures that if 3D Secure triggers a full-page redirect, we can recover
-        // the booking details when the user returns.
-        const validAttendees = attendees.filter(a => a.isValid);
-        const savedPayload = {
-          eventId: event.id,
-          attendees: validAttendees,
-          registrationMode: registrationMode,
-          ticketsRequired: ticketsRequired,
-          totalCost: totalCost,
-          pricingDetails: oneOffCostDetails,
-          paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : 'fully_covered',
-          stripePaymentIntentId: response.data.paymentIntentId,
-          ticketClassId: selectedTicketClass?.id || null,
-          ticketClassName: selectedTicketClass?.name || null,
-          ticketClassPrice: ticketPrice,
-          isGuestBooking: isGuestCheckout,
-          discountCodeId: appliedDiscount?.discount_code_id || null,
-          discountCodeAmount: discountCodeSavings || 0,
+          ticket_class_id: selectedTicketClass?.id,
+          attendee_count: ticketsRequired
         };
-        
-        if (!isGuestCheckout) {
-          savedPayload.memberEmail = memberInfo.email;
-          savedPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
-          savedPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
-          savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
-          savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
-          savedPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
-        } else {
-          savedPayload.guestInfo = {
-            first_name: guestInfo.first_name,
-            last_name: guestInfo.last_name,
-            email: guestInfo.email,
-            organization: guestInfo.organization,
-            phone: guestInfo.phone || null,
-            job_title: guestInfo.job_title || null
-          };
+        if (appliedDiscount?.code) {
+          piPayload.discount_code = appliedDiscount.code;
         }
-        
-        const savedPayloadKey = `pending_booking_payload_${event.id}`;
-        sessionStorage.setItem(savedPayloadKey, JSON.stringify(savedPayload));
-        console.log('[PaymentOptions] Saved booking payload to sessionStorage for 3D Secure recovery');
-        
-        setShowStripeModal(true);
+        const piResponse = await complexEventApi.createPaymentIntent(piPayload);
+        if (!piResponse.clientSecret || !piResponse.publishableKey) {
+          toast.error("Unable to initialize card payment. Please try again.");
+          return;
+        }
+        stripePromise = loadStripe(piResponse.publishableKey);
+        clientSecret = piResponse.clientSecret;
+        const piMatch = piResponse.clientSecret?.match(/^(pi_[^_]+)/);
+        paymentIntentId = piMatch ? piMatch[1] : null;
       } else {
-        toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
+        const attendeeEmails = isGuestCheckout 
+          ? (guestInfo?.email ? [guestInfo.email] : [])
+          : attendees.filter(a => a.isValid).map(a => a.email).filter(Boolean);
+        
+        const response = await base44.functions.invoke('createStripePaymentIntent', {
+          amount: chargeAmount,
+          currency: 'gbp',
+          memberEmail: paymentEmail,
+          metadata: {
+            event_id: event.id,
+            event_title: (event.title || '').substring(0, 200),
+            organization_id: organizationInfo?.id || null,
+            booking_type: isGuestCheckout ? 'guest_one_off_event' : 'one_off_event',
+            is_guest: isGuestCheckout ? 'true' : 'false',
+            attendee_emails: attendeeEmails.slice(0, 5).join(',').substring(0, 450),
+            ticket_class: selectedTicketClass?.name || 'default',
+            tickets_required: String(ticketsRequired),
+            member_email: paymentEmail
+          }
+        });
+
+        console.log('[PaymentOptions] Stripe payment intent response:', response.data);
+        if (!response.data.success) {
+          toast.error("Failed to initialize payment: " + (response.data.error || "Unknown error"));
+          return;
+        }
+        clientSecret = response.data.clientSecret;
+        paymentIntentId = response.data.paymentIntentId;
       }
-    } catch (error) {
-      console.error("[PaymentOptions] Error creating Stripe Payment Intent:", error);
-      toast.error("Failed to initialize payment");
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
-
-  const processOneOffBooking = async (stripePaymentId = null, testMode = false) => {
-    console.log('[PaymentOptions] processOneOffBooking started');
-    setSubmitting(true);
-
-    try {
-      // Log attendees before filtering
-      console.log('[PaymentOptions] All attendees before filter:', JSON.stringify(attendees));
-      const validAttendees = attendees.filter(a => a.isValid);
-      console.log('[PaymentOptions] Valid attendees after filter:', JSON.stringify(validAttendees));
-      console.log('[PaymentOptions] Valid attendees count:', validAttendees.length);
+      setStripeClientSecret(clientSecret);
+      setStripePaymentIntentId(paymentIntentId);
       
-      const bookingPayload = {
+      const validAttendees = isComplexEvent 
+        ? attendees 
+        : attendees.filter(a => a.isValid);
+      const savedPayload = {
         eventId: event.id,
         attendees: validAttendees,
         registrationMode: registrationMode,
@@ -1013,27 +1014,25 @@ export default function PaymentOptions({
         totalCost: totalCost,
         pricingDetails: oneOffCostDetails,
         paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : 'fully_covered',
-        stripePaymentIntentId: stripePaymentId,
+        stripePaymentIntentId: paymentIntentId,
         ticketClassId: selectedTicketClass?.id || null,
         ticketClassName: selectedTicketClass?.name || null,
         ticketClassPrice: ticketPrice,
         isGuestBooking: isGuestCheckout,
+        isComplexEvent: isComplexEvent,
         discountCodeId: appliedDiscount?.discount_code_id || null,
         discountCodeAmount: discountCodeSavings || 0,
-        _testMode: testMode
       };
-
-      // Add member-specific fields for logged-in users
-      if (!isGuestCheckout) {
-        bookingPayload.memberEmail = memberInfo.email;
-        bookingPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
-        bookingPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
-        bookingPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
-        bookingPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
-        bookingPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
-      } else {
-        // Add guest-specific fields
-        bookingPayload.guestInfo = {
+      
+      if (!isGuestCheckout && !isComplexEvent) {
+        savedPayload.memberEmail = memberInfo?.email;
+        savedPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
+        savedPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
+        savedPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
+        savedPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
+        savedPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
+      } else if (isGuestCheckout) {
+        savedPayload.guestInfo = {
           first_name: guestInfo.first_name,
           last_name: guestInfo.last_name,
           email: guestInfo.email,
@@ -1042,49 +1041,159 @@ export default function PaymentOptions({
           job_title: guestInfo.job_title || null
         };
       }
+      
+      const savedPayloadKey = `pending_booking_payload_${event.id}`;
+      sessionStorage.setItem(savedPayloadKey, JSON.stringify(savedPayload));
+      console.log('[PaymentOptions] Saved booking payload to sessionStorage for 3D Secure recovery');
+      
+      setShowStripeModal(true);
+    } catch (error) {
+      console.error("[PaymentOptions] Error creating Stripe Payment Intent:", error);
+      toast.error("Failed to initialize payment");
+    } finally {
+      doSetSubmitting(false);
+    }
+  };
 
-      console.log('[PaymentOptions] Calling createOneOffEventBooking API with payload:', JSON.stringify(bookingPayload));
-      const response = await base44.functions.invoke('createOneOffEventBooking', bookingPayload);
-      console.log('[PaymentOptions] API response received:', JSON.stringify(response.data));
 
-      if (response.data.success) {
-        sessionStorage.removeItem(`event_registration_${event.id}`);
-        
-        if (refreshOrganizationInfo && !isGuestCheckout) {
-          refreshOrganizationInfo();
+  const processOneOffBooking = async (stripePaymentId = null, testMode = false) => {
+    console.log('[PaymentOptions] processOneOffBooking started');
+    doSetSubmitting(true);
+
+    try {
+      if (isComplexEvent && complexEventApi) {
+        const complexPayload = {
+          event_id: event.id,
+          attendees: attendees.map(a => ({
+            email: (a.email || '').toLowerCase().trim(),
+            first_name: (a.first_name || '').trim(),
+            last_name: (a.last_name || '').trim(),
+            organization: (a.organization || '').trim(),
+            phone: (a.phone || '').trim(),
+            job_title: (a.job_title || '').trim()
+          })),
+          ticket_class_id: selectedTicketClass?.id || null,
+          payment_method: remainingBalance > 0 ? remainingBalancePaymentMethod : 'free',
+        };
+        if (stripePaymentId) {
+          complexPayload.stripe_payment_intent_id = stripePaymentId;
+          complexPayload.payment_method = 'card';
         }
-        
-        if (isGuestCheckout) {
+        if (appliedDiscount?.code) {
+          complexPayload.discount_code = appliedDiscount.code;
+        }
+
+        const result = await complexEventApi.submitBooking(complexPayload);
+
+        if (result.success) {
+          const isPending = result.bookings?.some(b => b.status === 'pending');
           setBookingConfirmation({
-            bookingReference: response.data.booking_reference,
-            bookings: response.data.bookings || [],
-            paymentDetails: response.data.payment_details,
-            xeroInvoice: response.data.xero_invoice,
-            groupBooking: response.data.group_booking || null,
+            bookingReference: result.booking_group_reference || result.booking_reference,
+            bookings: result.bookings || [],
+            paymentDetails: result.payment_details || null,
+            xeroInvoice: result.xero_invoice || null,
             event: event,
-            guestInfo: guestInfo,
-            attendees: attendees.filter(a => a.isValid),
-            ticketsRequired: ticketsRequired,
+            guestInfo: null,
+            attendees: attendees,
+            ticketsRequired: attendees.length,
             totalCost: totalCost,
             ticketClassName: selectedTicketClass?.name || 'Standard',
             ticketClassPrice: ticketPrice,
             pricingDetails: oneOffCostDetails
           });
-          toast.success("Booking confirmed!");
+          if (isPending) {
+            toast.success("Booking submitted! Your registration is pending payment confirmation.");
+          } else {
+            toast.success("Registration confirmed!");
+          }
+          onComplexBookingComplete?.();
         } else {
-          toast.success("Booking confirmed!");
-          setTimeout(() => {
-            window.location.href = createPageUrl('Bookings');
-          }, 1500);
+          toast.error(result.error || "Failed to complete booking");
         }
       } else {
-        toast.error(response.data.error || "Failed to create booking");
+        console.log('[PaymentOptions] All attendees before filter:', JSON.stringify(attendees));
+        const validAttendees = attendees.filter(a => a.isValid);
+        console.log('[PaymentOptions] Valid attendees after filter:', JSON.stringify(validAttendees));
+        
+        const bookingPayload = {
+          eventId: event.id,
+          attendees: validAttendees,
+          registrationMode: registrationMode,
+          ticketsRequired: ticketsRequired,
+          totalCost: totalCost,
+          pricingDetails: oneOffCostDetails,
+          paymentMethod: remainingBalance > 0 ? (isGuestCheckout ? 'card' : remainingBalancePaymentMethod) : 'fully_covered',
+          stripePaymentIntentId: stripePaymentId,
+          ticketClassId: selectedTicketClass?.id || null,
+          ticketClassName: selectedTicketClass?.name || null,
+          ticketClassPrice: ticketPrice,
+          isGuestBooking: isGuestCheckout,
+          discountCodeId: appliedDiscount?.discount_code_id || null,
+          discountCodeAmount: discountCodeSavings || 0,
+          _testMode: testMode
+        };
+
+        if (!isGuestCheckout) {
+          bookingPayload.memberEmail = memberInfo.email;
+          bookingPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
+          bookingPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
+          bookingPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
+          bookingPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
+          bookingPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
+        } else {
+          bookingPayload.guestInfo = {
+            first_name: guestInfo.first_name,
+            last_name: guestInfo.last_name,
+            email: guestInfo.email,
+            organization: guestInfo.organization,
+            phone: guestInfo.phone || null,
+            job_title: guestInfo.job_title || null
+          };
+        }
+
+        console.log('[PaymentOptions] Calling createOneOffEventBooking API with payload:', JSON.stringify(bookingPayload));
+        const response = await base44.functions.invoke('createOneOffEventBooking', bookingPayload);
+        console.log('[PaymentOptions] API response received:', JSON.stringify(response.data));
+
+        if (response.data.success) {
+          sessionStorage.removeItem(`event_registration_${event.id}`);
+          
+          if (refreshOrganizationInfo && !isGuestCheckout) {
+            refreshOrganizationInfo();
+          }
+          
+          if (isGuestCheckout) {
+            setBookingConfirmation({
+              bookingReference: response.data.booking_reference,
+              bookings: response.data.bookings || [],
+              paymentDetails: response.data.payment_details,
+              xeroInvoice: response.data.xero_invoice,
+              groupBooking: response.data.group_booking || null,
+              event: event,
+              guestInfo: guestInfo,
+              attendees: attendees.filter(a => a.isValid),
+              ticketsRequired: ticketsRequired,
+              totalCost: totalCost,
+              ticketClassName: selectedTicketClass?.name || 'Standard',
+              ticketClassPrice: ticketPrice,
+              pricingDetails: oneOffCostDetails
+            });
+            toast.success("Booking confirmed!");
+          } else {
+            toast.success("Booking confirmed!");
+            setTimeout(() => {
+              window.location.href = createPageUrl('Bookings');
+            }, 1500);
+          }
+        } else {
+          toast.error(response.data.error || "Failed to create booking");
+        }
       }
     } catch (error) {
       console.error("Booking error:", error);
       toast.error(error.message || "Failed to create booking");
     } finally {
-      setSubmitting(false);
+      doSetSubmitting(false);
     }
   };
 
@@ -1099,7 +1208,9 @@ export default function PaymentOptions({
 
   // Check for duplicate registrations before proceeding
   const checkForDuplicates = async () => {
-    // Get list of attendee emails to check
+    if (isComplexEvent) {
+      return { hasDuplicates: false, duplicates: [] };
+    }
     let emailsToCheck = [];
     
     if (isGuestCheckout && guestInfo?.email) {
@@ -1145,17 +1256,15 @@ export default function PaymentOptions({
       return;
     }
     
-    // No duplicates, proceed with booking
-    if (isOneOffEvent) {
+    if (isComplexEvent || isOneOffEvent) {
       handleOneOffBooking();
     } else {
       handleProgramBooking();
     }
   };
 
-  // Render one-off event pricing summary
   const renderOneOffPricing = () => {
-    if (!isOneOffEvent || !oneOffCostDetails) return null;
+    if ((!isOneOffEvent && !isComplexEvent) || !oneOffCostDetails) return null;
 
     return (
       <div className="space-y-4">
@@ -1240,8 +1349,8 @@ export default function PaymentOptions({
               </div>
             )}
             
-            {/* Vouchers - only for logged-in members */}
-            {memberInfo && !isFeatureExcluded('element_EventUseVouchers') && (
+            {/* Vouchers - only for logged-in members, not for complex events */}
+            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseVouchers') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-blue-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -1277,8 +1386,8 @@ export default function PaymentOptions({
               </div>
             )}
 
-            {/* Training Fund - only for logged-in members */}
-            {memberInfo && !isFeatureExcluded('element_EventUseTrainingFund') && (
+            {/* Training Fund - only for logged-in members, not for complex events */}
+            {memberInfo && !isComplexEvent && !isFeatureExcluded('element_EventUseTrainingFund') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-green-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -1375,8 +1484,7 @@ export default function PaymentOptions({
                   </div>
                 </div>
 
-                {/* For non-logged-in users, only show card payment option */}
-                {!memberInfo ? (
+                {!memberInfo || isComplexEvent ? (
                   <div className="flex items-start space-x-3 p-3 rounded-lg border-2 border-indigo-500 bg-white">
                     <CreditCard className="w-5 h-5 text-indigo-600 mt-0.5" />
                     <div className="flex-1">
@@ -1556,9 +1664,13 @@ export default function PaymentOptions({
   // Also block if event is sold out or if attendees are missing required names
   // Also require terms acceptance if terms exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
-  const canProceed = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (isOneOffEvent 
-    ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
-    : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
+  const canProceed = !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
+    isComplexEvent
+      ? (ticketsRequired > 0 && !isSubmitting)
+      : isOneOffEvent 
+        ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
+        : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)
+  );
 
   // Notify parent component of canProceed state changes
   useEffect(() => {
@@ -1567,21 +1679,22 @@ export default function PaymentOptions({
     }
   }, [canProceed, onCanProceedChange]);
 
-  // If completing payment after 3D Secure redirect, show a loading overlay
   if (completingPayment) {
+    const completingContent = (
+      <div className="flex flex-col items-center justify-center py-8 space-y-4">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
+        <p className="text-sm text-slate-600 text-center">
+          Your payment has been verified. We're confirming your booking now...
+        </p>
+      </div>
+    );
+    if (!renderAsCard) return completingContent;
     return (
       <Card className="border-slate-200 shadow-lg sticky top-8">
         <CardHeader className="border-b border-slate-200">
           <CardTitle className="text-xl">Completing Your Booking</CardTitle>
         </CardHeader>
-        <CardContent className="pt-6">
-          <div className="flex flex-col items-center justify-center py-8 space-y-4">
-            <Loader2 className="w-10 h-10 animate-spin text-blue-600" />
-            <p className="text-sm text-slate-600 text-center">
-              Your payment has been verified. We're confirming your booking now...
-            </p>
-          </div>
-        </CardContent>
+        <CardContent className="pt-6">{completingContent}</CardContent>
       </Card>
     );
   }
@@ -1774,15 +1887,9 @@ export default function PaymentOptions({
     );
   })();
 
-  return (
+  const mainContent = (
     <>
-      {confirmationModal}
-      <Card className="border-slate-200 shadow-lg sticky top-8">
-        <CardHeader className="border-b border-slate-200">
-          <CardTitle className="text-xl">Booking Summary</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-6 space-y-6">
-          {isOneOffEvent ? renderOneOffPricing() : renderProgramEventDisplay()}
+      {(isOneOffEvent || isComplexEvent) ? renderOneOffPricing() : renderProgramEventDisplay()}
 
           {/* Action Buttons */}
           {!isOneOffEvent && !hasEnoughTickets && event.program_tag && (
@@ -1868,7 +1975,7 @@ export default function PaymentOptions({
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Checking...
                 </>
-              ) : submitting ? (
+              ) : isSubmitting ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Processing...
@@ -1877,7 +1984,7 @@ export default function PaymentOptions({
                 'Registration Closed'
               ) : isSoldOut ? (
                 'Sold Out'
-              ) : isOneOffEvent ? (
+              ) : (isOneOffEvent || isComplexEvent) ? (
                 totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : 'Confirm Booking'
               ) : (
                 'Confirm Booking'
@@ -1896,8 +2003,26 @@ export default function PaymentOptions({
               Please enter first and last names for all external attendees
             </p>
           )}
-        </CardContent>
-      </Card>
+    </>
+  );
+
+  return (
+    <>
+      {confirmationModal}
+      {renderAsCard ? (
+        <Card className="border-slate-200 shadow-lg sticky top-8">
+          <CardHeader className="border-b border-slate-200">
+            <CardTitle className="text-xl">Booking Summary</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-6">
+            {mainContent}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          {mainContent}
+        </div>
+      )}
 
       {/* Stripe Payment Drawer */}
       <Sheet open={showStripeModal} onOpenChange={setShowStripeModal}>
@@ -1919,7 +2044,7 @@ export default function PaymentOptions({
                     setShowStripeModal(false);
                     setStripeClientSecret(null);
                     setStripePaymentIntentId(null);
-                    setSubmitting(false);
+                    doSetSubmitting(false);
                     // Clean up saved payload when user cancels
                     const savedPayloadKey = `pending_booking_payload_${event.id}`;
                     sessionStorage.removeItem(savedPayloadKey);

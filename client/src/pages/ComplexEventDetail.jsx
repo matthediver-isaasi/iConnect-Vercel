@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -11,8 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
-  Video, User, Mic, CheckCircle2, AlertCircle, Monitor, Building2,
-  CreditCard, Wallet, FileText, Plus, Trash2, Layers, Lock
+  Video, User, Mic, AlertCircle, Monitor, Building2,
+  Plus, Trash2, Layers, Lock
 } from "lucide-react";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -23,8 +22,7 @@ import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { loadStripe } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import PaymentOptions from "@/components/booking/PaymentOptions";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -313,74 +311,6 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false }) {
   );
 }
 
-function StripeCheckoutForm({ onSuccess, onCancel, amount, currency }) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [processing, setProcessing] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    setProcessing(true);
-    setErrorMessage(null);
-
-    const { error, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      redirect: 'if_required'
-    });
-
-    if (error) {
-      setErrorMessage(error.message);
-      setProcessing(false);
-    } else if (paymentIntent && paymentIntent.status === 'succeeded') {
-      onSuccess(paymentIntent.id);
-    } else {
-      setErrorMessage('Payment was not completed. Please try again.');
-      setProcessing(false);
-    }
-  };
-
-  const displayAmount = (amount / 100).toFixed(2);
-  const currencySymbol = currency === 'gbp' ? '\u00a3' : currency === 'eur' ? '\u20ac' : '$';
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
-      {errorMessage && (
-        <div className="p-3 rounded-md bg-red-50 border border-red-200">
-          <p className="text-sm text-red-700" data-testid="text-payment-error">{errorMessage}</p>
-        </div>
-      )}
-      <div className="flex gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={processing}
-          className="flex-1"
-          data-testid="button-cancel-payment"
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          disabled={!stripe || processing}
-          className="flex-1"
-          data-testid="button-confirm-payment"
-        >
-          {processing ? (
-            <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing...</>
-          ) : (
-            <>Pay {currencySymbol}{displayAmount}</>
-          )}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
 function TrackAccessIndicator({ ticket, tracks }) {
   if (!tracks?.length) return null;
 
@@ -504,9 +434,6 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
   }), [memberInfo, organizationInfo]);
 
   const [attendees, setAttendees] = useState([{ ...defaultAttendee }]);
-  const [submitting, setSubmitting] = useState(false);
-  const [bookingConfirmation, setBookingConfirmation] = useState(null);
-  const [discountCode, setDiscountCode] = useState('');
 
   useEffect(() => {
     if (memberInfo) {
@@ -617,30 +544,6 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     );
   }, [attendees]);
 
-  const isPaidTicket = totalPrice > 0;
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(isPaidTicket ? 'card' : 'free');
-  const [stripePromise, setStripePromise] = useState(null);
-  const [clientSecret, setClientSecret] = useState(null);
-  const [showCardPayment, setShowCardPayment] = useState(false);
-
-  useEffect(() => {
-    setSelectedPaymentMethod(isPaidTicket ? 'card' : 'free');
-  }, [isPaidTicket]);
-
-  const paymentMethods = useMemo(() => {
-    if (!isPaidTicket) return [];
-    const methods = [
-      { id: 'card', label: 'Pay by Card', icon: CreditCard, description: 'Pay securely with credit or debit card', guestAllowed: true },
-      { id: 'account', label: 'Charge to Organisation Account', icon: Building2, description: 'Invoice will be sent to your organisation', guestAllowed: false },
-      { id: 'account_balance', label: 'Account Balance', icon: Wallet, description: 'Pay from your account balance', guestAllowed: false },
-      { id: 'training_fund', label: 'Training Fund', icon: Wallet, description: 'Use your training fund balance', guestAllowed: false },
-      { id: 'voucher', label: 'Training Voucher', icon: Ticket, description: 'Use a training voucher from your organisation', guestAllowed: false },
-      { id: 'invoice', label: 'Request Invoice', icon: FileText, description: 'Receive an invoice for payment', guestAllowed: false }
-    ];
-    if (memberInfo) return methods;
-    return methods.filter(m => m.guestAllowed);
-  }, [isPaidTicket, memberInfo]);
-
   const handleAttendeeChange = useCallback((index, updated) => {
     setAttendees(prev => {
       const next = [...prev];
@@ -657,140 +560,24 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     setAttendees(prev => [...prev, { ...EMPTY_ATTENDEE }]);
   }, []);
 
-  const buildBookingPayload = useCallback((extraFields = {}) => {
-    const payload = {
-      event_id: event.id,
-      attendees: attendees.map(a => ({
-        email: a.email.toLowerCase().trim(),
-        first_name: a.first_name.trim(),
-        last_name: a.last_name.trim(),
-        organization: a.organization.trim(),
-        phone: a.phone.trim(),
-        job_title: a.job_title.trim()
-      })),
-      ticket_class_id: selectedTicket?.id || null,
-      payment_method: isPaidTicket ? selectedPaymentMethod : 'free',
-      ...extraFields
-    };
-    if (discountCode.trim()) {
-      payload.discount_code = discountCode.trim();
-    }
-    return payload;
-  }, [event, attendees, selectedTicket, isPaidTicket, selectedPaymentMethod, discountCode]);
+  const complexEventApi = useMemo(() => ({
+    createPaymentIntent: (data) => publicClient.createComplexEventPaymentIntent(data),
+    submitBooking: (data) => publicClient.submitComplexEventBooking(data),
+  }), []);
 
-  const handleBookingError = useCallback((err) => {
-    console.error('[ComplexEventDetail] Booking error:', err);
-    if (err.message?.includes('409') || err.message?.includes('Duplicate')) {
-      toast.error("You are already registered for this event");
-    } else if (err.message?.includes('closed')) {
-      toast.error("Registration for this event has closed");
-    } else if (err.message?.includes('401') || err.message?.includes('logged in')) {
-      toast.error("You must be logged in to use this payment method");
-    } else {
-      toast.error(err.message || "Failed to complete booking. Please try again.");
-    }
-  }, []);
+  const paymentOptionsEvent = useMemo(() => ({
+    ...event,
+    event_type: 'one_off',
+    ticket_classes: ticketClasses,
+  }), [event, ticketClasses]);
 
-  const handleCardPaymentSuccess = useCallback(async (paymentIntentId) => {
-    setShowCardPayment(false);
-    setSubmitting(true);
-    try {
-      const result = await publicClient.submitComplexEventBooking(
-        buildBookingPayload({ payment_method: 'card', stripe_payment_intent_id: paymentIntentId })
-      );
-      if (result.success) {
-        setBookingConfirmation(result);
-        toast.success("Payment successful! Registration confirmed.");
-        onBookingComplete?.();
-      }
-    } catch (err) {
-      handleBookingError(err);
-    } finally {
-      setSubmitting(false);
-    }
-  }, [buildBookingPayload, handleBookingError, onBookingComplete]);
-
-  const handleBooking = async () => {
-    if (!isFormValid || !event?.id) return;
-
-    if (isPaidTicket && selectedPaymentMethod === 'card') {
-      setSubmitting(true);
-      try {
-        const piPayload = {
-          event_id: event.id,
-          ticket_class_id: selectedTicket?.id,
-          attendee_count: attendeeCount
-        };
-        if (discountCode.trim()) {
-          piPayload.discount_code = discountCode.trim();
-        }
-        const piResponse = await publicClient.createComplexEventPaymentIntent(piPayload);
-        if (!piResponse.clientSecret || !piResponse.publishableKey) {
-          toast.error("Unable to initialize card payment. Please try again.");
-          return;
-        }
-        setStripePromise(loadStripe(piResponse.publishableKey));
-        setClientSecret(piResponse.clientSecret);
-        setShowCardPayment(true);
-      } catch (err) {
-        console.error('[ComplexEventDetail] Payment intent error:', err);
-        toast.error("Unable to initialize card payment. Please try again.");
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
-
-    setSubmitting(true);
-
-    try {
-      const result = await publicClient.submitComplexEventBooking(buildBookingPayload());
-
-      if (result.success) {
-        setBookingConfirmation(result);
-        if (isPaidTicket) {
-          toast.success("Booking submitted! Your registration is pending payment confirmation.");
-        } else {
-          toast.success("Registration confirmed!");
-        }
-        onBookingComplete?.();
-      }
-    } catch (err) {
-      handleBookingError(err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (bookingConfirmation) {
-    const isPending = bookingConfirmation.bookings?.some(b => b.status === 'pending');
-    return (
-      <Card className={isPending ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"}>
-        <CardContent className="p-6 text-center space-y-4">
-          {isPending ? (
-            <AlertCircle className="w-12 h-12 text-amber-600 mx-auto" />
-          ) : (
-            <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto" />
-          )}
-          <h3 className={`text-xl font-semibold ${isPending ? 'text-amber-800' : 'text-green-800'}`} data-testid="text-booking-confirmed">
-            {isPending ? 'Registration Pending' : 'Registration Confirmed'}
-          </h3>
-          <p className={isPending ? "text-amber-700" : "text-green-700"}>
-            {isPending ? (
-              <>Your registration for <strong>{event.title}</strong> has been submitted and is pending payment confirmation.</>
-            ) : (
-              <>{attendeeCount > 1 ? `${attendeeCount} attendees are` : 'You are'} registered for <strong>{event.title}</strong></>
-            )}
-          </p>
-          {bookingConfirmation.booking_group_reference && (
-            <p className={`text-sm ${isPending ? 'text-amber-600' : 'text-green-600'}`}>
-              Booking Reference: <strong data-testid="text-booking-reference">{bookingConfirmation.booking_group_reference}</strong>
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
+  const oneOffCostDetails = useMemo(() => ({
+    ticketPrice: unitPrice,
+    attendeeCount: attendeeCount,
+    totalCost: totalPrice,
+    freeTickets: 0,
+    discount: 0,
+  }), [unitPrice, attendeeCount, totalPrice]);
 
   const registrationClosed = event.registration_closes_at && new Date(event.registration_closes_at) < new Date();
 
@@ -809,7 +596,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
   const eventTracks = event?.tracks || [];
 
   const ticketSelectorContent = (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {ticketClasses.length > 1 && (
         <div className="space-y-3">
           <Label className="text-sm font-medium">Select Ticket</Label>
@@ -826,8 +613,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
                   onClick={() => setSelectedTicketClassId(tc.id)}
                   data-testid={`ticket-class-${tc.id}`}
                 >
-                  <RadioGroupItem value={tc.id} id={`tc-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
-                  <Label htmlFor={`tc-${tc.id}`} className="flex-1 cursor-pointer">
+                  <RadioGroupItem value={tc.id} id={`tc-${layout}-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
+                  <Label htmlFor={`tc-${layout}-${tc.id}`} className="flex-1 cursor-pointer">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div>
                         <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
@@ -907,96 +694,6 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </div>
       )}
 
-      {isPaidTicket && (
-        <div className="space-y-3">
-          <Label className="text-sm font-medium">Payment Method</Label>
-          <RadioGroup
-            value={selectedPaymentMethod}
-            onValueChange={setSelectedPaymentMethod}
-          >
-            {paymentMethods.map(method => {
-              const MethodIcon = method.icon;
-              return (
-                <div
-                  key={method.id}
-                  className={`flex items-center gap-3 p-3 rounded-md border ${selectedPaymentMethod === method.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
-                >
-                  <RadioGroupItem value={method.id} id={`pm-${method.id}`} data-testid={`radio-payment-${method.id}`} />
-                  <Label htmlFor={`pm-${method.id}`} className="flex-1 cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <MethodIcon className="w-4 h-4 text-slate-500" />
-                      <div>
-                        <span className="font-medium text-slate-900">{method.label}</span>
-                        <p className="text-xs text-slate-500">{method.description}</p>
-                      </div>
-                    </div>
-                  </Label>
-                </div>
-              );
-            })}
-          </RadioGroup>
-        </div>
-      )}
-
-      {isPaidTicket && (
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Discount Code (optional)</Label>
-          <Input
-            placeholder="Enter discount code"
-            value={discountCode}
-            onChange={(e) => setDiscountCode(e.target.value)}
-            data-testid="input-discount-code"
-          />
-        </div>
-      )}
-
-      {totalPrice > 0 && (
-        <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
-          {attendeeCount > 1 && (
-            <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
-              <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-slate-600">Total</span>
-            <span className="text-lg font-bold text-slate-900">{'\u00a3'}{totalPrice.toFixed(2)}</span>
-          </div>
-          {isPaidTicket && selectedPaymentMethod !== 'card' && (
-            <p className="text-xs text-slate-500 mt-1">
-              Your registration will be confirmed once payment is received.
-            </p>
-          )}
-        </div>
-      )}
-
-      <Button
-        className="w-full"
-        onClick={handleBooking}
-        disabled={!isFormValid || submitting || ticketClasses.length === 0}
-        data-testid="button-submit-booking"
-      >
-        {submitting ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Processing...
-          </>
-        ) : totalPrice === 0 ? (
-          attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-        ) : selectedPaymentMethod === 'card' ? (
-          `Pay \u00a3${totalPrice.toFixed(2)}`
-        ) : (
-          `Register - \u00a3${totalPrice.toFixed(2)}`
-        )}
-      </Button>
-
-      {selectedTicket && isTicketRestricted(selectedTicket) && (
-        <p className="text-xs text-center text-slate-500 mt-1">
-          {isGuest
-            ? 'This ticket requires a member account. Please log in to complete registration.'
-            : 'This ticket is available to non-members only.'}
-        </p>
-      )}
-
       {ticketClasses.length === 0 && (
         <p className="text-sm text-center text-slate-500">
           {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
@@ -1037,55 +734,43 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     </div>
   );
 
-  const stripeDialog = (
-    <Dialog open={showCardPayment} onOpenChange={(open) => {
-      if (!open) {
-        setShowCardPayment(false);
-        setClientSecret(null);
-      }
-    }}>
-      <DialogContent className="sm:max-w-md" data-testid="dialog-card-payment">
-        <DialogHeader>
-          <DialogTitle>Complete Payment</DialogTitle>
-        </DialogHeader>
-        {stripePromise && clientSecret && (
-          <Elements stripe={stripePromise} options={{ clientSecret }}>
-            <StripeCheckoutForm
-              onSuccess={handleCardPaymentSuccess}
-              onCancel={() => {
-                setShowCardPayment(false);
-                setClientSecret(null);
-              }}
-              amount={Math.round(totalPrice * 100)}
-              currency={selectedTicket?.currency || 'gbp'}
-            />
-          </Elements>
-        )}
-      </DialogContent>
-    </Dialog>
+  const paymentOptionsSection = (
+    <PaymentOptions
+      event={paymentOptionsEvent}
+      memberInfo={memberInfo}
+      organizationInfo={organizationInfo}
+      attendees={attendees}
+      registrationMode="colleagues"
+      selectedTicketClass={selectedTicket}
+      ticketPrice={unitPrice}
+      totalCost={totalPrice}
+      oneOffCostDetails={oneOffCostDetails}
+      isComplexEvent={true}
+      complexEventApi={complexEventApi}
+      onComplexBookingComplete={onBookingComplete}
+      renderAsCard={false}
+    />
   );
 
   if (layout === 'drawer') {
     return (
-      <>
-        <div className="grid lg:grid-cols-2 gap-8" data-testid="booking-section-drawer">
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-              <User className="w-5 h-5 text-indigo-600" />
-              Registration
-            </h3>
-            {attendeeContent}
-          </div>
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-              <Ticket className="w-5 h-5 text-indigo-600" />
-              Tickets
-            </h3>
-            {ticketSelectorContent}
-          </div>
+      <div className="grid lg:grid-cols-2 gap-8" data-testid="booking-section-drawer">
+        <div className="space-y-6">
+          <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <User className="w-5 h-5 text-indigo-600" />
+            Registration
+          </h3>
+          {attendeeContent}
         </div>
-        {stripeDialog}
-      </>
+        <div className="space-y-6">
+          <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <Ticket className="w-5 h-5 text-indigo-600" />
+            Tickets & Payment
+          </h3>
+          {ticketSelectorContent}
+          {paymentOptionsSection}
+        </div>
+      </div>
     );
   }
 
@@ -1098,184 +783,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        {ticketClasses.length > 1 && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Select Ticket</Label>
-            <RadioGroup
-              value={selectedTicketClassId || ''}
-              onValueChange={setSelectedTicketClassId}
-            >
-              {ticketClasses.map(tc => {
-                const tcPrice = getEffectiveTicketPrice(tc);
-                return (
-                  <div
-                    key={tc.id}
-                    className={`flex items-center gap-3 p-3 rounded-md border ${selectedTicketClassId === tc.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
-                  >
-                    <RadioGroupItem value={tc.id} id={`tc-sidebar-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
-                    <Label htmlFor={`tc-sidebar-${tc.id}`} className="flex-1 cursor-pointer">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
-                            {tc.name}
-                            {isTicketRestricted(tc) && (
-                              <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
-                                <Lock className="w-3 h-3 mr-1" />
-                                {isGuest ? 'Members Only' : 'Public Only'}
-                              </Badge>
-                            )}
-                          </span>
-                          {tc.description && (
-                            <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
-                          )}
-                          <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
-                        </div>
-                        <div className="text-right">
-                          {tcPrice.isEarlyBird ? (
-                            <>
-                              <span className="font-semibold text-green-700">{'\u00a3'}{tcPrice.price.toFixed(2)}</span>
-                              <span className="text-xs text-slate-400 line-through ml-1">{'\u00a3'}{tcPrice.standardPrice.toFixed(2)}</span>
-                            </>
-                          ) : (
-                            <span className="font-semibold text-slate-900">
-                              {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
-                            </span>
-                          )}
-                          {tc.is_group_ticket && tc.group_size > 1 && (
-                            <div className="text-[11px] text-slate-500">Group of {tc.group_size}</div>
-                          )}
-                        </div>
-                      </div>
-                    </Label>
-                  </div>
-                );
-              })}
-            </RadioGroup>
-          </div>
-        )}
-
-        {ticketClasses.length === 1 && selectedTicket && (
-          <div className="p-3 rounded-md border border-indigo-200 bg-indigo-50">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
-                  {selectedTicket.name}
-                  {isTicketRestricted(selectedTicket) && (
-                    <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
-                      <Lock className="w-3 h-3 mr-1" />
-                      {isGuest ? 'Members Only' : 'Public Only'}
-                    </Badge>
-                  )}
-                </span>
-                {selectedTicket.description && (
-                  <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
-                )}
-                <TrackAccessIndicator ticket={selectedTicket} tracks={eventTracks} />
-              </div>
-              <span className="font-semibold text-slate-900">
-                {effectivePrice.price === 0 ? 'Free' : `\u00a3${effectivePrice.price.toFixed(2)}`}
-              </span>
-            </div>
-          </div>
-        )}
-
+        {ticketSelectorContent}
         {attendeeContent}
-
-        {isPaidTicket && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Payment Method</Label>
-            <RadioGroup
-              value={selectedPaymentMethod}
-              onValueChange={setSelectedPaymentMethod}
-            >
-              {paymentMethods.map(method => {
-                const MethodIcon = method.icon;
-                return (
-                  <div
-                    key={method.id}
-                    className={`flex items-center gap-3 p-3 rounded-md border ${selectedPaymentMethod === method.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
-                  >
-                    <RadioGroupItem value={method.id} id={`pm-sidebar-${method.id}`} data-testid={`radio-payment-sidebar-${method.id}`} />
-                    <Label htmlFor={`pm-sidebar-${method.id}`} className="flex-1 cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <MethodIcon className="w-4 h-4 text-slate-500" />
-                        <div>
-                          <span className="font-medium text-slate-900">{method.label}</span>
-                          <p className="text-xs text-slate-500">{method.description}</p>
-                        </div>
-                      </div>
-                    </Label>
-                  </div>
-                );
-              })}
-            </RadioGroup>
-          </div>
-        )}
-
-        {isPaidTicket && (
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Discount Code (optional)</Label>
-            <Input
-              placeholder="Enter discount code"
-              value={discountCode}
-              onChange={(e) => setDiscountCode(e.target.value)}
-              data-testid="input-discount-code-sidebar"
-            />
-          </div>
-        )}
-
-        {totalPrice > 0 && (
-          <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
-            {attendeeCount > 1 && (
-              <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
-                <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm text-slate-600">Total</span>
-              <span className="text-lg font-bold text-slate-900">{'\u00a3'}{totalPrice.toFixed(2)}</span>
-            </div>
-            {isPaidTicket && selectedPaymentMethod !== 'card' && (
-              <p className="text-xs text-slate-500 mt-1">
-                Your registration will be confirmed once payment is received.
-              </p>
-            )}
-          </div>
-        )}
-
-        <Button
-          className="w-full"
-          onClick={handleBooking}
-          disabled={!isFormValid || submitting || ticketClasses.length === 0}
-          data-testid="button-submit-booking-sidebar"
-        >
-          {submitting ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : totalPrice === 0 ? (
-            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-          ) : selectedPaymentMethod === 'card' ? (
-            `Pay \u00a3${totalPrice.toFixed(2)}`
-          ) : (
-            `Register - \u00a3${totalPrice.toFixed(2)}`
-          )}
-        </Button>
-
-        {selectedTicket && isTicketRestricted(selectedTicket) && (
-          <p className="text-xs text-center text-slate-500 mt-1">
-            {isGuest
-              ? 'This ticket requires a member account. Please log in to complete registration.'
-              : 'This ticket is available to non-members only.'}
-          </p>
-        )}
-
-        {ticketClasses.length === 0 && (
-          <p className="text-sm text-center text-slate-500">No tickets are currently available for public registration.</p>
-        )}
+        {paymentOptionsSection}
       </CardContent>
-      {stripeDialog}
     </Card>
   );
 }
