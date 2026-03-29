@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { getSessionMember } from '../_lib/session.js';
 
 
 export default async function handler(req, res) {
@@ -69,17 +68,6 @@ export default async function handler(req, res) {
       .eq('complex_event_id', event.id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
-
-    let isMember = false;
-    try {
-      const member = await getSessionMember(req);
-      if (member?.id) {
-        const memberTenantId = member.organization?.tenant_id || member.tenant_id;
-        if (memberTenantId && memberTenantId === tenant.id) {
-          isMember = true;
-        }
-      }
-    } catch (e) {}
 
     const publicTicketClasses = (ticketClasses || [])
       .map(tc => ({
