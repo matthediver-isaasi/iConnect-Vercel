@@ -995,8 +995,25 @@ export default function PaymentOptions({
         if (appliedDiscount?.code) {
           piPayload.discount_code = appliedDiscount.code;
         }
-        const piResponse = await complexEventApi.createPaymentIntent(piPayload);
+        let piResponse;
+        try {
+          piResponse = await complexEventApi.createPaymentIntent(piPayload);
+        } catch (piError) {
+          const errMsg = piError?.message || piError?.error || '';
+          if (errMsg.includes('zero') || errMsg.includes('free registration')) {
+            console.log('[PaymentOptions] Discount reduced total to zero, routing to free booking');
+            await processOneOffBooking(null, false);
+            return;
+          }
+          throw piError;
+        }
         if (!piResponse.clientSecret || !piResponse.publishableKey) {
+          const errMsg = piResponse?.error || '';
+          if (errMsg.includes('zero') || errMsg.includes('free registration')) {
+            console.log('[PaymentOptions] Discount reduced total to zero, routing to free booking');
+            await processOneOffBooking(null, false);
+            return;
+          }
           toast.error("Unable to initialize card payment. Please try again.");
           return;
         }

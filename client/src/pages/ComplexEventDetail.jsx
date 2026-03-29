@@ -517,15 +517,24 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
                 <div className="text-xs text-slate-500">{memberInfo.email}</div>
                 {organizationInfo?.name && <div className="text-xs text-slate-500">{organizationInfo.name}</div>}
               </div>
-              <Button
-                onClick={handleRegisterSelf}
-                disabled={isSelfAlreadyAdded}
-                className="w-full"
-                data-testid="button-register-myself"
-              >
-                <User className="w-4 h-4 mr-1.5" />
-                {isSelfAlreadyAdded ? 'Already Added' : 'Register Myself'}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleRegisterSelf}
+                  disabled={isSelfAlreadyAdded}
+                  className="flex-1"
+                  data-testid="button-register-myself"
+                >
+                  <User className="w-4 h-4 mr-1.5" />
+                  {isSelfAlreadyAdded ? 'Already Added' : 'Register Myself'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  data-testid="button-cancel-self"
+                >
+                  Cancel
+                </Button>
+              </div>
             </TabsContent>
           )}
 
@@ -537,6 +546,14 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
                 memberInfo={memberInfo}
                 ticketRoleIds={ticketRoleIds}
               />
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="w-full"
+                data-testid="button-cancel-colleague"
+              >
+                Cancel
+              </Button>
             </TabsContent>
           )}
 
@@ -568,14 +585,23 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
               onChange={(e) => setExternalOrganization(e.target.value)}
               data-testid="input-external-org"
             />
-            <Button
-              onClick={handleExternalSubmit}
-              className="w-full"
-              data-testid="button-add-external"
-            >
-              <Mail className="w-4 h-4 mr-1.5" />
-              Add Attendee
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleExternalSubmit}
+                className="flex-1"
+                data-testid="button-add-external"
+              >
+                <Mail className="w-4 h-4 mr-1.5" />
+                Add Attendee
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                data-testid="button-cancel-external"
+              >
+                Cancel
+              </Button>
+            </div>
           </TabsContent>
         </Tabs>
       </DialogContent>
