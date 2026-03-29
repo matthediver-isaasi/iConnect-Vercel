@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, CheckCircle2, AlertCircle, Monitor, Building2,
-  CreditCard, Wallet, FileText
+  CreditCard, Wallet, FileText, Plus, Trash2, Layers
 } from "lucide-react";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -27,16 +27,32 @@ import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
-const TRACK_COLORS = [
-  { bg: "bg-blue-100", text: "text-blue-800", border: "border-blue-300", light: "bg-blue-50", accent: "#3b82f6" },
-  { bg: "bg-emerald-100", text: "text-emerald-800", border: "border-emerald-300", light: "bg-emerald-50", accent: "#10b981" },
-  { bg: "bg-amber-100", text: "text-amber-800", border: "border-amber-300", light: "bg-amber-50", accent: "#f59e0b" },
-  { bg: "bg-purple-100", text: "text-purple-800", border: "border-purple-300", light: "bg-purple-50", accent: "#8b5cf6" },
-  { bg: "bg-rose-100", text: "text-rose-800", border: "border-rose-300", light: "bg-rose-50", accent: "#f43f5e" },
-  { bg: "bg-cyan-100", text: "text-cyan-800", border: "border-cyan-300", light: "bg-cyan-50", accent: "#06b6d4" },
-  { bg: "bg-orange-100", text: "text-orange-800", border: "border-orange-300", light: "bg-orange-50", accent: "#f97316" },
-  { bg: "bg-indigo-100", text: "text-indigo-800", border: "border-indigo-300", light: "bg-indigo-50", accent: "#6366f1" },
+const FALLBACK_TRACK_COLORS = [
+  { accent: "#3b82f6" },
+  { accent: "#10b981" },
+  { accent: "#f59e0b" },
+  { accent: "#8b5cf6" },
+  { accent: "#f43f5e" },
+  { accent: "#06b6d4" },
+  { accent: "#f97316" },
+  { accent: "#6366f1" },
 ];
+
+function buildTrackColorStyles(hex) {
+  if (!hex) return null;
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return {
+    accent: hex,
+    bgStyle: { backgroundColor: `rgba(${r},${g},${b},0.12)` },
+    lightStyle: { backgroundColor: `rgba(${r},${g},${b},0.06)` },
+    borderStyle: { borderColor: `rgba(${r},${g},${b},0.35)` },
+    textStyle: { color: hex },
+    dotStyle: { backgroundColor: hex },
+  };
+}
 
 const formatTime = (dateStr, timezone = DEFAULT_TIMEZONE) => {
   if (!dateStr) return "";
@@ -120,11 +136,13 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
                   <div className="grid gap-1 mb-2" style={{ gridTemplateColumns: `100px repeat(${tracks.length + (hasUntracked ? 1 : 0)}, 1fr)` }}>
                     <div className="text-xs font-medium text-slate-500 uppercase tracking-wider p-2">Time</div>
                     {tracks.map(track => {
-                      const colors = trackColorMap[track] || TRACK_COLORS[0];
+                      const colors = trackColorMap[track];
+                      const hasCustom = colors?.bgStyle;
                       return (
                         <div
                           key={track}
-                          className={`text-xs font-semibold p-2 rounded-md text-center ${colors.bg} ${colors.text}`}
+                          className={`text-xs font-semibold p-2 rounded-md text-center ${hasCustom ? '' : 'bg-slate-100 text-slate-700'}`}
+                          style={hasCustom ? { ...colors.bgStyle, ...colors.textStyle } : undefined}
                           data-testid={`track-header-${track}`}
                         >
                           {track}
@@ -161,7 +179,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
                       </div>
                       {tracks.map(track => {
                         const trackSession = slot.sessions.find(s => s.track_name === track);
-                        const colors = trackColorMap[track] || TRACK_COLORS[0];
+                        const colors = trackColorMap[track];
                         if (!trackSession) {
                           return <div key={track} className="p-1" />;
                         }
@@ -187,11 +205,13 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
 }
 
 function SessionCard({ session, timezone, colors }) {
-  const cardColors = colors || { bg: "bg-slate-100", text: "text-slate-800", border: "border-slate-300", light: "bg-slate-50" };
+  const hasCustomColors = colors?.lightStyle;
+  const fallbackClass = "bg-slate-50 border-slate-300";
 
   return (
     <div
-      className={`p-3 rounded-md border ${cardColors.border} ${cardColors.light} space-y-1`}
+      className={`p-3 rounded-md border space-y-1 ${hasCustomColors ? '' : fallbackClass}`}
+      style={hasCustomColors ? { ...colors.lightStyle, ...colors.borderStyle } : undefined}
       data-testid={`session-card-${session.id}`}
     >
       <div className="font-medium text-sm text-slate-900">{session.title}</div>
@@ -297,29 +317,148 @@ function StripeCheckoutForm({ onSuccess, onCancel, amount, currency }) {
   );
 }
 
+function TrackAccessIndicator({ ticket, tracks }) {
+  if (!tracks?.length) return null;
+
+  const trackMap = {};
+  tracks.forEach(t => { trackMap[String(t.id)] = t; });
+
+  if (ticket.all_tracks) {
+    return (
+      <div className="flex items-center gap-1 mt-1.5">
+        <Layers className="w-3 h-3 text-slate-400 shrink-0" />
+        <span className="text-[11px] text-slate-500">Access to all tracks</span>
+      </div>
+    );
+  }
+
+  const linkedIds = ticket.linked_track_ids || [];
+  if (linkedIds.length === 0) return null;
+
+  const linkedTracks = linkedIds.map(id => trackMap[String(id)]).filter(Boolean);
+  if (linkedTracks.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+      <Layers className="w-3 h-3 text-slate-400 shrink-0" />
+      {linkedTracks.map(t => {
+        const colorStyles = t.colour ? buildTrackColorStyles(t.colour) : null;
+        return (
+          <span
+            key={t.id}
+            className="inline-flex items-center gap-1 text-[11px] text-slate-600"
+          >
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={colorStyles?.dotStyle || { backgroundColor: '#94a3b8' }}
+            />
+            {t.name}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+const EMPTY_ATTENDEE = { first_name: '', last_name: '', email: '', organization: '', phone: '', job_title: '' };
+
+function AttendeeForm({ attendee, index, onChange, onRemove, canRemove }) {
+  const update = (field, value) => onChange(index, { ...attendee, [field]: value });
+  const prefix = index === 0 ? '' : `${index + 1} - `;
+
+  return (
+    <div className="space-y-2 p-3 rounded-md border border-slate-200 relative" data-testid={`attendee-form-${index}`}>
+      {canRemove && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute top-1 right-1"
+          onClick={() => onRemove(index)}
+          data-testid={`button-remove-attendee-${index}`}
+        >
+          <Trash2 className="w-3.5 h-3.5 text-slate-400" />
+        </Button>
+      )}
+      {index > 0 && (
+        <div className="text-xs font-medium text-slate-500 mb-1">Attendee {index + 1}</div>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          placeholder={`${prefix}First Name *`}
+          value={attendee.first_name}
+          onChange={(e) => update('first_name', e.target.value)}
+          data-testid={`input-first-name-${index}`}
+        />
+        <Input
+          placeholder={`${prefix}Last Name *`}
+          value={attendee.last_name}
+          onChange={(e) => update('last_name', e.target.value)}
+          data-testid={`input-last-name-${index}`}
+        />
+      </div>
+      <Input
+        type="email"
+        placeholder={`${prefix}Email *`}
+        value={attendee.email}
+        onChange={(e) => update('email', e.target.value)}
+        data-testid={`input-email-${index}`}
+      />
+      <Input
+        placeholder="Organisation (optional)"
+        value={attendee.organization}
+        onChange={(e) => update('organization', e.target.value)}
+        data-testid={`input-organization-${index}`}
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          placeholder="Phone (optional)"
+          value={attendee.phone}
+          onChange={(e) => update('phone', e.target.value)}
+          data-testid={`input-phone-${index}`}
+        />
+        <Input
+          placeholder="Job Title (optional)"
+          value={attendee.job_title}
+          onChange={(e) => update('job_title', e.target.value)}
+          data-testid={`input-job-title-${index}`}
+        />
+      </div>
+    </div>
+  );
+}
+
 function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
   const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
-  const [attendeeInfo, setAttendeeInfo] = useState({
+  const defaultAttendee = useMemo(() => ({
     first_name: memberInfo?.first_name || '',
     last_name: memberInfo?.last_name || '',
     email: memberInfo?.email || '',
     organization: organizationInfo?.name || '',
     phone: '',
     job_title: ''
-  });
+  }), [memberInfo, organizationInfo]);
+
+  const [attendees, setAttendees] = useState([{ ...defaultAttendee }]);
   const [submitting, setSubmitting] = useState(false);
   const [bookingConfirmation, setBookingConfirmation] = useState(null);
   const [discountCode, setDiscountCode] = useState('');
 
   useEffect(() => {
     if (memberInfo) {
-      setAttendeeInfo(prev => ({
-        ...prev,
-        first_name: prev.first_name || memberInfo.first_name || '',
-        last_name: prev.last_name || memberInfo.last_name || '',
-        email: prev.email || memberInfo.email || '',
-        organization: prev.organization || organizationInfo?.name || ''
-      }));
+      setAttendees(prev => {
+        const updated = [...prev];
+        if (updated.length > 0) {
+          updated[0] = {
+            ...updated[0],
+            first_name: updated[0].first_name || memberInfo.first_name || '',
+            last_name: updated[0].last_name || memberInfo.last_name || '',
+            email: updated[0].email || memberInfo.email || '',
+            organization: updated[0].organization || organizationInfo?.name || ''
+          };
+        }
+        return updated;
+      });
     }
   }, [memberInfo, organizationInfo]);
 
@@ -360,19 +499,41 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
     return ticketClasses.find(tc => tc.id === selectedTicketClassId) || ticketClasses[0] || null;
   }, [ticketClasses, selectedTicketClassId]);
 
+  const isGroupTicket = selectedTicket?.is_group_ticket;
+  const groupSize = selectedTicket?.group_size || 1;
+
+  useEffect(() => {
+    if (isGroupTicket && groupSize > 1) {
+      setAttendees(prev => {
+        if (prev.length === groupSize) return prev;
+        const result = [];
+        for (let i = 0; i < groupSize; i++) {
+          result.push(prev[i] || { ...EMPTY_ATTENDEE });
+        }
+        return result;
+      });
+    }
+  }, [isGroupTicket, groupSize]);
+
   const effectivePrice = useMemo(() => {
     if (!selectedTicket) return { price: 0, isEarlyBird: false };
     return getEffectiveTicketPrice(selectedTicket);
   }, [selectedTicket]);
 
-  const isFormValid = useMemo(() => {
-    return attendeeInfo.first_name.trim() !== '' &&
-           attendeeInfo.last_name.trim() !== '' &&
-           attendeeInfo.email.trim() !== '' &&
-           attendeeInfo.email.includes('@');
-  }, [attendeeInfo]);
+  const attendeeCount = attendees.length;
+  const unitPrice = effectivePrice.price;
+  const totalPrice = isGroupTicket ? unitPrice : unitPrice * attendeeCount;
 
-  const isPaidTicket = effectivePrice.price > 0;
+  const isFormValid = useMemo(() => {
+    return attendees.every(a =>
+      a.first_name.trim() !== '' &&
+      a.last_name.trim() !== '' &&
+      a.email.trim() !== '' &&
+      a.email.includes('@')
+    );
+  }, [attendees]);
+
+  const isPaidTicket = totalPrice > 0;
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(isPaidTicket ? 'card' : 'free');
   const [stripePromise, setStripePromise] = useState(null);
   const [clientSecret, setClientSecret] = useState(null);
@@ -396,17 +557,33 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
     return methods.filter(m => m.guestAllowed);
   }, [isPaidTicket, memberInfo]);
 
+  const handleAttendeeChange = useCallback((index, updated) => {
+    setAttendees(prev => {
+      const next = [...prev];
+      next[index] = updated;
+      return next;
+    });
+  }, []);
+
+  const handleRemoveAttendee = useCallback((index) => {
+    setAttendees(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleAddAttendee = useCallback(() => {
+    setAttendees(prev => [...prev, { ...EMPTY_ATTENDEE }]);
+  }, []);
+
   const buildBookingPayload = useCallback((extraFields = {}) => {
     const payload = {
       event_id: event.id,
-      attendees: [{
-        email: attendeeInfo.email.toLowerCase().trim(),
-        first_name: attendeeInfo.first_name.trim(),
-        last_name: attendeeInfo.last_name.trim(),
-        organization: attendeeInfo.organization.trim(),
-        phone: attendeeInfo.phone.trim(),
-        job_title: attendeeInfo.job_title.trim()
-      }],
+      attendees: attendees.map(a => ({
+        email: a.email.toLowerCase().trim(),
+        first_name: a.first_name.trim(),
+        last_name: a.last_name.trim(),
+        organization: a.organization.trim(),
+        phone: a.phone.trim(),
+        job_title: a.job_title.trim()
+      })),
       ticket_class_id: selectedTicket?.id || null,
       payment_method: isPaidTicket ? selectedPaymentMethod : 'free',
       ...extraFields
@@ -415,7 +592,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
       payload.discount_code = discountCode.trim();
     }
     return payload;
-  }, [event, attendeeInfo, selectedTicket, isPaidTicket, selectedPaymentMethod, discountCode]);
+  }, [event, attendees, selectedTicket, isPaidTicket, selectedPaymentMethod, discountCode]);
 
   const handleBookingError = useCallback((err) => {
     console.error('[ComplexEventDetail] Booking error:', err);
@@ -457,7 +634,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
         const piPayload = {
           event_id: event.id,
           ticket_class_id: selectedTicket?.id,
-          attendee_count: 1
+          attendee_count: attendeeCount
         };
         if (discountCode.trim()) {
           piPayload.discount_code = discountCode.trim();
@@ -516,7 +693,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
             {isPending ? (
               <>Your registration for <strong>{event.title}</strong> has been submitted and is pending payment confirmation.</>
             ) : (
-              <>You are registered for <strong>{event.title}</strong></>
+              <>{attendeeCount > 1 ? `${attendeeCount} attendees are` : 'You are'} registered for <strong>{event.title}</strong></>
             )}
           </p>
           {bookingConfirmation.booking_group_reference && (
@@ -542,6 +719,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
       </Card>
     );
   }
+
+  const eventTracks = event?.tracks || [];
 
   return (
     <Card className="border-slate-200" data-testid="booking-section">
@@ -574,13 +753,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
                           {tc.description && (
                             <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
                           )}
-                          {tc.track_access?.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {tc.track_access.map(track => (
-                                <Badge key={track} variant="outline" className="text-[10px]">{track}</Badge>
-                              ))}
-                            </div>
-                          )}
+                          <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
                         </div>
                         <div className="text-right">
                           {tcPrice.isEarlyBird ? (
@@ -592,6 +765,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
                             <span className="font-semibold text-slate-900">
                               {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
                             </span>
+                          )}
+                          {tc.is_group_ticket && tc.group_size > 1 && (
+                            <div className="text-[11px] text-slate-500">Group of {tc.group_size}</div>
                           )}
                         </div>
                       </div>
@@ -611,6 +787,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
                 {selectedTicket.description && (
                   <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
                 )}
+                <TrackAccessIndicator ticket={selectedTicket} tracks={eventTracks} />
               </div>
               <span className="font-semibold text-slate-900">
                 {effectivePrice.price === 0 ? 'Free' : `\u00a3${effectivePrice.price.toFixed(2)}`}
@@ -620,52 +797,33 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
         )}
 
         <div className="space-y-3">
-          <Label className="text-sm font-medium">Your Details</Label>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Input
-                placeholder="First Name *"
-                value={attendeeInfo.first_name}
-                onChange={(e) => setAttendeeInfo(prev => ({ ...prev, first_name: e.target.value }))}
-                data-testid="input-first-name"
-              />
-            </div>
-            <div>
-              <Input
-                placeholder="Last Name *"
-                value={attendeeInfo.last_name}
-                onChange={(e) => setAttendeeInfo(prev => ({ ...prev, last_name: e.target.value }))}
-                data-testid="input-last-name"
-              />
-            </div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <Label className="text-sm font-medium">
+              {attendeeCount > 1 ? `Attendees (${attendeeCount})` : 'Your Details'}
+            </Label>
+            {!isGroupTicket && attendeeCount < 20 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddAttendee}
+                data-testid="button-add-attendee"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Attendee
+              </Button>
+            )}
           </div>
-          <Input
-            type="email"
-            placeholder="Email Address *"
-            value={attendeeInfo.email}
-            onChange={(e) => setAttendeeInfo(prev => ({ ...prev, email: e.target.value }))}
-            data-testid="input-email"
-          />
-          <Input
-            placeholder="Organisation"
-            value={attendeeInfo.organization}
-            onChange={(e) => setAttendeeInfo(prev => ({ ...prev, organization: e.target.value }))}
-            data-testid="input-organization"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              placeholder="Phone (optional)"
-              value={attendeeInfo.phone}
-              onChange={(e) => setAttendeeInfo(prev => ({ ...prev, phone: e.target.value }))}
-              data-testid="input-phone"
+          {attendees.map((attendee, i) => (
+            <AttendeeForm
+              key={i}
+              attendee={attendee}
+              index={i}
+              onChange={handleAttendeeChange}
+              onRemove={handleRemoveAttendee}
+              canRemove={!isGroupTicket && attendees.length > 1}
             />
-            <Input
-              placeholder="Job Title (optional)"
-              value={attendeeInfo.job_title}
-              onChange={(e) => setAttendeeInfo(prev => ({ ...prev, job_title: e.target.value }))}
-              data-testid="input-job-title"
-            />
-          </div>
+          ))}
         </div>
 
         {isPaidTicket && (
@@ -711,11 +869,16 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
           </div>
         )}
 
-        {effectivePrice.price > 0 && (
-          <div className="p-3 rounded-md border border-slate-200 bg-slate-50">
-            <div className="flex items-center justify-between">
+        {totalPrice > 0 && (
+          <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
+            {!isGroupTicket && attendeeCount > 1 && (
+              <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
+                <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
               <span className="text-sm text-slate-600">Total</span>
-              <span className="text-lg font-bold text-slate-900">{'\u00a3'}{effectivePrice.price.toFixed(2)}</span>
+              <span className="text-lg font-bold text-slate-900">{'\u00a3'}{totalPrice.toFixed(2)}</span>
             </div>
             {isPaidTicket && selectedPaymentMethod !== 'card' && (
               <p className="text-xs text-slate-500 mt-1">
@@ -736,12 +899,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               Processing...
             </>
-          ) : effectivePrice.price === 0 ? (
-            "Register (Free)"
+          ) : totalPrice === 0 ? (
+            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
           ) : selectedPaymentMethod === 'card' ? (
-            `Pay \u00a3${effectivePrice.price.toFixed(2)}`
+            `Pay \u00a3${totalPrice.toFixed(2)}`
           ) : (
-            `Register - \u00a3${effectivePrice.price.toFixed(2)}`
+            `Register - \u00a3${totalPrice.toFixed(2)}`
           )}
         </Button>
 
@@ -770,7 +933,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
                   setShowCardPayment(false);
                   setClientSecret(null);
                 }}
-                amount={Math.round(effectivePrice.price * 100)}
+                amount={Math.round(totalPrice * 100)}
                 currency={selectedTicket?.currency || 'gbp'}
               />
             </Elements>
@@ -822,13 +985,29 @@ export default function ComplexEventDetail() {
 
   const trackColorMap = useMemo(() => {
     const map = {};
-    const tracks = new Set();
-    sessions.forEach(s => { if (s.track_name) tracks.add(s.track_name); });
-    Array.from(tracks).sort().forEach((track, i) => {
-      map[track] = TRACK_COLORS[i % TRACK_COLORS.length];
+    const eventTracks = event?.tracks || [];
+    const tracksByName = {};
+    eventTracks.forEach(t => { if (t.name) tracksByName[t.name] = t; });
+
+    const trackNames = new Set();
+    sessions.forEach(s => { if (s.track_name) trackNames.add(s.track_name); });
+
+    let fallbackIdx = 0;
+    Array.from(trackNames).sort().forEach(trackName => {
+      const dbTrack = tracksByName[trackName];
+      const sessionWithColour = sessions.find(s => s.track_name === trackName && s.track_colour);
+      const hex = dbTrack?.colour || sessionWithColour?.track_colour;
+
+      if (hex) {
+        map[trackName] = buildTrackColorStyles(hex);
+      } else {
+        const fb = FALLBACK_TRACK_COLORS[fallbackIdx % FALLBACK_TRACK_COLORS.length];
+        map[trackName] = buildTrackColorStyles(fb.accent);
+        fallbackIdx++;
+      }
     });
     return map;
-  }, [sessions]);
+  }, [sessions, event]);
 
   useEffect(() => {
     if (event) {
@@ -960,7 +1139,12 @@ export default function ComplexEventDetail() {
                   {Object.keys(trackColorMap).length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
                       {Object.entries(trackColorMap).map(([track, colors]) => (
-                        <Badge key={track} className={`${colors.bg} ${colors.text} border-0 text-xs`}>
+                        <Badge
+                          key={track}
+                          variant="outline"
+                          className="text-xs border-0"
+                          style={{ ...(colors.bgStyle || {}), ...(colors.textStyle || {}) }}
+                        >
                           {track}
                         </Badge>
                       ))}

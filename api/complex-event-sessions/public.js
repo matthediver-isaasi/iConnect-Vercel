@@ -129,7 +129,8 @@ export default async function handler(req, res) {
       const track = trackMap[session.complex_event_track_id];
       const enriched = {
         ...publicFields,
-        track_name: track?.name || null
+        track_name: track?.name || null,
+        track_colour: track?.colour || null
       };
 
       const isVirtualSession = session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid' || session.is_online;
