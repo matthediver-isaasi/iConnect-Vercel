@@ -12,7 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, CheckCircle2, AlertCircle, Monitor, Building2,
-  CreditCard, Wallet, FileText, Plus, Trash2, Layers
+  CreditCard, Wallet, FileText, Plus, Trash2, Layers, Lock
 } from "lucide-react";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -535,22 +535,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     return parsed;
   }, [event]);
 
-  const allTicketClasses = useMemo(() => {
-    if (!pricingConfig?.ticket_classes?.length) return [];
-    return pricingConfig.ticket_classes;
-  }, [pricingConfig]);
-
   const ticketClasses = useMemo(() => {
-    if (!allTicketClasses.length) return [];
-    const isGuest = !memberInfo;
+    if (!pricingConfig?.ticket_classes?.length) return [];
 
-    let filtered = allTicketClasses
-      .filter(tc => {
-        const vis = tc.visibility_mode || (tc.is_public ? 'members_and_public' : 'members_only');
-        if (isGuest) return vis === 'members_and_public' || vis === 'public_only';
-        if (vis === 'public_only') return false;
-        return true;
-      });
+    let filtered = pricingConfig.ticket_classes;
 
     if (filterTrackId) {
       filtered = filtered.filter(tc => {
@@ -565,33 +553,21 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       id: String(tc.id),
       price: Number(tc.price) || 0
     }));
-  }, [allTicketClasses, memberInfo, filterTrackId]);
+  }, [pricingConfig, filterTrackId]);
 
-  const noTicketsReason = useMemo(() => {
-    if (ticketClasses.length > 0) return null;
-    if (!allTicketClasses.length) return 'none';
+  const isGuest = !memberInfo;
 
-    const isGuest = !memberInfo;
-    let trackMatched = allTicketClasses;
-    if (filterTrackId) {
-      trackMatched = allTicketClasses.filter(tc => {
-        if (tc.all_tracks) return true;
-        const linkedIds = (tc.linked_track_ids || []).map(String);
-        return linkedIds.includes(String(filterTrackId));
-      });
-    }
-    if (trackMatched.length === 0) return 'no-track-tickets';
+  const isTicketRestricted = (tc) => {
+    const vis = tc.visibility_mode || 'members_only';
+    if (isGuest) return vis === 'members_only';
+    if (!isGuest) return vis === 'public_only';
+    return false;
+  };
 
-    if (isGuest) {
-      const hasRestrictedTickets = trackMatched.some(tc => {
-        const vis = tc.visibility_mode || (tc.is_public ? 'members_and_public' : 'members_only');
-        return vis === 'members_only';
-      });
-      if (hasRestrictedTickets) return 'members-only';
-    }
-
-    return 'none';
-  }, [ticketClasses, allTicketClasses, memberInfo, filterTrackId]);
+  const hasOnlyRestrictedTickets = useMemo(() => {
+    if (ticketClasses.length === 0) return false;
+    return ticketClasses.every(tc => isTicketRestricted(tc));
+  }, [ticketClasses, isGuest]);
 
   useEffect(() => {
     if (ticketClasses.length > 0) {
@@ -855,6 +831,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
                       <div>
                         <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
                           {tc.name}
+                          {isTicketRestricted(tc) && (
+                            <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
+                              <Lock className="w-3 h-3 mr-1" />
+                              {isGuest ? 'Members Only' : 'Public Only'}
+                            </Badge>
+                          )}
                           {tc.is_group_ticket && tc.group_size > 1 && (
                             <Badge variant="secondary" className="text-xs">
                               <Users className="w-3 h-3 mr-1" />
@@ -897,6 +879,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
             <div>
               <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
                 {selectedTicket.name}
+                {isTicketRestricted(selectedTicket) && (
+                  <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
+                    <Lock className="w-3 h-3 mr-1" />
+                    {isGuest ? 'Members Only' : 'Public Only'}
+                  </Badge>
+                )}
                 {selectedTicket.is_group_ticket && selectedTicket.group_size > 1 && (
                   <Badge variant="secondary" className="text-xs">
                     <Users className="w-3 h-3 mr-1" />
@@ -980,41 +968,44 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </div>
       )}
 
-      <Button
-        className="w-full"
-        onClick={handleBooking}
-        disabled={!isFormValid || submitting || ticketClasses.length === 0}
-        data-testid="button-submit-booking"
-      >
-        {submitting ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Processing...
-          </>
-        ) : totalPrice === 0 ? (
-          attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-        ) : selectedPaymentMethod === 'card' ? (
-          `Pay \u00a3${totalPrice.toFixed(2)}`
-        ) : (
-          `Register - \u00a3${totalPrice.toFixed(2)}`
-        )}
-      </Button>
+      {hasOnlyRestrictedTickets ? (
+        <div className="text-sm text-center space-y-2 p-3 rounded-md border border-slate-200 bg-slate-50">
+          <Lock className="w-5 h-5 text-slate-400 mx-auto" />
+          <p className="text-slate-600 font-medium">{isGuest ? 'Members Only' : 'Public Only'}</p>
+          <p className="text-slate-500">
+            {isGuest
+              ? 'Please log in with your member account to register for these tickets.'
+              : 'These tickets are only available to non-member registrants.'}
+          </p>
+        </div>
+      ) : (
+        <Button
+          className="w-full"
+          onClick={handleBooking}
+          disabled={!isFormValid || submitting || ticketClasses.length === 0 || (selectedTicket && isTicketRestricted(selectedTicket))}
+          data-testid="button-submit-booking"
+        >
+          {submitting ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Processing...
+            </>
+          ) : selectedTicket && isTicketRestricted(selectedTicket) ? (
+            isGuest ? "Log in to Register" : "Not Available"
+          ) : totalPrice === 0 ? (
+            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
+          ) : selectedPaymentMethod === 'card' ? (
+            `Pay \u00a3${totalPrice.toFixed(2)}`
+          ) : (
+            `Register - \u00a3${totalPrice.toFixed(2)}`
+          )}
+        </Button>
+      )}
 
       {ticketClasses.length === 0 && (
-        <div className="text-sm text-center space-y-2">
-          {noTicketsReason === 'members-only' ? (
-            <>
-              <p className="text-slate-600 font-medium">Tickets for this track are available to members only.</p>
-              <p className="text-slate-500">Please log in with your member account to view and register for available tickets.</p>
-            </>
-          ) : noTicketsReason === 'no-track-tickets' ? (
-            <p className="text-slate-500">No tickets are currently assigned to this track.</p>
-          ) : (
-            <p className="text-slate-500">
-              {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
-            </p>
-          )}
-        </div>
+        <p className="text-sm text-center text-slate-500">
+          {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
+        </p>
       )}
     </div>
   );
@@ -1130,7 +1121,15 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
                     <Label htmlFor={`tc-sidebar-${tc.id}`} className="flex-1 cursor-pointer">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div>
-                          <span className="font-medium text-slate-900">{tc.name}</span>
+                          <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
+                            {tc.name}
+                            {isTicketRestricted(tc) && (
+                              <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
+                                <Lock className="w-3 h-3 mr-1" />
+                                {isGuest ? 'Members Only' : 'Public Only'}
+                              </Badge>
+                            )}
+                          </span>
                           {tc.description && (
                             <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
                           )}
@@ -1164,7 +1163,15 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
           <div className="p-3 rounded-md border border-indigo-200 bg-indigo-50">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div>
-                <span className="font-medium text-slate-900">{selectedTicket.name}</span>
+                <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
+                  {selectedTicket.name}
+                  {isTicketRestricted(selectedTicket) && (
+                    <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
+                      <Lock className="w-3 h-3 mr-1" />
+                      {isGuest ? 'Members Only' : 'Public Only'}
+                    </Badge>
+                  )}
+                </span>
                 {selectedTicket.description && (
                   <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
                 )}
@@ -1241,37 +1248,42 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
           </div>
         )}
 
-        <Button
-          className="w-full"
-          onClick={handleBooking}
-          disabled={!isFormValid || submitting || ticketClasses.length === 0}
-          data-testid="button-submit-booking-sidebar"
-        >
-          {submitting ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : totalPrice === 0 ? (
-            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-          ) : selectedPaymentMethod === 'card' ? (
-            `Pay \u00a3${totalPrice.toFixed(2)}`
-          ) : (
-            `Register - \u00a3${totalPrice.toFixed(2)}`
-          )}
-        </Button>
+        {hasOnlyRestrictedTickets ? (
+          <div className="text-sm text-center space-y-2 p-3 rounded-md border border-slate-200 bg-slate-50">
+            <Lock className="w-5 h-5 text-slate-400 mx-auto" />
+            <p className="text-slate-600 font-medium">{isGuest ? 'Members Only' : 'Public Only'}</p>
+            <p className="text-slate-500">
+              {isGuest
+                ? 'Please log in with your member account to register.'
+                : 'These tickets are only available to non-member registrants.'}
+            </p>
+          </div>
+        ) : (
+          <Button
+            className="w-full"
+            onClick={handleBooking}
+            disabled={!isFormValid || submitting || ticketClasses.length === 0 || (selectedTicket && isTicketRestricted(selectedTicket))}
+            data-testid="button-submit-booking-sidebar"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Processing...
+              </>
+            ) : selectedTicket && isTicketRestricted(selectedTicket) ? (
+              isGuest ? "Log in to Register" : "Not Available"
+            ) : totalPrice === 0 ? (
+              attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
+            ) : selectedPaymentMethod === 'card' ? (
+              `Pay \u00a3${totalPrice.toFixed(2)}`
+            ) : (
+              `Register - \u00a3${totalPrice.toFixed(2)}`
+            )}
+          </Button>
+        )}
 
         {ticketClasses.length === 0 && (
-          <div className="text-sm text-center space-y-2">
-            {noTicketsReason === 'members-only' ? (
-              <>
-                <p className="text-slate-600 font-medium">Tickets are available to members only.</p>
-                <p className="text-slate-500">Please log in with your member account to view and register for available tickets.</p>
-              </>
-            ) : (
-              <p className="text-slate-500">No tickets are currently available for public registration.</p>
-            )}
-          </div>
+          <p className="text-sm text-center text-slate-500">No tickets are currently available for public registration.</p>
         )}
       </CardContent>
       {stripeDialog}
