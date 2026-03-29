@@ -3,7 +3,7 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 
 export default async function handler(req, res) {
-  console.log('[Public Complex Event] v2 handler invoked');
+  console.log('[Public Complex Event] v3 handler invoked');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -29,11 +29,8 @@ export default async function handler(req, res) {
     const tenant = await resolveTenantFromRequest(req);
 
     if (!tenant) {
-      console.log('[Public Complex Event] tenant not found');
       return res.status(404).json({ error: 'Tenant not found' });
     }
-
-    console.log('[Public Complex Event] tenant resolved:', tenant.id);
 
     const { id, slug } = req.query;
 
@@ -56,22 +53,19 @@ export default async function handler(req, res) {
     const { data: event, error } = await query.single();
 
     if (error || !event) {
-      console.log('[Public Complex Event] event not found, id:', id, 'slug:', slug, 'error:', error?.message);
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    console.log('[Public Complex Event] event found:', event.id, event.title);
-
     const { data: ticketClasses, error: tcError } = await supabase
       .from('complex_event_ticket_class')
-      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, description')
+      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size')
       .eq('complex_event_id', event.id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 
-    console.log('[Public Complex Event] ticket classes from DB: count=' + (ticketClasses?.length || 0),
-      'error=' + (tcError?.message || 'none'),
-      'details=' + JSON.stringify((ticketClasses || []).map(tc => ({ id: tc.id, name: tc.name, visibility_mode: tc.visibility_mode }))));
+    if (tcError) {
+      console.error('[Public Complex Event] ticket class query error:', tcError.message);
+    }
 
     const { data: tracks } = await supabase
       .from('complex_event_track')
@@ -95,13 +89,8 @@ export default async function handler(req, res) {
         all_tracks: tc.all_tracks,
         display_order: tc.display_order,
         is_group_ticket: tc.is_group_ticket || false,
-        group_size: tc.group_size || null,
-        description: tc.description || null
+        group_size: tc.group_size || null
       }));
-
-    const hasPricingConfig = publicTicketClasses.length > 0;
-    console.log('[Public Complex Event] response: pricing_config=' + (hasPricingConfig ? 'has ' + publicTicketClasses.length + ' ticket(s)' : 'null'),
-      'tracks=' + (tracks?.length || 0));
 
     res.json({
       id: event.id,
@@ -118,7 +107,7 @@ export default async function handler(req, res) {
       timezone: event.timezone,
       is_complex: true,
       tracks: tracks || [],
-      pricing_config: hasPricingConfig ? { ticket_classes: publicTicketClasses } : null
+      pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
     });
   } catch (error) {
     console.error('[Public Complex Event] Error:', error);
