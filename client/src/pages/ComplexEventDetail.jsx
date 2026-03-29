@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, CheckCircle2, AlertCircle, Monitor, Building2,
@@ -78,7 +79,40 @@ const formatDateShort = (dateStr, timezone = DEFAULT_TIMEZONE) => {
   return formatDate(dateStr, timezone, "MMM d");
 };
 
-function ScheduleGrid({ sessions, timezone, trackColorMap }) {
+function TrackTicketButtons({ trackColorMap, eventTracks, onSeeTickets }) {
+  const trackEntries = Object.entries(trackColorMap);
+  if (trackEntries.length === 0) return null;
+
+  const trackNameToId = {};
+  (eventTracks || []).forEach(t => { if (t.name) trackNameToId[t.name] = String(t.id); });
+
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="track-ticket-buttons">
+      {trackEntries.map(([trackName, colors]) => {
+        const trackId = trackNameToId[trackName];
+        return (
+          <Button
+            key={trackName}
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            style={{
+              borderColor: colors?.accent || undefined,
+              color: colors?.accent || undefined,
+            }}
+            onClick={() => onSeeTickets(trackName, trackId)}
+            data-testid={`button-see-tickets-${trackName}`}
+          >
+            <Ticket className="w-3.5 h-3.5" />
+            {trackName}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTracks }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -103,8 +137,13 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
 
   if (sessionsByDay.length === 0) return null;
 
+  const hasMultipleTracks = allTracks.length > 0;
+
   return (
     <div className="space-y-8">
+      {hasMultipleTracks && onSeeTickets && (
+        <TrackTicketButtons trackColorMap={trackColorMap} eventTracks={eventTracks} onSeeTickets={onSeeTickets} />
+      )}
       {sessionsByDay.map((day, dayIndex) => {
         const dayTracks = new Set();
         day.sessions.forEach(s => {
@@ -214,6 +253,9 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
           </div>
         );
       })}
+      {hasMultipleTracks && onSeeTickets && (
+        <TrackTicketButtons trackColorMap={trackColorMap} eventTracks={eventTracks} onSeeTickets={onSeeTickets} />
+      )}
     </div>
   );
 }
@@ -449,7 +491,7 @@ function AttendeeForm({ attendee, index, onChange, onRemove, canRemove }) {
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
+function BookingSection({ event, sessions, memberInfo, organizationInfo, filterTrackId, layout = 'sidebar', onBookingComplete }) {
   const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
   const defaultAttendee = useMemo(() => ({
     first_name: memberInfo?.first_name || '',
@@ -496,23 +538,35 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
     if (!pricingConfig?.ticket_classes?.length) return [];
     const isGuest = !memberInfo;
 
-    return pricingConfig.ticket_classes
+    let filtered = pricingConfig.ticket_classes
       .filter(tc => {
         const vis = tc.visibility_mode || (tc.is_public ? 'members_and_public' : 'members_only');
         if (isGuest) return vis === 'members_and_public' || vis === 'public_only';
         if (vis === 'public_only') return false;
         return true;
-      })
-      .map(tc => ({
-        ...tc,
-        id: String(tc.id),
-        price: Number(tc.price) || 0
-      }));
-  }, [pricingConfig, memberInfo]);
+      });
+
+    if (filterTrackId) {
+      filtered = filtered.filter(tc => {
+        if (tc.all_tracks) return true;
+        const linkedIds = (tc.linked_track_ids || []).map(String);
+        return linkedIds.includes(String(filterTrackId));
+      });
+    }
+
+    return filtered.map(tc => ({
+      ...tc,
+      id: String(tc.id),
+      price: Number(tc.price) || 0
+    }));
+  }, [pricingConfig, memberInfo, filterTrackId]);
 
   useEffect(() => {
-    if (ticketClasses.length > 0 && !selectedTicketClassId) {
-      setSelectedTicketClassId(ticketClasses[0].id);
+    if (ticketClasses.length > 0) {
+      const currentValid = ticketClasses.find(tc => tc.id === selectedTicketClassId);
+      if (!currentValid) {
+        setSelectedTicketClassId(ticketClasses[0].id);
+      }
     }
   }, [ticketClasses, selectedTicketClassId]);
 
@@ -638,13 +692,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
       if (result.success) {
         setBookingConfirmation(result);
         toast.success("Payment successful! Registration confirmed.");
+        onBookingComplete?.();
       }
     } catch (err) {
       handleBookingError(err);
     } finally {
       setSubmitting(false);
     }
-  }, [buildBookingPayload, handleBookingError]);
+  }, [buildBookingPayload, handleBookingError, onBookingComplete]);
 
   const handleBooking = async () => {
     if (!isFormValid || !event?.id) return;
@@ -689,6 +744,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
         } else {
           toast.success("Registration confirmed!");
         }
+        onBookingComplete?.();
       }
     } catch (err) {
       handleBookingError(err);
@@ -743,6 +799,267 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
 
   const eventTracks = event?.tracks || [];
 
+  const ticketSelectorContent = (
+    <div className="space-y-6">
+      {ticketClasses.length > 1 && (
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Select Ticket</Label>
+          <RadioGroup
+            value={selectedTicketClassId || ''}
+            onValueChange={setSelectedTicketClassId}
+          >
+            {ticketClasses.map(tc => {
+              const tcPrice = getEffectiveTicketPrice(tc);
+              return (
+                <div
+                  key={tc.id}
+                  className={`flex items-center gap-3 p-3 rounded-md border-2 transition-colors ${selectedTicketClassId === tc.id ? 'border-indigo-500 bg-indigo-50 cursor-pointer' : 'border-slate-200 cursor-pointer'}`}
+                  onClick={() => setSelectedTicketClassId(tc.id)}
+                  data-testid={`ticket-class-${tc.id}`}
+                >
+                  <RadioGroupItem value={tc.id} id={`tc-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
+                  <Label htmlFor={`tc-${tc.id}`} className="flex-1 cursor-pointer">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
+                          {tc.name}
+                          {tc.is_group_ticket && tc.group_size > 1 && (
+                            <Badge variant="secondary" className="text-xs">
+                              <Users className="w-3 h-3 mr-1" />
+                              Group ({tc.group_size})
+                            </Badge>
+                          )}
+                          {tcPrice.isEarlyBird && (
+                            <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                              Early Bird
+                            </Badge>
+                          )}
+                        </span>
+                        {tc.description && (
+                          <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
+                        )}
+                        <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
+                      </div>
+                      <div className="flex flex-col items-end flex-shrink-0">
+                        <div className="flex items-center gap-1 text-lg font-semibold text-slate-900">
+                          {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
+                        </div>
+                        {tcPrice.isEarlyBird && (
+                          <div className="text-sm text-slate-400 line-through">
+                            {'\u00a3'}{tcPrice.standardPrice.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </Label>
+                </div>
+              );
+            })}
+          </RadioGroup>
+        </div>
+      )}
+
+      {ticketClasses.length === 1 && selectedTicket && (
+        <div className="p-4 rounded-md border-2 border-indigo-200 bg-indigo-50">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
+                {selectedTicket.name}
+                {selectedTicket.is_group_ticket && selectedTicket.group_size > 1 && (
+                  <Badge variant="secondary" className="text-xs">
+                    <Users className="w-3 h-3 mr-1" />
+                    Group ({selectedTicket.group_size})
+                  </Badge>
+                )}
+              </span>
+              {selectedTicket.description && (
+                <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
+              )}
+              <TrackAccessIndicator ticket={selectedTicket} tracks={eventTracks} />
+            </div>
+            <div className="flex flex-col items-end flex-shrink-0">
+              <span className="text-lg font-semibold text-slate-900">
+                {effectivePrice.price === 0 ? 'Free' : `\u00a3${effectivePrice.price.toFixed(2)}`}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isPaidTicket && (
+        <div className="space-y-3">
+          <Label className="text-sm font-medium">Payment Method</Label>
+          <RadioGroup
+            value={selectedPaymentMethod}
+            onValueChange={setSelectedPaymentMethod}
+          >
+            {paymentMethods.map(method => {
+              const MethodIcon = method.icon;
+              return (
+                <div
+                  key={method.id}
+                  className={`flex items-center gap-3 p-3 rounded-md border ${selectedPaymentMethod === method.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
+                >
+                  <RadioGroupItem value={method.id} id={`pm-${method.id}`} data-testid={`radio-payment-${method.id}`} />
+                  <Label htmlFor={`pm-${method.id}`} className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <MethodIcon className="w-4 h-4 text-slate-500" />
+                      <div>
+                        <span className="font-medium text-slate-900">{method.label}</span>
+                        <p className="text-xs text-slate-500">{method.description}</p>
+                      </div>
+                    </div>
+                  </Label>
+                </div>
+              );
+            })}
+          </RadioGroup>
+        </div>
+      )}
+
+      {isPaidTicket && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Discount Code (optional)</Label>
+          <Input
+            placeholder="Enter discount code"
+            value={discountCode}
+            onChange={(e) => setDiscountCode(e.target.value)}
+            data-testid="input-discount-code"
+          />
+        </div>
+      )}
+
+      {totalPrice > 0 && (
+        <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
+          {attendeeCount > 1 && (
+            <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
+              <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-slate-600">Total</span>
+            <span className="text-lg font-bold text-slate-900">{'\u00a3'}{totalPrice.toFixed(2)}</span>
+          </div>
+          {isPaidTicket && selectedPaymentMethod !== 'card' && (
+            <p className="text-xs text-slate-500 mt-1">
+              Your registration will be confirmed once payment is received.
+            </p>
+          )}
+        </div>
+      )}
+
+      <Button
+        className="w-full"
+        onClick={handleBooking}
+        disabled={!isFormValid || submitting || ticketClasses.length === 0}
+        data-testid="button-submit-booking"
+      >
+        {submitting ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            Processing...
+          </>
+        ) : totalPrice === 0 ? (
+          attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
+        ) : selectedPaymentMethod === 'card' ? (
+          `Pay \u00a3${totalPrice.toFixed(2)}`
+        ) : (
+          `Register - \u00a3${totalPrice.toFixed(2)}`
+        )}
+      </Button>
+
+      {ticketClasses.length === 0 && (
+        <p className="text-sm text-center text-slate-500">
+          {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
+        </p>
+      )}
+    </div>
+  );
+
+  const attendeeContent = (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <Label className="text-sm font-medium">
+          {attendeeCount > 1 ? `Attendees (${attendeeCount})` : 'Your Details'}
+        </Label>
+        {!isGroupTicket && attendeeCount < 20 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAddAttendee}
+            data-testid="button-add-attendee"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Add Attendee
+          </Button>
+        )}
+      </div>
+      {attendees.map((attendee, i) => (
+        <AttendeeForm
+          key={i}
+          attendee={attendee}
+          index={i}
+          onChange={handleAttendeeChange}
+          onRemove={handleRemoveAttendee}
+          canRemove={!isGroupTicket && attendees.length > 1}
+        />
+      ))}
+    </div>
+  );
+
+  const stripeDialog = (
+    <Dialog open={showCardPayment} onOpenChange={(open) => {
+      if (!open) {
+        setShowCardPayment(false);
+        setClientSecret(null);
+      }
+    }}>
+      <DialogContent className="sm:max-w-md" data-testid="dialog-card-payment">
+        <DialogHeader>
+          <DialogTitle>Complete Payment</DialogTitle>
+        </DialogHeader>
+        {stripePromise && clientSecret && (
+          <Elements stripe={stripePromise} options={{ clientSecret }}>
+            <StripeCheckoutForm
+              onSuccess={handleCardPaymentSuccess}
+              onCancel={() => {
+                setShowCardPayment(false);
+                setClientSecret(null);
+              }}
+              amount={Math.round(totalPrice * 100)}
+              currency={selectedTicket?.currency || 'gbp'}
+            />
+          </Elements>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+
+  if (layout === 'drawer') {
+    return (
+      <>
+        <div className="grid lg:grid-cols-2 gap-8" data-testid="booking-section-drawer">
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+              <User className="w-5 h-5 text-indigo-600" />
+              Registration
+            </h3>
+            {attendeeContent}
+          </div>
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-indigo-600" />
+              Tickets
+            </h3>
+            {ticketSelectorContent}
+          </div>
+        </div>
+        {stripeDialog}
+      </>
+    );
+  }
+
   return (
     <Card className="border-slate-200" data-testid="booking-section">
       <CardHeader>
@@ -752,215 +1069,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        {ticketClasses.length > 1 && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Select Ticket</Label>
-            <RadioGroup
-              value={selectedTicketClassId || ''}
-              onValueChange={setSelectedTicketClassId}
-            >
-              {ticketClasses.map(tc => {
-                const tcPrice = getEffectiveTicketPrice(tc);
-                return (
-                  <div
-                    key={tc.id}
-                    className={`flex items-center gap-3 p-3 rounded-md border ${selectedTicketClassId === tc.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
-                  >
-                    <RadioGroupItem value={tc.id} id={`tc-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
-                    <Label htmlFor={`tc-${tc.id}`} className="flex-1 cursor-pointer">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <span className="font-medium text-slate-900">{tc.name}</span>
-                          {tc.description && (
-                            <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
-                          )}
-                          <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
-                        </div>
-                        <div className="text-right">
-                          {tcPrice.isEarlyBird ? (
-                            <>
-                              <span className="font-semibold text-green-700">{'\u00a3'}{tcPrice.price.toFixed(2)}</span>
-                              <span className="text-xs text-slate-400 line-through ml-1">{'\u00a3'}{tcPrice.standardPrice.toFixed(2)}</span>
-                            </>
-                          ) : (
-                            <span className="font-semibold text-slate-900">
-                              {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
-                            </span>
-                          )}
-                          {tc.is_group_ticket && tc.group_size > 1 && (
-                            <div className="text-[11px] text-slate-500">Group of {tc.group_size}</div>
-                          )}
-                        </div>
-                      </div>
-                    </Label>
-                  </div>
-                );
-              })}
-            </RadioGroup>
-          </div>
-        )}
-
-        {ticketClasses.length === 1 && selectedTicket && (
-          <div className="p-3 rounded-md border border-indigo-200 bg-indigo-50">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <span className="font-medium text-slate-900">{selectedTicket.name}</span>
-                {selectedTicket.description && (
-                  <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
-                )}
-                <TrackAccessIndicator ticket={selectedTicket} tracks={eventTracks} />
-              </div>
-              <span className="font-semibold text-slate-900">
-                {effectivePrice.price === 0 ? 'Free' : `\u00a3${effectivePrice.price.toFixed(2)}`}
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <Label className="text-sm font-medium">
-              {attendeeCount > 1 ? `Attendees (${attendeeCount})` : 'Your Details'}
-            </Label>
-            {!isGroupTicket && attendeeCount < 20 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAddAttendee}
-                data-testid="button-add-attendee"
-              >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Add Attendee
-              </Button>
-            )}
-          </div>
-          {attendees.map((attendee, i) => (
-            <AttendeeForm
-              key={i}
-              attendee={attendee}
-              index={i}
-              onChange={handleAttendeeChange}
-              onRemove={handleRemoveAttendee}
-              canRemove={!isGroupTicket && attendees.length > 1}
-            />
-          ))}
-        </div>
-
-        {isPaidTicket && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">Payment Method</Label>
-            <RadioGroup
-              value={selectedPaymentMethod}
-              onValueChange={setSelectedPaymentMethod}
-            >
-              {paymentMethods.map(method => {
-                const MethodIcon = method.icon;
-                return (
-                  <div
-                    key={method.id}
-                    className={`flex items-center gap-3 p-3 rounded-md border ${selectedPaymentMethod === method.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
-                  >
-                    <RadioGroupItem value={method.id} id={`pm-${method.id}`} data-testid={`radio-payment-${method.id}`} />
-                    <Label htmlFor={`pm-${method.id}`} className="flex-1 cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <MethodIcon className="w-4 h-4 text-slate-500" />
-                        <div>
-                          <span className="font-medium text-slate-900">{method.label}</span>
-                          <p className="text-xs text-slate-500">{method.description}</p>
-                        </div>
-                      </div>
-                    </Label>
-                  </div>
-                );
-              })}
-            </RadioGroup>
-          </div>
-        )}
-
-        {isPaidTicket && (
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Discount Code (optional)</Label>
-            <Input
-              placeholder="Enter discount code"
-              value={discountCode}
-              onChange={(e) => setDiscountCode(e.target.value)}
-              data-testid="input-discount-code"
-            />
-          </div>
-        )}
-
-        {totalPrice > 0 && (
-          <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
-            {attendeeCount > 1 && (
-              <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
-                <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm text-slate-600">Total</span>
-              <span className="text-lg font-bold text-slate-900">{'\u00a3'}{totalPrice.toFixed(2)}</span>
-            </div>
-            {isPaidTicket && selectedPaymentMethod !== 'card' && (
-              <p className="text-xs text-slate-500 mt-1">
-                Your registration will be confirmed once payment is received.
-              </p>
-            )}
-          </div>
-        )}
-
-        <Button
-          className="w-full"
-          onClick={handleBooking}
-          disabled={!isFormValid || submitting || ticketClasses.length === 0}
-          data-testid="button-submit-booking"
-        >
-          {submitting ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : totalPrice === 0 ? (
-            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-          ) : selectedPaymentMethod === 'card' ? (
-            `Pay \u00a3${totalPrice.toFixed(2)}`
-          ) : (
-            `Register - \u00a3${totalPrice.toFixed(2)}`
-          )}
-        </Button>
-
-        {ticketClasses.length === 0 && (
-          <p className="text-sm text-center text-slate-500">
-            No tickets are currently available for public registration.
-          </p>
-        )}
+        {ticketSelectorContent}
+        {attendeeContent}
       </CardContent>
-
-      <Dialog open={showCardPayment} onOpenChange={(open) => {
-        if (!open) {
-          setShowCardPayment(false);
-          setClientSecret(null);
-        }
-      }}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-card-payment">
-          <DialogHeader>
-            <DialogTitle>Complete Payment</DialogTitle>
-          </DialogHeader>
-          {stripePromise && clientSecret && (
-            <Elements stripe={stripePromise} options={{ clientSecret }}>
-              <StripeCheckoutForm
-                onSuccess={handleCardPaymentSuccess}
-                onCancel={() => {
-                  setShowCardPayment(false);
-                  setClientSecret(null);
-                }}
-                amount={Math.round(totalPrice * 100)}
-                currency={selectedTicket?.currency || 'gbp'}
-              />
-            </Elements>
-          )}
-        </DialogContent>
-      </Dialog>
+      {stripeDialog}
     </Card>
   );
 }
@@ -969,6 +1081,9 @@ export default function ComplexEventDetail() {
   const { memberInfo, organizationInfo } = useMemberAccess();
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
+  const [ticketDrawerOpen, setTicketDrawerOpen] = useState(false);
+  const [drawerTrackName, setDrawerTrackName] = useState(null);
+  const [drawerTrackId, setDrawerTrackId] = useState(null);
 
   const routeParams = useParams();
   const urlParams = new URLSearchParams(window.location.search);
@@ -1180,6 +1295,12 @@ export default function ComplexEventDetail() {
                     sessions={sessions}
                     timezone={tz}
                     trackColorMap={trackColorMap}
+                    eventTracks={event?.tracks || []}
+                    onSeeTickets={(trackName, trackId) => {
+                      setDrawerTrackName(trackName);
+                      setDrawerTrackId(trackId);
+                      setTicketDrawerOpen(true);
+                    }}
                   />
                 </CardContent>
               </Card>
@@ -1315,6 +1436,31 @@ export default function ComplexEventDetail() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Sheet open={ticketDrawerOpen} onOpenChange={setTicketDrawerOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-[1100px] overflow-y-auto" data-testid="drawer-track-tickets">
+          <SheetHeader className="pb-4 border-b border-slate-200 mb-6">
+            <SheetTitle className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-indigo-600" />
+              {drawerTrackName ? `${drawerTrackName} — Tickets & Registration` : 'Tickets & Registration'}
+            </SheetTitle>
+            <SheetDescription>
+              {drawerTrackName ? `Select a ticket and register for the ${drawerTrackName} track.` : 'Select a ticket and complete your registration.'}
+            </SheetDescription>
+          </SheetHeader>
+          {ticketDrawerOpen && event && (
+            <BookingSection
+              event={event}
+              sessions={sessions}
+              memberInfo={memberInfo}
+              organizationInfo={organizationInfo}
+              filterTrackId={drawerTrackId}
+              layout="drawer"
+              onBookingComplete={() => {}}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
