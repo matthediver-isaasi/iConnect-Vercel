@@ -583,11 +583,70 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
   );
 }
 
-function CartSummary({ cart, ticketClasses, onRemoveAttendee }) {
+function TicketDiscountInput({ ticketClassId, discountCode, onApply, onRemove }) {
+  const [inputValue, setInputValue] = useState(discountCode || '');
+  const hasApplied = !!discountCode;
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-100" data-testid={`discount-section-${ticketClassId}`}>
+      <div className="flex items-center gap-1.5">
+        <Input
+          type="text"
+          placeholder="Discount code"
+          value={hasApplied ? discountCode : inputValue}
+          onChange={(e) => setInputValue(e.target.value.toUpperCase())}
+          disabled={hasApplied}
+          className="h-7 text-xs flex-1"
+          data-testid={`input-discount-${ticketClassId}`}
+        />
+        {hasApplied ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => { onRemove(ticketClassId); setInputValue(''); }}
+            className="h-7 px-2 text-xs text-red-600"
+            data-testid={`button-remove-discount-${ticketClassId}`}
+          >
+            <X className="w-3 h-3" />
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { if (inputValue.trim()) onApply(ticketClassId, inputValue.trim()); }}
+            disabled={!inputValue.trim()}
+            className="h-7 px-2 text-xs"
+            data-testid={`button-apply-discount-${ticketClassId}`}
+          >
+            Apply
+          </Button>
+        )}
+      </div>
+      {hasApplied && (
+        <p className="text-[10px] text-green-600 mt-0.5">
+          Discount code applied (validated at checkout)
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicketPrice }) {
   const entries = Object.entries(cart).filter(([, item]) => item.attendees.length > 0);
   if (entries.length === 0) return null;
 
   const totalAttendees = entries.reduce((sum, [, item]) => sum + item.attendees.length, 0);
+
+  let grandTotal = 0;
+  const itemSubtotals = entries.map(([ticketClassId, item]) => {
+    const tc = item.ticketClass;
+    const ep = tc && getEffectiveTicketPrice ? getEffectiveTicketPrice(tc) : { price: 0 };
+    const subtotal = ep.price * item.attendees.length;
+    grandTotal += subtotal;
+    return { ticketClassId, unitPrice: ep.price, subtotal, discountCode: item.discountCode };
+  });
 
   return (
     <div className="space-y-3" data-testid="cart-summary">
@@ -597,42 +656,56 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee }) {
           Your Cart ({totalAttendees} attendee{totalAttendees !== 1 ? 's' : ''})
         </Label>
       </div>
-      {entries.map(([ticketClassId, item]) => (
-        <div key={ticketClassId} className="space-y-1.5">
-          <div className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-            <Ticket className="w-3 h-3" />
-            {item.ticketClass?.name || 'Ticket'}
-            <Badge variant="secondary" className="text-[10px] ml-auto">
-              {item.attendees.length}
-            </Badge>
-          </div>
-          {item.attendees.map((attendee, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between gap-2 p-2 rounded-md bg-slate-50 border border-slate-100"
-              data-testid={`cart-attendee-${ticketClassId}-${i}`}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-slate-800 truncate">
-                  {attendee.first_name} {attendee.last_name}
-                  {attendee.isSelf && <span className="text-indigo-600 text-xs ml-1">(you)</span>}
-                </div>
-                <div className="text-xs text-slate-500 truncate">{attendee.email}</div>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                onClick={() => onRemoveAttendee(ticketClassId, i)}
-                data-testid={`button-remove-cart-attendee-${ticketClassId}-${i}`}
-              >
-                <X className="w-3.5 h-3.5 text-slate-400" />
-              </Button>
+      {entries.map(([ticketClassId, item], entryIdx) => {
+        const sub = itemSubtotals[entryIdx];
+        return (
+          <div key={ticketClassId} className="space-y-1.5">
+            <div className="text-xs font-medium text-slate-600 flex items-center gap-1.5 flex-wrap">
+              <Ticket className="w-3 h-3" />
+              {item.ticketClass?.name || 'Ticket'}
+              {sub.discountCode && (
+                <Badge variant="secondary" className="text-[10px] bg-green-50 text-green-700 border-green-200">
+                  {sub.discountCode}
+                </Badge>
+              )}
+              <span className="ml-auto text-[11px] text-slate-500">
+                {item.attendees.length} x {'\u00a3'}{sub.unitPrice.toFixed(2)} = {'\u00a3'}{sub.subtotal.toFixed(2)}
+              </span>
             </div>
-          ))}
+            {item.attendees.map((attendee, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between gap-2 p-2 rounded-md bg-slate-50 border border-slate-100"
+                data-testid={`cart-attendee-${ticketClassId}-${i}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-slate-800 truncate">
+                    {attendee.first_name} {attendee.last_name}
+                    {attendee.isSelf && <span className="text-indigo-600 text-xs ml-1">(you)</span>}
+                  </div>
+                  <div className="text-xs text-slate-500 truncate">{attendee.email}</div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => onRemoveAttendee(ticketClassId, i)}
+                  data-testid={`button-remove-cart-attendee-${ticketClassId}-${i}`}
+                >
+                  <X className="w-3.5 h-3.5 text-slate-400" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {entries.length > 1 && (
+        <div className="flex items-center justify-between pt-2 border-t border-slate-200" data-testid="cart-grand-total">
+          <span className="text-sm font-semibold text-slate-800">Total</span>
+          <span className="text-sm font-semibold text-slate-800">{'\u00a3'}{grandTotal.toFixed(2)}</span>
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -730,6 +803,28 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     });
   }, []);
 
+  const handleApplyDiscount = useCallback((ticketClassId, discountCode) => {
+    setCart(prev => {
+      const existing = prev[ticketClassId];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [ticketClassId]: { ...existing, discountCode: discountCode || null }
+      };
+    });
+  }, []);
+
+  const handleRemoveDiscount = useCallback((ticketClassId) => {
+    setCart(prev => {
+      const existing = prev[ticketClassId];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        [ticketClassId]: { ...existing, discountCode: null }
+      };
+    });
+  }, []);
+
   const flatAttendees = useMemo(() => {
     const result = [];
     Object.values(cart).forEach(item => {
@@ -751,7 +846,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
           ticketClass: tc,
           attendees: item.attendees,
           unitPrice: ep.price,
-          subtotal: ep.price * item.attendees.length
+          subtotal: ep.price * item.attendees.length,
+          discountCode: item.discountCode || null
         };
       });
   }, [cart]);
@@ -773,7 +869,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     createPaymentIntent: (data) => {
       const items = cartItems.map(ci => ({
         ticket_class_id: ci.ticketClassId,
-        attendee_count: ci.attendees.length
+        attendee_count: ci.attendees.length,
+        discount_code: ci.discountCode || undefined
       }));
       return publicClient.createComplexEventPaymentIntent({
         event_id: event.id,
@@ -788,6 +885,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       } else {
         items = cartItems.map(ci => ({
           ticket_class_id: ci.ticketClassId,
+          discount_code: ci.discountCode || undefined,
           attendees: ci.attendees.map(a => ({
             email: (a.email || '').toLowerCase().trim(),
             first_name: (a.first_name || '').trim(),
@@ -808,6 +906,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     _getCartItems: () => {
       return cartItems.map(ci => ({
         ticket_class_id: ci.ticketClassId,
+        discount_code: ci.discountCode || undefined,
         attendees: ci.attendees.map(a => ({
           email: (a.email || '').toLowerCase().trim(),
           first_name: (a.first_name || '').trim(),
@@ -923,6 +1022,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
                 </Badge>
               )}
             </div>
+            {count > 0 && tcPrice.price > 0 && (
+              <TicketDiscountInput
+                ticketClassId={tc.id}
+                discountCode={cartEntry?.discountCode || ''}
+                onApply={handleApplyDiscount}
+                onRemove={handleRemoveDiscount}
+              />
+            )}
           </div>
         );
       })}
@@ -963,7 +1070,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
           </h3>
           {ticketCards}
         </div>
-        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} />
+        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} />
         {paymentOptionsSection}
 
         <AddAttendeeModal
@@ -989,7 +1096,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       </CardHeader>
       <CardContent className="space-y-6">
         {ticketCards}
-        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} />
+        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} />
         {paymentOptionsSection}
       </CardContent>
 
