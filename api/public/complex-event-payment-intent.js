@@ -36,15 +36,22 @@ export default async function handler(req, res) {
     }
 
     const { data: event, error: eventError } = await supabase
-      .from('event')
-      .select('id, title, is_complex, tenant_id, pricing_config, status')
+      .from('complex_event')
+      .select('id, title, tenant_id, status')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
-    if (!event.is_complex) return res.status(400).json({ error: 'This endpoint is for complex events only' });
+
+    const { data: ticketClassRows } = await supabase
+      .from('complex_event_ticket_class')
+      .select('*')
+      .eq('complex_event_id', event_id)
+      .eq('tenant_id', tenant.id);
+
+    const allTicketClasses = ticketClassRows || [];
 
     let member = null;
     let memberTenantId = null;
@@ -65,7 +72,7 @@ export default async function handler(req, res) {
 
     const isMember = member && memberTenantId === tenant.id;
 
-    const ticketClass = getTicketClassFromConfig(event.pricing_config, ticket_class_id);
+    const ticketClass = getTicketClassFromConfig(allTicketClasses, ticket_class_id);
     if (!ticketClass) {
       return res.status(400).json({ error: 'Invalid ticket class' });
     }
@@ -74,7 +81,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'This ticket class is not available to you' });
     }
 
-    const ticket = resolveTicketPrice(event.pricing_config, ticket_class_id);
+    const ticket = resolveTicketPrice(allTicketClasses, ticket_class_id);
     if (!ticket.found || ticket.price === 0) {
       return res.status(400).json({ error: 'Invalid or free ticket class' });
     }

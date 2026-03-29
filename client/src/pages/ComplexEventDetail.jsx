@@ -22,7 +22,6 @@ import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { useEventData, useEventDataBySlug } from "@/hooks/useEventsData";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
@@ -792,12 +791,22 @@ export default function ComplexEventDetail() {
   const eventIdFromQuery = urlParams.get('id');
   const eventSlugFromRoute = routeParams.eventSlug;
 
-  const slugToResolve = eventSlugFromRoute;
-  const isSlugLookup = !!slugToResolve && !eventIdFromQuery;
-  const { data: slugResolvedEvent, isLoading: isSlugLoading } = useEventDataBySlug(isSlugLookup ? slugToResolve : null);
+  const isSlugLookup = !!eventSlugFromRoute && !eventIdFromQuery;
+
+  const { data: slugResolvedEvent, isLoading: isSlugLoading } = useQuery({
+    queryKey: ['complex-event-by-slug', eventSlugFromRoute],
+    queryFn: async () => await publicClient.getComplexEventBySlug(eventSlugFromRoute),
+    enabled: isSlugLookup
+  });
+
   const eventId = eventIdFromQuery || (slugResolvedEvent?.id) || null;
 
-  const { data: event, isLoading: eventLoading } = useEventData(eventId);
+  const { data: event, isLoading: eventLoading } = useQuery({
+    queryKey: ['complex-event', eventId],
+    queryFn: async () => await publicClient.getComplexEvent(eventId),
+    enabled: !!eventId,
+    staleTime: 30 * 1000
+  });
 
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ['complex-event-sessions-public', eventId],

@@ -17,13 +17,20 @@ export function parsePricingConfig(pricingConfig) {
   return parsed;
 }
 
-export function resolveTicketPrice(pricingConfig, ticketClassId) {
-  const parsed = parsePricingConfig(pricingConfig);
-  if (!parsed?.ticket_classes?.length || !ticketClassId) {
+export function resolveTicketPrice(pricingConfigOrTicketClasses, ticketClassId) {
+  let ticketClasses;
+  if (Array.isArray(pricingConfigOrTicketClasses)) {
+    ticketClasses = pricingConfigOrTicketClasses;
+  } else {
+    const parsed = parsePricingConfig(pricingConfigOrTicketClasses);
+    ticketClasses = parsed?.ticket_classes || [];
+  }
+
+  if (!ticketClasses.length || !ticketClassId) {
     return { price: 0, name: 'Free', currency: 'gbp', found: false };
   }
 
-  const tc = parsed.ticket_classes.find(t => String(t.id) === String(ticketClassId));
+  const tc = ticketClasses.find(t => String(t.id) === String(ticketClassId));
   if (!tc) {
     return { price: 0, name: null, currency: 'gbp', found: false };
   }
@@ -41,7 +48,7 @@ export function resolveTicketPrice(pricingConfig, ticketClassId) {
 }
 
 export function isTicketVisibleToUser(ticketClass, isMember) {
-  const vis = ticketClass.visibility_mode || (ticketClass.is_public ? 'members_and_public' : 'members_only');
+  const vis = ticketClass.visibility_mode || 'members_only';
   if (!isMember) {
     return vis === 'members_and_public' || vis === 'public_only';
   }
@@ -49,10 +56,16 @@ export function isTicketVisibleToUser(ticketClass, isMember) {
   return true;
 }
 
-export function getTicketClassFromConfig(pricingConfig, ticketClassId) {
-  const parsed = parsePricingConfig(pricingConfig);
-  if (!parsed?.ticket_classes?.length || !ticketClassId) return null;
-  return parsed.ticket_classes.find(t => String(t.id) === String(ticketClassId)) || null;
+export function getTicketClassFromConfig(pricingConfigOrTicketClasses, ticketClassId) {
+  let ticketClasses;
+  if (Array.isArray(pricingConfigOrTicketClasses)) {
+    ticketClasses = pricingConfigOrTicketClasses;
+  } else {
+    const parsed = parsePricingConfig(pricingConfigOrTicketClasses);
+    ticketClasses = parsed?.ticket_classes || [];
+  }
+  if (!ticketClasses.length || !ticketClassId) return null;
+  return ticketClasses.find(t => String(t.id) === String(ticketClassId)) || null;
 }
 
 export async function validateDiscountCode({ code, tenantId, eventId, memberId, memberRoleId, orgId }) {

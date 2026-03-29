@@ -537,6 +537,16 @@ class PublicClient {
     return this._fetch('/api/public/complex-events');
   }
 
+  async getComplexEvent(id) {
+    if (!id) return null;
+    return this._fetch(`/api/public/complex-event?id=${id}`);
+  }
+
+  async getComplexEventBySlug(slug) {
+    if (!slug) return null;
+    return this._fetch(`/api/public/complex-event?slug=${encodeURIComponent(slug)}`);
+  }
+
   async getComplexEventSessions(eventId) {
     if (!eventId) return [];
     return this._fetch(`/api/complex-event-sessions/public?event_id=${eventId}`);

@@ -20,14 +20,6 @@ function generateBookingReference() {
   return ref;
 }
 
-function eventHasTicketClasses(pricingConfig) {
-  let parsed = pricingConfig;
-  if (typeof parsed === 'string') {
-    try { parsed = JSON.parse(parsed); } catch { return false; }
-  }
-  return !!(parsed?.ticket_classes?.length);
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -74,27 +66,31 @@ export default async function handler(req, res) {
     }
 
     const { data: event, error: eventError } = await supabase
-      .from('event')
-      .select('id, title, status, is_complex, tenant_id, pricing_config, registration_closes_at')
+      .from('complex_event')
+      .select('id, title, status, tenant_id')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
-    if (!event.is_complex) return res.status(400).json({ error: 'This endpoint is for complex events only' });
-    if (event.registration_closes_at && new Date(event.registration_closes_at) < new Date()) {
-      return res.status(400).json({ error: 'Registration for this event has closed' });
-    }
 
-    const hasTicketClasses = eventHasTicketClasses(event.pricing_config);
+    const { data: ticketClassRows } = await supabase
+      .from('complex_event_ticket_class')
+      .select('*')
+      .eq('complex_event_id', event_id)
+      .eq('tenant_id', tenant.id);
+
+    const allTicketClasses = ticketClassRows || [];
+    const hasTicketClasses = allTicketClasses.length > 0;
+
     if (hasTicketClasses && !ticket_class_id) {
       return res.status(400).json({ error: 'ticket_class_id is required when ticket classes are configured' });
     }
 
     const isMember = !!authenticatedMember;
 
-    const ticketClass = ticket_class_id ? getTicketClassFromConfig(event.pricing_config, ticket_class_id) : null;
+    const ticketClass = ticket_class_id ? getTicketClassFromConfig(allTicketClasses, ticket_class_id) : null;
     if (ticket_class_id && !ticketClass) {
       return res.status(400).json({ error: 'Invalid ticket class' });
     }
@@ -103,7 +99,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'You do not have access to this ticket class' });
     }
 
-    const serverTicket = resolveTicketPrice(event.pricing_config, ticket_class_id);
+    const serverTicket = resolveTicketPrice(allTicketClasses, ticket_class_id);
     let authoritativePrice = serverTicket.price;
     const ticketCurrency = serverTicket.currency || 'gbp';
 

@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantUser.tenant_id;
 
-  const ADMIN_LIST_FIELDS = 'id, event_id, tenant_id, title, description, start_time, end_time, duration_minutes, timezone, delivery_mode, track_name, sort_order, zoom_type, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_host_id, zoom_host_email, zoom_registration_required, zoom_registration_url, status, created_at, updated_at';
+  const ADMIN_LIST_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, timezone, delivery_mode, zoom_type, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_host_id, zoom_host_email, zoom_registration_required, zoom_registration_url, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -37,12 +37,36 @@ export default async function handler(req, res) {
       if (!event_id) {
         return res.status(400).json({ error: 'event_id is required' });
       }
+
+      const { data: event, error: eventError } = await supabase
+        .from('complex_event')
+        .select('id, tenant_id')
+        .eq('id', event_id)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (eventError || !event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      const { data: tracks } = await supabase
+        .from('complex_event_track')
+        .select('id')
+        .eq('complex_event_id', event_id)
+        .eq('tenant_id', tenantId);
+
+      const trackIds = (tracks || []).map(t => t.id);
+
+      if (trackIds.length === 0) {
+        return res.json([]);
+      }
+
       const { data, error } = await supabase
         .from('complex_event_session')
         .select(ADMIN_LIST_FIELDS)
-        .eq('event_id', event_id)
+        .in('complex_event_track_id', trackIds)
         .eq('tenant_id', tenantId)
-        .order('sort_order', { ascending: true })
+        .order('display_order', { ascending: true })
         .order('start_time', { ascending: true });
 
       if (error) {
@@ -61,15 +85,18 @@ export default async function handler(req, res) {
     try {
       const {
         event_id,
+        complex_event_track_id,
         title,
         description,
         start_time,
         end_time,
-        duration_minutes = 60,
         timezone = 'Europe/London',
         delivery_mode = 'in_person',
-        track_name,
-        sort_order = 0,
+        display_order = 0,
+        speaker_names,
+        is_online = false,
+        location,
+        image_url,
         zoom_type,
         zoom_host_id,
         zoom_host_email,
@@ -79,38 +106,73 @@ export default async function handler(req, res) {
         link_existing_zoom_type
       } = req.body;
 
-      if (!event_id || !title) {
-        return res.status(400).json({ error: 'event_id and title are required' });
+      if (!title) {
+        return res.status(400).json({ error: 'title is required' });
       }
 
-      const { data: event, error: eventError } = await supabase
-        .from('event')
-        .select('id, tenant_id')
-        .eq('id', event_id)
+      let trackId = complex_event_track_id;
+
+      if (event_id && !trackId) {
+        const { data: event, error: eventError } = await supabase
+          .from('complex_event')
+          .select('id, tenant_id')
+          .eq('id', event_id)
+          .eq('tenant_id', tenantId)
+          .single();
+
+        if (eventError || !event) {
+          return res.status(404).json({ error: 'Event not found' });
+        }
+
+        const { data: tracks } = await supabase
+          .from('complex_event_track')
+          .select('id')
+          .eq('complex_event_id', event_id)
+          .eq('tenant_id', tenantId)
+          .order('display_order', { ascending: true })
+          .limit(1);
+
+        if (!tracks || tracks.length === 0) {
+          return res.status(400).json({ error: 'No tracks found for this event. Create a track first.' });
+        }
+        trackId = tracks[0].id;
+      }
+
+      if (!trackId) {
+        return res.status(400).json({ error: 'complex_event_track_id or event_id is required' });
+      }
+
+      const { data: track, error: trackError } = await supabase
+        .from('complex_event_track')
+        .select('id, tenant_id, complex_event_id')
+        .eq('id', trackId)
         .eq('tenant_id', tenantId)
         .single();
 
-      if (eventError || !event) {
-        return res.status(404).json({ error: 'Event not found' });
+      if (trackError || !track) {
+        return res.status(404).json({ error: 'Track not found' });
       }
 
+      const duration_minutes = req.body.duration_minutes || 60;
+
       const sessionData = {
-        event_id,
+        complex_event_track_id: trackId,
         tenant_id: tenantId,
         title,
         description: description || null,
+        image_url: image_url || null,
+        speaker_names: speaker_names || null,
         start_time: start_time ? convertLocalTimeToUTC(start_time, timezone) : null,
         end_time: end_time ? convertLocalTimeToUTC(end_time, timezone) : null,
-        duration_minutes,
-        timezone,
-        delivery_mode,
-        track_name: track_name || null,
-        sort_order,
+        location: location || null,
+        is_online: is_online || false,
+        display_order,
+        delivery_mode: delivery_mode || null,
+        timezone: timezone || null,
         zoom_type: delivery_mode === 'virtual' || delivery_mode === 'hybrid' ? (zoom_type || null) : null,
         zoom_host_id: zoom_host_id || null,
         zoom_host_email: zoom_host_email || null,
-        zoom_registration_required,
-        status: 'scheduled'
+        zoom_registration_required
       };
 
       if (link_existing_zoom_id && (delivery_mode === 'virtual' || delivery_mode === 'hybrid')) {
@@ -147,9 +209,6 @@ export default async function handler(req, res) {
           if (!sessionData.start_time && zoomData.start_time) {
             sessionData.start_time = new Date(zoomData.start_time).toISOString();
           }
-          if (zoomData.duration && !sessionData.end_time && sessionData.start_time) {
-            sessionData.duration_minutes = zoomData.duration;
-          }
         } catch (linkErr) {
           console.error('[Sessions] Link existing Zoom error:', linkErr);
           return res.status(500).json({ error: 'Failed to link existing Zoom resource: ' + linkErr.message });
@@ -185,12 +244,6 @@ export default async function handler(req, res) {
         console.error('[Sessions] Insert error:', insertError);
         return res.status(500).json({ error: 'Failed to create session' });
       }
-
-      await supabase
-        .from('event')
-        .update({ is_complex: true })
-        .eq('id', event_id)
-        .eq('tenant_id', tenantId);
 
       return res.json({ success: true, session });
     } catch (error) {

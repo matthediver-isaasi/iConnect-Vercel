@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   try {
     const { data: session, error: sessionError } = await supabase
       .from('complex_event_session')
-      .select('id, event_id, tenant_id, title, zoom_meeting_id, zoom_webinar_id, zoom_type, zoom_host_id, duration_minutes, timezone, start_time, end_time')
+      .select('id, complex_event_track_id, tenant_id, title, zoom_meeting_id, zoom_webinar_id, zoom_type, zoom_host_id, timezone, start_time, end_time')
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .single();
@@ -73,7 +73,6 @@ export default async function handler(req, res) {
     const updateData = {
       start_time: zoomStartTime,
       end_time: zoomEndTime,
-      duration_minutes: zoomData.duration,
       timezone: zoomData.timezone,
       zoom_join_url: zoomData.join_url || session.zoom_join_url,
       zoom_start_url: zoomData.start_url || session.zoom_start_url,
@@ -103,7 +102,6 @@ export default async function handler(req, res) {
       updated: {
         start_time: zoomStartTime,
         end_time: zoomEndTime,
-        duration_minutes: zoomData.duration,
         timezone: zoomData.timezone
       }
     });

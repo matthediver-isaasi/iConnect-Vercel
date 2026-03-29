@@ -161,7 +161,7 @@ export default async function handler(req, res) {
 
   const { id } = req.query;
 
-  const ADMIN_FIELDS = 'id, event_id, tenant_id, title, description, start_time, end_time, duration_minutes, timezone, delivery_mode, track_name, sort_order, zoom_type, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_host_id, zoom_host_email, zoom_registration_required, zoom_registration_url, status, created_at, updated_at';
+  const ADMIN_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, timezone, delivery_mode, zoom_type, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_host_id, zoom_host_email, zoom_registration_required, zoom_registration_url, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -202,8 +202,9 @@ export default async function handler(req, res) {
       }
 
       const ALLOWED_FIELDS = [
-        'title', 'description', 'start_time', 'end_time', 'duration_minutes',
-        'timezone', 'delivery_mode', 'track_name', 'sort_order',
+        'title', 'description', 'start_time', 'end_time',
+        'timezone', 'delivery_mode', 'display_order', 'location',
+        'is_online', 'speaker_names', 'image_url', 'complex_event_track_id',
         'zoom_type', 'zoom_host_id', 'zoom_host_email', 'zoom_registration_required'
       ];
       const dbUpdates = { updated_at: new Date().toISOString() };
@@ -242,9 +243,6 @@ export default async function handler(req, res) {
           if (!dbUpdates.start_time && !existing.start_time && linkResult.zoomData?.start_time) {
             dbUpdates.start_time = new Date(linkResult.zoomData.start_time).toISOString();
           }
-          if (linkResult.zoomData?.duration) {
-            dbUpdates.duration_minutes = linkResult.zoomData.duration;
-          }
         } catch (linkErr) {
           console.error('[Sessions] Link existing Zoom error:', linkErr);
           return res.status(500).json({ error: 'Failed to link Zoom: ' + linkErr.message });
@@ -254,12 +252,13 @@ export default async function handler(req, res) {
         const effectiveStartTime = dbUpdates.start_time || existing.start_time;
         if (effectiveStartTime) {
           try {
+            const duration_minutes = body.duration_minutes || 60;
             const zoomResult = await createZoomForSession({
               tenantId,
               title: dbUpdates.title || existing.title,
               description: dbUpdates.description || existing.description,
               start_time: effectiveStartTime,
-              duration_minutes: dbUpdates.duration_minutes || existing.duration_minutes || 60,
+              duration_minutes,
               timezone: tz,
               zoom_type: effectiveZoomType,
               zoom_host_id: dbUpdates.zoom_host_id || existing.zoom_host_id,
@@ -277,13 +276,12 @@ export default async function handler(req, res) {
           }
         }
       } else {
-        if (existing.zoom_meeting_id && (dbUpdates.title || dbUpdates.start_time || dbUpdates.duration_minutes || dbUpdates.description)) {
+        if (existing.zoom_meeting_id && (dbUpdates.title || dbUpdates.start_time || dbUpdates.description)) {
           try {
             const token = await getZoomAccessTokenForTenant(tenantId);
             const zoomUpdates = {};
             if (dbUpdates.title) zoomUpdates.topic = dbUpdates.title;
             if (dbUpdates.start_time) zoomUpdates.start_time = dbUpdates.start_time;
-            if (dbUpdates.duration_minutes) zoomUpdates.duration = dbUpdates.duration_minutes;
             if (dbUpdates.description) zoomUpdates.agenda = dbUpdates.description;
             if (dbUpdates.timezone) zoomUpdates.timezone = dbUpdates.timezone;
 
@@ -298,13 +296,12 @@ export default async function handler(req, res) {
           }
         }
 
-        if (existing.zoom_webinar_id && (dbUpdates.title || dbUpdates.start_time || dbUpdates.duration_minutes || dbUpdates.description)) {
+        if (existing.zoom_webinar_id && (dbUpdates.title || dbUpdates.start_time || dbUpdates.description)) {
           try {
             const token = await getZoomAccessTokenForTenant(tenantId);
             const zoomUpdates = {};
             if (dbUpdates.title) zoomUpdates.topic = dbUpdates.title;
             if (dbUpdates.start_time) zoomUpdates.start_time = dbUpdates.start_time;
-            if (dbUpdates.duration_minutes) zoomUpdates.duration = dbUpdates.duration_minutes;
             if (dbUpdates.description) zoomUpdates.agenda = dbUpdates.description;
             if (dbUpdates.timezone) zoomUpdates.timezone = dbUpdates.timezone;
 
@@ -344,7 +341,7 @@ export default async function handler(req, res) {
     try {
       const { data: session, error: fetchError } = await supabase
         .from('complex_event_session')
-        .select('id, event_id, tenant_id, zoom_meeting_id, zoom_webinar_id')
+        .select('id, complex_event_track_id, tenant_id, zoom_meeting_id, zoom_webinar_id')
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .single();
@@ -388,20 +385,6 @@ export default async function handler(req, res) {
       if (deleteError) {
         console.error('[Sessions] Delete error:', deleteError);
         return res.status(500).json({ error: 'Failed to delete session' });
-      }
-
-      const { data: remainingSessions } = await supabase
-        .from('complex_event_session')
-        .select('id')
-        .eq('event_id', session.event_id)
-        .eq('tenant_id', tenantId);
-
-      if (!remainingSessions || remainingSessions.length === 0) {
-        await supabase
-          .from('event')
-          .update({ is_complex: false })
-          .eq('id', session.event_id)
-          .eq('tenant_id', tenantId);
       }
 
       return res.json({ success: true });

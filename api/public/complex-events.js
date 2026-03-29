@@ -31,33 +31,9 @@ export default async function handler(req, res) {
     }
 
     const { data: rawEvents, error } = await supabase
-      .from('event')
-      .select(`
-        id,
-        title,
-        slug,
-        description,
-        summary,
-        start_date,
-        end_date,
-        location,
-        image_url,
-        image_focal_point,
-        pricing_config,
-        status,
-        available_seats,
-        show_seat_count,
-        event_type,
-        is_online,
-        timezone,
-        program_tag,
-        event_state,
-        registration_closes_at,
-        is_complex,
-        speaker_ids
-      `)
+      .from('complex_event')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats')
       .eq('tenant_id', tenant.id)
-      .eq('is_complex', true)
       .in('status', ['published', 'tbc'])
       .order('start_date', { ascending: true });
 
@@ -66,24 +42,45 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch complex events' });
     }
 
+    const eventIds = (rawEvents || []).map(e => e.id);
+
+    let ticketClassesByEvent = {};
+    if (eventIds.length > 0) {
+      const { data: ticketClasses, error: tcError } = await supabase
+        .from('complex_event_ticket_class')
+        .select('id, complex_event_id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order')
+        .in('complex_event_id', eventIds)
+        .eq('tenant_id', tenant.id)
+        .order('display_order', { ascending: true });
+
+      if (!tcError && ticketClasses) {
+        for (const tc of ticketClasses) {
+          if (!ticketClassesByEvent[tc.complex_event_id]) {
+            ticketClassesByEvent[tc.complex_event_id] = [];
+          }
+          ticketClassesByEvent[tc.complex_event_id].push(tc);
+        }
+      }
+    }
+
     const events = (rawEvents || []).map(event => {
-      const publicTicketClasses = (event.pricing_config?.ticket_classes || [])
+      const allTicketClasses = ticketClassesByEvent[event.id] || [];
+      const publicTicketClasses = allTicketClasses
         .filter(tc => {
-          const vis = tc.visibility_mode || (tc.is_public ? 'members_and_public' : 'members_only');
+          const vis = tc.visibility_mode || 'members_only';
           return vis === 'members_and_public' || vis === 'public_only';
         })
         .map(tc => ({
           id: tc.id,
           name: tc.name,
-          description: tc.description,
-          price: tc.price,
-          currency: tc.currency,
+          price: Number(tc.price) || 0,
+          currency: 'gbp',
           visibility_mode: tc.visibility_mode,
-          is_public: tc.is_public,
           early_bird_enabled: tc.early_bird_enabled || false,
-          early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,
+          early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
           early_bird_deadline: tc.early_bird_deadline || null,
-          track_access: tc.track_access || []
+          linked_track_ids: tc.linked_track_ids || [],
+          all_tracks: tc.all_tracks
         }));
 
       return {
@@ -96,18 +93,10 @@ export default async function handler(req, res) {
         end_date: event.end_date,
         location: event.location,
         image_url: event.image_url,
-        image_focal_point: event.image_focal_point,
         status: event.status,
         available_seats: event.available_seats,
-        event_type: event.event_type,
-        is_online: event.is_online,
         timezone: event.timezone,
-        show_seat_count: event.show_seat_count,
-        program_tag: event.program_tag,
-        event_state: event.event_state,
-        registration_closes_at: event.registration_closes_at,
         is_complex: true,
-        speaker_ids: event.speaker_ids || [],
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });

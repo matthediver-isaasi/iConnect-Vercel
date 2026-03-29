@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     }
 
     const { data: event, error: eventError } = await supabase
-      .from('event')
+      .from('complex_event')
       .select('id, tenant_id')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
@@ -42,14 +42,37 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    const baseFields = 'id, event_id, title, description, start_time, end_time, duration_minutes, timezone, delivery_mode, track_name, sort_order, status, zoom_type';
+    const { data: tracks, error: tracksError } = await supabase
+      .from('complex_event_track')
+      .select('id, name, description, colour, display_order')
+      .eq('complex_event_id', event_id)
+      .eq('tenant_id', tenant.id)
+      .order('display_order', { ascending: true });
+
+    if (tracksError) {
+      console.error('[Sessions] Tracks query error:', tracksError);
+      return res.status(500).json({ error: 'Failed to list tracks' });
+    }
+
+    const trackIds = (tracks || []).map(t => t.id);
+
+    if (trackIds.length === 0) {
+      return res.json([]);
+    }
+
+    const trackMap = {};
+    for (const track of tracks) {
+      trackMap[track.id] = track;
+    }
+
+    const sessionFields = 'id, complex_event_track_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, zoom_join_url, zoom_registration_url, zoom_registration_required, delivery_mode, zoom_type';
 
     const { data, error } = await supabase
       .from('complex_event_session')
-      .select(baseFields + ', zoom_join_url, zoom_registration_url, zoom_registration_required')
-      .eq('event_id', event_id)
-      .eq('status', 'scheduled')
-      .order('sort_order', { ascending: true })
+      .select(sessionFields)
+      .in('complex_event_track_id', trackIds)
+      .eq('tenant_id', tenant.id)
+      .order('display_order', { ascending: true })
       .order('start_time', { ascending: true });
 
     if (error) {
@@ -57,23 +80,45 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to list sessions' });
     }
 
-    let bookedTrackNames = [];
+    let bookedTrackIds = [];
     let hasAnyConfirmedBooking = false;
     try {
       const member = await getSessionMember(req);
       if (member?.email) {
         const { data: bookings } = await supabase
-          .from('booking')
-          .select('id, ticket_class_name')
+          .from('complex_event_booking')
+          .select('id, ticket_class_id')
           .eq('event_id', event_id)
+          .eq('tenant_id', tenant.id)
           .ilike('attendee_email', member.email.toLowerCase())
           .in('status', ['confirmed', 'attended']);
 
         if (bookings && bookings.length > 0) {
           hasAnyConfirmedBooking = true;
-          bookedTrackNames = bookings
-            .map(b => (b.ticket_class_name || '').trim().toLowerCase())
+          const ticketClassIds = bookings
+            .map(b => b.ticket_class_id)
             .filter(Boolean);
+
+          if (ticketClassIds.length > 0) {
+            const { data: ticketClasses } = await supabase
+              .from('complex_event_ticket_class')
+              .select('id, linked_track_ids, all_tracks')
+              .in('id', ticketClassIds)
+              .eq('tenant_id', tenant.id);
+
+            if (ticketClasses) {
+              for (const tc of ticketClasses) {
+                if (tc.all_tracks) {
+                  bookedTrackIds = trackIds;
+                  break;
+                }
+                if (tc.linked_track_ids && Array.isArray(tc.linked_track_ids)) {
+                  bookedTrackIds.push(...tc.linked_track_ids);
+                }
+              }
+              bookedTrackIds = [...new Set(bookedTrackIds)];
+            }
+          }
         }
       }
     } catch (e) {
@@ -81,27 +126,25 @@ export default async function handler(req, res) {
 
     const sessions = (data || []).map(session => {
       const { zoom_join_url, zoom_registration_url, zoom_registration_required, ...publicFields } = session;
-      const isVirtualSession = session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid';
+      const track = trackMap[session.complex_event_track_id];
+      const enriched = {
+        ...publicFields,
+        track_name: track?.name || null
+      };
+
+      const isVirtualSession = session.delivery_mode === 'virtual' || session.delivery_mode === 'hybrid' || session.is_online;
 
       if (!hasAnyConfirmedBooking || !isVirtualSession) {
-        return publicFields;
+        return enriched;
       }
 
-      const sessionTrack = (session.track_name || '').trim().toLowerCase();
-      let hasTrackAccess;
-      if (!sessionTrack) {
-        hasTrackAccess = true;
-      } else if (bookedTrackNames.length === 0) {
-        hasTrackAccess = false;
-      } else {
-        hasTrackAccess = bookedTrackNames.includes(sessionTrack);
-      }
+      const hasTrackAccess = bookedTrackIds.includes(session.complex_event_track_id);
 
       if (hasTrackAccess) {
-        return { ...publicFields, zoom_join_url, zoom_registration_required };
+        return { ...enriched, zoom_join_url, zoom_registration_required };
       }
 
-      return publicFields;
+      return enriched;
     });
 
     return res.json(sessions);
