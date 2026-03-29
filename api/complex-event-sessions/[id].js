@@ -77,44 +77,11 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const ALLOWED_FIELDS = [
-        'title', 'description', 'start_time', 'end_time',
-        'display_order', 'location',
-        'is_online', 'speaker_names', 'image_url', 'complex_event_id'
-      ];
-      const dbUpdates = { updated_at: new Date().toISOString() };
-      for (const field of ALLOWED_FIELDS) {
-        if (field in body) {
-          dbUpdates[field] = body[field];
-        }
-      }
-
-      const tz = body.timezone || 'Europe/London';
-      if (dbUpdates.start_time) {
-        dbUpdates.start_time = convertLocalTimeToUTC(dbUpdates.start_time, tz);
-      }
-      if (dbUpdates.end_time) {
-        dbUpdates.end_time = convertLocalTimeToUTC(dbUpdates.end_time, tz);
-      }
-
-      const { data: session, error: updateError } = await supabase
-        .from('complex_event_session')
-        .update(dbUpdates)
-        .eq('id', id)
-        .eq('tenant_id', tenantId)
-        .select(SESSION_FIELDS)
-        .single();
-
-      if (updateError) {
-        console.error('[Sessions] Update error:', updateError);
-        return res.status(500).json({ error: 'Failed to update session' });
-      }
-
       if (body.track_ids && Array.isArray(body.track_ids)) {
         const newTrackIds = body.track_ids;
 
         if (newTrackIds.length > 0) {
-          const sessionEventId = session.complex_event_id || existing.complex_event_id;
+          const sessionEventId = body.complex_event_id || existing.complex_event_id;
           const { data: validTracks } = await supabase
             .from('complex_event_track')
             .select('id')
@@ -167,6 +134,39 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Failed to update track assignments' });
           }
         }
+      }
+
+      const ALLOWED_FIELDS = [
+        'title', 'description', 'start_time', 'end_time',
+        'display_order', 'location',
+        'is_online', 'speaker_names', 'image_url', 'complex_event_id'
+      ];
+      const dbUpdates = { updated_at: new Date().toISOString() };
+      for (const field of ALLOWED_FIELDS) {
+        if (field in body) {
+          dbUpdates[field] = body[field];
+        }
+      }
+
+      const tz = body.timezone || 'Europe/London';
+      if (dbUpdates.start_time) {
+        dbUpdates.start_time = convertLocalTimeToUTC(dbUpdates.start_time, tz);
+      }
+      if (dbUpdates.end_time) {
+        dbUpdates.end_time = convertLocalTimeToUTC(dbUpdates.end_time, tz);
+      }
+
+      const { data: session, error: updateError } = await supabase
+        .from('complex_event_session')
+        .update(dbUpdates)
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select(SESSION_FIELDS)
+        .single();
+
+      if (updateError) {
+        console.error('[Sessions] Update error:', updateError);
+        return res.status(500).json({ error: 'Failed to update session' });
       }
 
       const { data: updatedJunctions } = await supabase
