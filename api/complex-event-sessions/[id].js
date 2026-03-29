@@ -184,6 +184,26 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: 'Failed to update track assignments' });
           }
         }
+      } else if (body.start_time || body.end_time) {
+        const { data: currentJunctions } = await supabase
+          .from('complex_event_session_track')
+          .select('complex_event_track_id')
+          .eq('complex_event_session_id', id)
+          .eq('tenant_id', tenantId);
+
+        const currentTrackIds = (currentJunctions || []).map(j => j.complex_event_track_id);
+        if (currentTrackIds.length > 0) {
+          const tz = body.timezone || 'Europe/London';
+          const effectiveStart = body.start_time ? convertLocalTimeToUTC(body.start_time, tz) : existing.start_time;
+          const effectiveEnd = body.end_time ? convertLocalTimeToUTC(body.end_time, tz) : existing.end_time;
+          if (effectiveStart && effectiveEnd) {
+            const overlaps = await checkTrackOverlaps(supabase, tenantId, currentTrackIds, effectiveStart, effectiveEnd, id);
+            if (overlaps.length > 0) {
+              const msgs = overlaps.map(o => `"${o.title}"`).join(', ');
+              return res.status(409).json({ error: `Time overlap with: ${msgs}`, overlaps });
+            }
+          }
+        }
       }
 
       const ALLOWED_FIELDS = [

@@ -8,7 +8,7 @@ function convertLocalTimeToUTC(localTimeStr, timezone) {
   return utcDate.toISOString();
 }
 
-async function checkTrackOverlaps(supabase, tenantId, eventId, trackIds, startTime, endTime, excludeSessionId) {
+async function checkTrackOverlaps(supabase, tenantId, trackIds, startTime, endTime, excludeSessionId) {
   if (!trackIds?.length || !startTime || !endTime) return [];
 
   const { data: junctions } = await supabase
@@ -209,7 +209,7 @@ export default async function handler(req, res) {
 
       const preCheckTrackIds = track_ids.length > 0 ? track_ids : (complex_event_track_id ? [complex_event_track_id] : []);
       if (preCheckTrackIds.length > 0 && sessionData.start_time && sessionData.end_time) {
-        const overlaps = await checkTrackOverlaps(supabase, tenantId, effectiveEventId, preCheckTrackIds, sessionData.start_time, sessionData.end_time, null);
+        const overlaps = await checkTrackOverlaps(supabase, tenantId, preCheckTrackIds, sessionData.start_time, sessionData.end_time, null);
         if (overlaps.length > 0) {
           const msgs = overlaps.map(o => `"${o.title}"`).join(', ');
           return res.status(409).json({ error: `Time overlap with: ${msgs}`, overlaps });

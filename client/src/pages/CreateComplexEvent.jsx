@@ -1058,6 +1058,29 @@ export default function CreateComplexEvent() {
                             data-testid={`input-track-description-${track._localId}`}
                           />
                         </div>
+
+                        {(() => {
+                          const trackRef = track.id || track._localId;
+                          const linkedSessions = sessions.filter(s => (s.track_ids || []).includes(trackRef));
+                          if (linkedSessions.length === 0) return null;
+                          return (
+                            <div className="space-y-1.5" data-testid={`track-sessions-ref-${track._localId}`}>
+                              <Label className="text-xs text-slate-400">Linked Sessions</Label>
+                              <div className="space-y-1">
+                                {linkedSessions.map(s => (
+                                  <div key={s._localId} className="flex items-center gap-2 text-xs text-slate-500 px-2 py-1 rounded bg-slate-50">
+                                    <span className="font-medium truncate">{s.title || 'Untitled'}</span>
+                                    {s.start_time && (
+                                      <span className="text-slate-400 flex-shrink-0">
+                                        {new Date(s.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </CardContent>
                     )}
                   </Card>
