@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { tenant } = await resolveTenantFromRequest(req);
+    const tenant = await resolveTenantFromRequest(req);
     if (!tenant) return res.status(400).json({ error: 'Tenant not found' });
 
     const { event_id, ticket_class_id, discount_code } = req.body;
