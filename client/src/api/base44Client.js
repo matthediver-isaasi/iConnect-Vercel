@@ -277,6 +277,7 @@ class EntitiesProxy {
   get ComplexEvent() { return this._getEntity('ComplexEvent'); }
   get ComplexEventTrack() { return this._getEntity('ComplexEventTrack'); }
   get ComplexEventSession() { return this._getEntity('ComplexEventSession'); }
+  get ComplexEventTicketClass() { return this._getEntity('ComplexEventTicketClass'); }
 }
 
 const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets
