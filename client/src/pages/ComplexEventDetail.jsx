@@ -560,14 +560,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
   const isTicketRestricted = (tc) => {
     const vis = tc.visibility_mode || 'members_only';
     if (isGuest) return vis === 'members_only';
-    if (!isGuest) return vis === 'public_only';
-    return false;
+    return vis === 'public_only';
   };
-
-  const hasOnlyRestrictedTickets = useMemo(() => {
-    if (ticketClasses.length === 0) return false;
-    return ticketClasses.every(tc => isTicketRestricted(tc));
-  }, [ticketClasses, isGuest]);
 
   useEffect(() => {
     if (ticketClasses.length > 0) {
@@ -968,39 +962,25 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </div>
       )}
 
-      {hasOnlyRestrictedTickets ? (
-        <div className="text-sm text-center space-y-2 p-3 rounded-md border border-slate-200 bg-slate-50">
-          <Lock className="w-5 h-5 text-slate-400 mx-auto" />
-          <p className="text-slate-600 font-medium">{isGuest ? 'Members Only' : 'Public Only'}</p>
-          <p className="text-slate-500">
-            {isGuest
-              ? 'Please log in with your member account to register for these tickets.'
-              : 'These tickets are only available to non-member registrants.'}
-          </p>
-        </div>
-      ) : (
-        <Button
-          className="w-full"
-          onClick={handleBooking}
-          disabled={!isFormValid || submitting || ticketClasses.length === 0 || (selectedTicket && isTicketRestricted(selectedTicket))}
-          data-testid="button-submit-booking"
-        >
-          {submitting ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : selectedTicket && isTicketRestricted(selectedTicket) ? (
-            isGuest ? "Log in to Register" : "Not Available"
-          ) : totalPrice === 0 ? (
-            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-          ) : selectedPaymentMethod === 'card' ? (
-            `Pay \u00a3${totalPrice.toFixed(2)}`
-          ) : (
-            `Register - \u00a3${totalPrice.toFixed(2)}`
-          )}
-        </Button>
-      )}
+      <Button
+        className="w-full"
+        onClick={handleBooking}
+        disabled={!isFormValid || submitting || ticketClasses.length === 0}
+        data-testid="button-submit-booking"
+      >
+        {submitting ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            Processing...
+          </>
+        ) : totalPrice === 0 ? (
+          attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
+        ) : selectedPaymentMethod === 'card' ? (
+          `Pay \u00a3${totalPrice.toFixed(2)}`
+        ) : (
+          `Register - \u00a3${totalPrice.toFixed(2)}`
+        )}
+      </Button>
 
       {ticketClasses.length === 0 && (
         <p className="text-sm text-center text-slate-500">
@@ -1248,39 +1228,25 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
           </div>
         )}
 
-        {hasOnlyRestrictedTickets ? (
-          <div className="text-sm text-center space-y-2 p-3 rounded-md border border-slate-200 bg-slate-50">
-            <Lock className="w-5 h-5 text-slate-400 mx-auto" />
-            <p className="text-slate-600 font-medium">{isGuest ? 'Members Only' : 'Public Only'}</p>
-            <p className="text-slate-500">
-              {isGuest
-                ? 'Please log in with your member account to register.'
-                : 'These tickets are only available to non-member registrants.'}
-            </p>
-          </div>
-        ) : (
-          <Button
-            className="w-full"
-            onClick={handleBooking}
-            disabled={!isFormValid || submitting || ticketClasses.length === 0 || (selectedTicket && isTicketRestricted(selectedTicket))}
-            data-testid="button-submit-booking-sidebar"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : selectedTicket && isTicketRestricted(selectedTicket) ? (
-              isGuest ? "Log in to Register" : "Not Available"
-            ) : totalPrice === 0 ? (
-              attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
-            ) : selectedPaymentMethod === 'card' ? (
-              `Pay \u00a3${totalPrice.toFixed(2)}`
-            ) : (
-              `Register - \u00a3${totalPrice.toFixed(2)}`
-            )}
-          </Button>
-        )}
+        <Button
+          className="w-full"
+          onClick={handleBooking}
+          disabled={!isFormValid || submitting || ticketClasses.length === 0}
+          data-testid="button-submit-booking-sidebar"
+        >
+          {submitting ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Processing...
+            </>
+          ) : totalPrice === 0 ? (
+            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
+          ) : selectedPaymentMethod === 'card' ? (
+            `Pay \u00a3${totalPrice.toFixed(2)}`
+          ) : (
+            `Register - \u00a3${totalPrice.toFixed(2)}`
+          )}
+        </Button>
 
         {ticketClasses.length === 0 && (
           <p className="text-sm text-center text-slate-500">No tickets are currently available for public registration.</p>
