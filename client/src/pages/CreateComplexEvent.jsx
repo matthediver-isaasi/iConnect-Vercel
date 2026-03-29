@@ -619,10 +619,13 @@ export default function CreateComplexEvent() {
           (id) => !currentSessionDbIds.includes(id)
         );
         for (const sid of deletedSessionIds) {
-          await fetch(`/api/complex-event-sessions/${sid}`, {
+          const delResp = await fetch(`/api/complex-event-sessions/${sid}`, {
             method: 'DELETE',
             credentials: 'include',
           });
+          if (!delResp.ok) {
+            console.error(`Failed to delete session ${sid}:`, delResp.status);
+          }
         }
       }
 

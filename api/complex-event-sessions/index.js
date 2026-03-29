@@ -256,6 +256,7 @@ export default async function handler(req, res) {
 
         if (junctionError) {
           console.error('[Sessions] Junction insert error:', junctionError);
+          await supabase.from('complex_event_session').delete().eq('id', session.id);
           return res.status(500).json({ error: 'Failed to assign tracks to session' });
         }
       }
