@@ -1070,8 +1070,160 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        {ticketSelectorContent}
+        {ticketClasses.length > 1 && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Select Ticket</Label>
+            <RadioGroup
+              value={selectedTicketClassId || ''}
+              onValueChange={setSelectedTicketClassId}
+            >
+              {ticketClasses.map(tc => {
+                const tcPrice = getEffectiveTicketPrice(tc);
+                return (
+                  <div
+                    key={tc.id}
+                    className={`flex items-center gap-3 p-3 rounded-md border ${selectedTicketClassId === tc.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
+                  >
+                    <RadioGroupItem value={tc.id} id={`tc-sidebar-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
+                    <Label htmlFor={`tc-sidebar-${tc.id}`} className="flex-1 cursor-pointer">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <span className="font-medium text-slate-900">{tc.name}</span>
+                          {tc.description && (
+                            <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
+                          )}
+                          <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
+                        </div>
+                        <div className="text-right">
+                          {tcPrice.isEarlyBird ? (
+                            <>
+                              <span className="font-semibold text-green-700">{'\u00a3'}{tcPrice.price.toFixed(2)}</span>
+                              <span className="text-xs text-slate-400 line-through ml-1">{'\u00a3'}{tcPrice.standardPrice.toFixed(2)}</span>
+                            </>
+                          ) : (
+                            <span className="font-semibold text-slate-900">
+                              {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
+                            </span>
+                          )}
+                          {tc.is_group_ticket && tc.group_size > 1 && (
+                            <div className="text-[11px] text-slate-500">Group of {tc.group_size}</div>
+                          )}
+                        </div>
+                      </div>
+                    </Label>
+                  </div>
+                );
+              })}
+            </RadioGroup>
+          </div>
+        )}
+
+        {ticketClasses.length === 1 && selectedTicket && (
+          <div className="p-3 rounded-md border border-indigo-200 bg-indigo-50">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <span className="font-medium text-slate-900">{selectedTicket.name}</span>
+                {selectedTicket.description && (
+                  <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
+                )}
+                <TrackAccessIndicator ticket={selectedTicket} tracks={eventTracks} />
+              </div>
+              <span className="font-semibold text-slate-900">
+                {effectivePrice.price === 0 ? 'Free' : `\u00a3${effectivePrice.price.toFixed(2)}`}
+              </span>
+            </div>
+          </div>
+        )}
+
         {attendeeContent}
+
+        {isPaidTicket && (
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Payment Method</Label>
+            <RadioGroup
+              value={selectedPaymentMethod}
+              onValueChange={setSelectedPaymentMethod}
+            >
+              {paymentMethods.map(method => {
+                const MethodIcon = method.icon;
+                return (
+                  <div
+                    key={method.id}
+                    className={`flex items-center gap-3 p-3 rounded-md border ${selectedPaymentMethod === method.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200'}`}
+                  >
+                    <RadioGroupItem value={method.id} id={`pm-sidebar-${method.id}`} data-testid={`radio-payment-sidebar-${method.id}`} />
+                    <Label htmlFor={`pm-sidebar-${method.id}`} className="flex-1 cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <MethodIcon className="w-4 h-4 text-slate-500" />
+                        <div>
+                          <span className="font-medium text-slate-900">{method.label}</span>
+                          <p className="text-xs text-slate-500">{method.description}</p>
+                        </div>
+                      </div>
+                    </Label>
+                  </div>
+                );
+              })}
+            </RadioGroup>
+          </div>
+        )}
+
+        {isPaidTicket && (
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Discount Code (optional)</Label>
+            <Input
+              placeholder="Enter discount code"
+              value={discountCode}
+              onChange={(e) => setDiscountCode(e.target.value)}
+              data-testid="input-discount-code-sidebar"
+            />
+          </div>
+        )}
+
+        {totalPrice > 0 && (
+          <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
+            {attendeeCount > 1 && (
+              <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
+                <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-slate-600">Total</span>
+              <span className="text-lg font-bold text-slate-900">{'\u00a3'}{totalPrice.toFixed(2)}</span>
+            </div>
+            {isPaidTicket && selectedPaymentMethod !== 'card' && (
+              <p className="text-xs text-slate-500 mt-1">
+                Your registration will be confirmed once payment is received.
+              </p>
+            )}
+          </div>
+        )}
+
+        <Button
+          className="w-full"
+          onClick={handleBooking}
+          disabled={!isFormValid || submitting || ticketClasses.length === 0}
+          data-testid="button-submit-booking-sidebar"
+        >
+          {submitting ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Processing...
+            </>
+          ) : totalPrice === 0 ? (
+            attendeeCount > 1 ? `Register ${attendeeCount} Attendees (Free)` : "Register (Free)"
+          ) : selectedPaymentMethod === 'card' ? (
+            `Pay \u00a3${totalPrice.toFixed(2)}`
+          ) : (
+            `Register - \u00a3${totalPrice.toFixed(2)}`
+          )}
+        </Button>
+
+        {ticketClasses.length === 0 && (
+          <p className="text-sm text-center text-slate-500">
+            No tickets are currently available for public registration.
+          </p>
+        )}
       </CardContent>
       {stripeDialog}
     </Card>
