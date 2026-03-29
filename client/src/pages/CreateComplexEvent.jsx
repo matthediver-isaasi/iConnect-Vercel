@@ -124,7 +124,8 @@ export default function CreateComplexEvent() {
 
   const [tracks, setTracks] = useState([]);
   const [expandedTracks, setExpandedTracks] = useState({});
-  const [sessionDialogTrackId, setSessionDialogTrackId] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [editingSession, setEditingSession] = useState(null);
   const [sessionForm, setSessionForm] = useState({
     title: "",
@@ -135,6 +136,7 @@ export default function CreateComplexEvent() {
     end_time: "",
     location: "",
     is_online: false,
+    track_ids: [],
   });
   const [speakerInput, setSpeakerInput] = useState("");
 
@@ -188,20 +190,13 @@ export default function CreateComplexEvent() {
   });
 
   const { data: existingSessions = [], isLoading: loadingSessions } = useQuery({
-    queryKey: ["/api/entities/ComplexEventSession", editId],
+    queryKey: ["/api/complex-event-sessions", editId],
     queryFn: async () => {
-      if (!existingTracks.length) return [];
-      const allSessions = [];
-      for (const track of existingTracks) {
-        const sessions = await base44.entities.ComplexEventSession.list({
-          filter: { complex_event_track_id: track.id },
-          sort: { display_order: "asc" },
-        });
-        allSessions.push(...sessions);
-      }
-      return allSessions;
+      const resp = await fetch(`/api/complex-event-sessions?event_id=${editId}`, { credentials: 'include' });
+      if (!resp.ok) return [];
+      return resp.json();
     },
-    enabled: isEditMode && existingTracks.length > 0,
+    enabled: isEditMode,
   });
 
   const { data: existingTicketClasses = [], isLoading: loadingTicketClasses } = useQuery({
@@ -275,23 +270,28 @@ export default function CreateComplexEvent() {
 
   useEffect(() => {
     if (isEditMode && existingTracks.length > 0) {
-      const tracksWithSessions = existingTracks.map((t) => ({
+      const loadedTracks = existingTracks.map((t) => ({
         ...t,
         _localId: t.id,
-        sessions: existingSessions
-          .filter((s) => s.complex_event_track_id === t.id)
-          .map((s) => ({
-            ...s,
-            _localId: s.id,
-            speaker_names: s.speaker_names || [],
-          })),
       }));
-      setTracks(tracksWithSessions);
+      setTracks(loadedTracks);
       const expanded = {};
-      tracksWithSessions.forEach((t) => { expanded[t._localId] = true; });
+      loadedTracks.forEach((t) => { expanded[t._localId] = true; });
       setExpandedTracks(expanded);
     }
-  }, [existingTracks, existingSessions, isEditMode]);
+  }, [existingTracks, isEditMode]);
+
+  useEffect(() => {
+    if (isEditMode && existingSessions.length > 0) {
+      const loadedSessions = existingSessions.map((s) => ({
+        ...s,
+        _localId: s.id,
+        speaker_names: s.speaker_names || [],
+        track_ids: s.track_ids || [],
+      }));
+      setSessions(loadedSessions);
+    }
+  }, [existingSessions, isEditMode]);
 
   useEffect(() => {
     if (formData.title && !slugManuallyEdited) {
@@ -315,7 +315,6 @@ export default function CreateComplexEvent() {
       description: "",
       colour: TRACK_COLOURS[colourIdx],
       display_order: tracks.length,
-      sessions: [],
     };
     setTracks((prev) => [...prev, newTrack]);
     setExpandedTracks((prev) => ({ ...prev, [newTrack._localId]: true }));
@@ -335,6 +334,10 @@ export default function CreateComplexEvent() {
       ...t,
       linked_track_ids: (t.linked_track_ids || []).filter(id => id !== trackRef),
     })));
+    setSessions((prev) => prev.map(s => ({
+      ...s,
+      track_ids: (s.track_ids || []).filter(id => id !== trackRef),
+    })));
   };
 
   const moveTrack = (localId, direction) => {
@@ -347,8 +350,8 @@ export default function CreateComplexEvent() {
     });
   };
 
-  const openSessionDialog = (trackLocalId, session = null) => {
-    setSessionDialogTrackId(trackLocalId);
+  const openSessionDialog = (session = null) => {
+    setSessionDialogOpen(true);
     if (session) {
       setEditingSession(session._localId);
       setSessionForm({
@@ -360,6 +363,7 @@ export default function CreateComplexEvent() {
         end_time: session.end_time ? session.end_time.slice(0, 16) : "",
         location: session.location || "",
         is_online: session.is_online || false,
+        track_ids: session.track_ids || [],
       });
       setSpeakerInput("");
     } else {
@@ -373,13 +377,14 @@ export default function CreateComplexEvent() {
         end_time: "",
         location: "",
         is_online: false,
+        track_ids: [],
       });
       setSpeakerInput("");
     }
   };
 
   const closeSessionDialog = () => {
-    setSessionDialogTrackId(null);
+    setSessionDialogOpen(false);
     setEditingSession(null);
   };
 
@@ -388,51 +393,44 @@ export default function CreateComplexEvent() {
       toast.error("Session title is required");
       return;
     }
-    setTracks((prev) =>
-      prev.map((t) => {
-        if (t._localId !== sessionDialogTrackId) return t;
-        if (editingSession) {
-          return {
-            ...t,
-            sessions: t.sessions.map((s) =>
-              s._localId === editingSession ? { ...s, ...sessionForm } : s
-            ),
-          };
-        }
-        return {
-          ...t,
-          sessions: [
-            ...t.sessions,
-            { ...sessionForm, _localId: generateId(), display_order: t.sessions.length },
-          ],
-        };
-      })
-    );
+    if (editingSession) {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s._localId === editingSession ? { ...s, ...sessionForm } : s
+        )
+      );
+    } else {
+      setSessions((prev) => [
+        ...prev,
+        { ...sessionForm, _localId: generateId(), display_order: prev.length },
+      ]);
+    }
     closeSessionDialog();
   };
 
-  const removeSession = (trackLocalId, sessionLocalId) => {
-    setTracks((prev) =>
-      prev.map((t) =>
-        t._localId === trackLocalId
-          ? { ...t, sessions: t.sessions.filter((s) => s._localId !== sessionLocalId) }
-          : t
-      )
-    );
+  const removeSession = (sessionLocalId) => {
+    setSessions((prev) => prev.filter((s) => s._localId !== sessionLocalId));
   };
 
-  const moveSession = (trackLocalId, sessionLocalId, direction) => {
-    setTracks((prev) =>
-      prev.map((t) => {
-        if (t._localId !== trackLocalId) return t;
-        const idx = t.sessions.findIndex((s) => s._localId === sessionLocalId);
-        if ((direction === -1 && idx === 0) || (direction === 1 && idx === t.sessions.length - 1))
-          return t;
-        const next = [...t.sessions];
-        [next[idx], next[idx + direction]] = [next[idx + direction], next[idx]];
-        return { ...t, sessions: next.map((s, i) => ({ ...s, display_order: i })) };
-      })
-    );
+  const moveSession = (sessionLocalId, direction) => {
+    setSessions((prev) => {
+      const idx = prev.findIndex((s) => s._localId === sessionLocalId);
+      if ((direction === -1 && idx === 0) || (direction === 1 && idx === prev.length - 1))
+        return prev;
+      const next = [...prev];
+      [next[idx], next[idx + direction]] = [next[idx + direction], next[idx]];
+      return next.map((s, i) => ({ ...s, display_order: i }));
+    });
+  };
+
+  const toggleTrackForSession = (trackRef) => {
+    setSessionForm((prev) => {
+      const current = prev.track_ids || [];
+      const updated = current.includes(trackRef)
+        ? current.filter(id => id !== trackRef)
+        : [...current, trackRef];
+      return { ...prev, track_ids: updated };
+    });
   };
 
   const addSpeaker = () => {
@@ -555,12 +553,6 @@ export default function CreateComplexEvent() {
         const currentTrackDbIds = tracks.filter((t) => t.id).map((t) => t.id);
         const deletedTrackIds = existingTrackIds.filter((id) => !currentTrackDbIds.includes(id));
         for (const trackId of deletedTrackIds) {
-          const sessions = await base44.entities.ComplexEventSession.filter({
-            complex_event_track_id: trackId,
-          });
-          for (const s of sessions) {
-            await base44.entities.ComplexEventSession.delete(s.id);
-          }
           await base44.entities.ComplexEventTrack.delete(trackId);
         }
       }
@@ -586,39 +578,61 @@ export default function CreateComplexEvent() {
         }
         trackIdMap[track._localId] = trackId;
         if (track.id) trackIdMap[track.id] = trackId;
+      }
 
-        if (isEditMode && track.id) {
-          const existingSessionIds = existingSessions
-            .filter((s) => s.complex_event_track_id === track.id)
-            .map((s) => s.id);
-          const currentSessionDbIds = track.sessions.filter((s) => s.id).map((s) => s.id);
-          const deletedSessionIds = existingSessionIds.filter(
-            (id) => !currentSessionDbIds.includes(id)
-          );
-          for (const sid of deletedSessionIds) {
-            await base44.entities.ComplexEventSession.delete(sid);
-          }
+      if (isEditMode) {
+        const existingSessionIds = existingSessions.map((s) => s.id);
+        const currentSessionDbIds = sessions.filter((s) => s.id).map((s) => s.id);
+        const deletedSessionIds = existingSessionIds.filter(
+          (id) => !currentSessionDbIds.includes(id)
+        );
+        for (const sid of deletedSessionIds) {
+          await fetch(`/api/complex-event-sessions/${sid}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          });
         }
+      }
 
-        for (let si = 0; si < track.sessions.length; si++) {
-          const session = track.sessions[si];
-          const sessionPayload = {
-            complex_event_track_id: trackId,
-            title: session.title || "Untitled Session",
-            description: session.description || null,
-            image_url: session.image_url || null,
-            speaker_names: session.speaker_names || [],
-            start_time: session.start_time || null,
-            end_time: session.end_time || null,
-            location: session.location || null,
-            is_online: session.is_online || false,
-            display_order: si,
-          };
+      for (let si = 0; si < sessions.length; si++) {
+        const session = sessions[si];
+        const resolvedTrackIds = (session.track_ids || []).map(id => trackIdMap[id] || id);
+        const sessionPayload = {
+          complex_event_id: eventId,
+          title: session.title || "Untitled Session",
+          description: session.description || null,
+          image_url: session.image_url || null,
+          speaker_names: session.speaker_names || [],
+          start_time: session.start_time || null,
+          end_time: session.end_time || null,
+          location: session.location || null,
+          is_online: session.is_online || false,
+          display_order: si,
+          track_ids: resolvedTrackIds,
+          timezone: formData.timezone,
+        };
 
-          if (session.id) {
-            await base44.entities.ComplexEventSession.update(session.id, sessionPayload);
-          } else {
-            await base44.entities.ComplexEventSession.create(sessionPayload);
+        if (session.id) {
+          const resp = await fetch(`/api/complex-event-sessions/${session.id}`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sessionPayload),
+          });
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to update session: ${session.title}`);
+          }
+        } else {
+          const resp = await fetch('/api/complex-event-sessions', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sessionPayload),
+          });
+          if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.error || `Failed to create session: ${session.title}`);
           }
         }
       }
@@ -683,7 +697,7 @@ export default function CreateComplexEvent() {
     }
   };
 
-  if (isEditMode && (loadingEvent || loadingTracks || loadingTicketClasses)) {
+  if (isEditMode && (loadingEvent || loadingTracks || loadingSessions || loadingTicketClasses)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
@@ -883,243 +897,278 @@ export default function CreateComplexEvent() {
         )}
 
         {activeSection === "tracks" && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Tracks & Sessions</h2>
-                <p className="text-sm text-slate-500">
-                  Organise your event into tracks and add sessions to each track.
-                </p>
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Tracks</h2>
+                  <p className="text-sm text-slate-500">
+                    Define tracks to organise sessions by theme, room, or stream.
+                  </p>
+                </div>
+                <Button onClick={addTrack} data-testid="button-add-track">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Track
+                </Button>
               </div>
-              <Button onClick={addTrack} data-testid="button-add-track">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Track
-              </Button>
-            </div>
 
-            {tracks.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <p className="text-slate-500 mb-2" data-testid="text-no-tracks">
-                    No tracks yet
-                  </p>
-                  <p className="text-slate-400 text-sm mb-4">
-                    Add tracks to organise sessions by theme, room, or stream.
-                  </p>
-                  <Button variant="outline" onClick={addTrack} data-testid="button-add-first-track">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add First Track
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              tracks.map((track, trackIdx) => (
-                <Card key={track._localId} data-testid={`card-track-${track._localId}`}>
-                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <div
-                        className="w-4 h-4 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: track.colour || "#3B82F6" }}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          setExpandedTracks((prev) => ({
-                            ...prev,
-                            [track._localId]: !prev[track._localId],
-                          }))
-                        }
-                      >
-                        {expandedTracks[track._localId] ? (
+              {tracks.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <p className="text-slate-500 mb-2" data-testid="text-no-tracks">
+                      No tracks yet
+                    </p>
+                    <p className="text-slate-400 text-sm mb-4">
+                      Add tracks to organise sessions by theme, room, or stream.
+                    </p>
+                    <Button variant="outline" onClick={addTrack} data-testid="button-add-first-track">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add First Track
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                tracks.map((track, trackIdx) => (
+                  <Card key={track._localId} data-testid={`card-track-${track._localId}`}>
+                    <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <div
+                          className="w-4 h-4 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: track.colour || "#3B82F6" }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            setExpandedTracks((prev) => ({
+                              ...prev,
+                              [track._localId]: !prev[track._localId],
+                            }))
+                          }
+                        >
+                          {expandedTracks[track._localId] ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <span className="font-semibold truncate">
+                          {track.name || "Untitled Track"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={trackIdx === 0}
+                          onClick={() => moveTrack(track._localId, -1)}
+                          data-testid={`button-move-track-up-${track._localId}`}
+                        >
                           <ChevronUp className="w-4 h-4" />
-                        ) : (
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={trackIdx === tracks.length - 1}
+                          onClick={() => moveTrack(track._localId, 1)}
+                          data-testid={`button-move-track-down-${track._localId}`}
+                        >
                           <ChevronDown className="w-4 h-4" />
-                        )}
-                      </Button>
-                      <span className="font-semibold truncate">
-                        {track.name || "Untitled Track"}
-                      </span>
-                      <Badge variant="secondary">{track.sessions?.length || 0} sessions</Badge>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled={trackIdx === 0}
-                        onClick={() => moveTrack(track._localId, -1)}
-                        data-testid={`button-move-track-up-${track._localId}`}
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled={trackIdx === tracks.length - 1}
-                        onClick={() => moveTrack(track._localId, 1)}
-                        data-testid={`button-move-track-down-${track._localId}`}
-                      >
-                        <ChevronDown className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeTrack(track._localId)}
-                        data-testid={`button-remove-track-${track._localId}`}
-                      >
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </Button>
-                    </div>
-                  </CardHeader>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeTrack(track._localId)}
+                          data-testid={`button-remove-track-${track._localId}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </CardHeader>
 
-                  {expandedTracks[track._localId] && (
-                    <CardContent className="space-y-4">
-                      <div className="grid gap-4 md:grid-cols-2">
+                    {expandedTracks[track._localId] && (
+                      <CardContent className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label>Track Name *</Label>
+                            <Input
+                              value={track.name}
+                              onChange={(e) => updateTrack(track._localId, "name", e.target.value)}
+                              placeholder="e.g. Main Stage, Workshop Room A"
+                              data-testid={`input-track-name-${track._localId}`}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Colour</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {TRACK_COLOURS.map((c) => (
+                                <button
+                                  key={c}
+                                  className={`w-7 h-7 rounded-full border-2 transition-all ${
+                                    track.colour === c ? "border-slate-900 scale-110" : "border-transparent"
+                                  }`}
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => updateTrack(track._localId, "colour", c)}
+                                  data-testid={`button-colour-${c}-${track._localId}`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="space-y-2">
-                          <Label>Track Name *</Label>
-                          <Input
-                            value={track.name}
-                            onChange={(e) => updateTrack(track._localId, "name", e.target.value)}
-                            placeholder="e.g. Main Stage, Workshop Room A"
-                            data-testid={`input-track-name-${track._localId}`}
+                          <Label>Track Description</Label>
+                          <Textarea
+                            value={track.description || ""}
+                            onChange={(e) => updateTrack(track._localId, "description", e.target.value)}
+                            placeholder="Describe this track..."
+                            rows={2}
+                            data-testid={`input-track-description-${track._localId}`}
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Colour</Label>
-                          <div className="flex flex-wrap gap-2">
-                            {TRACK_COLOURS.map((c) => (
-                              <button
-                                key={c}
-                                className={`w-7 h-7 rounded-full border-2 transition-all ${
-                                  track.colour === c ? "border-slate-900 scale-110" : "border-transparent"
-                                }`}
-                                style={{ backgroundColor: c }}
-                                onClick={() => updateTrack(track._localId, "colour", c)}
-                                data-testid={`button-colour-${c}-${track._localId}`}
-                              />
-                            ))}
+                      </CardContent>
+                    )}
+                  </Card>
+                ))
+              )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Sessions</h2>
+                  <p className="text-sm text-slate-500">
+                    Add sessions and assign them to one or more tracks.
+                  </p>
+                </div>
+                <Button onClick={() => openSessionDialog()} data-testid="button-add-session">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Session
+                </Button>
+              </div>
+
+              {sessions.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <p className="text-slate-500 mb-2" data-testid="text-no-sessions">
+                      No sessions yet
+                    </p>
+                    <p className="text-slate-400 text-sm mb-4">
+                      Add sessions and assign them to tracks.
+                    </p>
+                    <Button variant="outline" onClick={() => openSessionDialog()} data-testid="button-add-first-session">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add First Session
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {sessions.map((session, sessionIdx) => {
+                    const sessionTrackNames = (session.track_ids || []).map(tid => {
+                      const t = tracks.find(tr => (tr.id || tr._localId) === tid);
+                      return t ? { name: t.name || "Untitled Track", colour: t.colour } : null;
+                    }).filter(Boolean);
+
+                    return (
+                      <div
+                        key={session._localId}
+                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100"
+                        data-testid={`session-item-${session._localId}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-sm text-slate-800 truncate">
+                              {session.title || "Untitled Session"}
+                            </span>
+                            {session.is_online && (
+                              <Badge variant="outline" className="text-xs">
+                                <Monitor className="w-3 h-3 mr-1" />
+                                Virtual
+                              </Badge>
+                            )}
                           </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
+                            {session.start_time && (
+                              <span className="flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(session.start_time).toLocaleString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            )}
+                            {session.location && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {session.location}
+                              </span>
+                            )}
+                            {session.speaker_names?.length > 0 && (
+                              <span>{session.speaker_names.join(", ")}</span>
+                            )}
+                          </div>
+                          {sessionTrackNames.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                              {sessionTrackNames.map((t, i) => (
+                                <Badge key={i} variant="secondary" className="text-xs gap-1">
+                                  <div
+                                    className="w-2.5 h-2.5 rounded-full"
+                                    style={{ backgroundColor: t.colour || "#94a3b8" }}
+                                  />
+                                  {t.name}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          {sessionTrackNames.length === 0 && (
+                            <p className="text-xs text-amber-600 mt-1">No tracks assigned</p>
+                          )}
                         </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Track Description</Label>
-                        <Textarea
-                          value={track.description || ""}
-                          onChange={(e) => updateTrack(track._localId, "description", e.target.value)}
-                          placeholder="Describe this track..."
-                          rows={2}
-                          data-testid={`input-track-description-${track._localId}`}
-                        />
-                      </div>
-
-                      <Separator />
-
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <h4 className="font-medium text-slate-700">Sessions</h4>
+                        <div className="flex items-center gap-1">
                           <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openSessionDialog(track._localId)}
-                            data-testid={`button-add-session-${track._localId}`}
+                            variant="ghost"
+                            size="icon"
+                            disabled={sessionIdx === 0}
+                            onClick={() => moveSession(session._localId, -1)}
                           >
-                            <Plus className="w-3.5 h-3.5 mr-1" />
-                            Add Session
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={sessionIdx === sessions.length - 1}
+                            onClick={() => moveSession(session._localId, 1)}
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openSessionDialog(session)}
+                            data-testid={`button-edit-session-${session._localId}`}
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeSession(session._localId)}
+                            data-testid={`button-remove-session-${session._localId}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
                           </Button>
                         </div>
-
-                        {(!track.sessions || track.sessions.length === 0) ? (
-                          <p className="text-sm text-slate-400 py-4 text-center" data-testid={`text-no-sessions-${track._localId}`}>
-                            No sessions in this track yet.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {track.sessions.map((session, sessionIdx) => (
-                              <div
-                                key={session._localId}
-                                className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100"
-                                data-testid={`session-item-${session._localId}`}
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-medium text-sm text-slate-800 truncate">
-                                      {session.title || "Untitled Session"}
-                                    </span>
-                                    {session.is_online && (
-                                      <Badge variant="outline" className="text-xs">
-                                        <Monitor className="w-3 h-3 mr-1" />
-                                        Virtual
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
-                                    {session.start_time && (
-                                      <span className="flex items-center gap-1">
-                                        <Calendar className="w-3 h-3" />
-                                        {new Date(session.start_time).toLocaleString(undefined, {
-                                          month: "short",
-                                          day: "numeric",
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        })}
-                                      </span>
-                                    )}
-                                    {session.location && (
-                                      <span className="flex items-center gap-1">
-                                        <MapPin className="w-3 h-3" />
-                                        {session.location}
-                                      </span>
-                                    )}
-                                    {session.speaker_names?.length > 0 && (
-                                      <span>{session.speaker_names.join(", ")}</span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    disabled={sessionIdx === 0}
-                                    onClick={() => moveSession(track._localId, session._localId, -1)}
-                                  >
-                                    <ChevronUp className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    disabled={sessionIdx === track.sessions.length - 1}
-                                    onClick={() => moveSession(track._localId, session._localId, 1)}
-                                  >
-                                    <ChevronDown className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => openSessionDialog(track._localId, session)}
-                                    data-testid={`button-edit-session-${session._localId}`}
-                                  >
-                                    <Calendar className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => removeSession(track._localId, session._localId)}
-                                    data-testid={`button-remove-session-${session._localId}`}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
-                    </CardContent>
-                  )}
-                </Card>
-              ))
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1617,7 +1666,7 @@ export default function CreateComplexEvent() {
         )}
       </div>
 
-      <Dialog open={!!sessionDialogTrackId} onOpenChange={() => closeSessionDialog()}>
+      <Dialog open={sessionDialogOpen} onOpenChange={() => closeSessionDialog()}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingSession ? "Edit Session" : "Add Session"}</DialogTitle>
@@ -1636,6 +1685,41 @@ export default function CreateComplexEvent() {
                 placeholder="Session title"
                 data-testid="input-session-title"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tracks</Label>
+              {tracks.length === 0 ? (
+                <p className="text-sm text-slate-400">No tracks created yet. Add tracks first.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {tracks.map((track) => {
+                    const trackRef = track.id || track._localId;
+                    const isSelected = (sessionForm.track_ids || []).includes(trackRef);
+                    return (
+                      <div
+                        key={track._localId}
+                        className="flex items-center gap-2 p-2 cursor-pointer hover-elevate rounded-md"
+                        onClick={() => toggleTrackForSession(trackRef)}
+                        data-testid={`session-track-toggle-${track._localId}`}
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                          isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-300'
+                        }`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: track.colour || "#94a3b8" }}
+                          />
+                          <span className="text-sm">{track.name || "Untitled Track"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">

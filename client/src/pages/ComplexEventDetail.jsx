@@ -95,7 +95,8 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
   const allTracks = useMemo(() => {
     const trackSet = new Set();
     sessions.forEach(s => {
-      if (s.track_name) trackSet.add(s.track_name);
+      const names = s.track_names || (s.track_name ? [s.track_name] : []);
+      names.forEach(n => trackSet.add(n));
     });
     return Array.from(trackSet).sort();
   }, [sessions]);
@@ -106,9 +107,15 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
     <div className="space-y-8">
       {sessionsByDay.map((day, dayIndex) => {
         const dayTracks = new Set();
-        day.sessions.forEach(s => { if (s.track_name) dayTracks.add(s.track_name); });
+        day.sessions.forEach(s => {
+          const names = s.track_names || (s.track_name ? [s.track_name] : []);
+          names.forEach(n => dayTracks.add(n));
+        });
         const tracks = allTracks.filter(t => dayTracks.has(t));
-        const hasUntracked = day.sessions.some(s => !s.track_name);
+        const hasUntracked = day.sessions.some(s => {
+          const names = s.track_names || (s.track_name ? [s.track_name] : []);
+          return names.length === 0;
+        });
 
         const timeSlots = [];
         const slotMap = {};
@@ -178,17 +185,24 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
                         {slot.time}
                       </div>
                       {tracks.map(track => {
-                        const trackSession = slot.sessions.find(s => s.track_name === track);
+                        const trackSession = slot.sessions.find(s => {
+                          const names = s.track_names || (s.track_name ? [s.track_name] : []);
+                          return names.includes(track);
+                        });
                         const colors = trackColorMap[track];
                         if (!trackSession) {
                           return <div key={track} className="p-1" />;
                         }
+                        const isMultiTrack = (trackSession.track_names || []).length > 1;
                         return (
-                          <SessionCard key={trackSession.id} session={trackSession} timezone={timezone} colors={colors} />
+                          <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} />
                         );
                       })}
                       {hasUntracked && (() => {
-                        const untrackedSession = slot.sessions.find(s => !s.track_name);
+                        const untrackedSession = slot.sessions.find(s => {
+                          const names = s.track_names || (s.track_name ? [s.track_name] : []);
+                          return names.length === 0;
+                        });
                         if (!untrackedSession) return <div className="p-1" />;
                         return <SessionCard session={untrackedSession} timezone={timezone} colors={null} />;
                       })()}
@@ -204,7 +218,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap }) {
   );
 }
 
-function SessionCard({ session, timezone, colors }) {
+function SessionCard({ session, timezone, colors, isMultiTrack = false }) {
   const hasCustomColors = colors?.lightStyle;
   const fallbackClass = "bg-slate-50 border-slate-300";
 
@@ -214,7 +228,14 @@ function SessionCard({ session, timezone, colors }) {
       style={hasCustomColors ? { ...colors.lightStyle, ...colors.borderStyle } : undefined}
       data-testid={`session-card-${session.id}`}
     >
-      <div className="font-medium text-sm text-slate-900">{session.title}</div>
+      <div className="flex items-center gap-1.5">
+        <span className="font-medium text-sm text-slate-900">{session.title}</span>
+        {isMultiTrack && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+            <Layers className="h-2.5 w-2.5 mr-0.5" />Multi-Track
+          </Badge>
+        )}
+      </div>
       <div className="flex items-center gap-2 text-xs text-slate-600">
         <Clock className="w-3 h-3" />
         <span>
@@ -990,7 +1011,10 @@ export default function ComplexEventDetail() {
     eventTracks.forEach(t => { if (t.name) tracksByName[t.name] = t; });
 
     const trackNames = new Set();
-    sessions.forEach(s => { if (s.track_name) trackNames.add(s.track_name); });
+    sessions.forEach(s => {
+      const names = s.track_names || (s.track_name ? [s.track_name] : []);
+      names.forEach(n => trackNames.add(n));
+    });
 
     let fallbackIdx = 0;
     Array.from(trackNames).sort().forEach(trackName => {

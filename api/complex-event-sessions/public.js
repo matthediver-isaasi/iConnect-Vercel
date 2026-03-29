@@ -58,40 +58,58 @@ export default async function handler(req, res) {
     for (const track of (tracks || [])) {
       trackMap[track.id] = track;
     }
-    const trackIds = Object.keys(trackMap);
 
-    const sessionFields = 'id, complex_event_track_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order';
-
-    let sessionQuery = supabase
+    const { data: sessions, error: sessionsError } = await supabase
       .from('complex_event_session')
-      .select(sessionFields)
+      .select('id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, complex_event_id')
+      .eq('complex_event_id', event_id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true })
       .order('start_time', { ascending: true });
 
-    if (trackIds.length > 0) {
-      sessionQuery = sessionQuery.in('complex_event_track_id', trackIds);
-    } else {
-      return res.json([]);
-    }
-
-    const { data, error } = await sessionQuery;
-
-    if (error) {
-      console.error('[Sessions] Public list error:', error);
+    if (sessionsError) {
+      console.error('[Sessions] Public list error:', sessionsError);
       return res.status(500).json({ error: 'Failed to list sessions' });
     }
 
-    const sessions = (data || []).map(session => {
-      const track = trackMap[session.complex_event_track_id];
+    if (!sessions || sessions.length === 0) {
+      return res.json([]);
+    }
+
+    const sessionIds = sessions.map(s => s.id);
+    const { data: junctions, error: junctionError } = await supabase
+      .from('complex_event_session_track')
+      .select('complex_event_session_id, complex_event_track_id')
+      .in('complex_event_session_id', sessionIds)
+      .eq('tenant_id', tenant.id);
+
+    if (junctionError) {
+      console.error('[Sessions] Junction query error:', junctionError);
+    }
+
+    const sessionTrackMap = {};
+    for (const j of (junctions || [])) {
+      if (!sessionTrackMap[j.complex_event_session_id]) {
+        sessionTrackMap[j.complex_event_session_id] = [];
+      }
+      sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
+    }
+
+    const enriched = sessions.map(session => {
+      const trackIds = sessionTrackMap[session.id] || [];
+      const trackNames = trackIds.map(tid => trackMap[tid]?.name).filter(Boolean);
+      const trackColours = trackIds.map(tid => trackMap[tid]?.colour).filter(Boolean);
       return {
         ...session,
-        track_name: track?.name || null,
-        track_colour: track?.colour || null
+        track_ids: trackIds,
+        track_names: trackNames,
+        track_colours: trackColours,
+        track_name: trackNames[0] || null,
+        track_colour: trackColours[0] || null,
       };
     });
 
-    return res.json(sessions);
+    return res.json(enriched);
   } catch (error) {
     console.error('[Sessions] Public list error:', error);
     return res.status(500).json({ error: error.message || 'Failed to list sessions' });

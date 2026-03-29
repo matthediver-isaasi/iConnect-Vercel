@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantUser.tenant_id;
 
-  const ADMIN_LIST_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -48,22 +48,10 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Event not found' });
       }
 
-      const { data: tracks } = await supabase
-        .from('complex_event_track')
-        .select('id')
-        .eq('complex_event_id', event_id)
-        .eq('tenant_id', tenantId);
-
-      const trackIds = (tracks || []).map(t => t.id);
-
-      if (trackIds.length === 0) {
-        return res.json([]);
-      }
-
-      const { data, error } = await supabase
+      const { data: sessions, error } = await supabase
         .from('complex_event_session')
-        .select(ADMIN_LIST_FIELDS)
-        .in('complex_event_track_id', trackIds)
+        .select(SESSION_FIELDS)
+        .eq('complex_event_id', event_id)
         .eq('tenant_id', tenantId)
         .order('display_order', { ascending: true })
         .order('start_time', { ascending: true });
@@ -73,7 +61,32 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to list sessions' });
       }
 
-      return res.json(data || []);
+      const sessionIds = (sessions || []).map(s => s.id);
+      let junctions = [];
+      if (sessionIds.length > 0) {
+        const { data: jData } = await supabase
+          .from('complex_event_session_track')
+          .select('complex_event_session_id, complex_event_track_id')
+          .in('complex_event_session_id', sessionIds)
+          .eq('tenant_id', tenantId);
+        junctions = jData || [];
+      }
+
+      const sessionTrackMap = {};
+      for (const j of junctions) {
+        if (!sessionTrackMap[j.complex_event_session_id]) {
+          sessionTrackMap[j.complex_event_session_id] = [];
+        }
+        sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
+      }
+
+      const enriched = (sessions || []).map(s => ({
+        ...s,
+        track_ids: sessionTrackMap[s.id] || [],
+        complex_event_track_id: (sessionTrackMap[s.id] || [])[0] || null,
+      }));
+
+      return res.json(enriched);
     } catch (error) {
       console.error('[Sessions] List error:', error);
       return res.status(500).json({ error: error.message || 'Failed to list sessions' });
@@ -83,8 +96,8 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     try {
       const {
+        complex_event_id,
         event_id,
-        complex_event_track_id,
         title,
         description,
         start_time,
@@ -94,58 +107,34 @@ export default async function handler(req, res) {
         speaker_names,
         is_online = false,
         location,
-        image_url
+        image_url,
+        track_ids = [],
+        complex_event_track_id,
       } = req.body;
+
+      const effectiveEventId = complex_event_id || event_id;
 
       if (!title) {
         return res.status(400).json({ error: 'title is required' });
       }
 
-      let trackId = complex_event_track_id;
-
-      if (event_id && !trackId) {
-        const { data: event, error: eventError } = await supabase
-          .from('complex_event')
-          .select('id, tenant_id')
-          .eq('id', event_id)
-          .eq('tenant_id', tenantId)
-          .single();
-
-        if (eventError || !event) {
-          return res.status(404).json({ error: 'Event not found' });
-        }
-
-        const { data: tracks } = await supabase
-          .from('complex_event_track')
-          .select('id')
-          .eq('complex_event_id', event_id)
-          .eq('tenant_id', tenantId)
-          .order('display_order', { ascending: true })
-          .limit(1);
-
-        if (!tracks || tracks.length === 0) {
-          return res.status(400).json({ error: 'No tracks found for this event. Create a track first.' });
-        }
-        trackId = tracks[0].id;
+      if (!effectiveEventId) {
+        return res.status(400).json({ error: 'complex_event_id is required' });
       }
 
-      if (!trackId) {
-        return res.status(400).json({ error: 'complex_event_track_id or event_id is required' });
-      }
-
-      const { data: track, error: trackError } = await supabase
-        .from('complex_event_track')
-        .select('id, tenant_id, complex_event_id')
-        .eq('id', trackId)
+      const { data: eventCheck, error: eventError } = await supabase
+        .from('complex_event')
+        .select('id, tenant_id')
+        .eq('id', effectiveEventId)
         .eq('tenant_id', tenantId)
         .single();
 
-      if (trackError || !track) {
-        return res.status(404).json({ error: 'Track not found' });
+      if (eventError || !eventCheck) {
+        return res.status(404).json({ error: 'Event not found' });
       }
 
       const sessionData = {
-        complex_event_track_id: trackId,
+        complex_event_id: effectiveEventId,
         tenant_id: tenantId,
         title,
         description: description || null,
@@ -155,13 +144,17 @@ export default async function handler(req, res) {
         end_time: end_time ? convertLocalTimeToUTC(end_time, timezone) : null,
         location: location || null,
         is_online: is_online || false,
-        display_order
+        display_order,
       };
+
+      if (complex_event_track_id) {
+        sessionData.complex_event_track_id = complex_event_track_id;
+      }
 
       const { data: session, error: insertError } = await supabase
         .from('complex_event_session')
         .insert(sessionData)
-        .select(ADMIN_LIST_FIELDS)
+        .select(SESSION_FIELDS)
         .single();
 
       if (insertError) {
@@ -169,7 +162,40 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to create session' });
       }
 
-      return res.json({ success: true, session });
+      const effectiveTrackIds = track_ids.length > 0 ? track_ids : (complex_event_track_id ? [complex_event_track_id] : []);
+
+      if (effectiveTrackIds.length > 0) {
+        const { data: validTracks } = await supabase
+          .from('complex_event_track')
+          .select('id')
+          .in('id', effectiveTrackIds)
+          .eq('complex_event_id', effectiveEventId)
+          .eq('tenant_id', tenantId);
+
+        const validTrackIds = (validTracks || []).map(t => t.id);
+        const invalidIds = effectiveTrackIds.filter(id => !validTrackIds.includes(id));
+        if (invalidIds.length > 0) {
+          await supabase.from('complex_event_session').delete().eq('id', session.id);
+          return res.status(400).json({ error: `Invalid track IDs: ${invalidIds.join(', ')}` });
+        }
+
+        const junctionRows = effectiveTrackIds.map(tid => ({
+          complex_event_session_id: session.id,
+          complex_event_track_id: tid,
+          tenant_id: tenantId,
+        }));
+
+        const { error: junctionError } = await supabase
+          .from('complex_event_session_track')
+          .insert(junctionRows);
+
+        if (junctionError) {
+          console.error('[Sessions] Junction insert error:', junctionError);
+          return res.status(500).json({ error: 'Failed to assign tracks to session' });
+        }
+      }
+
+      return res.json({ success: true, session: { ...session, track_ids: effectiveTrackIds } });
     } catch (error) {
       console.error('[Sessions] Create error:', error);
       return res.status(500).json({ error: error.message || 'Failed to create session' });
@@ -178,4 +204,3 @@ export default async function handler(req, res) {
 
   return res.status(405).json({ error: 'Method not allowed' });
 }
-
