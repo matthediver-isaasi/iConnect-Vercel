@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
 import { fromZonedTime } from 'date-fns-tz';
 
 function convertLocalTimeToUTC(localTimeStr, timezone) {
@@ -60,11 +60,11 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const tenantUser = await getSessionTenantUser(req);
-  if (!tenantUser?.tenant_id) {
-    return res.status(403).json({ error: 'Admin access required' });
+  const tenantCtx = await getTenantContext(req);
+  if (!tenantCtx?.isAuthenticated || !tenantCtx?.tenantId) {
+    return res.status(403).json({ error: 'Authentication required' });
   }
-  const tenantId = tenantUser.tenant_id;
+  const tenantId = tenantCtx.tenantId;
 
   const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, created_at, updated_at';
 
