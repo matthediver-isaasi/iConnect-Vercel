@@ -40,11 +40,12 @@ export default async function handler(req, res) {
 
     const {
       event_id,
-      attendees,
-      ticket_class_id,
+      attendees: legacyAttendees,
+      ticket_class_id: legacyTicketClassId,
       payment_method,
       stripe_payment_intent_id,
-      discount_code
+      discount_code: legacyDiscountCode,
+      items
     } = req.body;
 
     let authenticatedMember = null;
@@ -61,8 +62,21 @@ export default async function handler(req, res) {
     const organization_id = authenticatedMember?.organization_id || null;
 
     if (!event_id) return res.status(400).json({ error: 'event_id is required' });
-    if (!attendees || !Array.isArray(attendees) || attendees.length === 0) {
-      return res.status(400).json({ error: 'At least one attendee is required' });
+
+    const isMultiTicket = Array.isArray(items) && items.length > 0;
+
+    const normalizedItems = isMultiTicket
+      ? items
+      : [{
+          ticket_class_id: legacyTicketClassId,
+          attendees: legacyAttendees,
+          discount_code: legacyDiscountCode
+        }];
+
+    for (const item of normalizedItems) {
+      if (!item.attendees || !Array.isArray(item.attendees) || item.attendees.length === 0) {
+        return res.status(400).json({ error: 'At least one attendee is required per ticket type' });
+      }
     }
 
     const { data: event, error: eventError } = await supabase
@@ -83,52 +97,75 @@ export default async function handler(req, res) {
 
     const allTicketClasses = ticketClassRows || [];
     const hasTicketClasses = allTicketClasses.length > 0;
-
-    if (hasTicketClasses && !ticket_class_id) {
-      return res.status(400).json({ error: 'ticket_class_id is required when ticket classes are configured' });
-    }
-
     const isMember = !!authenticatedMember;
 
-    const ticketClass = ticket_class_id ? getTicketClassFromConfig(allTicketClasses, ticket_class_id) : null;
-    if (ticket_class_id && !ticketClass) {
-      return res.status(400).json({ error: 'Invalid ticket class' });
-    }
+    let grandTotalMinor = 0;
+    let unifiedCurrency = null;
+    const resolvedItems = [];
 
-    if (ticketClass && !isTicketVisibleToUser(ticketClass, isMember)) {
-      return res.status(403).json({ error: 'You do not have access to this ticket class' });
-    }
-
-    const serverTicket = resolveTicketPrice(allTicketClasses, ticket_class_id);
-    let authoritativePrice = serverTicket.price;
-    const ticketCurrency = serverTicket.currency || 'gbp';
-
-    let validatedDiscountCode = null;
-    let discountAmount = 0;
-
-    if (discount_code && authoritativePrice > 0) {
-      const discountResult = await validateDiscountCode({
-        code: discount_code,
-        tenantId: tenant.id,
-        eventId: event_id,
-        memberId: isMember ? authenticatedMember.id : null,
-        memberRoleId: isMember ? authenticatedMember.role_id : null,
-        orgId: isMember ? authenticatedMember.organization_id : null
-      });
-
-      if (discountResult.valid) {
-        const discountedPrice = computeDiscountedPrice(authoritativePrice, discountResult.discountCode);
-        discountAmount = authoritativePrice - discountedPrice;
-        authoritativePrice = discountedPrice;
-        validatedDiscountCode = discountResult.discountCode;
-      } else {
-        return res.status(400).json({ error: discountResult.reason });
+    for (const item of normalizedItems) {
+      if (hasTicketClasses && !item.ticket_class_id) {
+        return res.status(400).json({ error: 'ticket_class_id is required when ticket classes are configured' });
       }
+
+      const ticketClass = item.ticket_class_id ? getTicketClassFromConfig(allTicketClasses, item.ticket_class_id) : null;
+      if (item.ticket_class_id && !ticketClass) {
+        return res.status(400).json({ error: `Invalid ticket class: ${item.ticket_class_id}` });
+      }
+
+      if (ticketClass && !isTicketVisibleToUser(ticketClass, isMember)) {
+        return res.status(403).json({ error: 'You do not have access to this ticket class' });
+      }
+
+      const serverTicket = resolveTicketPrice(allTicketClasses, item.ticket_class_id);
+      let authoritativePrice = serverTicket.price;
+      const ticketCurrency = (serverTicket.currency || 'gbp').toLowerCase();
+      if (unifiedCurrency === null) {
+        unifiedCurrency = ticketCurrency;
+      } else if (ticketCurrency !== unifiedCurrency) {
+        return res.status(400).json({ error: 'All ticket classes must use the same currency' });
+      }
+
+      let validatedDiscountCode = null;
+      let discountAmount = 0;
+
+      if (item.discount_code && authoritativePrice > 0) {
+        const discountResult = await validateDiscountCode({
+          code: item.discount_code,
+          tenantId: tenant.id,
+          eventId: event_id,
+          memberId: isMember ? authenticatedMember.id : null,
+          memberRoleId: isMember ? authenticatedMember.role_id : null,
+          orgId: isMember ? authenticatedMember.organization_id : null
+        });
+
+        if (discountResult.valid) {
+          const discountedPrice = computeDiscountedPrice(authoritativePrice, discountResult.discountCode);
+          discountAmount = authoritativePrice - discountedPrice;
+          authoritativePrice = discountedPrice;
+          validatedDiscountCode = discountResult.discountCode;
+        } else {
+          return res.status(400).json({ error: discountResult.reason });
+        }
+      }
+
+      const attendeeCount = item.attendees.length;
+      const itemTotalMinor = Math.round(authoritativePrice * attendeeCount * 100);
+      grandTotalMinor += itemTotalMinor;
+
+      resolvedItems.push({
+        ticket_class_id: item.ticket_class_id,
+        ticketClass,
+        serverTicket,
+        authoritativePrice,
+        ticketCurrency,
+        validatedDiscountCode,
+        discountAmount,
+        attendees: item.attendees
+      });
     }
 
-    const isFree = authoritativePrice === 0;
-    const attendeeCount = attendees.length;
-    const expectedTotalMinor = Math.round(authoritativePrice * attendeeCount * 100);
+    const isFree = grandTotalMinor === 0;
 
     let paymentStatus = 'free';
     let confirmedPaymentMethod = 'free';
@@ -177,13 +214,14 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'Payment has not been completed' });
           }
 
-          if (paymentIntent.amount !== expectedTotalMinor) {
-            console.error(`[Complex Event Booking] Stripe amount mismatch: intent=${paymentIntent.amount}, expected=${expectedTotalMinor}`);
+          if (paymentIntent.amount !== grandTotalMinor) {
+            console.error(`[Complex Event Booking] Stripe amount mismatch: intent=${paymentIntent.amount}, expected=${grandTotalMinor}`);
             return res.status(400).json({ error: 'Payment amount does not match the ticket price' });
           }
 
+          const firstCurrency = resolvedItems[0]?.ticketCurrency || 'gbp';
           const intentCurrency = (paymentIntent.currency || '').toLowerCase();
-          if (intentCurrency !== ticketCurrency.toLowerCase()) {
+          if (intentCurrency !== firstCurrency.toLowerCase()) {
             return res.status(400).json({ error: 'Payment currency does not match' });
           }
 
@@ -192,12 +230,12 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: 'Payment intent does not match this event' });
           }
 
-          const piTicketClassId = paymentIntent.metadata?.ticket_class_id;
-          if (piTicketClassId && piTicketClassId !== ticket_class_id) {
-            return res.status(400).json({ error: 'Payment intent does not match this ticket class' });
+          if (!isMultiTicket) {
+            const piTicketClassId = paymentIntent.metadata?.ticket_class_id;
+            if (piTicketClassId && piTicketClassId !== legacyTicketClassId) {
+              return res.status(400).json({ error: 'Payment intent does not match this ticket class' });
+            }
           }
-
-          authoritativePrice = paymentIntent.amount / 100 / attendeeCount;
         } catch (stripeErr) {
           console.error('[Complex Event Booking] Stripe verification error:', stripeErr);
           return res.status(500).json({ error: 'Failed to verify payment' });
@@ -215,13 +253,14 @@ export default async function handler(req, res) {
         if (!authenticatedMember) {
           return res.status(401).json({ error: 'You must be logged in to use account balance payment' });
         }
+        const totalInPounds = grandTotalMinor / 100;
         if (organization_id) {
           const { data: org } = await supabase
             .from('organization')
             .select('id, account_balance')
             .eq('id', organization_id)
             .single();
-          if (!org || (org.account_balance || 0) < authoritativePrice * attendeeCount) {
+          if (!org || (org.account_balance || 0) < totalInPounds) {
             return res.status(400).json({ error: 'Insufficient account balance' });
           }
         }
@@ -231,13 +270,14 @@ export default async function handler(req, res) {
         if (!authenticatedMember) {
           return res.status(401).json({ error: 'You must be logged in to use training fund payment' });
         }
+        const totalInPounds = grandTotalMinor / 100;
         if (organization_id) {
           const { data: org } = await supabase
             .from('organization')
             .select('id, training_fund_balance')
             .eq('id', organization_id)
             .single();
-          if (!org || (org.training_fund_balance || 0) < authoritativePrice * attendeeCount) {
+          if (!org || (org.training_fund_balance || 0) < totalInPounds) {
             return res.status(400).json({ error: 'Insufficient training fund balance' });
           }
         }
@@ -252,11 +292,24 @@ export default async function handler(req, res) {
       }
     }
 
-    const duplicateEmails = [];
-    for (const attendee of attendees) {
-      const email = (attendee.email || '').toLowerCase().trim();
-      if (!email) continue;
+    const allAttendeeEmails = [];
+    for (const item of resolvedItems) {
+      for (const attendee of item.attendees) {
+        const email = (attendee.email || '').toLowerCase().trim();
+        if (email) allAttendeeEmails.push(email);
+      }
+    }
 
+    const emailSet = new Set();
+    for (const email of allAttendeeEmails) {
+      if (emailSet.has(email)) {
+        return res.status(400).json({ error: `Duplicate email in request: ${email}` });
+      }
+      emailSet.add(email);
+    }
+
+    const duplicateEmails = [];
+    for (const email of allAttendeeEmails) {
       const { data: existing } = await supabase
         .from('complex_event_booking')
         .select('id, attendee_email')
@@ -281,72 +334,76 @@ export default async function handler(req, res) {
 
     const bookingGroupRef = generateBookingReference();
     const bookings = [];
+    let isFirstAttendeeOverall = true;
 
-    for (let i = 0; i < attendees.length; i++) {
-      const attendee = attendees[i];
-      const email = (attendee.email || '').toLowerCase().trim();
-      if (!email || !email.includes('@')) {
-        return res.status(400).json({ error: `Invalid email address: ${attendee.email}` });
-      }
-
-      const bookingRef = generateBookingReference();
-      const isFirstAttendee = i === 0;
-      const bookingData = {
-        tenant_id: tenant.id,
-        event_id,
-        booking_reference: bookingRef,
-        attendee_email: email,
-        attendee_first_name: attendee.first_name || null,
-        attendee_last_name: attendee.last_name || null,
-        attendee_organization: attendee.organization || null,
-        attendee_phone: attendee.phone || null,
-        attendee_job_title: attendee.job_title || null,
-        member_id: member_id || null,
-        organization_id: organization_id || null,
-        ticket_class_id: ticket_class_id || null,
-        ticket_class_name: serverTicket.name || null,
-        ticket_price: authoritativePrice,
-        payment_method: confirmedPaymentMethod,
-        payment_status: paymentStatus,
-        stripe_payment_intent_id: isFirstAttendee ? (stripe_payment_intent_id || null) : null,
-        discount_code: isFirstAttendee && validatedDiscountCode ? validatedDiscountCode.code : null,
-        discount_amount: isFirstAttendee ? discountAmount : 0,
-        total_paid: paymentStatus === 'paid' ? authoritativePrice : 0,
-        currency: ticketCurrency,
-        status: (isFree || paymentStatus === 'paid') ? 'confirmed' : 'pending',
-        booking_group_reference: bookingGroupRef
-      };
-
-      const { data: booking, error: insertError } = await supabase
-        .from('complex_event_booking')
-        .insert(bookingData)
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('[Complex Event Booking] Insert error:', insertError);
-        if (insertError.code === '23505') {
-          return res.status(409).json({
-            error: 'Duplicate registration',
-            message: `${email} is already registered for this event`
-          });
+    for (const item of resolvedItems) {
+      for (let i = 0; i < item.attendees.length; i++) {
+        const attendee = item.attendees[i];
+        const email = (attendee.email || '').toLowerCase().trim();
+        if (!email || !email.includes('@')) {
+          return res.status(400).json({ error: `Invalid email address: ${attendee.email}` });
         }
-        return res.status(500).json({ error: 'Failed to create booking' });
+
+        const bookingRef = generateBookingReference();
+        const isFirstInGroup = i === 0;
+        const bookingData = {
+          tenant_id: tenant.id,
+          event_id,
+          booking_reference: bookingRef,
+          attendee_email: email,
+          attendee_first_name: attendee.first_name || null,
+          attendee_last_name: attendee.last_name || null,
+          attendee_organization: attendee.organization || null,
+          attendee_phone: attendee.phone || null,
+          attendee_job_title: attendee.job_title || null,
+          member_id: member_id || null,
+          organization_id: organization_id || null,
+          ticket_class_id: item.ticket_class_id || null,
+          ticket_class_name: item.serverTicket.name || null,
+          ticket_price: item.authoritativePrice,
+          payment_method: confirmedPaymentMethod,
+          payment_status: paymentStatus,
+          stripe_payment_intent_id: isFirstAttendeeOverall ? (stripe_payment_intent_id || null) : null,
+          discount_code: isFirstInGroup && item.validatedDiscountCode ? item.validatedDiscountCode.code : null,
+          discount_amount: isFirstInGroup ? item.discountAmount : 0,
+          total_paid: paymentStatus === 'paid' ? item.authoritativePrice : 0,
+          currency: item.ticketCurrency,
+          status: (isFree || paymentStatus === 'paid') ? 'confirmed' : 'pending',
+          booking_group_reference: bookingGroupRef
+        };
+
+        const { data: booking, error: insertError } = await supabase
+          .from('complex_event_booking')
+          .insert(bookingData)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('[Complex Event Booking] Insert error:', insertError);
+          if (insertError.code === '23505') {
+            return res.status(409).json({
+              error: 'Duplicate registration',
+              message: `${email} is already registered for this event`
+            });
+          }
+          return res.status(500).json({ error: 'Failed to create booking' });
+        }
+
+        bookings.push(booking);
+        isFirstAttendeeOverall = false;
       }
 
-      bookings.push(booking);
-    }
-
-    if (validatedDiscountCode) {
-      try {
-        await recordDiscountCodeUsage({
-          discountCodeRecord: validatedDiscountCode,
-          tenantId: tenant.id,
-          orgId: organization_id,
-          memberId: member_id
-        });
-      } catch (e) {
-        console.error('[Complex Event Booking] Failed to record discount code usage:', e);
+      if (item.validatedDiscountCode) {
+        try {
+          await recordDiscountCodeUsage({
+            discountCodeRecord: item.validatedDiscountCode,
+            tenantId: tenant.id,
+            orgId: organization_id,
+            memberId: member_id
+          });
+        } catch (e) {
+          console.error('[Complex Event Booking] Failed to record discount code usage:', e);
+        }
       }
     }
 

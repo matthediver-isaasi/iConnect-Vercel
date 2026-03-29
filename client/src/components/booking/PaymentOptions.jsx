@@ -599,43 +599,77 @@ export default function PaymentOptions({
     
     const completeBookingAfterRedirect = async () => {
       try {
-        const response = await base44.functions.invoke('createOneOffEventBooking', savedPayload);
-        console.log('[PaymentOptions] 3D Secure booking response:', JSON.stringify(response.data));
-        
-        if (response.data.success) {
-          sessionStorage.removeItem(savedPayloadKey);
-          sessionStorage.removeItem(`event_registration_${event.id}`);
-          
-          if (refreshOrganizationInfo && !isGuestCheckout) {
-            refreshOrganizationInfo();
-          }
-          
-          const alreadyMsg = response.data.already_processed ? ' (previously confirmed)' : '';
-          toast.success(`Booking confirmed${alreadyMsg}!`);
-          
-          if (isGuestCheckout || savedPayload.isGuestBooking) {
+        if (savedPayload.isComplexEvent && complexEventApi) {
+          const complexPayload = {
+            payment_method: 'card',
+            stripe_payment_intent_id: paymentIntentFromUrl
+          };
+          const result = await complexEventApi.submitBooking(complexPayload);
+          if (result.success) {
+            sessionStorage.removeItem(savedPayloadKey);
+            const isPending = result.bookings?.some(b => b.status === 'pending');
             setBookingConfirmation({
-              bookingReference: response.data.booking_reference,
-              bookings: response.data.bookings || [],
-              paymentDetails: response.data.payment_details,
-              xeroInvoice: response.data.xero_invoice,
-              groupBooking: response.data.group_booking || null,
+              bookingReference: result.booking_group_reference || result.booking_reference,
+              bookings: result.bookings || [],
+              paymentDetails: result.payment_details || null,
+              xeroInvoice: result.xero_invoice || null,
               event: event,
-              guestInfo: savedPayload.guestInfo || guestInfo,
-              attendees: savedPayload.attendees || attendees.filter(a => a.isValid),
-              ticketsRequired: savedPayload.ticketsRequired || ticketsRequired,
+              guestInfo: null,
+              attendees: savedPayload.attendees || attendees,
+              ticketsRequired: savedPayload.ticketsRequired || attendees.length,
               totalCost: savedPayload.totalCost || totalCost,
               ticketClassName: savedPayload.ticketClassName || selectedTicketClass?.name || 'Standard',
               ticketClassPrice: savedPayload.ticketClassPrice || ticketPrice,
               pricingDetails: savedPayload.pricingDetails || oneOffCostDetails
             });
+            if (isPending) {
+              toast.success("Booking submitted! Your registration is pending payment confirmation.");
+            } else {
+              toast.success("Registration confirmed!");
+            }
+            onComplexBookingComplete?.();
           } else {
-            setTimeout(() => {
-              window.location.href = createPageUrl('Bookings');
-            }, 1500);
+            toast.error(result.error || 'Failed to complete booking after payment');
           }
         } else {
-          toast.error(response.data.error || 'Failed to complete booking after payment');
+          const response = await base44.functions.invoke('createOneOffEventBooking', savedPayload);
+          console.log('[PaymentOptions] 3D Secure booking response:', JSON.stringify(response.data));
+          
+          if (response.data.success) {
+            sessionStorage.removeItem(savedPayloadKey);
+            sessionStorage.removeItem(`event_registration_${event.id}`);
+            
+            if (refreshOrganizationInfo && !isGuestCheckout) {
+              refreshOrganizationInfo();
+            }
+            
+            const alreadyMsg = response.data.already_processed ? ' (previously confirmed)' : '';
+            toast.success(`Booking confirmed${alreadyMsg}!`);
+            
+            if (isGuestCheckout || savedPayload.isGuestBooking) {
+              setBookingConfirmation({
+                bookingReference: response.data.booking_reference,
+                bookings: response.data.bookings || [],
+                paymentDetails: response.data.payment_details,
+                xeroInvoice: response.data.xero_invoice,
+                groupBooking: response.data.group_booking || null,
+                event: event,
+                guestInfo: savedPayload.guestInfo || guestInfo,
+                attendees: savedPayload.attendees || attendees.filter(a => a.isValid),
+                ticketsRequired: savedPayload.ticketsRequired || ticketsRequired,
+                totalCost: savedPayload.totalCost || totalCost,
+                ticketClassName: savedPayload.ticketClassName || selectedTicketClass?.name || 'Standard',
+                ticketClassPrice: savedPayload.ticketClassPrice || ticketPrice,
+                pricingDetails: savedPayload.pricingDetails || oneOffCostDetails
+              });
+            } else {
+              setTimeout(() => {
+                window.location.href = createPageUrl('Bookings');
+              }, 1500);
+            }
+          } else {
+            toast.error(response.data.error || 'Failed to complete booking after payment');
+          }
         }
       } catch (error) {
         console.error('[PaymentOptions] Error completing booking after 3D Secure:', error);
@@ -647,7 +681,7 @@ export default function PaymentOptions({
     };
     
     completeBookingAfterRedirect();
-  }, [event?.id, paymentReturnHandled, isGuestCheckout, refreshOrganizationInfo]);
+  }, [event?.id, paymentReturnHandled, isGuestCheckout, refreshOrganizationInfo, isComplexEvent, complexEventApi, onComplexBookingComplete]);
 
   // Fetch vouchers for one-off events
   const { data: vouchers = [] } = useQuery({
@@ -1409,8 +1443,8 @@ export default function PaymentOptions({
               </div>
             )}
 
-            {/* Discount Code Section */}
-            {!isFeatureExcluded('element_EventDiscountCode') && (
+            {/* Discount Code Section - hidden for complex events (multi-ticket cart doesn't support per-item discounts yet) */}
+            {!isComplexEvent && !isFeatureExcluded('element_EventDiscountCode') && (
               <div id="discount-code-section" className="p-4 rounded-lg border border-slate-200 bg-purple-50">
                 <div className="flex items-center gap-2 mb-3">
                   <Tag className="w-4 h-4 text-purple-600" />

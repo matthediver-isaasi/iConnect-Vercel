@@ -5,15 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
   Video, User, Mic, AlertCircle, Monitor, Building2,
-  Plus, Trash2, Layers, Lock
+  Plus, Trash2, Layers, Lock, UserPlus, X, ShoppingCart, Mail
 } from "lucide-react";
+import ColleagueSelector from "@/components/booking/ColleagueSelector";
 import { format, parseISO, isSameDay } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import DOMPurify from "dompurify";
@@ -355,104 +356,236 @@ function TrackAccessIndicator({ ticket, tracks }) {
   );
 }
 
-const EMPTY_ATTENDEE = { first_name: '', last_name: '', email: '', organization: '', phone: '', job_title: '' };
+function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails }) {
+  const [externalFirstName, setExternalFirstName] = useState('');
+  const [externalLastName, setExternalLastName] = useState('');
+  const [externalEmail, setExternalEmail] = useState('');
+  const [externalOrganization, setExternalOrganization] = useState('');
 
-function AttendeeForm({ attendee, index, onChange, onRemove, canRemove }) {
-  const update = (field, value) => onChange(index, { ...attendee, [field]: value });
-  const prefix = index === 0 ? '' : `${index + 1} - `;
+  const resetExternal = () => {
+    setExternalFirstName('');
+    setExternalLastName('');
+    setExternalEmail('');
+    setExternalOrganization('');
+  };
+
+  const isSelfAlreadyAdded = existingEmails.includes((memberInfo?.email || '').toLowerCase());
+
+  const handleRegisterSelf = () => {
+    if (!memberInfo) return;
+    if (isSelfAlreadyAdded) {
+      toast.info('You are already registered');
+      return;
+    }
+    onAddAttendee({
+      first_name: memberInfo.first_name || '',
+      last_name: memberInfo.last_name || '',
+      email: memberInfo.email || '',
+      organization: organizationInfo?.name || '',
+      isSelf: true
+    });
+    onOpenChange(false);
+    toast.success('You have been added as an attendee');
+  };
+
+  const handleColleagueSelect = (colleague) => {
+    const email = (colleague.email || '').toLowerCase();
+    if (existingEmails.includes(email)) {
+      toast.error('This person is already registered');
+      return;
+    }
+    onAddAttendee({
+      first_name: colleague.first_name || '',
+      last_name: colleague.last_name || '',
+      email: colleague.email || '',
+      organization: organizationInfo?.name || '',
+      isSelf: false
+    });
+    onOpenChange(false);
+    toast.success(`${colleague.first_name} ${colleague.last_name} added`);
+  };
+
+  const handleExternalSubmit = () => {
+    if (!externalEmail || !externalEmail.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    if (!externalFirstName.trim() || !externalLastName.trim()) {
+      toast.error('Please enter first and last name');
+      return;
+    }
+    const email = externalEmail.toLowerCase().trim();
+    if (existingEmails.includes(email)) {
+      toast.error('This person is already registered');
+      return;
+    }
+    onAddAttendee({
+      first_name: externalFirstName.trim(),
+      last_name: externalLastName.trim(),
+      email: email,
+      organization: externalOrganization.trim(),
+      isSelf: false
+    });
+    resetExternal();
+    onOpenChange(false);
+    toast.success(`${externalFirstName.trim()} ${externalLastName.trim()} added`);
+  };
+
+  const ticketRoleIds = ticketClass?.role_ids || [];
 
   return (
-    <div className="space-y-2 p-3 rounded-md border border-slate-200 relative" data-testid={`attendee-form-${index}`}>
-      {canRemove && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="absolute top-1 right-1"
-          onClick={() => onRemove(index)}
-          data-testid={`button-remove-attendee-${index}`}
-        >
-          <Trash2 className="w-3.5 h-3.5 text-slate-400" />
-        </Button>
-      )}
-      {index > 0 && (
-        <div className="text-xs font-medium text-slate-500 mb-1">Attendee {index + 1}</div>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          placeholder={`${prefix}First Name *`}
-          value={attendee.first_name}
-          onChange={(e) => update('first_name', e.target.value)}
-          data-testid={`input-first-name-${index}`}
-        />
-        <Input
-          placeholder={`${prefix}Last Name *`}
-          value={attendee.last_name}
-          onChange={(e) => update('last_name', e.target.value)}
-          data-testid={`input-last-name-${index}`}
-        />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="w-5 h-5 text-indigo-600" />
+            Add Attendee
+          </DialogTitle>
+          <DialogDescription>
+            {ticketClass?.name ? `Adding attendee for: ${ticketClass.name}` : 'Add an attendee to your booking'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs defaultValue={memberInfo ? "self" : "external"} className="mt-2">
+          <TabsList className="w-full">
+            {memberInfo && <TabsTrigger value="self" className="flex-1" data-testid="tab-self">Myself</TabsTrigger>}
+            {memberInfo && organizationInfo && (
+              <TabsTrigger value="colleague" className="flex-1" data-testid="tab-colleague">Colleague</TabsTrigger>
+            )}
+            <TabsTrigger value="external" className="flex-1" data-testid="tab-external">Other</TabsTrigger>
+          </TabsList>
+
+          {memberInfo && (
+            <TabsContent value="self" className="space-y-4 mt-4">
+              <div className="p-3 rounded-md border border-slate-200 space-y-1">
+                <div className="font-medium text-sm text-slate-900">{memberInfo.first_name} {memberInfo.last_name}</div>
+                <div className="text-xs text-slate-500">{memberInfo.email}</div>
+                {organizationInfo?.name && <div className="text-xs text-slate-500">{organizationInfo.name}</div>}
+              </div>
+              <Button
+                onClick={handleRegisterSelf}
+                disabled={isSelfAlreadyAdded}
+                className="w-full"
+                data-testid="button-register-myself"
+              >
+                <User className="w-4 h-4 mr-1.5" />
+                {isSelfAlreadyAdded ? 'Already Added' : 'Register Myself'}
+              </Button>
+            </TabsContent>
+          )}
+
+          {memberInfo && organizationInfo && (
+            <TabsContent value="colleague" className="space-y-4 mt-4">
+              <ColleagueSelector
+                organizationId={organizationInfo.id}
+                onSelect={handleColleagueSelect}
+                memberInfo={memberInfo}
+                ticketRoleIds={ticketRoleIds}
+              />
+            </TabsContent>
+          )}
+
+          <TabsContent value="external" className="space-y-3 mt-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                placeholder="First Name *"
+                value={externalFirstName}
+                onChange={(e) => setExternalFirstName(e.target.value)}
+                data-testid="input-external-first-name"
+              />
+              <Input
+                placeholder="Last Name *"
+                value={externalLastName}
+                onChange={(e) => setExternalLastName(e.target.value)}
+                data-testid="input-external-last-name"
+              />
+            </div>
+            <Input
+              type="email"
+              placeholder="Email *"
+              value={externalEmail}
+              onChange={(e) => setExternalEmail(e.target.value)}
+              data-testid="input-external-email"
+            />
+            <Input
+              placeholder="Organisation (optional)"
+              value={externalOrganization}
+              onChange={(e) => setExternalOrganization(e.target.value)}
+              data-testid="input-external-org"
+            />
+            <Button
+              onClick={handleExternalSubmit}
+              className="w-full"
+              data-testid="button-add-external"
+            >
+              <Mail className="w-4 h-4 mr-1.5" />
+              Add Attendee
+            </Button>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CartSummary({ cart, ticketClasses, onRemoveAttendee }) {
+  const entries = Object.entries(cart).filter(([, item]) => item.attendees.length > 0);
+  if (entries.length === 0) return null;
+
+  const totalAttendees = entries.reduce((sum, [, item]) => sum + item.attendees.length, 0);
+
+  return (
+    <div className="space-y-3" data-testid="cart-summary">
+      <div className="flex items-center gap-2">
+        <ShoppingCart className="w-4 h-4 text-indigo-600" />
+        <Label className="text-sm font-medium">
+          Your Cart ({totalAttendees} attendee{totalAttendees !== 1 ? 's' : ''})
+        </Label>
       </div>
-      <Input
-        type="email"
-        placeholder={`${prefix}Email *`}
-        value={attendee.email}
-        onChange={(e) => update('email', e.target.value)}
-        data-testid={`input-email-${index}`}
-      />
-      <Input
-        placeholder="Organisation (optional)"
-        value={attendee.organization}
-        onChange={(e) => update('organization', e.target.value)}
-        data-testid={`input-organization-${index}`}
-      />
-      <div className="grid grid-cols-2 gap-2">
-        <Input
-          placeholder="Phone (optional)"
-          value={attendee.phone}
-          onChange={(e) => update('phone', e.target.value)}
-          data-testid={`input-phone-${index}`}
-        />
-        <Input
-          placeholder="Job Title (optional)"
-          value={attendee.job_title}
-          onChange={(e) => update('job_title', e.target.value)}
-          data-testid={`input-job-title-${index}`}
-        />
-      </div>
+      {entries.map(([ticketClassId, item]) => (
+        <div key={ticketClassId} className="space-y-1.5">
+          <div className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+            <Ticket className="w-3 h-3" />
+            {item.ticketClass?.name || 'Ticket'}
+            <Badge variant="secondary" className="text-[10px] ml-auto">
+              {item.attendees.length}
+            </Badge>
+          </div>
+          {item.attendees.map((attendee, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between gap-2 p-2 rounded-md bg-slate-50 border border-slate-100"
+              data-testid={`cart-attendee-${ticketClassId}-${i}`}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-800 truncate">
+                  {attendee.first_name} {attendee.last_name}
+                  {attendee.isSelf && <span className="text-indigo-600 text-xs ml-1">(you)</span>}
+                </div>
+                <div className="text-xs text-slate-500 truncate">{attendee.email}</div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                onClick={() => onRemoveAttendee(ticketClassId, i)}
+                data-testid={`button-remove-cart-attendee-${ticketClassId}-${i}`}
+              >
+                <X className="w-3.5 h-3.5 text-slate-400" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
 
 function BookingSection({ event, sessions, memberInfo, organizationInfo, filterTrackId, layout = 'sidebar', onBookingComplete }) {
-  const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
-  const defaultAttendee = useMemo(() => ({
-    first_name: memberInfo?.first_name || '',
-    last_name: memberInfo?.last_name || '',
-    email: memberInfo?.email || '',
-    organization: organizationInfo?.name || '',
-    phone: '',
-    job_title: ''
-  }), [memberInfo, organizationInfo]);
-
-  const [attendees, setAttendees] = useState([{ ...defaultAttendee }]);
-
-  useEffect(() => {
-    if (memberInfo) {
-      setAttendees(prev => {
-        const updated = [...prev];
-        if (updated.length > 0) {
-          updated[0] = {
-            ...updated[0],
-            first_name: updated[0].first_name || memberInfo.first_name || '',
-            last_name: updated[0].last_name || memberInfo.last_name || '',
-            email: updated[0].email || memberInfo.email || '',
-            organization: updated[0].organization || organizationInfo?.name || ''
-          };
-        }
-        return updated;
-      });
-    }
-  }, [memberInfo, organizationInfo]);
+  const [cart, setCart] = useState({});
+  const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
+  const [modalTicketClassId, setModalTicketClassId] = useState(null);
 
   const pricingConfig = useMemo(() => {
     if (!event?.pricing_config) return null;
@@ -498,73 +631,121 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     return vis === 'public_only';
   };
 
-  useEffect(() => {
-    if (ticketClasses.length > 0) {
-      const currentValid = ticketClasses.find(tc => tc.id === selectedTicketClassId);
-      if (!currentValid) {
-        setSelectedTicketClassId(ticketClasses[0].id);
-      }
-    }
-  }, [ticketClasses, selectedTicketClassId]);
-
-  const selectedTicket = useMemo(() => {
-    return ticketClasses.find(tc => tc.id === selectedTicketClassId) || ticketClasses[0] || null;
-  }, [ticketClasses, selectedTicketClassId]);
-
-  const isGroupTicket = selectedTicket?.is_group_ticket;
-  const groupSize = selectedTicket?.group_size || 1;
-
-  useEffect(() => {
-    if (isGroupTicket && groupSize > 1) {
-      setAttendees(prev => {
-        if (prev.length === groupSize) return prev;
-        const result = [];
-        for (let i = 0; i < groupSize; i++) {
-          result.push(prev[i] || { ...EMPTY_ATTENDEE });
-        }
-        return result;
+  const allExistingEmails = useMemo(() => {
+    const emails = [];
+    Object.values(cart).forEach(item => {
+      item.attendees.forEach(a => {
+        if (a.email) emails.push(a.email.toLowerCase());
       });
-    }
-  }, [isGroupTicket, groupSize]);
+    });
+    return emails;
+  }, [cart]);
 
-  const effectivePrice = useMemo(() => {
-    if (!selectedTicket) return { price: 0, isEarlyBird: false };
-    return getEffectiveTicketPrice(selectedTicket);
-  }, [selectedTicket]);
+  const handleOpenAttendeeModal = useCallback((ticketClassId) => {
+    setModalTicketClassId(ticketClassId);
+    setAttendeeModalOpen(true);
+  }, []);
 
-  const attendeeCount = attendees.length;
-  const unitPrice = effectivePrice.price;
-  const totalPrice = unitPrice * attendeeCount;
+  const handleAddAttendee = useCallback((attendee) => {
+    if (!modalTicketClassId) return;
+    setCart(prev => {
+      const tc = ticketClasses.find(t => t.id === modalTicketClassId);
+      const existing = prev[modalTicketClassId] || { ticketClass: tc, attendees: [] };
+      return {
+        ...prev,
+        [modalTicketClassId]: {
+          ...existing,
+          ticketClass: tc,
+          attendees: [...existing.attendees, attendee]
+        }
+      };
+    });
+  }, [modalTicketClassId, ticketClasses]);
 
-  const isFormValid = useMemo(() => {
-    return attendees.every(a =>
-      a.first_name.trim() !== '' &&
-      a.last_name.trim() !== '' &&
-      a.email.trim() !== '' &&
-      a.email.includes('@')
-    );
-  }, [attendees]);
-
-  const handleAttendeeChange = useCallback((index, updated) => {
-    setAttendees(prev => {
-      const next = [...prev];
-      next[index] = updated;
-      return next;
+  const handleRemoveAttendee = useCallback((ticketClassId, attendeeIndex) => {
+    setCart(prev => {
+      const existing = prev[ticketClassId];
+      if (!existing) return prev;
+      const updated = { ...existing, attendees: existing.attendees.filter((_, i) => i !== attendeeIndex) };
+      if (updated.attendees.length === 0) {
+        const next = { ...prev };
+        delete next[ticketClassId];
+        return next;
+      }
+      return { ...prev, [ticketClassId]: updated };
     });
   }, []);
 
-  const handleRemoveAttendee = useCallback((index) => {
-    setAttendees(prev => prev.filter((_, i) => i !== index));
-  }, []);
+  const flatAttendees = useMemo(() => {
+    const result = [];
+    Object.values(cart).forEach(item => {
+      item.attendees.forEach(a => result.push(a));
+    });
+    return result;
+  }, [cart]);
 
-  const handleAddAttendee = useCallback(() => {
-    setAttendees(prev => [...prev, { ...EMPTY_ATTENDEE }]);
-  }, []);
+  const totalAttendeeCount = flatAttendees.length;
+
+  const cartItems = useMemo(() => {
+    return Object.entries(cart)
+      .filter(([, item]) => item.attendees.length > 0)
+      .map(([ticketClassId, item]) => {
+        const tc = item.ticketClass;
+        const ep = tc ? getEffectiveTicketPrice(tc) : { price: 0, isEarlyBird: false };
+        return {
+          ticketClassId,
+          ticketClass: tc,
+          attendees: item.attendees,
+          unitPrice: ep.price,
+          subtotal: ep.price * item.attendees.length
+        };
+      });
+  }, [cart]);
+
+  const grandTotal = useMemo(() => {
+    return cartItems.reduce((sum, item) => sum + item.subtotal, 0);
+  }, [cartItems]);
+
+  const selectedTicketForModal = useMemo(() => {
+    return ticketClasses.find(tc => tc.id === modalTicketClassId) || null;
+  }, [ticketClasses, modalTicketClassId]);
+
+  const firstCartTicketClass = useMemo(() => {
+    if (cartItems.length === 0) return ticketClasses[0] || null;
+    return cartItems[0].ticketClass || null;
+  }, [cartItems, ticketClasses]);
 
   const complexEventApi = useMemo(() => ({
-    createPaymentIntent: (data) => publicClient.createComplexEventPaymentIntent(data),
-    submitBooking: (data) => publicClient.submitComplexEventBooking(data),
-  }), []);
+    createPaymentIntent: (data) => {
+      const items = cartItems.map(ci => ({
+        ticket_class_id: ci.ticketClassId,
+        attendee_count: ci.attendees.length
+      }));
+      return publicClient.createComplexEventPaymentIntent({
+        event_id: event.id,
+        items
+      });
+    },
+    submitBooking: (data) => {
+      const items = cartItems.map(ci => ({
+        ticket_class_id: ci.ticketClassId,
+        attendees: ci.attendees.map(a => ({
+          email: (a.email || '').toLowerCase().trim(),
+          first_name: (a.first_name || '').trim(),
+          last_name: (a.last_name || '').trim(),
+          organization: (a.organization || '').trim(),
+          phone: (a.phone || '').trim(),
+          job_title: (a.job_title || '').trim()
+        }))
+      }));
+      return publicClient.submitComplexEventBooking({
+        event_id: event.id,
+        items,
+        payment_method: data.payment_method,
+        stripe_payment_intent_id: data.stripe_payment_intent_id || null
+      });
+    },
+  }), [cartItems, event]);
 
   const paymentOptionsEvent = useMemo(() => ({
     ...event,
@@ -573,12 +754,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
   }), [event, ticketClasses]);
 
   const oneOffCostDetails = useMemo(() => ({
-    ticketPrice: unitPrice,
-    attendeeCount: attendeeCount,
-    totalCost: totalPrice,
+    ticketPrice: cartItems.length === 1 ? cartItems[0].unitPrice : grandTotal / Math.max(totalAttendeeCount, 1),
+    attendeeCount: totalAttendeeCount,
+    totalCost: grandTotal,
     freeTickets: 0,
     discount: 0,
-  }), [unitPrice, attendeeCount, totalPrice]);
+  }), [cartItems, grandTotal, totalAttendeeCount]);
 
   const registrationClosed = event.registration_closes_at && new Date(event.registration_closes_at) < new Date();
 
@@ -596,104 +777,82 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
 
   const eventTracks = event?.tracks || [];
 
-  const ticketSelectorContent = (
-    <div className="space-y-4">
-      {ticketClasses.length > 1 && (
-        <div className="space-y-3">
-          <Label className="text-sm font-medium">Select Ticket</Label>
-          <RadioGroup
-            value={selectedTicketClassId || ''}
-            onValueChange={setSelectedTicketClassId}
-          >
-            {ticketClasses.map(tc => {
-              const tcPrice = getEffectiveTicketPrice(tc);
-              return (
-                <div
-                  key={tc.id}
-                  className={`flex items-center gap-3 p-3 rounded-md border-2 transition-colors ${selectedTicketClassId === tc.id ? 'border-indigo-500 bg-indigo-50 cursor-pointer' : 'border-slate-200 cursor-pointer'}`}
-                  onClick={() => setSelectedTicketClassId(tc.id)}
-                  data-testid={`ticket-class-${tc.id}`}
-                >
-                  <RadioGroupItem value={tc.id} id={`tc-${layout}-${tc.id}`} data-testid={`radio-ticket-${tc.id}`} />
-                  <Label htmlFor={`tc-${layout}-${tc.id}`} className="flex-1 cursor-pointer">
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div>
-                        <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
-                          {tc.name}
-                          {isTicketRestricted(tc) && (
-                            <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
-                              <Lock className="w-3 h-3 mr-1" />
-                              {isGuest ? 'Members Only' : 'Public Only'}
-                            </Badge>
-                          )}
-                          {tc.is_group_ticket && tc.group_size > 1 && (
-                            <Badge variant="secondary" className="text-xs">
-                              <Users className="w-3 h-3 mr-1" />
-                              Group ({tc.group_size})
-                            </Badge>
-                          )}
-                          {tcPrice.isEarlyBird && (
-                            <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
-                              Early Bird
-                            </Badge>
-                          )}
-                        </span>
-                        {tc.description && (
-                          <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
-                        )}
-                        <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
-                      </div>
-                      <div className="flex flex-col items-end flex-shrink-0">
-                        <div className="flex items-center gap-1 text-lg font-semibold text-slate-900">
-                          {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
-                        </div>
-                        {tcPrice.isEarlyBird && (
-                          <div className="text-sm text-slate-400 line-through">
-                            {'\u00a3'}{tcPrice.standardPrice.toFixed(2)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </Label>
-                </div>
-              );
-            })}
-          </RadioGroup>
-        </div>
+  const ticketCards = (
+    <div className="space-y-3">
+      {ticketClasses.length > 0 && (
+        <Label className="text-sm font-medium">Tickets</Label>
       )}
+      {ticketClasses.map(tc => {
+        const tcPrice = getEffectiveTicketPrice(tc);
+        const restricted = isTicketRestricted(tc);
+        const cartEntry = cart[tc.id];
+        const count = cartEntry?.attendees?.length || 0;
 
-      {ticketClasses.length === 1 && selectedTicket && (
-        <div className="p-4 rounded-md border-2 border-indigo-200 bg-indigo-50">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div>
-              <span className="font-medium text-slate-900 flex items-center gap-2 flex-wrap">
-                {selectedTicket.name}
-                {isTicketRestricted(selectedTicket) && (
-                  <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
-                    <Lock className="w-3 h-3 mr-1" />
-                    {isGuest ? 'Members Only' : 'Public Only'}
-                  </Badge>
+        return (
+          <div
+            key={tc.id}
+            className={`p-3 rounded-md border transition-colors ${count > 0 ? 'border-indigo-300 bg-indigo-50/50' : 'border-slate-200'}`}
+            data-testid={`ticket-class-${tc.id}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-sm text-slate-900 flex items-center gap-2 flex-wrap">
+                  {tc.name}
+                  {restricted && (
+                    <Badge variant="secondary" className="text-xs bg-slate-100 text-slate-600">
+                      <Lock className="w-3 h-3 mr-1" />
+                      {isGuest ? 'Members Only' : 'Public Only'}
+                    </Badge>
+                  )}
+                  {tc.is_group_ticket && tc.group_size > 1 && (
+                    <Badge variant="secondary" className="text-xs">
+                      <Users className="w-3 h-3 mr-1" />
+                      Group ({tc.group_size})
+                    </Badge>
+                  )}
+                  {tcPrice.isEarlyBird && (
+                    <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                      Early Bird
+                    </Badge>
+                  )}
+                </span>
+                {tc.description && (
+                  <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
                 )}
-                {selectedTicket.is_group_ticket && selectedTicket.group_size > 1 && (
-                  <Badge variant="secondary" className="text-xs">
-                    <Users className="w-3 h-3 mr-1" />
-                    Group ({selectedTicket.group_size})
-                  </Badge>
+                <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
+              </div>
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                <div className="text-base font-semibold text-slate-900">
+                  {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
+                </div>
+                {tcPrice.isEarlyBird && (
+                  <div className="text-xs text-slate-400 line-through">
+                    {'\u00a3'}{tcPrice.standardPrice.toFixed(2)}
+                  </div>
                 )}
-              </span>
-              {selectedTicket.description && (
-                <p className="text-xs text-slate-500 mt-0.5">{selectedTicket.description}</p>
-              )}
-              <TrackAccessIndicator ticket={selectedTicket} tracks={eventTracks} />
+              </div>
             </div>
-            <div className="flex flex-col items-end flex-shrink-0">
-              <span className="text-lg font-semibold text-slate-900">
-                {effectivePrice.price === 0 ? 'Free' : `\u00a3${effectivePrice.price.toFixed(2)}`}
-              </span>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenAttendeeModal(tc.id)}
+                disabled={restricted}
+                data-testid={`button-add-attendee-${tc.id}`}
+              >
+                <UserPlus className="w-3.5 h-3.5 mr-1" />
+                Add Attendee
+              </Button>
+              {count > 0 && (
+                <Badge className="bg-indigo-600 text-white">
+                  {count} added
+                </Badge>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })}
 
       {ticketClasses.length === 0 && (
         <p className="text-sm text-center text-slate-500">
@@ -703,74 +862,46 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     </div>
   );
 
-  const attendeeContent = (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <Label className="text-sm font-medium">
-          {attendeeCount > 1 ? `Attendees (${attendeeCount})` : 'Your Details'}
-        </Label>
-        {!isGroupTicket && attendeeCount < 20 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleAddAttendee}
-            data-testid="button-add-attendee"
-          >
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Add Attendee
-          </Button>
-        )}
-      </div>
-      {attendees.map((attendee, i) => (
-        <AttendeeForm
-          key={i}
-          attendee={attendee}
-          index={i}
-          onChange={handleAttendeeChange}
-          onRemove={handleRemoveAttendee}
-          canRemove={!isGroupTicket && attendees.length > 1}
-        />
-      ))}
-    </div>
-  );
-
-  const paymentOptionsSection = (
+  const paymentOptionsSection = totalAttendeeCount > 0 ? (
     <PaymentOptions
       event={paymentOptionsEvent}
       memberInfo={memberInfo}
       organizationInfo={organizationInfo}
-      attendees={attendees}
+      attendees={flatAttendees}
       registrationMode="colleagues"
-      selectedTicketClass={selectedTicket}
-      ticketPrice={unitPrice}
-      totalCost={totalPrice}
+      selectedTicketClass={firstCartTicketClass}
+      ticketPrice={oneOffCostDetails.ticketPrice}
+      totalCost={grandTotal}
       oneOffCostDetails={oneOffCostDetails}
       isComplexEvent={true}
       complexEventApi={complexEventApi}
       onComplexBookingComplete={onBookingComplete}
       renderAsCard={false}
     />
-  );
+  ) : null;
 
   if (layout === 'drawer') {
     return (
-      <div className="grid lg:grid-cols-2 gap-8" data-testid="booking-section-drawer">
-        <div className="space-y-6">
-          <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            <User className="w-5 h-5 text-indigo-600" />
-            Registration
-          </h3>
-          {attendeeContent}
-        </div>
+      <div className="space-y-6" data-testid="booking-section-drawer">
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
             <Ticket className="w-5 h-5 text-indigo-600" />
-            Tickets & Payment
+            Tickets
           </h3>
-          {ticketSelectorContent}
-          {paymentOptionsSection}
+          {ticketCards}
         </div>
+        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} />
+        {paymentOptionsSection}
+
+        <AddAttendeeModal
+          open={attendeeModalOpen}
+          onOpenChange={setAttendeeModalOpen}
+          ticketClass={selectedTicketForModal}
+          memberInfo={memberInfo}
+          organizationInfo={organizationInfo}
+          onAddAttendee={handleAddAttendee}
+          existingEmails={allExistingEmails}
+        />
       </div>
     );
   }
@@ -784,10 +915,20 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        {ticketSelectorContent}
-        {attendeeContent}
+        {ticketCards}
+        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} />
         {paymentOptionsSection}
       </CardContent>
+
+      <AddAttendeeModal
+        open={attendeeModalOpen}
+        onOpenChange={setAttendeeModalOpen}
+        ticketClass={selectedTicketForModal}
+        memberInfo={memberInfo}
+        organizationInfo={organizationInfo}
+        onAddAttendee={handleAddAttendee}
+        existingEmails={allExistingEmails}
+      />
     </Card>
   );
 }

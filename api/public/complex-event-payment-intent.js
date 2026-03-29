@@ -29,10 +29,16 @@ export default async function handler(req, res) {
     const tenant = await resolveTenantFromRequest(req);
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
-    const { event_id, ticket_class_id, attendee_count = 1, discount_code } = req.body;
+    const { event_id, ticket_class_id, attendee_count = 1, discount_code, items } = req.body;
 
-    if (!event_id || !ticket_class_id) {
-      return res.status(400).json({ error: 'event_id and ticket_class_id are required' });
+    if (!event_id) {
+      return res.status(400).json({ error: 'event_id is required' });
+    }
+
+    const isMultiTicket = Array.isArray(items) && items.length > 0;
+
+    if (!isMultiTicket && !ticket_class_id) {
+      return res.status(400).json({ error: 'ticket_class_id or items array is required' });
     }
 
     const { data: event, error: eventError } = await supabase
@@ -72,48 +78,81 @@ export default async function handler(req, res) {
 
     const isMember = member && memberTenantId === tenant.id;
 
-    const ticketClass = getTicketClassFromConfig(allTicketClasses, ticket_class_id);
-    if (!ticketClass) {
-      return res.status(400).json({ error: 'Invalid ticket class' });
-    }
+    const normalizedItems = isMultiTicket
+      ? items.map(item => ({
+          ticket_class_id: item.ticket_class_id,
+          attendee_count: Math.max(1, Math.min(100, parseInt(item.attendee_count) || 1)),
+          discount_code: item.discount_code || null
+        }))
+      : [{
+          ticket_class_id,
+          attendee_count: Math.max(1, Math.min(100, parseInt(attendee_count) || 1)),
+          discount_code: discount_code || null
+        }];
 
-    if (!isTicketVisibleToUser(ticketClass, isMember)) {
-      return res.status(403).json({ error: 'This ticket class is not available to you' });
-    }
+    let grandTotalMinor = 0;
+    let currency = 'gbp';
+    const ticketClassIds = [];
+    const itemDetails = [];
 
-    const ticket = resolveTicketPrice(allTicketClasses, ticket_class_id);
-    if (!ticket.found || ticket.price === 0) {
-      return res.status(400).json({ error: 'Invalid or free ticket class' });
-    }
-
-    let finalPrice = ticket.price;
-    let validatedDiscountCode = null;
-
-    if (discount_code) {
-      const discountResult = await validateDiscountCode({
-        code: discount_code,
-        tenantId: tenant.id,
-        eventId: event_id,
-        memberId: isMember ? member.id : null,
-        memberRoleId: isMember ? member.role_id : null,
-        orgId: isMember ? member.organization_id : null
-      });
-
-      if (discountResult.valid) {
-        finalPrice = computeDiscountedPrice(ticket.price, discountResult.discountCode);
-        validatedDiscountCode = discountResult.discountCode;
-      } else {
-        return res.status(400).json({ error: discountResult.reason });
+    for (const item of normalizedItems) {
+      const ticketClass = getTicketClassFromConfig(allTicketClasses, item.ticket_class_id);
+      if (!ticketClass) {
+        return res.status(400).json({ error: `Invalid ticket class: ${item.ticket_class_id}` });
       }
+
+      if (!isTicketVisibleToUser(ticketClass, isMember)) {
+        return res.status(403).json({ error: `Ticket class ${ticketClass.name || item.ticket_class_id} is not available to you` });
+      }
+
+      const ticket = resolveTicketPrice(allTicketClasses, item.ticket_class_id);
+      if (!ticket.found || ticket.price === 0) {
+        return res.status(400).json({ error: `Invalid or free ticket class: ${item.ticket_class_id}` });
+      }
+
+      let finalPrice = ticket.price;
+      if (item.discount_code) {
+        const discountResult = await validateDiscountCode({
+          code: item.discount_code,
+          tenantId: tenant.id,
+          eventId: event_id,
+          memberId: isMember ? member.id : null,
+          memberRoleId: isMember ? member.role_id : null,
+          orgId: isMember ? member.organization_id : null
+        });
+
+        if (discountResult.valid) {
+          finalPrice = computeDiscountedPrice(ticket.price, discountResult.discountCode);
+        } else {
+          return res.status(400).json({ error: discountResult.reason });
+        }
+      }
+
+      if (finalPrice <= 0) {
+        return res.status(400).json({ error: `Discounted price is zero for ticket ${ticketClass.name || item.ticket_class_id}. Use free registration instead.` });
+      }
+
+      const itemTotal = Math.round(finalPrice * item.attendee_count * 100);
+      grandTotalMinor += itemTotal;
+      const itemCurrency = (ticket.currency || 'gbp').toLowerCase();
+      if (ticketClassIds.length > 0 && itemCurrency !== currency) {
+        return res.status(400).json({ error: 'All ticket classes must use the same currency' });
+      }
+      currency = itemCurrency;
+      ticketClassIds.push(item.ticket_class_id);
+      itemDetails.push({
+        ticket_class_id: item.ticket_class_id,
+        ticket_name: ticket.name,
+        unit_price: finalPrice,
+        original_price: ticket.price,
+        attendee_count: item.attendee_count,
+        subtotal_minor: itemTotal
+      });
     }
 
-    if (finalPrice <= 0) {
-      return res.status(400).json({ error: 'Discounted price is zero. Use free registration instead.' });
+    if (grandTotalMinor <= 0) {
+      return res.status(400).json({ error: 'Total amount must be greater than zero' });
     }
-
-    const count = Math.max(1, Math.min(100, parseInt(attendee_count) || 1));
-    const totalAmountMinor = Math.round(finalPrice * count * 100);
-    const currency = ticket.currency || 'gbp';
 
     const creds = await getStripeCredentials(tenant.id, 'events');
     if (!creds?.secret_key || !creds.is_enabled) {
@@ -124,17 +163,19 @@ export default async function handler(req, res) {
 
     const metadata = {
       event_id,
-      ticket_class_id,
+      ticket_class_ids: ticketClassIds.join(','),
       tenant_id: tenant.id,
-      attendee_count: String(count),
-      type: 'complex_event_booking'
+      type: 'complex_event_booking',
+      is_multi_ticket: isMultiTicket ? 'true' : 'false'
     };
-    if (validatedDiscountCode) {
-      metadata.discount_code_id = validatedDiscountCode.id;
+
+    if (!isMultiTicket) {
+      metadata.ticket_class_id = ticket_class_id;
+      metadata.attendee_count = String(normalizedItems[0].attendee_count);
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: totalAmountMinor,
+      amount: grandTotalMinor,
       currency,
       metadata,
       ...(isMember && member.email ? { receipt_email: member.email } : {})
@@ -143,10 +184,9 @@ export default async function handler(req, res) {
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,
       publishableKey: creds.publishable_key,
-      amount: totalAmountMinor,
+      amount: grandTotalMinor,
       currency,
-      discounted_price: finalPrice,
-      original_price: ticket.price
+      items: itemDetails
     });
   } catch (error) {
     console.error('[Complex Event Payment Intent] Error:', error);
