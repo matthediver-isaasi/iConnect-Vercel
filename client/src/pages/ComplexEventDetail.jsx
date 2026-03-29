@@ -113,7 +113,40 @@ function TrackTicketButtons({ trackColorMap, eventTracks, onSeeTickets }) {
   );
 }
 
-function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTracks }) {
+function TrackAttendeeCards({ trackName, attendees, onRemove }) {
+  if (!attendees || attendees.length === 0) return null;
+  return (
+    <div className="space-y-1 mt-1" data-testid={`track-attendees-${trackName}`}>
+      {attendees.map((item, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-1 px-2 py-1 rounded bg-indigo-50 border border-indigo-100"
+          data-testid={`track-attendee-card-${trackName}-${i}`}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-medium text-indigo-900 truncate">
+              {item.attendee.first_name} {item.attendee.last_name}
+              {item.attendee.isSelf && <span className="text-indigo-500 ml-0.5">(you)</span>}
+            </div>
+            <div className="text-[10px] text-indigo-600 truncate">{item.ticketName}</div>
+          </div>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(item.ticketClassId, item.attendeeIndex)}
+              className="p-0.5 rounded text-indigo-400 hover:text-red-500 shrink-0"
+              data-testid={`button-remove-track-attendee-${trackName}-${i}`}
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTracks, cartAttendeesByTrack, onRemoveCartAttendee }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -249,6 +282,28 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTr
                     </div>
                   );
                 })}
+
+                {cartAttendeesByTrack && tracks.length > 0 && (
+                  <div
+                    className="grid gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"
+                    style={{ gridTemplateColumns: `100px repeat(${tracks.length + (hasUntracked ? 1 : 0)}, 1fr)` }}
+                    data-testid="track-attendees-row"
+                  >
+                    <div className="text-xs font-medium text-slate-500 p-2 flex items-start pt-1">
+                      <Users className="w-3 h-3 mr-1" />
+                      Cart
+                    </div>
+                    {tracks.map(track => (
+                      <TrackAttendeeCards
+                        key={track}
+                        trackName={track}
+                        attendees={cartAttendeesByTrack[track] || []}
+                        onRemove={onRemoveCartAttendee}
+                      />
+                    ))}
+                    {hasUntracked && <div className="p-1" />}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -582,8 +637,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee }) {
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo, filterTrackId, layout = 'sidebar', onBookingComplete }) {
-  const [cart, setCart] = useState({});
+function BookingSection({ event, sessions, memberInfo, organizationInfo, filterTrackId, layout = 'sidebar', onBookingComplete, cart, setCart }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
 
@@ -727,7 +781,32 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       });
     },
     submitBooking: (data) => {
-      const items = cartItems.map(ci => ({
+      const savedItems = data._savedCartItems;
+      let items;
+      if (savedItems && savedItems.length > 0) {
+        items = savedItems;
+      } else {
+        items = cartItems.map(ci => ({
+          ticket_class_id: ci.ticketClassId,
+          attendees: ci.attendees.map(a => ({
+            email: (a.email || '').toLowerCase().trim(),
+            first_name: (a.first_name || '').trim(),
+            last_name: (a.last_name || '').trim(),
+            organization: (a.organization || '').trim(),
+            phone: (a.phone || '').trim(),
+            job_title: (a.job_title || '').trim()
+          }))
+        }));
+      }
+      return publicClient.submitComplexEventBooking({
+        event_id: event.id,
+        items,
+        payment_method: data.payment_method,
+        stripe_payment_intent_id: data.stripe_payment_intent_id || null
+      });
+    },
+    _getCartItems: () => {
+      return cartItems.map(ci => ({
         ticket_class_id: ci.ticketClassId,
         attendees: ci.attendees.map(a => ({
           email: (a.email || '').toLowerCase().trim(),
@@ -738,12 +817,6 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
           job_title: (a.job_title || '').trim()
         }))
       }));
-      return publicClient.submitComplexEventBooking({
-        event_id: event.id,
-        items,
-        payment_method: data.payment_method,
-        stripe_payment_intent_id: data.stripe_payment_intent_id || null
-      });
     },
   }), [cartItems, event]);
 
@@ -940,6 +1013,7 @@ export default function ComplexEventDetail() {
   const [ticketDrawerOpen, setTicketDrawerOpen] = useState(false);
   const [drawerTrackName, setDrawerTrackName] = useState(null);
   const [drawerTrackId, setDrawerTrackId] = useState(null);
+  const [cart, setCart] = useState({});
 
   const routeParams = useParams();
   const urlParams = new URLSearchParams(window.location.search);
@@ -1003,6 +1077,55 @@ export default function ComplexEventDetail() {
     });
     return map;
   }, [sessions, event]);
+
+  const cartAttendeesByTrack = useMemo(() => {
+    const result = {};
+    const eventTracks = event?.tracks || [];
+    const trackIdToName = {};
+    eventTracks.forEach(t => { if (t.id && t.name) trackIdToName[String(t.id)] = t.name; });
+
+    Object.entries(cart).forEach(([ticketClassId, cartItem]) => {
+      const tc = cartItem.ticketClass;
+      if (!tc) return;
+
+      const targetTrackNames = [];
+      if (tc.all_tracks) {
+        Object.values(trackIdToName).forEach(n => targetTrackNames.push(n));
+      } else if (tc.linked_track_ids?.length > 0) {
+        tc.linked_track_ids.forEach(id => {
+          const name = trackIdToName[String(id)];
+          if (name) targetTrackNames.push(name);
+        });
+      }
+
+      cartItem.attendees.forEach((attendee, attendeeIndex) => {
+        targetTrackNames.forEach(trackName => {
+          if (!result[trackName]) result[trackName] = [];
+          result[trackName].push({
+            attendee,
+            attendeeIndex,
+            ticketClassId,
+            ticketName: tc.name || 'Ticket'
+          });
+        });
+      });
+    });
+    return result;
+  }, [cart, event]);
+
+  const handleRemoveCartAttendee = useCallback((ticketClassId, attendeeIndex) => {
+    setCart(prev => {
+      const existing = prev[ticketClassId];
+      if (!existing) return prev;
+      const updated = { ...existing, attendees: existing.attendees.filter((_, i) => i !== attendeeIndex) };
+      if (updated.attendees.length === 0) {
+        const next = { ...prev };
+        delete next[ticketClassId];
+        return next;
+      }
+      return { ...prev, [ticketClassId]: updated };
+    });
+  }, []);
 
   useEffect(() => {
     if (event) {
@@ -1157,6 +1280,8 @@ export default function ComplexEventDetail() {
                       setDrawerTrackId(trackId);
                       setTicketDrawerOpen(true);
                     }}
+                    cartAttendeesByTrack={cartAttendeesByTrack}
+                    onRemoveCartAttendee={handleRemoveCartAttendee}
                   />
                 </CardContent>
               </Card>
@@ -1255,6 +1380,9 @@ export default function ComplexEventDetail() {
               sessions={sessions}
               memberInfo={memberInfo}
               organizationInfo={organizationInfo}
+              cart={cart}
+              setCart={setCart}
+              onBookingComplete={() => { setCart({}); }}
             />
           </div>
         </div>
@@ -1312,7 +1440,9 @@ export default function ComplexEventDetail() {
               organizationInfo={organizationInfo}
               filterTrackId={drawerTrackId}
               layout="drawer"
-              onBookingComplete={() => {}}
+              onBookingComplete={() => { setCart({}); }}
+              cart={cart}
+              setCart={setCart}
             />
           )}
         </SheetContent>

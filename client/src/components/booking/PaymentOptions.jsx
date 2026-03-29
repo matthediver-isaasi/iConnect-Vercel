@@ -602,7 +602,8 @@ export default function PaymentOptions({
         if (savedPayload.isComplexEvent && complexEventApi) {
           const complexPayload = {
             payment_method: 'card',
-            stripe_payment_intent_id: paymentIntentFromUrl
+            stripe_payment_intent_id: paymentIntentFromUrl,
+            _savedCartItems: savedPayload.complexCartItems || []
           };
           const result = await complexEventApi.submitBooking(complexPayload);
           if (result.success) {
@@ -1056,6 +1057,7 @@ export default function PaymentOptions({
         isComplexEvent: isComplexEvent,
         discountCodeId: appliedDiscount?.discount_code_id || null,
         discountCodeAmount: discountCodeSavings || 0,
+        complexCartItems: isComplexEvent ? (complexEventApi?._getCartItems?.() || []) : undefined,
       };
       
       if (!isGuestCheckout && !isComplexEvent) {
