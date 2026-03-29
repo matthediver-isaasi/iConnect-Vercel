@@ -565,6 +565,13 @@ class PublicClient {
       body: JSON.stringify(data)
     });
   }
+
+  async validateComplexEventDiscount(data) {
+    return this._fetch('/api/public/complex-event-validate-discount', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
 }
 
 // Export singleton instance

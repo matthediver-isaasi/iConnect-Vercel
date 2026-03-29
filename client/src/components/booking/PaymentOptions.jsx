@@ -1462,7 +1462,7 @@ export default function PaymentOptions({
               </div>
             )}
 
-            {/* Discount Code Section - hidden for complex events (multi-ticket cart doesn't support per-item discounts yet) */}
+            {/* Discount Code Section - for complex events, per-ticket discounts are handled in the cart ticket cards */}
             {!isComplexEvent && !isFeatureExcluded('element_EventDiscountCode') && (
               <div id="discount-code-section" className="p-4 rounded-lg border border-slate-200 bg-purple-50">
                 <div className="flex items-center gap-2 mb-3">

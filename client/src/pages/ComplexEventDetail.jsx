@@ -609,9 +609,39 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
   );
 }
 
-function TicketDiscountInput({ ticketClassId, discountCode, onApply, onRemove }) {
-  const [inputValue, setInputValue] = useState(discountCode || '');
-  const hasApplied = !!discountCode;
+function TicketDiscountInput({ ticketClassId, discountInfo, onApply, onRemove, eventId }) {
+  const [inputValue, setInputValue] = useState('');
+  const [validating, setValidating] = useState(false);
+  const hasApplied = !!discountInfo?.code;
+
+  const handleApply = async () => {
+    const code = inputValue.trim();
+    if (!code) return;
+    setValidating(true);
+    try {
+      const result = await publicClient.validateComplexEventDiscount({
+        event_id: eventId,
+        ticket_class_id: ticketClassId,
+        discount_code: code
+      });
+      if (result.valid) {
+        onApply(ticketClassId, {
+          code: code.toUpperCase(),
+          discountedPrice: result.discounted_price,
+          originalPrice: result.original_price,
+          discountType: result.discount_type,
+          discountValue: result.discount_value
+        });
+        toast.success(`Discount applied! Price reduced to \u00a3${result.discounted_price.toFixed(2)}`);
+      } else {
+        toast.error(result.reason || 'Invalid discount code');
+      }
+    } catch (err) {
+      toast.error('Failed to validate discount code');
+    } finally {
+      setValidating(false);
+    }
+  };
 
   return (
     <div className="mt-2 pt-2 border-t border-slate-100" data-testid={`discount-section-${ticketClassId}`}>
@@ -619,9 +649,9 @@ function TicketDiscountInput({ ticketClassId, discountCode, onApply, onRemove })
         <Input
           type="text"
           placeholder="Discount code"
-          value={hasApplied ? discountCode : inputValue}
+          value={hasApplied ? discountInfo.code : inputValue}
           onChange={(e) => setInputValue(e.target.value.toUpperCase())}
-          disabled={hasApplied}
+          disabled={hasApplied || validating}
           className="h-7 text-xs flex-1"
           data-testid={`input-discount-${ticketClassId}`}
         />
@@ -641,18 +671,21 @@ function TicketDiscountInput({ ticketClassId, discountCode, onApply, onRemove })
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => { if (inputValue.trim()) onApply(ticketClassId, inputValue.trim()); }}
-            disabled={!inputValue.trim()}
+            onClick={handleApply}
+            disabled={!inputValue.trim() || validating}
             className="h-7 px-2 text-xs"
             data-testid={`button-apply-discount-${ticketClassId}`}
           >
-            Apply
+            {validating ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Apply'}
           </Button>
         )}
       </div>
       {hasApplied && (
         <p className="text-[10px] text-green-600 mt-0.5">
-          Discount code applied (validated at checkout)
+          {discountInfo.discountType === 'percentage'
+            ? `${discountInfo.discountValue}% off`
+            : `\u00a3${discountInfo.discountValue.toFixed(2)} off`}
+          {' \u2014 '}{'\u00a3'}{discountInfo.discountedPrice.toFixed(2)} per ticket
         </p>
       )}
     </div>
@@ -669,9 +702,11 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
   const itemSubtotals = entries.map(([ticketClassId, item]) => {
     const tc = item.ticketClass;
     const ep = tc && getEffectiveTicketPrice ? getEffectiveTicketPrice(tc) : { price: 0 };
-    const subtotal = ep.price * item.attendees.length;
+    const di = item.discountInfo;
+    const effectiveUnitPrice = di ? di.discountedPrice : ep.price;
+    const subtotal = effectiveUnitPrice * item.attendees.length;
     grandTotal += subtotal;
-    return { ticketClassId, unitPrice: ep.price, subtotal, discountCode: item.discountCode };
+    return { ticketClassId, unitPrice: effectiveUnitPrice, originalPrice: ep.price, subtotal, discountInfo: di };
   });
 
   return (
@@ -689,13 +724,22 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
             <div className="text-xs font-medium text-slate-600 flex items-center gap-1.5 flex-wrap">
               <Ticket className="w-3 h-3" />
               {item.ticketClass?.name || 'Ticket'}
-              {sub.discountCode && (
+              {sub.discountInfo && (
                 <Badge variant="secondary" className="text-[10px] bg-green-50 text-green-700 border-green-200">
-                  {sub.discountCode}
+                  {sub.discountInfo.code}
                 </Badge>
               )}
               <span className="ml-auto text-[11px] text-slate-500">
-                {item.attendees.length} x {'\u00a3'}{sub.unitPrice.toFixed(2)} = {'\u00a3'}{sub.subtotal.toFixed(2)}
+                {item.attendees.length} x{' '}
+                {sub.discountInfo ? (
+                  <>
+                    <span className="line-through text-slate-400">{'\u00a3'}{sub.originalPrice.toFixed(2)}</span>
+                    {' '}{'\u00a3'}{sub.unitPrice.toFixed(2)}
+                  </>
+                ) : (
+                  <>{'\u00a3'}{sub.unitPrice.toFixed(2)}</>
+                )}
+                {' = '}{'\u00a3'}{sub.subtotal.toFixed(2)}
               </span>
             </div>
             {item.attendees.map((attendee, i) => (
@@ -726,12 +770,10 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
           </div>
         );
       })}
-      {entries.length > 1 && (
-        <div className="flex items-center justify-between pt-2 border-t border-slate-200" data-testid="cart-grand-total">
-          <span className="text-sm font-semibold text-slate-800">Total</span>
-          <span className="text-sm font-semibold text-slate-800">{'\u00a3'}{grandTotal.toFixed(2)}</span>
-        </div>
-      )}
+      <div className="flex items-center justify-between pt-2 border-t border-slate-200" data-testid="cart-grand-total">
+        <span className="text-sm font-semibold text-slate-800">Total</span>
+        <span className="text-sm font-semibold text-slate-800">{'\u00a3'}{grandTotal.toFixed(2)}</span>
+      </div>
     </div>
   );
 }
@@ -829,13 +871,13 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     });
   }, []);
 
-  const handleApplyDiscount = useCallback((ticketClassId, discountCode) => {
+  const handleApplyDiscount = useCallback((ticketClassId, discountInfo) => {
     setCart(prev => {
       const existing = prev[ticketClassId];
       if (!existing) return prev;
       return {
         ...prev,
-        [ticketClassId]: { ...existing, discountCode: discountCode || null }
+        [ticketClassId]: { ...existing, discountInfo: discountInfo || null }
       };
     });
   }, []);
@@ -846,7 +888,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       if (!existing) return prev;
       return {
         ...prev,
-        [ticketClassId]: { ...existing, discountCode: null }
+        [ticketClassId]: { ...existing, discountInfo: null }
       };
     });
   }, []);
@@ -867,13 +909,17 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       .map(([ticketClassId, item]) => {
         const tc = item.ticketClass;
         const ep = tc ? getEffectiveTicketPrice(tc) : { price: 0, isEarlyBird: false };
+        const di = item.discountInfo;
+        const effectiveUnitPrice = di ? di.discountedPrice : ep.price;
         return {
           ticketClassId,
           ticketClass: tc,
           attendees: item.attendees,
-          unitPrice: ep.price,
-          subtotal: ep.price * item.attendees.length,
-          discountCode: item.discountCode || null
+          unitPrice: effectiveUnitPrice,
+          originalUnitPrice: ep.price,
+          subtotal: effectiveUnitPrice * item.attendees.length,
+          discountCode: di?.code || null,
+          discountInfo: di || null
         };
       });
   }, [cart]);
@@ -1051,9 +1097,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
             {count > 0 && tcPrice.price > 0 && (
               <TicketDiscountInput
                 ticketClassId={tc.id}
-                discountCode={cartEntry?.discountCode || ''}
+                discountInfo={cartEntry?.discountInfo || null}
                 onApply={handleApplyDiscount}
                 onRemove={handleRemoveDiscount}
+                eventId={event.id}
               />
             )}
           </div>
