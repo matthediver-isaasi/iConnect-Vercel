@@ -486,6 +486,18 @@ export default function CreateComplexEvent() {
     return roleIds.map(id => roles.find(r => r.id === id)?.name || 'Unknown').join(', ');
   };
 
+  const moveTicketClass = (localId, direction) => {
+    setTicketClasses(prev => {
+      const idx = prev.findIndex(t => t._localId === localId);
+      if (idx < 0) return prev;
+      const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (newIdx < 0 || newIdx >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+      return arr;
+    });
+  };
+
   const toggleTrackForTicket = (localId, trackId) => {
     setTicketClasses(prev => prev.map(t => {
       if (t._localId !== localId) return t;
@@ -1154,16 +1166,29 @@ export default function CreateComplexEvent() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        disabled={idx === 0}
+                        onClick={(e) => { e.stopPropagation(); moveTicketClass(ticket._localId, 'up'); }}
+                        data-testid={`button-move-up-ticket-${ticket._localId}`}
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        disabled={idx === ticketClasses.length - 1}
+                        onClick={(e) => { e.stopPropagation(); moveTicketClass(ticket._localId, 'down'); }}
+                        data-testid={`button-move-down-ticket-${ticket._localId}`}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={(e) => { e.stopPropagation(); removeTicketClass(ticket._localId); }}
                         data-testid={`button-remove-ticket-${ticket._localId}`}
                       >
                         <Trash2 className="w-4 h-4 text-red-500" />
                       </Button>
-                      {expandedTickets[ticket._localId] ? (
-                        <ChevronUp className="w-4 h-4 text-slate-400" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-slate-400" />
-                      )}
                     </div>
                   </div>
 
@@ -1506,7 +1531,27 @@ export default function CreateComplexEvent() {
                         </RadioGroup>
 
                         {ticket.offer_type === 'bogo' && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                          <div className="space-y-3 mt-2 p-3 bg-slate-50 rounded-md">
+                            <RadioGroup
+                              value={ticket.bogo_logic_type}
+                              onValueChange={(value) => updateTicketClass(ticket._localId, 'bogo_logic_type', value)}
+                            >
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <RadioGroupItem value="buy_x_get_y_free" id={`bogo-logic-1-${ticket._localId}`} />
+                                  <Label htmlFor={`bogo-logic-1-${ticket._localId}`} className="text-sm cursor-pointer">
+                                    Buy X, Get Y Free
+                                  </Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <RadioGroupItem value="enter_total_pay_less" id={`bogo-logic-2-${ticket._localId}`} />
+                                  <Label htmlFor={`bogo-logic-2-${ticket._localId}`} className="text-sm cursor-pointer">
+                                    Enter Total, Pay Less
+                                  </Label>
+                                </div>
+                              </div>
+                            </RadioGroup>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div className="space-y-1.5">
                               <Label className="text-sm">Buy Quantity</Label>
                               <Input
@@ -1527,6 +1572,7 @@ export default function CreateComplexEvent() {
                                 data-testid={`input-bogo-free-${ticket._localId}`}
                               />
                             </div>
+                          </div>
                           </div>
                         )}
 
