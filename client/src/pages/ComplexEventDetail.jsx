@@ -101,10 +101,11 @@ function TrackTicketButtons({ trackColorMap, eventTracks, onSeeTickets }) {
               color: colors?.accent || undefined,
             }}
             onClick={() => onSeeTickets(trackName, trackId)}
+            disabled={!trackId}
             data-testid={`button-see-tickets-${trackName}`}
           >
             <Ticket className="w-3.5 h-3.5" />
-            {trackName}
+            {trackName} — See Tickets
           </Button>
         );
       })}
