@@ -106,11 +106,25 @@ export default async function handler(req, res) {
       }
 
       const ticket = resolveTicketPrice(allTicketClasses, item.ticket_class_id);
-      if (!ticket.found || ticket.price === 0) {
-        return res.status(400).json({ error: `Invalid or free ticket class: ${item.ticket_class_id}` });
+      if (!ticket.found) {
+        return res.status(400).json({ error: `Invalid ticket class: ${item.ticket_class_id}` });
       }
 
       let finalPrice = ticket.price;
+
+      if (ticket.price === 0) {
+        ticketClassIds.push(item.ticket_class_id);
+        itemDetails.push({
+          ticket_class_id: item.ticket_class_id,
+          ticket_name: ticket.name,
+          unit_price: 0,
+          original_price: 0,
+          attendee_count: item.attendee_count,
+          discount_code: null
+        });
+        continue;
+      }
+
       if (item.discount_code) {
         const discountResult = await validateDiscountCode({
           code: item.discount_code,
@@ -129,7 +143,16 @@ export default async function handler(req, res) {
       }
 
       if (finalPrice <= 0) {
-        return res.status(400).json({ error: `Discounted price is zero for ticket ${ticketClass.name || item.ticket_class_id}. Use free registration instead.` });
+        ticketClassIds.push(item.ticket_class_id);
+        itemDetails.push({
+          ticket_class_id: item.ticket_class_id,
+          ticket_name: ticket.name,
+          unit_price: 0,
+          original_price: ticket.price,
+          attendee_count: item.attendee_count,
+          discount_code: item.discount_code || null
+        });
+        continue;
       }
 
       const itemTotal = Math.round(finalPrice * item.attendee_count * 100);
@@ -151,7 +174,7 @@ export default async function handler(req, res) {
     }
 
     if (grandTotalMinor <= 0) {
-      return res.status(400).json({ error: 'Total amount must be greater than zero' });
+      return res.status(400).json({ error: 'Total is zero — use free registration instead', free_registration: true });
     }
 
     const creds = await getStripeCredentials(tenant.id, 'events');
