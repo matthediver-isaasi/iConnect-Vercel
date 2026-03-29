@@ -1115,7 +1115,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
     </div>
   );
 
-  const paymentOptionsSection = totalAttendeeCount > 0 ? (
+  const isStripeReturn = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('payment_intent');
+
+  const shouldShowPaymentOptions = totalAttendeeCount > 0 || isStripeReturn;
+
+  const paymentOptionsSection = shouldShowPaymentOptions ? (
     <PaymentOptions
       event={paymentOptionsEvent}
       memberInfo={memberInfo}
