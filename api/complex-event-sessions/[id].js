@@ -8,6 +8,45 @@ function convertLocalTimeToUTC(localTimeStr, timezone) {
   return utcDate.toISOString();
 }
 
+async function checkTrackOverlaps(supabase, tenantId, trackIds, startTime, endTime, excludeSessionId) {
+  if (!trackIds?.length || !startTime || !endTime) return [];
+
+  const { data: junctions } = await supabase
+    .from('complex_event_session_track')
+    .select('complex_event_session_id, complex_event_track_id')
+    .in('complex_event_track_id', trackIds)
+    .eq('tenant_id', tenantId);
+
+  if (!junctions?.length) return [];
+
+  const sessionIds = [...new Set(junctions.map(j => j.complex_event_session_id))].filter(sid => sid !== excludeSessionId);
+  if (!sessionIds.length) return [];
+
+  const { data: sessions } = await supabase
+    .from('complex_event_session')
+    .select('id, title, start_time, end_time')
+    .in('id', sessionIds)
+    .eq('tenant_id', tenantId);
+
+  const overlaps = [];
+  const newStart = new Date(startTime).getTime();
+  const newEnd = new Date(endTime).getTime();
+
+  for (const s of (sessions || [])) {
+    if (!s.start_time || !s.end_time) continue;
+    const sStart = new Date(s.start_time).getTime();
+    const sEnd = new Date(s.end_time).getTime();
+    if (newStart < sEnd && newEnd > sStart) {
+      const sessionTrackIds = junctions.filter(j => j.complex_event_session_id === s.id).map(j => j.complex_event_track_id);
+      const sharedTracks = trackIds.filter(tid => sessionTrackIds.includes(tid));
+      if (sharedTracks.length > 0) {
+        overlaps.push({ session_id: s.id, title: s.title, shared_track_ids: sharedTracks });
+      }
+    }
+  }
+  return overlaps;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, DELETE, OPTIONS');
@@ -93,6 +132,17 @@ export default async function handler(req, res) {
           const invalidIds = newTrackIds.filter(tid => !validTrackIds.includes(tid));
           if (invalidIds.length > 0) {
             return res.status(400).json({ error: `Invalid track IDs: ${invalidIds.join(', ')}` });
+          }
+        }
+
+        const tz = body.timezone || 'Europe/London';
+        const effectiveStart = body.start_time ? convertLocalTimeToUTC(body.start_time, tz) : existing.start_time;
+        const effectiveEnd = body.end_time ? convertLocalTimeToUTC(body.end_time, tz) : existing.end_time;
+        if (effectiveStart && effectiveEnd) {
+          const overlaps = await checkTrackOverlaps(supabase, tenantId, newTrackIds, effectiveStart, effectiveEnd, id);
+          if (overlaps.length > 0) {
+            const msgs = overlaps.map(o => `"${o.title}"`).join(', ');
+            return res.status(409).json({ error: `Time overlap with: ${msgs}`, overlaps });
           }
         }
 

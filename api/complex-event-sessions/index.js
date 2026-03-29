@@ -8,6 +8,45 @@ function convertLocalTimeToUTC(localTimeStr, timezone) {
   return utcDate.toISOString();
 }
 
+async function checkTrackOverlaps(supabase, tenantId, eventId, trackIds, startTime, endTime, excludeSessionId) {
+  if (!trackIds?.length || !startTime || !endTime) return [];
+
+  const { data: junctions } = await supabase
+    .from('complex_event_session_track')
+    .select('complex_event_session_id, complex_event_track_id')
+    .in('complex_event_track_id', trackIds)
+    .eq('tenant_id', tenantId);
+
+  if (!junctions?.length) return [];
+
+  const sessionIds = [...new Set(junctions.map(j => j.complex_event_session_id))].filter(id => id !== excludeSessionId);
+  if (!sessionIds.length) return [];
+
+  const { data: sessions } = await supabase
+    .from('complex_event_session')
+    .select('id, title, start_time, end_time')
+    .in('id', sessionIds)
+    .eq('tenant_id', tenantId);
+
+  const overlaps = [];
+  const newStart = new Date(startTime).getTime();
+  const newEnd = new Date(endTime).getTime();
+
+  for (const s of (sessions || [])) {
+    if (!s.start_time || !s.end_time) continue;
+    const sStart = new Date(s.start_time).getTime();
+    const sEnd = new Date(s.end_time).getTime();
+    if (newStart < sEnd && newEnd > sStart) {
+      const sessionTrackIds = junctions.filter(j => j.complex_event_session_id === s.id).map(j => j.complex_event_track_id);
+      const sharedTracks = trackIds.filter(tid => sessionTrackIds.includes(tid));
+      if (sharedTracks.length > 0) {
+        overlaps.push({ session_id: s.id, title: s.title, shared_track_ids: sharedTracks });
+      }
+    }
+  }
+  return overlaps;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -72,6 +111,18 @@ export default async function handler(req, res) {
         junctions = jData || [];
       }
 
+      const allTrackIds = [...new Set(junctions.map(j => j.complex_event_track_id))];
+      let trackMap = {};
+      if (allTrackIds.length > 0) {
+        const { data: tracks } = await supabase
+          .from('complex_event_track')
+          .select('id, name, colour')
+          .in('id', allTrackIds);
+        for (const t of (tracks || [])) {
+          trackMap[t.id] = t;
+        }
+      }
+
       const sessionTrackMap = {};
       for (const j of junctions) {
         if (!sessionTrackMap[j.complex_event_session_id]) {
@@ -80,11 +131,16 @@ export default async function handler(req, res) {
         sessionTrackMap[j.complex_event_session_id].push(j.complex_event_track_id);
       }
 
-      const enriched = (sessions || []).map(s => ({
-        ...s,
-        track_ids: sessionTrackMap[s.id] || [],
-        complex_event_track_id: (sessionTrackMap[s.id] || [])[0] || null,
-      }));
+      const enriched = (sessions || []).map(s => {
+        const tids = sessionTrackMap[s.id] || [];
+        return {
+          ...s,
+          track_ids: tids,
+          track_names: tids.map(tid => trackMap[tid]?.name).filter(Boolean),
+          track_colours: tids.map(tid => trackMap[tid]?.colour).filter(Boolean),
+          complex_event_track_id: tids[0] || null,
+        };
+      });
 
       return res.json(enriched);
     } catch (error) {
@@ -149,6 +205,15 @@ export default async function handler(req, res) {
 
       if (complex_event_track_id) {
         sessionData.complex_event_track_id = complex_event_track_id;
+      }
+
+      const preCheckTrackIds = track_ids.length > 0 ? track_ids : (complex_event_track_id ? [complex_event_track_id] : []);
+      if (preCheckTrackIds.length > 0 && sessionData.start_time && sessionData.end_time) {
+        const overlaps = await checkTrackOverlaps(supabase, tenantId, effectiveEventId, preCheckTrackIds, sessionData.start_time, sessionData.end_time, null);
+        if (overlaps.length > 0) {
+          const msgs = overlaps.map(o => `"${o.title}"`).join(', ');
+          return res.status(409).json({ error: `Time overlap with: ${msgs}`, overlaps });
+        }
       }
 
       const { data: session, error: insertError } = await supabase

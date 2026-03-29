@@ -15,14 +15,8 @@ const client = new Client({
 });
 
 async function runSQL(sql, label) {
-  try {
-    const result = await client.query(sql);
-    console.log(`[${label}] OK`, result.rowCount != null ? `(${result.rowCount} rows)` : '');
-    return true;
-  } catch (err) {
-    console.error(`[${label}] Error:`, err.message);
-    return false;
-  }
+  const result = await client.query(sql);
+  console.log(`[${label}] OK`, result.rowCount != null ? `(${result.rowCount} rows)` : '');
 }
 
 async function main() {

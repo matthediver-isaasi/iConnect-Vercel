@@ -388,11 +388,43 @@ export default function CreateComplexEvent() {
     setEditingSession(null);
   };
 
+  const checkSessionOverlaps = (formData, currentLocalId) => {
+    if (!formData.start_time || !formData.end_time || !(formData.track_ids || []).length) return [];
+    const newStart = new Date(formData.start_time).getTime();
+    const newEnd = new Date(formData.end_time).getTime();
+    if (isNaN(newStart) || isNaN(newEnd) || newEnd <= newStart) return [];
+
+    const overlaps = [];
+    for (const s of sessions) {
+      if (s._localId === currentLocalId) continue;
+      if (!s.start_time || !s.end_time) continue;
+      const sStart = new Date(s.start_time).getTime();
+      const sEnd = new Date(s.end_time).getTime();
+      if (isNaN(sStart) || isNaN(sEnd)) continue;
+      const sharedTracks = (formData.track_ids || []).filter(tid => (s.track_ids || []).includes(tid));
+      if (sharedTracks.length > 0 && newStart < sEnd && newEnd > sStart) {
+        const trackLabels = sharedTracks.map(tid => {
+          const t = tracks.find(tr => (tr.id || tr._localId) === tid);
+          return t?.name || 'Unknown';
+        });
+        overlaps.push({ session: s.title, tracks: trackLabels });
+      }
+    }
+    return overlaps;
+  };
+
   const saveSession = () => {
     if (!sessionForm.title.trim()) {
       toast.error("Session title is required");
       return;
     }
+
+    const overlaps = checkSessionOverlaps(sessionForm, editingSession);
+    if (overlaps.length > 0) {
+      const msgs = overlaps.map(o => `"${o.session}" on track(s): ${o.tracks.join(', ')}`);
+      toast.warning(`Time overlap detected with: ${msgs.join('; ')}. Session saved, but please review.`);
+    }
+
     if (editingSession) {
       setSessions((prev) =>
         prev.map((s) =>
