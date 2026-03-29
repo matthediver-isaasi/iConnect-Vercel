@@ -557,8 +557,15 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
 
   const isGuest = !memberInfo;
 
+  const getTicketVisibility = (tc) => {
+    if (tc.visibility_mode) return tc.visibility_mode;
+    if (tc.is_public === true) return 'members_and_public';
+    if (tc.is_public === false) return 'members_only';
+    return 'members_and_public';
+  };
+
   const isTicketRestricted = (tc) => {
-    const vis = tc.visibility_mode || 'members_only';
+    const vis = getTicketVisibility(tc);
     if (isGuest) return vis === 'members_only';
     return vis === 'public_only';
   };
@@ -982,6 +989,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
         )}
       </Button>
 
+      {selectedTicket && isTicketRestricted(selectedTicket) && (
+        <p className="text-xs text-center text-slate-500 mt-1">
+          {isGuest
+            ? 'This ticket requires a member account. Please log in to complete registration.'
+            : 'This ticket is available to non-members only.'}
+        </p>
+      )}
+
       {ticketClasses.length === 0 && (
         <p className="text-sm text-center text-slate-500">
           {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
@@ -1247,6 +1262,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
             `Register - \u00a3${totalPrice.toFixed(2)}`
           )}
         </Button>
+
+        {selectedTicket && isTicketRestricted(selectedTicket) && (
+          <p className="text-xs text-center text-slate-500 mt-1">
+            {isGuest
+              ? 'This ticket requires a member account. Please log in to complete registration.'
+              : 'This ticket is available to non-members only.'}
+          </p>
+        )}
 
         {ticketClasses.length === 0 && (
           <p className="text-sm text-center text-slate-500">No tickets are currently available for public registration.</p>
