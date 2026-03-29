@@ -69,6 +69,53 @@ async function main() {
     await runSQL(`CREATE INDEX IF NOT EXISTS idx_session_event_id ON complex_event_session(complex_event_id);`, '8. Index event_id on sessions');
     await runSQL(`ALTER TABLE complex_event_session ALTER COLUMN complex_event_track_id DROP NOT NULL;`, '9. Make track_id nullable');
 
+    await runSQL(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='complex_event_session' AND column_name='complex_event_id' AND is_nullable='YES')
+           AND NOT EXISTS (SELECT 1 FROM complex_event_session WHERE complex_event_id IS NULL)
+        THEN
+          ALTER TABLE complex_event_session ALTER COLUMN complex_event_id SET NOT NULL;
+        END IF;
+      END $$;
+    `, '10. Enforce complex_event_id NOT NULL');
+
+    await runSQL(`
+      CREATE OR REPLACE FUNCTION check_complex_event_session_tenant()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        IF NEW.complex_event_track_id IS NOT NULL THEN
+          IF NOT EXISTS (SELECT 1 FROM complex_event_track WHERE id = NEW.complex_event_track_id AND tenant_id = NEW.tenant_id) THEN
+            RAISE EXCEPTION 'complex_event_session tenant_id does not match parent complex_event_track tenant_id';
+          END IF;
+        END IF;
+        IF NEW.complex_event_id IS NOT NULL THEN
+          IF NOT EXISTS (SELECT 1 FROM complex_event WHERE id = NEW.complex_event_id AND tenant_id = NEW.tenant_id) THEN
+            RAISE EXCEPTION 'complex_event_session tenant_id does not match parent complex_event tenant_id';
+          END IF;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `, '11. Update session tenant trigger for nullable track_id');
+
+    await runSQL(`
+      CREATE OR REPLACE FUNCTION check_session_track_junction_tenant()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM complex_event_session WHERE id = NEW.complex_event_session_id AND tenant_id = NEW.tenant_id) THEN
+          RAISE EXCEPTION 'complex_event_session_track session tenant_id mismatch';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM complex_event_track WHERE id = NEW.complex_event_track_id AND tenant_id = NEW.tenant_id) THEN
+          RAISE EXCEPTION 'complex_event_session_track track tenant_id mismatch';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `, '12a. Create junction tenant isolation trigger function');
+
+    await runSQL(`DROP TRIGGER IF EXISTS enforce_session_track_junction_tenant ON complex_event_session_track;`, '12b. Drop old junction trigger');
+    await runSQL(`CREATE TRIGGER enforce_session_track_junction_tenant BEFORE INSERT OR UPDATE ON complex_event_session_track FOR EACH ROW EXECUTE FUNCTION check_session_track_junction_tenant();`, '12c. Create junction tenant trigger');
+
     await client.query('COMMIT');
 
     const r1 = await client.query('SELECT count(*) as cnt FROM complex_event_session');
