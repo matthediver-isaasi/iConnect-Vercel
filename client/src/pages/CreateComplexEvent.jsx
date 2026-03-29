@@ -204,7 +204,7 @@ export default function CreateComplexEvent() {
     enabled: isEditMode && existingTracks.length > 0,
   });
 
-  const { data: existingTicketClasses = [] } = useQuery({
+  const { data: existingTicketClasses = [], isLoading: loadingTicketClasses } = useQuery({
     queryKey: ["/api/entities/ComplexEventTicketClass", editId],
     queryFn: () =>
       base44.entities.ComplexEventTicketClass.list({
@@ -328,7 +328,13 @@ export default function CreateComplexEvent() {
   };
 
   const removeTrack = (localId) => {
+    const track = tracks.find(t => t._localId === localId);
+    const trackRef = track?.id || localId;
     setTracks((prev) => prev.filter((t) => t._localId !== localId));
+    setTicketClasses((prev) => prev.map(t => ({
+      ...t,
+      linked_track_ids: (t.linked_track_ids || []).filter(id => id !== trackRef),
+    })));
   };
 
   const moveTrack = (localId, direction) => {
@@ -677,7 +683,7 @@ export default function CreateComplexEvent() {
     }
   };
 
-  if (isEditMode && (loadingEvent || loadingTracks)) {
+  if (isEditMode && (loadingEvent || loadingTracks || loadingTicketClasses)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
