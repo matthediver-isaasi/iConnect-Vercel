@@ -1,6 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getZoomAccessTokenForTenant } from '../../_lib/zoomClient.js';
-import { getSessionTenantUser } from '../../_lib/session.js';
+import { getTenantContext } from '../../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -19,11 +19,11 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const tenantUser = await getSessionTenantUser(req);
-  if (!tenantUser?.tenant_id) {
-    return res.status(403).json({ error: 'Admin access required' });
+  const tenantCtx = await getTenantContext(req);
+  if (!tenantCtx?.isAuthenticated || !tenantCtx?.tenantId) {
+    return res.status(403).json({ error: 'Authentication required' });
   }
-  const tenantId = tenantUser.tenant_id;
+  const tenantId = tenantCtx.tenantId;
 
   const { id } = req.query;
 
