@@ -1,5 +1,4 @@
 import { supabase } from '../_lib/database.js';
-import { getZoomAccessToken, getZoomAccessTokenForTenant, getTenantIdFromSession } from '../_lib/zoomClient.js';
 import { getSessionTenantUser } from '../_lib/session.js';
 import { fromZonedTime } from 'date-fns-tz';
 
@@ -28,7 +27,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantUser.tenant_id;
 
-  const ADMIN_LIST_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, timezone, delivery_mode, zoom_type, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_host_id, zoom_host_email, zoom_registration_required, zoom_registration_url, created_at, updated_at';
+  const ADMIN_LIST_FIELDS = 'id, complex_event_track_id, tenant_id, title, description, image_url, speaker_names, start_time, end_time, location, is_online, display_order, timezone, delivery_mode, created_at, updated_at';
 
   if (req.method === 'GET') {
     try {
@@ -96,14 +95,7 @@ export default async function handler(req, res) {
         speaker_names,
         is_online = false,
         location,
-        image_url,
-        zoom_type,
-        zoom_host_id,
-        zoom_host_email,
-        zoom_registration_required = false,
-        auto_create_zoom = false,
-        link_existing_zoom_id,
-        link_existing_zoom_type
+        image_url
       } = req.body;
 
       if (!title) {
@@ -153,8 +145,6 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Track not found' });
       }
 
-      const duration_minutes = req.body.duration_minutes || 60;
-
       const sessionData = {
         complex_event_track_id: trackId,
         tenant_id: tenantId,
@@ -168,71 +158,8 @@ export default async function handler(req, res) {
         is_online: is_online || false,
         display_order,
         delivery_mode: delivery_mode || null,
-        timezone: timezone || null,
-        zoom_type: delivery_mode === 'virtual' || delivery_mode === 'hybrid' ? (zoom_type || null) : null,
-        zoom_host_id: zoom_host_id || null,
-        zoom_host_email: zoom_host_email || null,
-        zoom_registration_required
+        timezone: timezone || null
       };
-
-      if (link_existing_zoom_id && (delivery_mode === 'virtual' || delivery_mode === 'hybrid')) {
-        const effectiveZoomType = link_existing_zoom_type || zoom_type || 'meeting';
-        try {
-          const token = await getZoomAccessTokenForTenant(tenantId);
-          const isWebinar = effectiveZoomType === 'webinar';
-          const endpoint = isWebinar
-            ? `https://api.zoom.us/v2/webinars/${link_existing_zoom_id}`
-            : `https://api.zoom.us/v2/meetings/${link_existing_zoom_id}`;
-
-          const zoomResponse = await fetch(endpoint, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-
-          if (!zoomResponse.ok) {
-            return res.status(400).json({ error: `Zoom ${effectiveZoomType} not found or not accessible` });
-          }
-
-          const zoomData = await zoomResponse.json();
-
-          if (isWebinar) {
-            sessionData.zoom_webinar_id = String(zoomData.id);
-            sessionData.zoom_registration_url = zoomData.registration_url || null;
-          } else {
-            sessionData.zoom_meeting_id = String(zoomData.id);
-          }
-          sessionData.zoom_join_url = zoomData.join_url;
-          sessionData.zoom_start_url = zoomData.start_url;
-          sessionData.zoom_password = zoomData.password || null;
-          sessionData.zoom_host_id = zoomData.host_id || zoom_host_id || null;
-          sessionData.zoom_type = effectiveZoomType;
-
-          if (!sessionData.start_time && zoomData.start_time) {
-            sessionData.start_time = new Date(zoomData.start_time).toISOString();
-          }
-        } catch (linkErr) {
-          console.error('[Sessions] Link existing Zoom error:', linkErr);
-          return res.status(500).json({ error: 'Failed to link existing Zoom resource: ' + linkErr.message });
-        }
-      } else if (auto_create_zoom && (delivery_mode === 'virtual' || delivery_mode === 'hybrid') && zoom_type && start_time) {
-        const zoomResult = await createZoomForSession({
-          tenantId,
-          req,
-          title,
-          description,
-          start_time,
-          duration_minutes,
-          timezone,
-          zoom_type,
-          zoom_host_id,
-          zoom_registration_required
-        });
-
-        if (zoomResult.error) {
-          return res.status(500).json({ error: zoomResult.error });
-        }
-
-        Object.assign(sessionData, zoomResult.data);
-      }
 
       const { data: session, error: insertError } = await supabase
         .from('complex_event_session')
@@ -255,118 +182,3 @@ export default async function handler(req, res) {
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
-async function createZoomForSession({ tenantId, req, title, description, start_time, duration_minutes, timezone, zoom_type, zoom_host_id, zoom_registration_required }) {
-  try {
-    const token = await getZoomAccessTokenForTenant(tenantId);
-    const userId = zoom_host_id || 'me';
-
-    if (zoom_type === 'meeting') {
-      const meetingPayload = {
-        topic: title,
-        type: 2,
-        start_time,
-        duration: duration_minutes,
-        timezone,
-        agenda: description || '',
-        settings: {
-          host_video: true,
-          participant_video: true,
-          join_before_host: false,
-          mute_upon_entry: true,
-          waiting_room: true,
-          audio: 'both',
-          auto_recording: 'cloud'
-        }
-      };
-
-      const zoomResponse = await fetch(`https://api.zoom.us/v2/users/${userId}/meetings`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(meetingPayload)
-      });
-
-      if (!zoomResponse.ok) {
-        const errorText = await zoomResponse.text();
-        console.error('[Sessions] Zoom meeting create error:', errorText);
-        return { error: `Failed to create Zoom meeting: ${errorText}` };
-      }
-
-      const zoomData = await zoomResponse.json();
-      console.log('[Sessions] Zoom meeting created:', zoomData.id);
-
-      return {
-        data: {
-          zoom_meeting_id: String(zoomData.id),
-          zoom_join_url: zoomData.join_url,
-          zoom_start_url: zoomData.start_url,
-          zoom_password: zoomData.password,
-          zoom_host_id: zoomData.host_id
-        }
-      };
-    }
-
-    if (zoom_type === 'webinar') {
-      const webinarPayload = {
-        topic: title,
-        type: 5,
-        start_time,
-        duration: duration_minutes,
-        timezone,
-        agenda: description || '',
-        settings: {
-          host_video: true,
-          panelists_video: true,
-          practice_session: true,
-          hd_video: true,
-          approval_type: zoom_registration_required ? 0 : 2,
-          registration_type: zoom_registration_required ? 1 : undefined,
-          audio: 'both',
-          auto_recording: 'cloud',
-          enforce_login: false,
-          close_registration: false,
-          show_share_button: true,
-          allow_multiple_devices: true,
-          on_demand: true
-        }
-      };
-
-      const zoomResponse = await fetch(`https://api.zoom.us/v2/users/${userId}/webinars`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(webinarPayload)
-      });
-
-      if (!zoomResponse.ok) {
-        const errorText = await zoomResponse.text();
-        console.error('[Sessions] Zoom webinar create error:', errorText);
-        return { error: `Failed to create Zoom webinar: ${errorText}` };
-      }
-
-      const zoomData = await zoomResponse.json();
-      console.log('[Sessions] Zoom webinar created:', zoomData.id);
-
-      return {
-        data: {
-          zoom_webinar_id: String(zoomData.id),
-          zoom_join_url: zoomData.join_url,
-          zoom_start_url: zoomData.start_url,
-          zoom_password: zoomData.password,
-          zoom_host_id: zoomData.host_id,
-          zoom_registration_url: zoomData.registration_url,
-          zoom_registration_required
-        }
-      };
-    }
-
-    return { error: 'Invalid zoom_type. Must be "meeting" or "webinar".' };
-  } catch (error) {
-    console.error('[Sessions] Zoom create error:', error);
-    return { error: error.message || 'Failed to create Zoom session' };
-  }
-}
