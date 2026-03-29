@@ -33,9 +33,10 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, tenant_id')
+      .select('id, tenant_id, status')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
+      .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) {

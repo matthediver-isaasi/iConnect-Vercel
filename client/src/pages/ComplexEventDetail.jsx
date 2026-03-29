@@ -522,7 +522,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
 
   const attendeeCount = attendees.length;
   const unitPrice = effectivePrice.price;
-  const totalPrice = isGroupTicket ? unitPrice : unitPrice * attendeeCount;
+  const totalPrice = unitPrice * attendeeCount;
 
   const isFormValid = useMemo(() => {
     return attendees.every(a =>
@@ -871,7 +871,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo }) {
 
         {totalPrice > 0 && (
           <div className="p-3 rounded-md border border-slate-200 bg-slate-50 space-y-1">
-            {!isGroupTicket && attendeeCount > 1 && (
+            {attendeeCount > 1 && (
               <div className="flex items-center justify-between gap-2 text-sm text-slate-500">
                 <span>{'\u00a3'}{unitPrice.toFixed(2)} x {attendeeCount} attendees</span>
               </div>
