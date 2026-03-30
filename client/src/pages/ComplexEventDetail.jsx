@@ -337,16 +337,15 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
 
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center p-4 transition-all duration-250"
+      className="absolute inset-0 z-30 flex items-center justify-center transition-all duration-250"
       style={{ backgroundColor: visible ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0)', backdropFilter: visible ? 'blur(6px)' : 'blur(0px)' }}
       onClick={handleClose}
       data-testid="session-overlay-backdrop"
     >
       <div
-        className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
+        className="absolute bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
         style={{
-          width: visible ? '80%' : '20%',
-          height: visible ? '80%' : '10%',
+          inset: '30px',
           opacity: visible ? 1 : 0,
           transform: visible ? 'scale(1)' : 'scale(0.85)',
         }}
@@ -411,9 +410,10 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
           </div>
 
           {session.description && (
-            <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
-              {session.description}
-            </div>
+            <div
+              className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(session.description) }}
+            />
           )}
 
           {sessionSpeakers.length > 0 && (
@@ -490,7 +490,7 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
       {canScrollUp && !expandedSession && (
         <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white to-transparent z-10 pointer-events-none" />
       )}
-      <div ref={scrollRef} className={`max-h-[500px] overflow-y-auto pr-2 transition-[filter] duration-250 ${expandedSession ? 'filter blur-[3px] pointer-events-none' : ''}`}>
+      <div ref={scrollRef} className={`max-h-[500px] overflow-y-auto pr-4 transition-[filter] duration-250 ${expandedSession ? 'filter blur-[3px] pointer-events-none' : ''}`}>
         <ScheduleGrid
           sessions={sessions}
           timezone={timezone}
@@ -1371,17 +1371,6 @@ export default function ComplexEventDetail() {
     return map;
   }, [speakers]);
 
-  const speakerSessionsMap = useMemo(() => {
-    const map = {};
-    sessions.forEach(s => {
-      (s.speaker_ids || []).forEach(speakerId => {
-        if (!map[speakerId]) map[speakerId] = [];
-        map[speakerId].push(s);
-      });
-    });
-    return map;
-  }, [sessions]);
-
   const trackColorMap = useMemo(() => {
     const map = {};
     const eventTracks = event?.tracks || [];
@@ -1411,6 +1400,98 @@ export default function ComplexEventDetail() {
     return map;
   }, [sessions, event]);
 
+  const accessibleTrackNames = useMemo(() => {
+    const eventTracks = event?.tracks || [];
+    if (eventTracks.length === 0) return null;
+
+    let pConfig = event?.pricing_config;
+    if (typeof pConfig === 'string') {
+      try { pConfig = JSON.parse(pConfig); } catch { pConfig = null; }
+    }
+    const allTickets = (pConfig?.ticket_classes || []).map(tc => ({
+      ...tc,
+      id: String(tc.id),
+      price: Number(tc.price) || 0
+    }));
+    if (allTickets.length === 0) return null;
+
+    const isGuest = !memberInfo;
+    const userRoleId = memberInfo?.role_id;
+
+    const getVis = (tc) => {
+      if (tc.visibility_mode) return tc.visibility_mode;
+      if (tc.is_public === true) return 'members_and_public';
+      if (tc.is_public === false) return 'members_only';
+      return 'members_and_public';
+    };
+
+    const visibleTickets = allTickets.filter(tc => {
+      const vis = getVis(tc);
+      if (isGuest) {
+        if (vis === 'members_only') return false;
+        if (tc.role_match_only) return false;
+        return true;
+      }
+      if (vis === 'public_only') return false;
+      if (!tc.role_match_only) return true;
+      if ((tc.role_ids || []).length === 0) return true;
+      return userRoleId && (tc.role_ids || []).includes(userRoleId);
+    });
+
+    if (visibleTickets.length === 0) return null;
+
+    const hasAllTracksTicket = visibleTickets.some(tc => tc.all_tracks);
+    if (hasAllTracksTicket) return null;
+
+    const accessibleIds = new Set();
+    visibleTickets.forEach(tc => {
+      (tc.linked_track_ids || []).forEach(id => accessibleIds.add(String(id)));
+    });
+
+    if (accessibleIds.size === 0) return null;
+
+    const trackIdToName = {};
+    eventTracks.forEach(t => { trackIdToName[String(t.id)] = t.name; });
+
+    const names = new Set();
+    accessibleIds.forEach(id => {
+      const name = trackIdToName[id];
+      if (name) names.add(name);
+    });
+
+    return names;
+  }, [event, memberInfo]);
+
+  const filteredSessions = useMemo(() => {
+    if (!accessibleTrackNames) return sessions;
+    return sessions.filter(s => {
+      const names = s.track_names || (s.track_name ? [s.track_name] : []);
+      if (names.length === 0) return true;
+      return names.some(n => accessibleTrackNames.has(n));
+    });
+  }, [sessions, accessibleTrackNames]);
+
+  const filteredTrackColorMap = useMemo(() => {
+    if (!accessibleTrackNames) return trackColorMap;
+    const filtered = {};
+    Object.entries(trackColorMap).forEach(([name, colors]) => {
+      if (accessibleTrackNames.has(name)) {
+        filtered[name] = colors;
+      }
+    });
+    return filtered;
+  }, [trackColorMap, accessibleTrackNames]);
+
+  const speakerSessionsMap = useMemo(() => {
+    const map = {};
+    filteredSessions.forEach(s => {
+      (s.speaker_ids || []).forEach(speakerId => {
+        if (!map[speakerId]) map[speakerId] = [];
+        map[speakerId].push(s);
+      });
+    });
+    return map;
+  }, [filteredSessions]);
 
   useEffect(() => {
     if (event) {
@@ -1554,16 +1635,16 @@ export default function ComplexEventDetail() {
               </Card>
             )}
 
-            {sessions.length > 0 && (
+            {filteredSessions.length > 0 && (
               <Card className="border-slate-200">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-indigo-600" />
                     Schedule
                   </CardTitle>
-                  {Object.keys(trackColorMap).length > 0 && (
+                  {Object.keys(filteredTrackColorMap).length > 0 && (
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {Object.entries(trackColorMap).map(([track, colors]) => (
+                      {Object.entries(filteredTrackColorMap).map(([track, colors]) => (
                         <Badge
                           key={track}
                           variant="outline"
@@ -1578,9 +1659,9 @@ export default function ComplexEventDetail() {
                 </CardHeader>
                 <CardContent>
                   <ScrollableSchedule
-                    sessions={sessions}
+                    sessions={filteredSessions}
                     timezone={tz}
-                    trackColorMap={trackColorMap}
+                    trackColorMap={filteredTrackColorMap}
                     eventTracks={event?.tracks || []}
                     speakerMap={speakerMap}
                     eventImageUrl={event?.image_url}
@@ -1623,6 +1704,7 @@ export default function ComplexEventDetail() {
                             {speaker.organization && <div className="text-xs text-slate-500">{speaker.organization}</div>}
                             {speakerSessions.length > 0 && (
                               <div className="mt-1.5 space-y-0.5">
+                                <p className="text-xs text-slate-400" data-testid={`speaker-speaking-at-${speaker.id}`}>Speaking at</p>
                                 {speakerSessions.map(s => (
                                   <div key={s.id} className="text-xs text-purple-600 truncate" data-testid={`speaker-session-${speaker.id}-${s.id}`}>
                                     {s.title}
