@@ -654,6 +654,10 @@ function _getCurrentPage(url) {
         return 'EventDetails';
     }
     
+    if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'session-events') {
+        return 'ComplexEventDetail';
+    }
+    
     let urlLastPart = url.split('/').pop();
     if (urlLastPart.includes('?')) {
         urlLastPart = urlLastPart.split('?')[0];
@@ -975,6 +979,7 @@ function PagesContent() {
                 <Route path="/CreateComplexEvent" element={<CreateComplexEvent />} />
                 <Route path="/PublicComplexEvents" element={<PublicComplexEvents />} />
                 <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
+                <Route path="/session-events/:eventSlug" element={<ComplexEventDetail />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />
@@ -1019,6 +1024,8 @@ function StandaloneRoutes() {
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/events/:eventSlug" element={<EventDetails />} />
+            <Route path="/ComplexEventDetail" element={<ComplexEventDetail />} />
+            <Route path="/session-events/:eventSlug" element={<ComplexEventDetail />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
             <Route path="/email-preferences" element={<EmailPreferences />} />
         </Routes>
