@@ -60,7 +60,7 @@ export default async function handler(req, res) {
         is_complex
       `)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc']);
+      .in('status', ['published', 'tbc', 'draft']);
 
     if (eventSlug) {
       query = query.eq('slug', eventSlug.toLowerCase().trim());

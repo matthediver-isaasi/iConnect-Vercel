@@ -42,8 +42,7 @@ export default async function handler(req, res) {
       .from('complex_event')
       .select('id, title, slug, description, summary, image_url, start_date, end_date, location, status, timezone, available_seats, event_state, event_type')
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc'])
-      .or('event_state.is.null,event_state.eq.active,event_state.eq.closed');
+      .in('status', ['published', 'tbc', 'draft']);
 
     if (id) {
       query = query.eq('id', id);
