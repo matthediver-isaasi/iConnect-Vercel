@@ -1108,6 +1108,15 @@ export default function CreateComplexEvent() {
                   </p>
                 </div>
 
+                <SEOSettings
+                  seoTitle={seoTitle}
+                  onSeoTitleChange={setSeoTitle}
+                  seoDescription={seoDescription}
+                  onSeoDescriptionChange={setSeoDescription}
+                  defaultTitle={formData.title}
+                  defaultDescription={formData.summary}
+                />
+
                 <div className="space-y-2">
                   <Label htmlFor="summary">Summary</Label>
                   <Textarea
@@ -1417,15 +1426,6 @@ export default function CreateComplexEvent() {
               </CardContent>
             </Card>
 
-            {/* SEO Settings Card */}
-            <SEOSettings
-              seoTitle={seoTitle}
-              onSeoTitleChange={setSeoTitle}
-              seoDescription={seoDescription}
-              onSeoDescriptionChange={setSeoDescription}
-              defaultTitle={formData.title}
-              defaultDescription={formData.summary}
-            />
           </>
         )}
 

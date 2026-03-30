@@ -43,13 +43,20 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, tenant_id, status')
+      .select('id, title, tenant_id, status, event_state')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .single();
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
+
+    if (event.event_state === 'draft') {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    if (event.event_state === 'closed') {
+      return res.status(400).json({ error: 'Registration for this event is closed' });
+    }
 
     const { data: ticketClassRows } = await supabase
       .from('complex_event_ticket_class')
