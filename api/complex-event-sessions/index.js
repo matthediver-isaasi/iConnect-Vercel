@@ -66,7 +66,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantCtx.tenantId;
 
-  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom';
 
   if (req.method === 'GET') {
     try {
@@ -167,6 +167,17 @@ export default async function handler(req, res) {
         image_url,
         track_ids = [],
         complex_event_track_id,
+        zoom_type,
+        zoom_host_id,
+        zoom_host_email,
+        zoom_meeting_id,
+        zoom_webinar_id,
+        zoom_join_url,
+        zoom_start_url,
+        zoom_registration_url,
+        zoom_registration_required,
+        zoom_link_mode,
+        auto_create_zoom,
       } = req.body;
 
       const effectiveEventId = complex_event_id || event_id;
@@ -204,6 +215,18 @@ export default async function handler(req, res) {
         is_online: is_online || false,
         display_order,
       };
+
+      if (zoom_type !== undefined) sessionData.zoom_type = zoom_type;
+      if (zoom_host_id !== undefined) sessionData.zoom_host_id = zoom_host_id || null;
+      if (zoom_host_email !== undefined) sessionData.zoom_host_email = zoom_host_email || null;
+      if (zoom_meeting_id !== undefined) sessionData.zoom_meeting_id = zoom_meeting_id || null;
+      if (zoom_webinar_id !== undefined) sessionData.zoom_webinar_id = zoom_webinar_id || null;
+      if (zoom_join_url !== undefined) sessionData.zoom_join_url = zoom_join_url || null;
+      if (zoom_start_url !== undefined) sessionData.zoom_start_url = zoom_start_url || null;
+      if (zoom_registration_url !== undefined) sessionData.zoom_registration_url = zoom_registration_url || null;
+      if (zoom_registration_required !== undefined) sessionData.zoom_registration_required = zoom_registration_required;
+      if (zoom_link_mode !== undefined) sessionData.zoom_link_mode = zoom_link_mode;
+      if (auto_create_zoom !== undefined) sessionData.auto_create_zoom = auto_create_zoom;
 
       if (complex_event_track_id) {
         sessionData.complex_event_track_id = complex_event_track_id;

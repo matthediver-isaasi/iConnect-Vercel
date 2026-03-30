@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
-  Bird, Check, X, Mic, Eye, Tag, Clock, Pencil
+  Bird, Check, X, Mic, Eye, Tag, Clock, Pencil, Video, LinkIcon
 } from "lucide-react";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
@@ -152,6 +152,13 @@ export default function CreateComplexEvent() {
     location: "",
     is_online: false,
     track_ids: [],
+    zoom_type: "meeting",
+    zoom_host_id: "",
+    zoom_host_email: "",
+    zoom_registration_required: false,
+    zoom_link_mode: "auto_create",
+    auto_create_zoom: true,
+    link_existing_zoom_id: "",
   });
   const [sessionSpeakerModalOpen, setSessionSpeakerModalOpen] = useState(false);
 
@@ -176,6 +183,16 @@ export default function CreateComplexEvent() {
   const { data: speakers = [] } = useQuery({
     queryKey: ['/api/entities/Speaker'],
     queryFn: () => base44.entities.Speaker.list({ filter: { is_active: true }, sort: { full_name: 'asc' } })
+  });
+
+  const { data: zoomUsers = [], isLoading: loadingZoomUsers } = useQuery({
+    queryKey: ['/api/zoom/users'],
+    queryFn: async () => {
+      const resp = await fetch('/api/zoom/users', { credentials: 'include' });
+      if (!resp.ok) return [];
+      return resp.json();
+    },
+    staleTime: 60000
   });
 
   const { eventTypes } = useEventTypes();
@@ -420,6 +437,13 @@ export default function CreateComplexEvent() {
         track_ids: s.track_ids || [],
         image_focal_point: s.image_focal_point || null,
         use_event_image: s.use_event_image !== undefined ? s.use_event_image : !s.image_url,
+        zoom_type: s.zoom_type || 'meeting',
+        zoom_host_id: s.zoom_host_id || '',
+        zoom_host_email: s.zoom_host_email || '',
+        zoom_registration_required: s.zoom_registration_required || false,
+        zoom_link_mode: s.zoom_link_mode || 'auto_create',
+        auto_create_zoom: s.auto_create_zoom !== undefined ? s.auto_create_zoom : true,
+        link_existing_zoom_id: s.zoom_meeting_id || s.zoom_webinar_id || '',
       }));
       setSessions(loadedSessions);
     }
@@ -554,6 +578,13 @@ export default function CreateComplexEvent() {
         location: session.location || "",
         is_online: session.is_online || false,
         track_ids: session.track_ids || [],
+        zoom_type: session.zoom_type || "meeting",
+        zoom_host_id: session.zoom_host_id || "",
+        zoom_host_email: session.zoom_host_email || "",
+        zoom_registration_required: session.zoom_registration_required || false,
+        zoom_link_mode: session.zoom_link_mode || "auto_create",
+        auto_create_zoom: session.auto_create_zoom !== undefined ? session.auto_create_zoom : true,
+        link_existing_zoom_id: session.link_existing_zoom_id || "",
       });
     } else {
       setEditingSession(null);
@@ -569,6 +600,13 @@ export default function CreateComplexEvent() {
         location: "",
         is_online: false,
         track_ids: [],
+        zoom_type: "meeting",
+        zoom_host_id: "",
+        zoom_host_email: "",
+        zoom_registration_required: false,
+        zoom_link_mode: "auto_create",
+        auto_create_zoom: true,
+        link_existing_zoom_id: "",
       });
     }
   };
@@ -854,6 +892,39 @@ export default function CreateComplexEvent() {
           track_ids: resolvedTrackIds,
           timezone: formData.timezone,
         };
+
+        if (session.is_online) {
+          sessionPayload.zoom_type = session.zoom_type || 'meeting';
+          sessionPayload.zoom_host_id = session.zoom_host_id || null;
+          sessionPayload.zoom_host_email = session.zoom_host_email || null;
+          sessionPayload.zoom_registration_required = session.zoom_registration_required || false;
+          sessionPayload.zoom_link_mode = session.zoom_link_mode || 'auto_create';
+          sessionPayload.auto_create_zoom = session.auto_create_zoom !== undefined ? session.auto_create_zoom : true;
+          if (session.zoom_link_mode === 'link_existing' && session.link_existing_zoom_id) {
+            if (session.zoom_type === 'webinar') {
+              sessionPayload.zoom_webinar_id = session.link_existing_zoom_id;
+              sessionPayload.zoom_meeting_id = null;
+            } else {
+              sessionPayload.zoom_meeting_id = session.link_existing_zoom_id;
+              sessionPayload.zoom_webinar_id = null;
+            }
+          } else {
+            sessionPayload.zoom_meeting_id = null;
+            sessionPayload.zoom_webinar_id = null;
+          }
+        } else {
+          sessionPayload.zoom_type = null;
+          sessionPayload.zoom_host_id = null;
+          sessionPayload.zoom_host_email = null;
+          sessionPayload.zoom_meeting_id = null;
+          sessionPayload.zoom_webinar_id = null;
+          sessionPayload.zoom_join_url = null;
+          sessionPayload.zoom_start_url = null;
+          sessionPayload.zoom_registration_url = null;
+          sessionPayload.zoom_registration_required = false;
+          sessionPayload.zoom_link_mode = null;
+          sessionPayload.auto_create_zoom = false;
+        }
 
         if (session.id) {
           const resp = await fetch(`/api/complex-event-sessions/${session.id}`, {
@@ -1781,6 +1852,12 @@ export default function CreateComplexEvent() {
                               <Badge variant="outline" className="text-xs">
                                 <Monitor className="w-3 h-3 mr-1" />
                                 Virtual
+                              </Badge>
+                            )}
+                            {session.is_online && session.zoom_type && (
+                              <Badge variant="outline" className="text-xs">
+                                <Video className="w-3 h-3 mr-1" />
+                                {session.zoom_type === 'webinar' ? 'Webinar' : 'Meeting'}
                               </Badge>
                             )}
                           </div>
@@ -2721,6 +2798,160 @@ export default function CreateComplexEvent() {
                 </div>
               </div>
             </div>
+
+            {sessionForm.is_online && (
+              <div className="space-y-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-900 font-medium">
+                  <Video className="h-4 w-4" />
+                  Zoom Configuration
+                </div>
+
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Zoom Type</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={sessionForm.zoom_type === 'meeting' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSessionForm(prev => ({ ...prev, zoom_type: 'meeting' }))}
+                        data-testid="button-session-zoom-meeting"
+                      >
+                        <Video className="h-4 w-4 mr-1" />
+                        Meeting
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={sessionForm.zoom_type === 'webinar' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSessionForm(prev => ({ ...prev, zoom_type: 'webinar' }))}
+                        data-testid="button-session-zoom-webinar"
+                      >
+                        <Users className="h-4 w-4 mr-1" />
+                        Webinar
+                      </Button>
+                    </div>
+                    <p className="text-xs text-blue-700">
+                      {sessionForm.zoom_type === 'webinar'
+                        ? 'Webinars support large audiences with registration and panel features'
+                        : 'Meetings allow all participants to share video and audio'
+                      }
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Zoom Host</Label>
+                    <Select
+                      value={sessionForm.zoom_host_id}
+                      onValueChange={(value) => {
+                        const user = zoomUsers.find(u => u.id === value);
+                        setSessionForm(prev => ({
+                          ...prev,
+                          zoom_host_id: value,
+                          zoom_host_email: user?.email || '',
+                        }));
+                      }}
+                      disabled={loadingZoomUsers}
+                      data-testid="select-session-zoom-host"
+                    >
+                      <SelectTrigger data-testid="select-session-zoom-host-trigger">
+                        <SelectValue placeholder={loadingZoomUsers ? "Loading hosts..." : "Select a Zoom host"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {zoomUsers.map(user => (
+                          <SelectItem key={user.id} value={user.id}>
+                            <div className="flex flex-col">
+                              <span>{user.first_name} {user.last_name}</span>
+                              <span className="text-xs text-slate-500">{user.email}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {sessionForm.zoom_type === 'webinar' && (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Require Registration</Label>
+                        <p className="text-xs text-blue-700">Attendees must register before joining</p>
+                      </div>
+                      <Switch
+                        checked={sessionForm.zoom_registration_required}
+                        onCheckedChange={(checked) => setSessionForm(prev => ({ ...prev, zoom_registration_required: checked }))}
+                        data-testid="switch-session-zoom-registration"
+                      />
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label>Zoom Setup Mode</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={(sessionForm.zoom_link_mode || 'auto_create') === 'auto_create' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSessionForm(prev => ({
+                          ...prev,
+                          zoom_link_mode: 'auto_create',
+                          auto_create_zoom: true,
+                          link_existing_zoom_id: '',
+                        }))}
+                        data-testid="button-session-zoom-auto"
+                      >
+                        Auto-Create
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={sessionForm.zoom_link_mode === 'link_existing' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSessionForm(prev => ({
+                          ...prev,
+                          zoom_link_mode: 'link_existing',
+                          auto_create_zoom: false,
+                        }))}
+                        data-testid="button-session-zoom-link"
+                      >
+                        <LinkIcon className="h-4 w-4 mr-1" />
+                        Link Existing
+                      </Button>
+                    </div>
+                  </div>
+
+                  {sessionForm.zoom_link_mode === 'link_existing' ? (
+                    <div className="space-y-2">
+                      <Label>Existing Zoom Meeting/Webinar ID</Label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. 12345678901"
+                        value={sessionForm.link_existing_zoom_id || ''}
+                        onChange={(e) => setSessionForm(prev => ({ ...prev, link_existing_zoom_id: e.target.value.trim() }))}
+                        data-testid="input-session-existing-zoom-id"
+                      />
+                      <p className="text-xs text-blue-700">
+                        Enter the numeric Zoom {sessionForm.zoom_type} ID to link.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Auto-create Zoom on Save</Label>
+                        <p className="text-xs text-blue-700">
+                          Automatically create a Zoom {sessionForm.zoom_type} when the event is saved
+                        </p>
+                      </div>
+                      <Switch
+                        checked={sessionForm.auto_create_zoom}
+                        onCheckedChange={(checked) => setSessionForm(prev => ({ ...prev, auto_create_zoom: checked }))}
+                        data-testid="switch-session-auto-zoom"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>{speakerModuleName.plural}</Label>
