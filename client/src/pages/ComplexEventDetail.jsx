@@ -99,8 +99,13 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
       const names = s.track_names || (s.track_name ? [s.track_name] : []);
       names.forEach(n => trackSet.add(n));
     });
+    const visibleTrackNames = Object.keys(trackColorMap);
+    if (visibleTrackNames.length > 0) {
+      const allowed = new Set(visibleTrackNames);
+      return Array.from(trackSet).filter(t => allowed.has(t)).sort();
+    }
     return Array.from(trackSet).sort();
-  }, [sessions]);
+  }, [sessions, trackColorMap]);
 
   if (sessionsByDay.length === 0) return null;
 
@@ -261,7 +266,7 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
         )}
       </div>
       {session.description && (
-        <p className="text-xs text-slate-500 line-clamp-2">{session.description}</p>
+        <p className="text-xs text-slate-500 line-clamp-2" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(session.description) }} />
       )}
       {sessionSpeakers.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap pt-0.5">
