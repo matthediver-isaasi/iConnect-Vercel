@@ -111,6 +111,8 @@ export default function CreateComplexEvent() {
   const [activeSection, setActiveSection] = useState("details");
   const [saving, setSaving] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [slugError, setSlugError] = useState(null);
+  const [checkingSlug, setCheckingSlug] = useState(false);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -325,6 +327,15 @@ export default function CreateComplexEvent() {
 
   useEffect(() => {
     if (existingEvent && isEditMode) {
+      let loadedStatus = existingEvent.status || "published";
+      let loadedEventState = existingEvent.event_state || "active";
+      if (loadedStatus === 'draft') {
+        loadedStatus = 'published';
+        loadedEventState = 'draft';
+      } else if (loadedStatus === 'closed') {
+        loadedStatus = 'published';
+        loadedEventState = 'closed';
+      }
       setFormData({
         title: existingEvent.title || "",
         slug: existingEvent.slug || "",
@@ -334,8 +345,8 @@ export default function CreateComplexEvent() {
         start_date: existingEvent.start_date ? existingEvent.start_date.slice(0, 16) : "",
         end_date: existingEvent.end_date ? existingEvent.end_date.slice(0, 16) : "",
         location: existingEvent.location || "",
-        status: existingEvent.status || "published",
-        event_state: existingEvent.event_state || "active",
+        status: loadedStatus,
+        event_state: loadedEventState,
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
         internal_reference: existingEvent.internal_reference || "",
@@ -397,6 +408,33 @@ export default function CreateComplexEvent() {
       setFormData((prev) => ({ ...prev, slug: generated }));
     }
   }, [formData.title, slugManuallyEdited]);
+
+  useEffect(() => {
+    if (!formData.slug) {
+      setSlugError(null);
+      return;
+    }
+    const checkSlugUniqueness = async () => {
+      setCheckingSlug(true);
+      try {
+        const allEvents = await base44.entities.ComplexEvent.list();
+        const duplicate = allEvents.find(
+          (e) => e.slug === formData.slug && (!isEditMode || e.id !== editId)
+        );
+        if (duplicate) {
+          setSlugError("This URL slug is already in use. Please choose a different one.");
+        } else {
+          setSlugError(null);
+        }
+      } catch (error) {
+        console.error("Error checking slug uniqueness:", error);
+      } finally {
+        setCheckingSlug(false);
+      }
+    };
+    const timer = setTimeout(checkSlugUniqueness, 500);
+    return () => clearTimeout(timer);
+  }, [formData.slug, editId, isEditMode]);
 
   const updateField = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -634,6 +672,10 @@ export default function CreateComplexEvent() {
     }
     if (!formData.slug.trim()) {
       toast.error("Event slug is required");
+      return;
+    }
+    if (slugError) {
+      toast.error("Please fix the URL slug before saving");
       return;
     }
 
@@ -1055,6 +1097,12 @@ export default function CreateComplexEvent() {
                       data-testid="input-slug"
                     />
                   </div>
+                  {slugError && (
+                    <p className="text-xs text-red-600" data-testid="text-slug-error">{slugError}</p>
+                  )}
+                  {checkingSlug && (
+                    <p className="text-xs text-slate-400">Checking availability...</p>
+                  )}
                   <p className="text-xs text-slate-500">
                     Friendly URL for sharing. Leave empty to use the default URL format.
                   </p>
