@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Loader2,
@@ -79,39 +78,6 @@ const formatDateShort = (dateStr, timezone = DEFAULT_TIMEZONE) => {
   return formatDate(dateStr, timezone, "MMM d");
 };
 
-function TrackTicketButtons({ trackColorMap, eventTracks, onSeeTickets }) {
-  const trackEntries = Object.entries(trackColorMap);
-  if (trackEntries.length === 0) return null;
-
-  const trackNameToId = {};
-  (eventTracks || []).forEach(t => { if (t.name) trackNameToId[t.name] = String(t.id); });
-
-  return (
-    <div className="flex flex-wrap gap-2" data-testid="track-ticket-buttons">
-      {trackEntries.map(([trackName, colors]) => {
-        const trackId = trackNameToId[trackName];
-        return (
-          <Button
-            key={trackName}
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            style={{
-              borderColor: colors?.accent || undefined,
-              color: colors?.accent || undefined,
-            }}
-            onClick={() => onSeeTickets(trackName, trackId)}
-            disabled={!trackId}
-            data-testid={`button-see-tickets-${trackName}`}
-          >
-            <Ticket className="w-3.5 h-3.5" />
-            {trackName} — See Tickets
-          </Button>
-        );
-      })}
-    </div>
-  );
-}
 
 function TrackAttendeeCards({ trackName, attendees, onRemove }) {
   if (!attendees || attendees.length === 0) return null;
@@ -146,7 +112,7 @@ function TrackAttendeeCards({ trackName, attendees, onRemove }) {
   );
 }
 
-function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTracks, cartAttendeesByTrack, onRemoveCartAttendee }) {
+function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAttendeesByTrack, onRemoveCartAttendee }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -171,13 +137,8 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTr
 
   if (sessionsByDay.length === 0) return null;
 
-  const hasMultipleTracks = allTracks.length > 0;
-
   return (
     <div className="space-y-8">
-      {hasMultipleTracks && onSeeTickets && (
-        <TrackTicketButtons trackColorMap={trackColorMap} eventTracks={eventTracks} onSeeTickets={onSeeTickets} />
-      )}
       {sessionsByDay.map((day, dayIndex) => {
         const dayTracks = new Set();
         day.sessions.forEach(s => {
@@ -309,9 +270,6 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, onSeeTickets, eventTr
           </div>
         );
       })}
-      {hasMultipleTracks && onSeeTickets && (
-        <TrackTicketButtons trackColorMap={trackColorMap} eventTracks={eventTracks} onSeeTickets={onSeeTickets} />
-      )}
     </div>
   );
 }
@@ -778,7 +736,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, getEffectiveTicket
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo, filterTrackId, layout = 'sidebar', onBookingComplete, cart, setCart }) {
+function BookingSection({ event, sessions, memberInfo, organizationInfo, onBookingComplete, cart, setCart }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
 
@@ -794,22 +752,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
   const ticketClasses = useMemo(() => {
     if (!pricingConfig?.ticket_classes?.length) return [];
 
-    let filtered = pricingConfig.ticket_classes;
-
-    if (filterTrackId) {
-      filtered = filtered.filter(tc => {
-        if (tc.all_tracks) return true;
-        const linkedIds = (tc.linked_track_ids || []).map(String);
-        return linkedIds.includes(String(filterTrackId));
-      });
-    }
-
-    return filtered.map(tc => ({
+    return pricingConfig.ticket_classes.map(tc => ({
       ...tc,
       id: String(tc.id),
       price: Number(tc.price) || 0
     }));
-  }, [pricingConfig, filterTrackId]);
+  }, [pricingConfig]);
 
   const isGuest = !memberInfo;
 
@@ -1109,7 +1057,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
 
       {ticketClasses.length === 0 && (
         <p className="text-sm text-center text-slate-500">
-          {filterTrackId ? 'No tickets are available for this track.' : 'No tickets are currently available for public registration.'}
+          No tickets are currently available for public registration.
         </p>
       )}
     </div>
@@ -1137,32 +1085,6 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, filterT
       renderAsCard={false}
     />
   ) : null;
-
-  if (layout === 'drawer') {
-    return (
-      <div className="space-y-6" data-testid="booking-section-drawer">
-        <div className="space-y-6">
-          <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            <Ticket className="w-5 h-5 text-indigo-600" />
-            Tickets
-          </h3>
-          {ticketCards}
-        </div>
-        <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} />
-        {paymentOptionsSection}
-
-        <AddAttendeeModal
-          open={attendeeModalOpen}
-          onOpenChange={setAttendeeModalOpen}
-          ticketClass={selectedTicketForModal}
-          memberInfo={memberInfo}
-          organizationInfo={organizationInfo}
-          onAddAttendee={handleAddAttendee}
-          existingEmails={allExistingEmails}
-        />
-      </div>
-    );
-  }
 
   return (
     <Card className="border-slate-200" data-testid="booking-section">
@@ -1195,9 +1117,6 @@ export default function ComplexEventDetail() {
   const { memberInfo, organizationInfo } = useMemberAccess();
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
-  const [ticketDrawerOpen, setTicketDrawerOpen] = useState(false);
-  const [drawerTrackName, setDrawerTrackName] = useState(null);
-  const [drawerTrackId, setDrawerTrackId] = useState(null);
   const [cart, setCart] = useState({});
 
   const routeParams = useParams();
@@ -1460,11 +1379,6 @@ export default function ComplexEventDetail() {
                     timezone={tz}
                     trackColorMap={trackColorMap}
                     eventTracks={event?.tracks || []}
-                    onSeeTickets={(trackName, trackId) => {
-                      setDrawerTrackName(trackName);
-                      setDrawerTrackId(trackId);
-                      setTicketDrawerOpen(true);
-                    }}
                     cartAttendeesByTrack={cartAttendeesByTrack}
                     onRemoveCartAttendee={handleRemoveCartAttendee}
                   />
@@ -1606,32 +1520,6 @@ export default function ComplexEventDetail() {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={ticketDrawerOpen} onOpenChange={setTicketDrawerOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-[1100px] overflow-y-auto" data-testid="drawer-track-tickets">
-          <SheetHeader className="pb-4 border-b border-slate-200 mb-6">
-            <SheetTitle className="flex items-center gap-2">
-              <Ticket className="w-5 h-5 text-indigo-600" />
-              {drawerTrackName ? `${drawerTrackName} — Tickets & Registration` : 'Tickets & Registration'}
-            </SheetTitle>
-            <SheetDescription>
-              {drawerTrackName ? `Select a ticket and register for the ${drawerTrackName} track.` : 'Select a ticket and complete your registration.'}
-            </SheetDescription>
-          </SheetHeader>
-          {ticketDrawerOpen && event && (
-            <BookingSection
-              event={event}
-              sessions={sessions}
-              memberInfo={memberInfo}
-              organizationInfo={organizationInfo}
-              filterTrackId={drawerTrackId}
-              layout="drawer"
-              onBookingComplete={() => { setCart({}); }}
-              cart={cart}
-              setCart={setCart}
-            />
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
