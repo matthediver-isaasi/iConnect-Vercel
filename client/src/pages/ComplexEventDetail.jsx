@@ -79,40 +79,7 @@ const formatDateShort = (dateStr, timezone = DEFAULT_TIMEZONE) => {
 };
 
 
-function TrackAttendeeCards({ trackName, attendees, onRemove }) {
-  if (!attendees || attendees.length === 0) return null;
-  return (
-    <div className="space-y-1 mt-1" data-testid={`track-attendees-${trackName}`}>
-      {attendees.map((item, i) => (
-        <div
-          key={i}
-          className="flex items-center justify-between gap-1 px-2 py-1 rounded bg-indigo-50 border border-indigo-100"
-          data-testid={`track-attendee-card-${trackName}-${i}`}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-medium text-indigo-900 truncate">
-              {item.attendee.first_name} {item.attendee.last_name}
-              {item.attendee.isSelf && <span className="text-indigo-500 ml-0.5">(you)</span>}
-            </div>
-            <div className="text-[10px] text-indigo-600 truncate">{item.ticketName}</div>
-          </div>
-          {onRemove && (
-            <button
-              type="button"
-              onClick={() => onRemove(item.ticketClassId, item.attendeeIndex)}
-              className="p-0.5 rounded text-indigo-400 hover:text-red-500 shrink-0"
-              data-testid={`button-remove-track-attendee-${trackName}-${i}`}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAttendeesByTrack, onRemoveCartAttendee, speakerMap = {} }) {
+function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerMap = {} }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -244,27 +211,6 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, cartAtte
                   );
                 })}
 
-                {cartAttendeesByTrack && tracks.length > 0 && (
-                  <div
-                    className="grid gap-1 mt-2 pt-2 border-t border-dashed border-slate-200"
-                    style={{ gridTemplateColumns: `100px repeat(${tracks.length + (hasUntracked ? 1 : 0)}, 1fr)` }}
-                    data-testid="track-attendees-row"
-                  >
-                    <div className="text-xs font-medium text-slate-500 p-2 flex items-start pt-1">
-                      <Users className="w-3 h-3 mr-1" />
-                      Cart
-                    </div>
-                    {tracks.map(track => (
-                      <TrackAttendeeCards
-                        key={track}
-                        trackName={track}
-                        attendees={cartAttendeesByTrack[track] || []}
-                        onRemove={onRemoveCartAttendee}
-                      />
-                    ))}
-                    {hasUntracked && <div className="p-1" />}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1231,54 +1177,6 @@ export default function ComplexEventDetail() {
     return map;
   }, [sessions, event]);
 
-  const cartAttendeesByTrack = useMemo(() => {
-    const result = {};
-    const eventTracks = event?.tracks || [];
-    const trackIdToName = {};
-    eventTracks.forEach(t => { if (t.id && t.name) trackIdToName[String(t.id)] = t.name; });
-
-    Object.entries(cart).forEach(([ticketClassId, cartItem]) => {
-      const tc = cartItem.ticketClass;
-      if (!tc) return;
-
-      const targetTrackNames = [];
-      if (tc.all_tracks) {
-        Object.values(trackIdToName).forEach(n => targetTrackNames.push(n));
-      } else if (tc.linked_track_ids?.length > 0) {
-        tc.linked_track_ids.forEach(id => {
-          const name = trackIdToName[String(id)];
-          if (name) targetTrackNames.push(name);
-        });
-      }
-
-      cartItem.attendees.forEach((attendee, attendeeIndex) => {
-        targetTrackNames.forEach(trackName => {
-          if (!result[trackName]) result[trackName] = [];
-          result[trackName].push({
-            attendee,
-            attendeeIndex,
-            ticketClassId,
-            ticketName: tc.name || 'Ticket'
-          });
-        });
-      });
-    });
-    return result;
-  }, [cart, event]);
-
-  const handleRemoveCartAttendee = useCallback((ticketClassId, attendeeIndex) => {
-    setCart(prev => {
-      const existing = prev[ticketClassId];
-      if (!existing) return prev;
-      const updated = { ...existing, attendees: existing.attendees.filter((_, i) => i !== attendeeIndex) };
-      if (updated.attendees.length === 0) {
-        const next = { ...prev };
-        delete next[ticketClassId];
-        return next;
-      }
-      return { ...prev, [ticketClassId]: updated };
-    });
-  }, []);
 
   useEffect(() => {
     if (event) {
@@ -1428,8 +1326,6 @@ export default function ComplexEventDetail() {
                     timezone={tz}
                     trackColorMap={trackColorMap}
                     eventTracks={event?.tracks || []}
-                    cartAttendeesByTrack={cartAttendeesByTrack}
-                    onRemoveCartAttendee={handleRemoveCartAttendee}
                     speakerMap={speakerMap}
                   />
                 </CardContent>
