@@ -316,68 +316,37 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
   );
 }
 
-function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, eventImageFocalPoint, onClose }) {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
-  }, []);
-
-  const handleClose = useCallback(() => {
-    setVisible(false);
-    setTimeout(onClose, 250);
-  }, [onClose]);
-
+function ExpandedSessionModal({ session, open, onOpenChange, timezone, speakerMap, eventImageUrl, eventImageFocalPoint }) {
   const sessionSpeakers = useMemo(() => {
-    if (session.speaker_ids?.length) {
+    if (session?.speaker_ids?.length) {
       return session.speaker_ids.map(id => speakerMap[id]).filter(Boolean);
     }
     return [];
-  }, [session.speaker_ids, speakerMap]);
+  }, [session?.speaker_ids, speakerMap]);
 
-  const fallbackSpeakerNames = sessionSpeakers.length === 0 && session.speaker_names?.length > 0
+  const fallbackSpeakerNames = sessionSpeakers.length === 0 && session?.speaker_names?.length > 0
     ? session.speaker_names
     : [];
 
-  const hasOwnImage = !!session.image_url;
-  const imageUrl = session.image_url || eventImageUrl || null;
+  const hasOwnImage = !!session?.image_url;
+  const imageUrl = session?.image_url || eventImageUrl || null;
   const imageFocalPoint = hasOwnImage ? null : eventImageFocalPoint;
 
+  if (!session) return null;
+
   return (
-    <div
-      className="absolute inset-0 z-30 flex items-center justify-center overflow-visible transition-all duration-250"
-      style={{ backgroundColor: visible ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0)', backdropFilter: visible ? 'blur(6px)' : 'blur(0px)' }}
-      onClick={handleClose}
-      data-testid="session-overlay-backdrop"
-    >
-      <div
-        className="absolute left-[30px] right-[30px] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
-        style={{
-          top: '50%',
-          transform: visible ? 'translateY(-50%) scale(1)' : 'translateY(-50%) scale(0.85)',
-          minHeight: '60vh',
-          maxHeight: '80vh',
-          opacity: visible ? 1 : 0,
-        }}
-        onClick={(e) => e.stopPropagation()}
-        data-testid={`session-expanded-${session.id}`}
-      >
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg p-0 overflow-hidden" data-testid={`session-expanded-${session.id}`}>
+        <DialogHeader className="sr-only">
+          <DialogTitle>{session.title}</DialogTitle>
+        </DialogHeader>
         {imageUrl && (
           <div className="h-48 shrink-0 overflow-hidden bg-slate-100">
             <img src={imageUrl} alt={session.title} className="w-full h-full object-cover" style={getFocalPointStyle(imageFocalPoint)} />
           </div>
         )}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">{session.title}</h3>
-            <button
-              onClick={handleClose}
-              className="shrink-0 p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              data-testid="button-close-session-overlay"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+        <div className="overflow-y-auto p-5 space-y-4">
+          <h3 className="text-lg font-semibold text-slate-900">{session.title}</h3>
 
           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
             {session.start_time && (
@@ -467,8 +436,8 @@ function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, 
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -513,10 +482,10 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
 
   return (
     <div className="relative">
-      {canScrollUp && !expandedSession && (
+      {canScrollUp && (
         <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white to-transparent z-10 pointer-events-none" />
       )}
-      <div ref={scrollRef} className={`max-h-[500px] overflow-y-auto pr-4 transition-[filter] duration-250 ${expandedSession ? 'filter blur-[3px] pointer-events-none' : ''}`}>
+      <div ref={scrollRef} className="max-h-[500px] overflow-y-auto pr-4">
         <ScheduleGrid
           sessions={sessions}
           timezone={timezone}
@@ -526,7 +495,7 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
           onSessionClick={setExpandedSession}
         />
       </div>
-      {canScrollDown && !expandedSession && (
+      {canScrollDown && (
         <>
           <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
           <button
@@ -538,16 +507,15 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
           </button>
         </>
       )}
-      {expandedSession && (
-        <ExpandedSessionOverlay
-          session={expandedSession}
-          timezone={timezone}
-          speakerMap={speakerMap}
-          eventImageUrl={eventImageUrl}
-          eventImageFocalPoint={eventImageFocalPoint}
-          onClose={() => setExpandedSession(null)}
-        />
-      )}
+      <ExpandedSessionModal
+        session={expandedSession}
+        open={!!expandedSession}
+        onOpenChange={(open) => { if (!open) setExpandedSession(null); }}
+        timezone={timezone}
+        speakerMap={speakerMap}
+        eventImageUrl={eventImageUrl}
+        eventImageFocalPoint={eventImageFocalPoint}
+      />
     </div>
   );
 }
