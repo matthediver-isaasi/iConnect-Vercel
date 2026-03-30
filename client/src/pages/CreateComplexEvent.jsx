@@ -1894,31 +1894,62 @@ export default function CreateComplexEvent() {
         ) : (
           <div className="space-y-3">
             {ticketClasses.map((ticket, idx) => (
-              <Card key={ticket._localId}>
-                <CardContent className="p-0">
+              <div key={ticket._localId} className="border border-slate-200 rounded-lg overflow-hidden">
                   <div
-                    className="flex flex-wrap items-center justify-between gap-2 p-4 cursor-pointer hover-elevate"
+                    className="flex items-center justify-between p-4 bg-slate-50 cursor-pointer"
                     onClick={() => toggleExpandTicket(ticket._localId)}
                     data-testid={`ticket-header-${ticket._localId}`}
                   >
                     <div className="flex items-center gap-3">
-                      <Ticket className="w-4 h-4 text-slate-400" />
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-medium text-sm">
+                        {idx + 1}
+                      </div>
                       <div>
-                        <span className="font-medium text-slate-700">
-                          {ticket.name || `Ticket ${idx + 1}`}
-                        </span>
-                        <span className="ml-2 text-sm text-slate-400">
-                          {ticket.is_free ? 'Free' : ticket.price ? `£${ticket.price}` : 'No price set'}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-slate-900">
+                            {ticket.name || "Unnamed Ticket"}
+                          </span>
+                          {ticket.visibility_mode === 'members_and_public' && (
+                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                              <Globe className="h-3 w-3 mr-1" />
+                              Members & Public
+                            </Badge>
+                          )}
+                          {ticket.visibility_mode === 'public_only' && (
+                            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                              <Globe className="h-3 w-3 mr-1" />
+                              Public Only
+                            </Badge>
+                          )}
+                          {ticket.is_group_ticket && (
+                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              <Users className="h-3 w-3 mr-1" />
+                              Group ({ticket.group_size || '?'})
+                            </Badge>
+                          )}
+                          {ticket.early_bird_enabled && ticket.early_bird_price && (
+                            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                              <Bird className="h-3 w-3 mr-1" />
+                              Early Bird £{ticket.early_bird_price}
+                            </Badge>
+                          )}
+                          {!ticket.all_tracks && (ticket.linked_track_ids || []).length > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              {(ticket.linked_track_ids || []).length} track(s)
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-slate-500">
+                          <span>£{ticket.price || "0.00"}</span>
+                          <span className="text-slate-300">|</span>
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3" />
+                            {getRoleNames(ticket.role_ids)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={ticket.visibility_mode !== 'members_only' ? 'default' : 'secondary'}>
-                        {ticket.visibility_mode === 'members_and_public' ? 'Members & Public' : ticket.visibility_mode === 'public_only' ? 'Public Only' : 'Members Only'}
-                      </Badge>
-                      {!ticket.all_tracks && (
-                        <Badge variant="outline">{ticket.linked_track_ids.length} track(s)</Badge>
-                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1937,219 +1968,67 @@ export default function CreateComplexEvent() {
                       >
                         <ChevronDown className="w-4 h-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => { e.stopPropagation(); removeTicketClass(ticket._localId); }}
-                        data-testid={`button-remove-ticket-${ticket._localId}`}
-                      >
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </Button>
+                      {ticketClasses.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => { e.stopPropagation(); removeTicketClass(ticket._localId); }}
+                          className="text-slate-400 hover:text-red-500"
+                          data-testid={`button-remove-ticket-${ticket._localId}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {expandedTickets[ticket._localId] ? (
+                        <ChevronUp className="h-5 w-5 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 text-slate-400" />
+                      )}
                     </div>
                   </div>
 
                   {expandedTickets[ticket._localId] && (
-                    <div className="border-t p-4 space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <Label>Ticket Name</Label>
+                    <div className="p-4 space-y-4 border-t border-slate-200">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor={`ticket-name-${ticket._localId}`}>Ticket Name *</Label>
                           <Input
+                            id={`ticket-name-${ticket._localId}`}
                             value={ticket.name}
                             onChange={(e) => updateTicketClass(ticket._localId, 'name', e.target.value)}
                             placeholder="e.g. Standard, VIP, Student"
                             data-testid={`input-ticket-name-${ticket._localId}`}
                           />
                         </div>
-                        <div className="space-y-1.5">
-                          <Label>Visibility</Label>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <div
-                              className={`flex items-center gap-2 p-3 rounded-md border-2 cursor-pointer transition-colors ${
-                                (ticket.visibility_mode || 'members_only') === 'members_only'
-                                  ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
-                              }`}
-                              onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'members_only')}
-                              data-testid={`visibility-members-only-${ticket._localId}`}
-                            >
-                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                                (ticket.visibility_mode || 'members_only') === 'members_only' ? 'border-blue-500' : 'border-slate-300'
-                              }`}>
-                                {(ticket.visibility_mode || 'members_only') === 'members_only' && (
-                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">Members Only</p>
-                                <p className="text-xs text-slate-500">Logged-in members only</p>
-                              </div>
-                            </div>
-                            <div
-                              className={`flex items-center gap-2 p-3 rounded-md border-2 cursor-pointer transition-colors ${
-                                ticket.visibility_mode === 'members_and_public'
-                                  ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
-                              }`}
-                              onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'members_and_public')}
-                              data-testid={`visibility-members-and-public-${ticket._localId}`}
-                            >
-                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                                ticket.visibility_mode === 'members_and_public' ? 'border-blue-500' : 'border-slate-300'
-                              }`}>
-                                {ticket.visibility_mode === 'members_and_public' && (
-                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">Members & Public</p>
-                                <p className="text-xs text-slate-500">Both members and visitors</p>
-                              </div>
-                            </div>
-                            <div
-                              className={`flex items-center gap-2 p-3 rounded-md border-2 cursor-pointer transition-colors ${
-                                ticket.visibility_mode === 'public_only'
-                                  ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
-                              }`}
-                              onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'public_only')}
-                              data-testid={`visibility-public-only-${ticket._localId}`}
-                            >
-                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                                ticket.visibility_mode === 'public_only' ? 'border-blue-500' : 'border-slate-300'
-                              }`}>
-                                {ticket.visibility_mode === 'public_only' && (
-                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
-                                )}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">Public Only</p>
-                                <p className="text-xs text-slate-500">Non-logged in visitors only</p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <Label>Price (£)</Label>
+                        <div className="space-y-2">
+                          <Label htmlFor={`ticket-price-${ticket._localId}`}>Price (£) *</Label>
                           <div className="flex items-center gap-3">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={ticket.is_free ? '0' : ticket.price}
-                              onChange={(e) => updateTicketClass(ticket._localId, 'price', e.target.value)}
-                              disabled={ticket.is_free}
-                              className="flex-1"
-                              data-testid={`input-ticket-price-${ticket._localId}`}
-                            />
-                            <div className="flex items-center gap-1.5">
+                            <div className="relative w-28">
+                              <PoundSterling className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                              <Input
+                                id={`ticket-price-${ticket._localId}`}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={ticket.is_free ? '0' : ticket.price}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'price', e.target.value)}
+                                placeholder="0.00"
+                                className="pl-9"
+                                disabled={ticket.is_free}
+                                data-testid={`input-ticket-price-${ticket._localId}`}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
                               <Switch
-                                checked={ticket.is_free}
+                                id={`ticket-free-${ticket._localId}`}
+                                checked={ticket.is_free || false}
                                 onCheckedChange={(val) => setTicketFree(ticket._localId, val)}
                                 data-testid={`switch-free-${ticket._localId}`}
                               />
-                              <Label className="text-sm">Free</Label>
+                              <Label htmlFor={`ticket-free-${ticket._localId}`} className="text-sm font-medium">Free</Label>
                             </div>
                           </div>
                         </div>
-                        <div className="space-y-1.5">
-                          <Label>Availability</Label>
-                          <div className="flex items-center gap-3">
-                            <Input
-                              type="number"
-                              min="1"
-                              value={ticket.is_unlimited_tickets ? '' : ticket.available_count}
-                              onChange={(e) => updateTicketClass(ticket._localId, 'available_count', e.target.value)}
-                              disabled={ticket.is_unlimited_tickets}
-                              placeholder="Ticket limit"
-                              className="flex-1"
-                              data-testid={`input-ticket-count-${ticket._localId}`}
-                            />
-                            <div className="flex items-center gap-1.5">
-                              <Switch
-                                checked={ticket.is_unlimited_tickets}
-                                onCheckedChange={(val) => {
-                                  updateTicketClass(ticket._localId, 'is_unlimited_tickets', val);
-                                  if (val) updateTicketClass(ticket._localId, 'available_count', '');
-                                }}
-                                data-testid={`switch-unlimited-${ticket._localId}`}
-                              />
-                              <Label className="text-sm">Unlimited</Label>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {availableVatRates.length > 0 && (
-                        <div className="space-y-1.5">
-                          <Label>VAT Rate</Label>
-                          <Select
-                            value={ticket.vat_rate_key || '_none'}
-                            onValueChange={(val) => {
-                              if (val === '_none') {
-                                updateTicketClass(ticket._localId, 'vat_rate_key', null);
-                                updateTicketClass(ticket._localId, 'vat_rate_label', null);
-                                updateTicketClass(ticket._localId, 'vat_rate_percentage', null);
-                              } else {
-                                const rate = availableVatRates.find(r => r.taxType === val);
-                                if (rate) {
-                                  updateTicketClass(ticket._localId, 'vat_rate_key', rate.taxType);
-                                  updateTicketClass(ticket._localId, 'vat_rate_label', rate.name);
-                                  updateTicketClass(ticket._localId, 'vat_rate_percentage', rate.effectiveRate);
-                                }
-                              }
-                            }}
-                          >
-                            <SelectTrigger data-testid={`select-vat-${ticket._localId}`}>
-                              <SelectValue placeholder="No VAT" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">No VAT</SelectItem>
-                              {availableVatRates.map((rate) => (
-                                <SelectItem key={rate.taxType} value={rate.taxType}>
-                                  {rate.name} ({rate.effectiveRate}%)
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      <div className="space-y-1.5">
-                        <Label>Role Restrictions</Label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className="w-full justify-start" data-testid={`button-roles-${ticket._localId}`}>
-                              <Users className="w-4 h-4 mr-2" />
-                              {getRoleNames(ticket.role_ids)}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-64 max-h-60 overflow-y-auto">
-                            {roles.map((role) => (
-                              <div
-                                key={role.id}
-                                className="flex items-center gap-2 p-1.5 cursor-pointer hover-elevate rounded"
-                                onClick={() => toggleRoleForTicket(ticket._localId, role.id)}
-                              >
-                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                                  (ticket.role_ids || []).includes(role.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-300'
-                                }`}>
-                                  {(ticket.role_ids || []).includes(role.id) && <Check className="w-3 h-3 text-white" />}
-                                </div>
-                                <span className="text-sm">{role.name}</span>
-                              </div>
-                            ))}
-                          </PopoverContent>
-                        </Popover>
-                        {(ticket.role_ids || []).length > 0 && (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Switch
-                              checked={ticket.role_match_only}
-                              onCheckedChange={(val) => updateTicketClass(ticket._localId, 'role_match_only', val)}
-                              data-testid={`switch-role-match-${ticket._localId}`}
-                            />
-                            <Label className="text-sm text-slate-600">Only show to members with matching roles</Label>
-                          </div>
-                        )}
                       </div>
 
                       <div className="border rounded-md p-3 space-y-3">
@@ -2196,94 +2075,441 @@ export default function CreateComplexEvent() {
                         )}
                       </div>
 
-                      <div className="border rounded-md p-3 space-y-3">
-                        <div className="flex items-center gap-1.5">
-                          <Switch
-                            checked={ticket.early_bird_enabled}
-                            onCheckedChange={(val) => updateTicketClass(ticket._localId, 'early_bird_enabled', val)}
-                            data-testid={`switch-early-bird-${ticket._localId}`}
-                          />
-                          <Label className="text-sm font-medium text-slate-700">Early Bird Pricing</Label>
-                        </div>
-                        {ticket.early_bird_enabled && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-sm">Early Bird Price (£)</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={ticket.early_bird_price}
-                                onChange={(e) => updateTicketClass(ticket._localId, 'early_bird_price', e.target.value)}
-                                data-testid={`input-early-bird-price-${ticket._localId}`}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-sm">Deadline</Label>
-                              <Input
-                                type="datetime-local"
-                                value={ticket.early_bird_deadline}
-                                onChange={(e) => updateTicketClass(ticket._localId, 'early_bird_deadline', e.target.value)}
-                                data-testid={`input-early-bird-deadline-${ticket._localId}`}
-                              />
-                            </div>
+                      {!ticket.is_free && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id={`ticket-early-bird-${ticket._localId}`}
+                              checked={ticket.early_bird_enabled || false}
+                              onCheckedChange={(val) => {
+                                updateTicketClass(ticket._localId, 'early_bird_enabled', val);
+                                if (!val) {
+                                  updateTicketClass(ticket._localId, 'early_bird_price', '');
+                                  updateTicketClass(ticket._localId, 'early_bird_deadline', '');
+                                }
+                              }}
+                              data-testid={`switch-early-bird-${ticket._localId}`}
+                            />
+                            <Label htmlFor={`ticket-early-bird-${ticket._localId}`} className="text-sm font-medium flex items-center gap-1.5">
+                              <Bird className="h-4 w-4 text-amber-500" />
+                              Early Bird Pricing
+                            </Label>
                           </div>
-                        )}
+                          {ticket.early_bird_enabled && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-amber-200 ml-1">
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`ticket-early-bird-price-${ticket._localId}`} className="text-sm">
+                                  Early Bird Price (£) *
+                                </Label>
+                                <div className="relative w-28">
+                                  <PoundSterling className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                  <Input
+                                    id={`ticket-early-bird-price-${ticket._localId}`}
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={ticket.early_bird_price || ''}
+                                    onChange={(e) => updateTicketClass(ticket._localId, 'early_bird_price', e.target.value)}
+                                    placeholder="0.00"
+                                    className="pl-9"
+                                    data-testid={`input-early-bird-price-${ticket._localId}`}
+                                  />
+                                </div>
+                                {ticket.early_bird_price && ticket.price && Number(ticket.early_bird_price) >= Number(ticket.price) && (
+                                  <p className="text-xs text-red-500">Must be less than standard price (£{ticket.price})</p>
+                                )}
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`ticket-early-bird-deadline-${ticket._localId}`} className="text-sm">
+                                  Deadline *
+                                </Label>
+                                <Input
+                                  id={`ticket-early-bird-deadline-${ticket._localId}`}
+                                  type="datetime-local"
+                                  value={ticket.early_bird_deadline ? ticket.early_bird_deadline.slice(0, 16) : ''}
+                                  onChange={(e) => updateTicketClass(ticket._localId, 'early_bird_deadline', e.target.value || '')}
+                                  data-testid={`input-early-bird-deadline-${ticket._localId}`}
+                                />
+                                <p className="text-xs text-slate-500">Price reverts to standard after this date/time</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                          <Ticket className="h-4 w-4 text-slate-500" />
+                          Ticket Availability
+                        </Label>
+                        <p className="text-xs text-slate-500 mb-2">
+                          Set how many of this ticket type are available. This is independent of event seat capacity.
+                        </p>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              id={`ticket-unlimited-${ticket._localId}`}
+                              checked={ticket.is_unlimited_tickets !== false}
+                              onCheckedChange={(val) => updateTicketClass(ticket._localId, 'is_unlimited_tickets', val)}
+                              data-testid={`switch-unlimited-${ticket._localId}`}
+                            />
+                            <Label htmlFor={`ticket-unlimited-${ticket._localId}`} className="text-sm font-medium">Unlimited</Label>
+                          </div>
+                          {ticket.is_unlimited_tickets === false && (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                id={`ticket-available-count-${ticket._localId}`}
+                                type="number"
+                                min="1"
+                                value={ticket.available_count || ""}
+                                onChange={(e) => updateTicketClass(ticket._localId, 'available_count', e.target.value)}
+                                placeholder="e.g. 50"
+                                className="w-24"
+                                data-testid={`input-ticket-count-${ticket._localId}`}
+                              />
+                              <span className="text-sm text-slate-500">tickets</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="border rounded-md p-3 space-y-3">
-                        <div className="flex items-center gap-1.5">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
                           <Switch
-                            checked={ticket.is_group_ticket}
+                            id={`ticket-group-${ticket._localId}`}
+                            checked={ticket.is_group_ticket || false}
                             onCheckedChange={(val) => updateTicketClass(ticket._localId, 'is_group_ticket', val)}
                             data-testid={`switch-group-${ticket._localId}`}
                           />
-                          <Label className="text-sm font-medium text-slate-700">Group Ticket</Label>
+                          <Label htmlFor={`ticket-group-${ticket._localId}`} className="text-sm font-medium flex items-center gap-1.5">
+                            <Users className="h-4 w-4 text-slate-500" />
+                            Group Ticket
+                          </Label>
                         </div>
+                        <p className="text-xs text-slate-500">
+                          A group ticket covers multiple participants. The booker receives a link to add people by email.
+                        </p>
                         {ticket.is_group_ticket && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-2 border-l-2 border-blue-200 ml-1">
                             <div className="space-y-1.5">
-                              <Label className="text-sm">Group Size</Label>
+                              <Label htmlFor={`ticket-group-size-${ticket._localId}`} className="text-sm">
+                                Group Size (max participants) *
+                              </Label>
                               <Input
+                                id={`ticket-group-size-${ticket._localId}`}
                                 type="number"
                                 min="2"
-                                value={ticket.group_size}
+                                value={ticket.group_size || ""}
                                 onChange={(e) => updateTicketClass(ticket._localId, 'group_size', e.target.value)}
+                                placeholder="e.g. 10"
+                                className="w-28"
                                 data-testid={`input-group-size-${ticket._localId}`}
                               />
                             </div>
                             <div className="space-y-1.5">
-                              <Label className="text-sm">Cutoff Date</Label>
+                              <Label htmlFor={`ticket-group-cutoff-${ticket._localId}`} className="text-sm">
+                                Cut-off Date/Time
+                              </Label>
                               <Input
-                                type="date"
-                                value={ticket.group_cutoff_date}
+                                id={`ticket-group-cutoff-${ticket._localId}`}
+                                type="datetime-local"
+                                value={ticket.group_cutoff_date || ""}
                                 onChange={(e) => updateTicketClass(ticket._localId, 'group_cutoff_date', e.target.value)}
                                 data-testid={`input-group-cutoff-${ticket._localId}`}
                               />
+                              <p className="text-xs text-slate-400">
+                                After this time, no more changes to the group can be made.
+                              </p>
                             </div>
                           </div>
                         )}
                       </div>
 
-                      <div className="space-y-1.5">
-                        <Label>Special Offers</Label>
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2">
+                          <Users className="h-4 w-4 text-slate-500" />
+                          Available to Roles
+                        </Label>
+                        <p className="text-xs text-slate-500 mb-2">
+                          Select which roles can purchase this ticket. Leave empty for all roles.
+                        </p>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className="w-full justify-between gap-2"
+                              data-testid={`button-roles-${ticket._localId}`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Users className="w-4 h-4" />
+                                {(ticket.role_ids || []).length === 0 ? (
+                                  <span className="text-green-600 font-medium">All Roles</span>
+                                ) : (ticket.role_ids || []).length === 1 ? (
+                                  <span className="truncate max-w-[200px]">
+                                    {roles.find(r => r.id === ticket.role_ids[0])?.name || 'Unknown'}
+                                  </span>
+                                ) : (
+                                  <span>{(ticket.role_ids || []).length} roles selected</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {(ticket.role_ids || []).length > 0 && (
+                                  <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                                    {(ticket.role_ids || []).length}
+                                  </Badge>
+                                )}
+                                <ChevronDown className="w-4 h-4 opacity-50" />
+                              </div>
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-0" align="start">
+                            <div className="p-2 border-b border-slate-100">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-slate-700">Select roles</span>
+                                {(ticket.role_ids || []).length > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs text-slate-500 hover:text-slate-700"
+                                    onClick={() => updateTicketClass(ticket._localId, 'role_ids', [])}
+                                    data-testid={`role-clear-${ticket._localId}`}
+                                  >
+                                    Clear all
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="max-h-[280px] overflow-y-auto p-1">
+                              {roles.map(role => {
+                                const isSelected = (ticket.role_ids || []).includes(role.id);
+                                return (
+                                  <button
+                                    key={role.id}
+                                    className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                                      isSelected
+                                        ? "bg-slate-100 text-slate-900 font-medium"
+                                        : "text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                    onClick={() => toggleRoleForTicket(ticket._localId, role.id)}
+                                    data-testid={`role-toggle-${ticket._localId}-${role.id}`}
+                                  >
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                      isSelected ? "bg-primary border-primary" : "border-slate-300"
+                                    }`}>
+                                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                                    </div>
+                                    <span className="truncate">{role.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+
+                        {(ticket.role_ids || []).length === 0 && (
+                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+                            This ticket is available to all roles
+                          </div>
+                        )}
+
+                        {(ticket.role_ids || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {(ticket.role_ids || []).map(roleId => {
+                              const role = roles.find(r => r.id === roleId);
+                              return role ? (
+                                <Badge
+                                  key={roleId}
+                                  variant="secondary"
+                                  className="text-xs"
+                                >
+                                  {role.name}
+                                  <button
+                                    type="button"
+                                    className="ml-1 hover:text-slate-900"
+                                    onClick={() => toggleRoleForTicket(ticket._localId, roleId)}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Badge>
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+
+                        {(ticket.role_ids || []).length > 0 && ticket.visibility_mode !== 'public_only' && (
+                          <div className="mt-3 flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-amber-600" />
+                              <div>
+                                <Label htmlFor={`role-match-only-${ticket._localId}`} className="text-sm font-medium text-amber-800">
+                                  Match only to user role
+                                </Label>
+                                <p className="text-xs text-amber-600">
+                                  {ticket.role_match_only
+                                    ? "Ticket is hidden from users whose role doesn't match"
+                                    : "Ticket is visible to all users (role only affects who can register)"}
+                                </p>
+                              </div>
+                            </div>
+                            <Switch
+                              id={`role-match-only-${ticket._localId}`}
+                              checked={ticket.role_match_only || false}
+                              onCheckedChange={(val) => updateTicketClass(ticket._localId, 'role_match_only', val)}
+                              data-testid={`switch-role-match-${ticket._localId}`}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Globe className="h-5 w-5 text-blue-600" />
+                          <Label className="text-base font-medium">Ticket Visibility</Label>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                          <div
+                            className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                              (ticket.visibility_mode || 'members_only') === 'members_only'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                            onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'members_only')}
+                            data-testid={`visibility-members-only-${ticket._localId}`}
+                          >
+                            <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                              (ticket.visibility_mode || 'members_only') === 'members_only' ? 'border-blue-500' : 'border-slate-300'
+                            }`}>
+                              {(ticket.visibility_mode || 'members_only') === 'members_only' && (
+                                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Members Only</p>
+                              <p className="text-xs text-slate-500">Logged-in members only</p>
+                            </div>
+                          </div>
+                          <div
+                            className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                              ticket.visibility_mode === 'members_and_public'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                            onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'members_and_public')}
+                            data-testid={`visibility-members-and-public-${ticket._localId}`}
+                          >
+                            <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                              ticket.visibility_mode === 'members_and_public' ? 'border-blue-500' : 'border-slate-300'
+                            }`}>
+                              {ticket.visibility_mode === 'members_and_public' && (
+                                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Members & Public</p>
+                              <p className="text-xs text-slate-500">Both members and visitors</p>
+                            </div>
+                          </div>
+                          <div
+                            className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                              ticket.visibility_mode === 'public_only'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                            onClick={() => updateTicketClass(ticket._localId, 'visibility_mode', 'public_only')}
+                            data-testid={`visibility-public-only-${ticket._localId}`}
+                          >
+                            <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                              ticket.visibility_mode === 'public_only' ? 'border-blue-500' : 'border-slate-300'
+                            }`}>
+                              {ticket.visibility_mode === 'public_only' && (
+                                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Public Only</p>
+                              <p className="text-xs text-slate-500">Non-logged in visitors only</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {availableVatRates.length > 0 && (
+                        <div className="space-y-1.5">
+                          <Label>VAT Rate</Label>
+                          <Select
+                            value={ticket.vat_rate_key || '_none'}
+                            onValueChange={(val) => {
+                              if (val === '_none') {
+                                updateTicketClass(ticket._localId, 'vat_rate_key', null);
+                                updateTicketClass(ticket._localId, 'vat_rate_label', null);
+                                updateTicketClass(ticket._localId, 'vat_rate_percentage', null);
+                              } else {
+                                const rate = availableVatRates.find(r => r.taxType === val);
+                                if (rate) {
+                                  updateTicketClass(ticket._localId, 'vat_rate_key', rate.taxType);
+                                  updateTicketClass(ticket._localId, 'vat_rate_label', rate.name);
+                                  updateTicketClass(ticket._localId, 'vat_rate_percentage', rate.effectiveRate);
+                                }
+                              }
+                            }}
+                          >
+                            <SelectTrigger data-testid={`select-vat-${ticket._localId}`}>
+                              <SelectValue placeholder="No VAT" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No VAT</SelectItem>
+                              {availableVatRates.map((rate) => (
+                                <SelectItem key={rate.taxType} value={rate.taxType}>
+                                  {rate.name} ({rate.effectiveRate}%)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <Separator />
+
+                      <div className="space-y-4">
+                        <Label className="text-sm font-medium text-slate-700">Special Offer</Label>
                         <RadioGroup
                           value={ticket.offer_type}
                           onValueChange={(val) => updateTicketClass(ticket._localId, 'offer_type', val)}
-                          className="flex flex-wrap gap-3"
+                          className="grid grid-cols-1 md:grid-cols-3 gap-2"
                         >
-                          <div className="flex items-center gap-1.5">
+                          <Label
+                            htmlFor={`offer-none-${ticket._localId}`}
+                            className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                              ticket.offer_type === 'none'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
                             <RadioGroupItem value="none" id={`offer-none-${ticket._localId}`} />
-                            <Label htmlFor={`offer-none-${ticket._localId}`} className="text-sm">None</Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">No Offer</span>
+                          </Label>
+                          <Label
+                            htmlFor={`offer-bogo-${ticket._localId}`}
+                            className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                              ticket.offer_type === 'bogo'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
                             <RadioGroupItem value="bogo" id={`offer-bogo-${ticket._localId}`} />
-                            <Label htmlFor={`offer-bogo-${ticket._localId}`} className="text-sm">BOGO</Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">BOGO</span>
+                          </Label>
+                          <Label
+                            htmlFor={`offer-bulk-${ticket._localId}`}
+                            className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                              ticket.offer_type === 'bulk_discount'
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
                             <RadioGroupItem value="bulk_discount" id={`offer-bulk-${ticket._localId}`} />
-                            <Label htmlFor={`offer-bulk-${ticket._localId}`} className="text-sm">Bulk Discount</Label>
-                          </div>
+                            <span className="text-sm">Bulk Discount</span>
+                          </Label>
                         </RadioGroup>
 
                         {ticket.offer_type === 'bogo' && (
@@ -2307,28 +2533,28 @@ export default function CreateComplexEvent() {
                                 </div>
                               </div>
                             </RadioGroup>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-sm">Buy Quantity</Label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={ticket.bogo_buy_quantity}
-                                onChange={(e) => updateTicketClass(ticket._localId, 'bogo_buy_quantity', e.target.value)}
-                                data-testid={`input-bogo-buy-${ticket._localId}`}
-                              />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-sm">Buy Quantity</Label>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={ticket.bogo_buy_quantity}
+                                  onChange={(e) => updateTicketClass(ticket._localId, 'bogo_buy_quantity', e.target.value)}
+                                  data-testid={`input-bogo-buy-${ticket._localId}`}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-sm">Get Free Quantity</Label>
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={ticket.bogo_get_free_quantity}
+                                  onChange={(e) => updateTicketClass(ticket._localId, 'bogo_get_free_quantity', e.target.value)}
+                                  data-testid={`input-bogo-free-${ticket._localId}`}
+                                />
+                              </div>
                             </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-sm">Get Free Quantity</Label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={ticket.bogo_get_free_quantity}
-                                onChange={(e) => updateTicketClass(ticket._localId, 'bogo_get_free_quantity', e.target.value)}
-                                data-testid={`input-bogo-free-${ticket._localId}`}
-                              />
-                            </div>
-                          </div>
                           </div>
                         )}
 
@@ -2360,8 +2586,7 @@ export default function CreateComplexEvent() {
                       </div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
+              </div>
             ))}
           </div>
         )}
