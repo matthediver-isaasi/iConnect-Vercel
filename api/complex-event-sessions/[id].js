@@ -338,11 +338,15 @@ export default async function handler(req, res) {
       let zoomProvisioningError = null;
 
       if (session.auto_create_zoom && session.is_online && session.zoom_host_id && !session.zoom_meeting_id && !session.zoom_webinar_id) {
+        const tz2 = body.timezone || 'Europe/London';
         const rawStart = body.start_time || session.start_time;
         const rawEnd = body.end_time || session.end_time;
-        const tz2 = body.timezone || 'Europe/London';
+        const startIsUtc = !body.start_time && session.start_time;
+        if (startIsUtc) {
+          console.log('[Sessions] PATCH auto-provision: using DB UTC start_time directly (no local time available from request body)');
+        }
         try {
-          const zoomResult = await autoProvisionZoom(tenantId, session, rawStart, rawEnd, tz2);
+          const zoomResult = await autoProvisionZoom(tenantId, session, rawStart, rawEnd, startIsUtc ? 'UTC' : tz2);
           const { error: zoomUpdateError } = await supabase
             .from('complex_event_session')
             .update(zoomResult)
