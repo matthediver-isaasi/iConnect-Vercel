@@ -32,9 +32,10 @@ export default async function handler(req, res) {
 
     const { data: rawEvents, error } = await supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, event_type')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
+      .or('event_state.is.null,event_state.eq.active')
       .order('start_date', { ascending: true });
 
     if (error) {

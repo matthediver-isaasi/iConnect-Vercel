@@ -16,8 +16,10 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, ChevronUp,
   Calendar, MapPin, Monitor, Ticket, Users, Globe, PoundSterling,
-  Bird, Check, X, Mic
+  Bird, Check, X, Mic, Eye, Tag, Clock
 } from "lucide-react";
+import { useEventTypes } from "@/hooks/useEventTypes";
+import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
@@ -118,9 +120,13 @@ export default function CreateComplexEvent() {
     start_date: "",
     end_date: "",
     location: "",
-    status: "draft",
+    status: "published",
+    event_state: "active",
     timezone: "Europe/London",
     available_seats: "",
+    internal_reference: "",
+    event_type: "",
+    registration_closes_at: "",
   });
 
   const [tracks, setTracks] = useState([]);
@@ -159,6 +165,45 @@ export default function CreateComplexEvent() {
     queryKey: ['/api/entities/Speaker'],
     queryFn: () => base44.entities.Speaker.list({ filter: { is_active: true }, sort: { full_name: 'asc' } })
   });
+
+  const { eventTypes } = useEventTypes();
+
+  const { data: resourceCategories = [] } = useQuery({
+    queryKey: ['/api/entities/ResourceCategory'],
+    queryFn: () => base44.entities.ResourceCategory.list('display_order')
+  });
+
+  const eventCategories = useMemo(() => {
+    return resourceCategories
+      .filter(cat =>
+        cat.is_active &&
+        Array.isArray(cat.applies_to_content_types) &&
+        cat.applies_to_content_types.includes('Events') &&
+        Array.isArray(cat.subcategories) &&
+        cat.subcategories.length > 0
+      )
+      .map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        subcategories: cat.subcategories || []
+      }));
+  }, [resourceCategories]);
+
+  const [selectedFilterTags, setSelectedFilterTags] = useState([]);
+  const [filterTagsInitialized, setFilterTagsInitialized] = useState(false);
+
+  const summaryMaxLength = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
+    return setting ? parseInt(setting.setting_value) || 150 : 150;
+  }, [systemSettings]);
+
+  const handleTimingChange = (newTiming) => {
+    setFormData(prev => ({
+      ...prev,
+      status: newTiming,
+      ...(newTiming === 'tbc' ? { start_date: '', end_date: '', registration_closes_at: '' } : {})
+    }));
+  };
 
   const speakerModuleName = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'speaker_module_name');
@@ -279,13 +324,27 @@ export default function CreateComplexEvent() {
         start_date: existingEvent.start_date ? existingEvent.start_date.slice(0, 16) : "",
         end_date: existingEvent.end_date ? existingEvent.end_date.slice(0, 16) : "",
         location: existingEvent.location || "",
-        status: existingEvent.status || "draft",
+        status: existingEvent.status || "published",
+        event_state: existingEvent.event_state || "active",
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
+        internal_reference: existingEvent.internal_reference || "",
+        event_type: existingEvent.event_type || "",
+        registration_closes_at: existingEvent.registration_closes_at ? existingEvent.registration_closes_at.slice(0, 16) : "",
       });
       setSlugManuallyEdited(true);
     }
   }, [existingEvent, isEditMode]);
+
+  useEffect(() => {
+    if (isEditMode && existingEvent && eventCategories.length > 0 && !filterTagsInitialized) {
+      if (existingEvent.filter_tags && existingEvent.filter_tags.length > 0) {
+        const normalizedTags = normalizeFilterTags(existingEvent.filter_tags, eventCategories);
+        setSelectedFilterTags(normalizedTags);
+      }
+      setFilterTagsInitialized(true);
+    }
+  }, [existingEvent, eventCategories, isEditMode, filterTagsInitialized]);
 
   useEffect(() => {
     if (isEditMode && existingTracks.length > 0) {
@@ -574,8 +633,15 @@ export default function CreateComplexEvent() {
         end_date: formData.end_date || null,
         location: formData.location || null,
         status: formData.status,
+        event_state: formData.event_state,
         timezone: formData.timezone,
         available_seats: formData.available_seats ? parseInt(formData.available_seats, 10) : null,
+        internal_reference: formData.internal_reference || null,
+        event_type: formData.event_type || null,
+        registration_closes_at: formData.registration_closes_at || null,
+        filter_tags: selectedFilterTags.length > 0
+          ? selectedFilterTags.map(key => parseFilterTagKey(key).label)
+          : null,
       };
 
       let eventId;
@@ -791,138 +857,422 @@ export default function CreateComplexEvent() {
         </div>
 
         {activeSection === "details" && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Event Details</CardTitle>
-              <CardDescription>Basic information about the complex event</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
+          <>
+            {/* Event Status Card — matches EditEvent */}
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Eye className="h-5 w-5 text-purple-600" />
+                  Event Status
+                </CardTitle>
+                <CardDescription>Configure when and how members can access this event</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div>
+                  <Label className="text-sm font-medium mb-3 block">Event Timing</Label>
+                  <p className="text-xs text-slate-500 mb-3">Determines whether dates are required for this event</p>
+                  <RadioGroup
+                    value={formData.status}
+                    onValueChange={handleTimingChange}
+                    className="grid grid-cols-2 gap-4"
+                    data-testid="radio-event-timing"
+                  >
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.status === 'published' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value="published" id="timing-published" data-testid="radio-timing-published" />
+                      <Label htmlFor="timing-published" className="cursor-pointer flex-1">
+                        <span className="font-medium">Scheduled</span>
+                        <p className="text-xs text-slate-500">Event has confirmed dates</p>
+                      </Label>
+                    </div>
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.status === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value="tbc" id="timing-tbc" data-testid="radio-timing-tbc" />
+                      <Label htmlFor="timing-tbc" className="cursor-pointer flex-1">
+                        <span className="font-medium">To Be Confirmed</span>
+                        <p className="text-xs text-slate-500">Dates not yet set</p>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                  {formData.status === 'tbc' && (
+                    <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                      Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium mb-3 block">Event State</Label>
+                  <p className="text-xs text-slate-500 mb-3">Controls visibility and whether members can register</p>
+                  <RadioGroup
+                    value={formData.event_state}
+                    onValueChange={(v) => updateField("event_state", v)}
+                    className="grid grid-cols-3 gap-4"
+                    data-testid="radio-event-state"
+                  >
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.event_state === 'active' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value="active" id="state-active" data-testid="radio-state-active" />
+                      <Label htmlFor="state-active" className="cursor-pointer flex-1">
+                        <span className="font-medium">Active</span>
+                        <p className="text-xs text-slate-500">Visible, accepting registrations</p>
+                      </Label>
+                    </div>
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.event_state === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value="draft" id="state-draft" data-testid="radio-state-draft" />
+                      <Label htmlFor="state-draft" className="cursor-pointer flex-1">
+                        <span className="font-medium">Draft</span>
+                        <p className="text-xs text-slate-500">Hidden from members</p>
+                      </Label>
+                    </div>
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${formData.event_state === 'closed' ? 'border-red-500 bg-red-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value="closed" id="state-closed" data-testid="radio-state-closed" />
+                      <Label htmlFor="state-closed" className="cursor-pointer flex-1">
+                        <span className="font-medium">Closed</span>
+                        <p className="text-xs text-slate-500">Visible, registration closed</p>
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Event Details Card — matches EditEvent (minus Session Leaders & CTA Override) */}
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-blue-600" />
+                  Event Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Title *</Label>
+                  <Label htmlFor="title">Event Title *</Label>
                   <Input
                     id="title"
                     value={formData.title}
                     onChange={(e) => updateField("title", e.target.value)}
-                    placeholder="Event title"
+                    placeholder="Enter event title"
+                    required
                     data-testid="input-title"
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="slug">URL Slug *</Label>
-                  <Input
-                    id="slug"
-                    value={formData.slug}
+                  <Label htmlFor="slug">URL Slug</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-slate-500 whitespace-nowrap">/session-events/</span>
+                    <Input
+                      id="slug"
+                      value={formData.slug}
+                      onChange={(e) => {
+                        setSlugManuallyEdited(true);
+                        const value = e.target.value
+                          .toLowerCase()
+                          .replace(/[^a-z0-9-]/g, '');
+                        updateField("slug", value);
+                      }}
+                      placeholder="my-event-name"
+                      data-testid="input-slug"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Friendly URL for sharing. Leave empty to use the default URL format.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="summary">Summary</Label>
+                  <Textarea
+                    id="summary"
+                    value={formData.summary}
                     onChange={(e) => {
-                      setSlugManuallyEdited(true);
-                      updateField("slug", e.target.value);
+                      const value = e.target.value;
+                      if (value.length <= summaryMaxLength) {
+                        updateField("summary", value);
+                      }
                     }}
-                    placeholder="event-url-slug"
-                    data-testid="input-slug"
+                    placeholder={`Brief summary for event cards (max ${summaryMaxLength} characters)`}
+                    className="resize-none"
+                    rows={2}
+                    data-testid="input-summary"
+                  />
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Displayed on event cards and listings</span>
+                    <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-600' : ''}>
+                      {formData.summary.length}/{summaryMaxLength}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">Full Description</Label>
+                  <div className="border rounded-md overflow-hidden" data-testid="input-description">
+                    <ReactQuill
+                      theme="snow"
+                      value={formData.description || ''}
+                      onChange={(val) => updateField("description", val)}
+                      modules={QUILL_MODULES}
+                      formats={QUILL_FORMATS}
+                      placeholder="Describe the event..."
+                      style={{ minHeight: '150px' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Event Image</Label>
+                  <EventImageUpload
+                    imageUrl={formData.image_url}
+                    onImageChange={(url) => updateField("image_url", url)}
                   />
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="summary">Summary</Label>
-                <Textarea
-                  id="summary"
-                  value={formData.summary}
-                  onChange={(e) => updateField("summary", e.target.value)}
-                  placeholder="Brief summary of the event"
-                  rows={2}
-                  data-testid="input-summary"
-                />
-              </div>
+                {/* Filter Tags */}
+                {eventCategories.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Tag className="h-4 w-4 text-slate-500" />
+                      Filter Tags
+                    </Label>
+                    <p className="text-xs text-slate-500 mb-2">
+                      Select one or more filter values to help categorize this event.
+                    </p>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full justify-between gap-2"
+                          data-testid="filter-tags-trigger"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Tag className="w-4 h-4" />
+                            {selectedFilterTags.length === 0 ? (
+                              <span className="text-slate-500">Select filter tags...</span>
+                            ) : selectedFilterTags.length === 1 ? (
+                              <span className="truncate max-w-[200px]">{parseFilterTagKey(selectedFilterTags[0]).label}</span>
+                            ) : (
+                              <span>{selectedFilterTags.length} selected</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {selectedFilterTags.length > 0 && (
+                              <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                                {selectedFilterTags.length}
+                              </Badge>
+                            )}
+                            <ChevronDown className="w-4 h-4 opacity-50" />
+                          </div>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 p-0" align="start">
+                        <div className="p-2 border-b border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-slate-700">Select filter tags</span>
+                            {selectedFilterTags.length > 0 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs text-slate-500 hover:text-slate-700"
+                                onClick={() => setSelectedFilterTags([])}
+                                data-testid="filter-tags-clear"
+                              >
+                                Clear all
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="max-h-[320px] overflow-y-auto p-1">
+                          {eventCategories.map((category) => (
+                            <div key={category.id} className="mb-2">
+                              <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                {category.name}
+                              </div>
+                              {category.subcategories.map((subcategory) => {
+                                const tagKey = createFilterTagKey(category.id, subcategory);
+                                const isSelected = selectedFilterTags.includes(tagKey);
+                                return (
+                                  <button
+                                    key={tagKey}
+                                    type="button"
+                                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
+                                      isSelected
+                                        ? "bg-slate-100 text-slate-900 font-medium"
+                                        : "text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedFilterTags(prev => prev.filter(t => t !== tagKey));
+                                      } else {
+                                        setSelectedFilterTags(prev => [...prev, tagKey]);
+                                      }
+                                    }}
+                                    data-testid={`filter-tag-${subcategory}`}
+                                  >
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                      isSelected ? "bg-primary border-primary" : "border-slate-300"
+                                    }`}>
+                                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                                    </div>
+                                    <span className="truncate">{subcategory}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    {selectedFilterTags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {selectedFilterTags.map((tagKey, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="text-xs"
+                          >
+                            {parseFilterTagKey(tagKey).label}
+                            <button
+                              type="button"
+                              className="ml-1 hover:text-slate-900"
+                              onClick={() => setSelectedFilterTags(prev => prev.filter(t => t !== tagKey))}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-              <div className="space-y-2">
-                <Label>Description</Label>
-                <ReactQuill
-                  theme="snow"
-                  value={formData.description}
-                  onChange={(val) => updateField("description", val)}
-                  modules={QUILL_MODULES}
-                  formats={QUILL_FORMATS}
-                  data-testid="input-description"
-                />
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="internal_reference">Internal Reference</Label>
+                    <Input
+                      id="internal_reference"
+                      value={formData.internal_reference}
+                      onChange={(e) => updateField("internal_reference", e.target.value)}
+                      placeholder="e.g. PROJECT-123, Budget Code, etc."
+                      data-testid="input-internal-reference"
+                    />
+                    <p className="text-xs text-slate-500">
+                      For internal use only. Not shown to attendees but included on invoices.
+                    </p>
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Event Image</Label>
-                <EventImageUpload
-                  imageUrl={formData.image_url}
-                  onImageChange={(url) => updateField("image_url", url)}
-                />
-              </div>
+                  {eventTypes.length > 0 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="event_type">Event Type</Label>
+                      <Select
+                        value={formData.event_type || "_none"}
+                        onValueChange={(val) => updateField("event_type", val === "_none" ? "" : val)}
+                      >
+                        <SelectTrigger id="event_type" data-testid="select-event-type">
+                          <SelectValue placeholder="Select event type..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">None</SelectItem>
+                          {eventTypes.map((type, idx) => {
+                            const typeName = typeof type === 'string' ? type : type.name;
+                            return (
+                              <SelectItem key={idx} value={typeName}>{typeName}</SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">
+                        Categorize this event by type (e.g., Workshop, Training).
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-              <Separator />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="start_date">
+                      Start Date & Time {formData.status !== 'tbc' && '*'}
+                    </Label>
+                    <Input
+                      id="start_date"
+                      type="datetime-local"
+                      value={formData.start_date}
+                      onChange={(e) => updateField("start_date", e.target.value)}
+                      required={formData.status !== 'tbc'}
+                      disabled={formData.status === 'tbc'}
+                      className={formData.status === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                      data-testid="input-start-date"
+                    />
+                    {formData.status === 'tbc' && (
+                      <p className="text-xs text-blue-600">Date disabled for TBC events</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="end_date">End Date & Time</Label>
+                    <Input
+                      id="end_date"
+                      type="datetime-local"
+                      value={formData.end_date}
+                      onChange={(e) => updateField("end_date", e.target.value)}
+                      disabled={formData.status === 'tbc'}
+                      className={formData.status === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                      data-testid="input-end-date"
+                    />
+                  </div>
+                </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="location">Location</Label>
+                    <Input
+                      id="location"
+                      value={formData.location}
+                      onChange={(e) => updateField("location", e.target.value)}
+                      placeholder="Venue or address"
+                      data-testid="input-location"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="timezone">Event Timezone</Label>
+                    <Select value={formData.timezone} onValueChange={(v) => updateField("timezone", v)}>
+                      <SelectTrigger id="timezone" data-testid="select-timezone">
+                        <SelectValue placeholder="Select timezone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TIMEZONE_OPTIONS.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value}>
+                            {tz.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Times will be displayed and stored in this timezone.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="start_date">Start Date</Label>
+                  <Label htmlFor="registration_closes_at">Registration Closes On (Optional)</Label>
                   <Input
-                    id="start_date"
+                    id="registration_closes_at"
                     type="datetime-local"
-                    value={formData.start_date}
-                    onChange={(e) => updateField("start_date", e.target.value)}
-                    data-testid="input-start-date"
+                    value={formData.registration_closes_at}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      if (newValue && formData.end_date && new Date(newValue) > new Date(formData.end_date)) {
+                        toast.error('Registration close date cannot be after the event end date');
+                        return;
+                      }
+                      updateField("registration_closes_at", newValue);
+                    }}
+                    max={formData.end_date || undefined}
+                    disabled={formData.status === 'tbc'}
+                    className={formData.status === 'tbc' ? "bg-slate-100 cursor-not-allowed" : ""}
+                    data-testid="input-registration-closes-at"
                   />
+                  <p className="text-xs text-slate-500">
+                    If set, registration will automatically close at this time. Must be on or before the event end time.
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="end_date">End Date</Label>
-                  <Input
-                    id="end_date"
-                    type="datetime-local"
-                    value={formData.end_date}
-                    onChange={(e) => updateField("end_date", e.target.value)}
-                    data-testid="input-end-date"
-                  />
-                </div>
-              </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="location">Location</Label>
-                  <Input
-                    id="location"
-                    value={formData.location}
-                    onChange={(e) => updateField("location", e.target.value)}
-                    placeholder="Venue or address"
-                    data-testid="input-location"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="timezone">Timezone</Label>
-                  <Select value={formData.timezone} onValueChange={(v) => updateField("timezone", v)}>
-                    <SelectTrigger data-testid="select-timezone">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIMEZONE_OPTIONS.map((tz) => (
-                        <SelectItem key={tz.value} value={tz.value}>
-                          {tz.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select value={formData.status} onValueChange={(v) => updateField("status", v)}>
-                    <SelectTrigger data-testid="select-status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="draft">Draft</SelectItem>
-                      <SelectItem value="published">Published</SelectItem>
-                      <SelectItem value="tbc">TBC</SelectItem>
-                      <SelectItem value="closed">Closed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="available_seats">Available Seats</Label>
                   <Input
@@ -934,9 +1284,9 @@ export default function CreateComplexEvent() {
                     data-testid="input-available-seats"
                   />
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </>
         )}
 
         {activeSection === "tracks" && (
