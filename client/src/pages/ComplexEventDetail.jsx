@@ -950,6 +950,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
   }, [pricingConfig]);
 
   const isGuest = !memberInfo;
+  const userRoleId = memberInfo?.role_id;
 
   const getTicketVisibility = (tc) => {
     if (tc.visibility_mode) return tc.visibility_mode;
@@ -960,8 +961,15 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, onBooki
 
   const isTicketRestricted = (tc) => {
     const vis = getTicketVisibility(tc);
-    if (isGuest) return vis === 'members_only';
-    return vis === 'public_only';
+    if (isGuest) {
+      if (vis === 'members_only') return true;
+      if (tc.role_match_only) return true;
+      return false;
+    }
+    if (vis === 'public_only') return true;
+    if (!tc.role_match_only) return false;
+    if ((tc.role_ids || []).length === 0) return false;
+    return !userRoleId || !(tc.role_ids || []).includes(userRoleId);
   };
 
   const allExistingEmails = useMemo(() => {
