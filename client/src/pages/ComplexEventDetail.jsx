@@ -1355,6 +1355,17 @@ export default function ComplexEventDetail() {
     return map;
   }, [speakers]);
 
+  const speakerSessionsMap = useMemo(() => {
+    const map = {};
+    sessions.forEach(s => {
+      (s.speaker_ids || []).forEach(speakerId => {
+        if (!map[speakerId]) map[speakerId] = [];
+        map[speakerId].push(s);
+      });
+    });
+    return map;
+  }, [sessions]);
+
   const trackColorMap = useMemo(() => {
     const map = {};
     const eventTracks = event?.tracks || [];
@@ -1572,28 +1583,41 @@ export default function ComplexEventDetail() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid sm:grid-cols-2 gap-4">
-                    {speakers.map(speaker => (
-                      <button
-                        key={speaker.id}
-                        onClick={() => { setSelectedSpeaker(speaker); setShowSpeakerModal(true); }}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-left"
-                        data-testid={`button-speaker-${speaker.id}`}
-                      >
-                        <Avatar className="h-12 w-12">
-                          {speaker.profile_photo_url ? (
-                            <AvatarImage src={speaker.profile_photo_url} alt={speaker.name} />
-                          ) : null}
-                          <AvatarFallback className="bg-purple-100 text-purple-700">
-                            {(speaker.name || '?').charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium text-slate-900">{speaker.name}</div>
-                          {speaker.title && <div className="text-xs text-slate-500">{speaker.title}</div>}
-                          {speaker.organization && <div className="text-xs text-slate-500">{speaker.organization}</div>}
-                        </div>
-                      </button>
-                    ))}
+                    {speakers.map(speaker => {
+                      const displayName = speaker.full_name || speaker.name || '?';
+                      const speakerSessions = speakerSessionsMap[speaker.id] || [];
+                      return (
+                        <button
+                          key={speaker.id}
+                          onClick={() => { setSelectedSpeaker(speaker); setShowSpeakerModal(true); }}
+                          className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-left"
+                          data-testid={`button-speaker-${speaker.id}`}
+                        >
+                          <Avatar className="h-12 w-12 shrink-0">
+                            {speaker.profile_photo_url ? (
+                              <AvatarImage src={speaker.profile_photo_url} alt={displayName} />
+                            ) : null}
+                            <AvatarFallback className="bg-purple-100 text-purple-700">
+                              {displayName.charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-900">{displayName}</div>
+                            {speaker.job_title && <div className="text-xs text-slate-500">{speaker.job_title}</div>}
+                            {speaker.organization && <div className="text-xs text-slate-500">{speaker.organization}</div>}
+                            {speakerSessions.length > 0 && (
+                              <div className="mt-1.5 space-y-0.5">
+                                {speakerSessions.map(s => (
+                                  <div key={s.id} className="text-xs text-purple-600 truncate" data-testid={`speaker-session-${speaker.id}-${s.id}`}>
+                                    {s.title}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -1666,33 +1690,47 @@ export default function ComplexEventDetail() {
       <Dialog open={showSpeakerModal} onOpenChange={setShowSpeakerModal}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{selectedSpeaker?.name}</DialogTitle>
+            <DialogTitle>{selectedSpeaker?.full_name || selectedSpeaker?.name}</DialogTitle>
           </DialogHeader>
-          {selectedSpeaker && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16">
-                  {selectedSpeaker.profile_photo_url ? (
-                    <AvatarImage src={selectedSpeaker.profile_photo_url} alt={selectedSpeaker.name} />
-                  ) : null}
-                  <AvatarFallback className="bg-purple-100 text-purple-700 text-lg">
-                    {(selectedSpeaker.name || '?').charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-medium text-slate-900">{selectedSpeaker.name}</div>
-                  {selectedSpeaker.title && <div className="text-sm text-slate-500">{selectedSpeaker.title}</div>}
-                  {selectedSpeaker.organization && <div className="text-sm text-slate-500">{selectedSpeaker.organization}</div>}
+          {selectedSpeaker && (() => {
+            const modalDisplayName = selectedSpeaker.full_name || selectedSpeaker.name || '?';
+            const modalSpeakerSessions = speakerSessionsMap[selectedSpeaker.id] || [];
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-16 w-16">
+                    {selectedSpeaker.profile_photo_url ? (
+                      <AvatarImage src={selectedSpeaker.profile_photo_url} alt={modalDisplayName} />
+                    ) : null}
+                    <AvatarFallback className="bg-purple-100 text-purple-700 text-lg">
+                      {modalDisplayName.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <div className="font-medium text-slate-900">{modalDisplayName}</div>
+                    {selectedSpeaker.job_title && <div className="text-sm text-slate-500">{selectedSpeaker.job_title}</div>}
+                    {selectedSpeaker.organization && <div className="text-sm text-slate-500">{selectedSpeaker.organization}</div>}
+                  </div>
                 </div>
+                {modalSpeakerSessions.length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium text-slate-700 mb-1">Sessions</div>
+                    <div className="space-y-1">
+                      {modalSpeakerSessions.map(s => (
+                        <div key={s.id} className="text-sm text-purple-600" data-testid={`modal-speaker-session-${s.id}`}>{s.title}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(selectedSpeaker.biography || selectedSpeaker.bio) && (
+                  <div
+                    className="prose prose-slate max-w-none text-sm"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedSpeaker.biography || selectedSpeaker.bio) }}
+                  />
+                )}
               </div>
-              {selectedSpeaker.bio && (
-                <div
-                  className="prose prose-slate max-w-none text-sm"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedSpeaker.bio) }}
-                />
-              )}
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
