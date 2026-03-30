@@ -150,7 +150,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantCtx.tenantId;
 
-  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, image_focal_point, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom';
 
   if (req.method === 'GET') {
     try {
@@ -249,6 +249,7 @@ export default async function handler(req, res) {
         is_online = false,
         location,
         image_url,
+        image_focal_point,
         track_ids = [],
         complex_event_track_id,
         zoom_type,
@@ -291,6 +292,7 @@ export default async function handler(req, res) {
         title,
         description: description || null,
         image_url: image_url || null,
+        image_focal_point: image_focal_point || null,
         speaker_names: speaker_names || null,
         speaker_ids: speaker_ids || null,
         start_time: start_time ? convertLocalTimeToUTC(start_time, timezone) : null,

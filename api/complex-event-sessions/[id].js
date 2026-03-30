@@ -152,7 +152,7 @@ export default async function handler(req, res) {
 
   const { id } = req.query;
 
-  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, image_focal_point, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom';
 
   if (req.method === 'GET') {
     try {
@@ -293,7 +293,7 @@ export default async function handler(req, res) {
       const ALLOWED_FIELDS = [
         'title', 'description', 'start_time', 'end_time',
         'display_order', 'location',
-        'is_online', 'speaker_names', 'speaker_ids', 'image_url', 'complex_event_id',
+        'is_online', 'speaker_names', 'speaker_ids', 'image_url', 'image_focal_point', 'complex_event_id',
         'zoom_type', 'zoom_host_id', 'zoom_host_email', 'zoom_meeting_id', 'zoom_webinar_id',
         'zoom_join_url', 'zoom_start_url', 'zoom_registration_url',
         'zoom_registration_required', 'zoom_link_mode', 'auto_create_zoom'
