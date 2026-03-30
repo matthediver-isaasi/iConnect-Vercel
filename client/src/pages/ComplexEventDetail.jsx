@@ -1623,6 +1623,26 @@ export default function ComplexEventDetail() {
                       <span>{event.location}</span>
                     </div>
                   )}
+
+                  {event.show_seat_count !== false && (
+                    <div className="flex items-center gap-3 text-slate-700">
+                      <Users className="w-5 h-5 text-slate-400" />
+                      {(event.available_seats === 0 || event.available_seats === null) ? (
+                        <span className="text-green-600 font-medium">Open Registration</span>
+                      ) : event.available_seats > 0 ? (
+                        <span className="text-green-600 font-medium">{event.available_seats} places available</span>
+                      ) : (
+                        <span className="text-red-600 font-medium">Sold out</span>
+                      )}
+                    </div>
+                  )}
+
+                  {filteredSessions.length > 0 && (
+                    <div className="flex items-center gap-3 text-slate-700">
+                      <Layers className="w-5 h-5 text-slate-400" />
+                      <span>{filteredSessions.length} session{filteredSessions.length !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
             </Card>
@@ -1730,55 +1750,6 @@ export default function ComplexEventDetail() {
           </div>
 
           <div className="space-y-6">
-            <Card className="border-slate-200">
-              <CardContent className="p-5 space-y-4">
-                <h3 className="font-semibold text-slate-900">Event Details</h3>
-                {event.start_date && (
-                  <div className="flex items-start gap-3 text-sm">
-                    <Calendar className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    <div>
-                      <div className="font-medium text-slate-900">
-                        {formatDate(event.start_date, tz)}
-                      </div>
-                      {event.end_date && (
-                        <div className="text-slate-500">
-                          to {formatDate(event.end_date, tz)}
-                        </div>
-                      )}
-                      <div className="text-slate-500">{formatTime(event.start_date, tz)}</div>
-                    </div>
-                  </div>
-                )}
-
-                {event.location && (
-                  <div className="flex items-start gap-3 text-sm">
-                    <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    <span className="text-slate-700">{event.location}</span>
-                  </div>
-                )}
-
-                {event.show_seat_count !== false && (
-                  <div className="flex items-start gap-3 text-sm">
-                    <Users className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    {(event.available_seats === 0 || event.available_seats === null) ? (
-                      <span className="text-green-600 font-medium">Open Registration</span>
-                    ) : event.available_seats > 0 ? (
-                      <span className="text-green-600 font-medium">{event.available_seats} places available</span>
-                    ) : (
-                      <span className="text-red-600 font-medium">Sold out</span>
-                    )}
-                  </div>
-                )}
-
-                {sessions.length > 0 && (
-                  <div className="flex items-start gap-3 text-sm">
-                    <Clock className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    <span className="text-slate-700">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
             <BookingSection
               event={event}
               sessions={sessions}
