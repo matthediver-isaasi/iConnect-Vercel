@@ -79,7 +79,7 @@ const formatDateShort = (dateStr, timezone = DEFAULT_TIMEZONE) => {
 };
 
 
-function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerMap = {} }) {
+function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerMap = {}, onSessionClick }) {
   const sessionsByDay = useMemo(() => {
     const days = {};
     sessions.forEach(session => {
@@ -170,7 +170,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                     return (
                       <div key={slotIndex} className="mb-2">
                         {slot.sessions.map(session => (
-                          <SessionCard key={session.id} session={session} timezone={timezone} colors={trackColorMap[session.track_name]} speakerMap={speakerMap} />
+                          <SessionCard key={session.id} session={session} timezone={timezone} colors={trackColorMap[session.track_name]} speakerMap={speakerMap} onClick={onSessionClick} />
                         ))}
                       </div>
                     );
@@ -196,7 +196,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                         }
                         const isMultiTrack = (trackSession.track_names || []).length > 1;
                         return (
-                          <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} />
+                          <SessionCard key={`${trackSession.id}-${track}`} session={trackSession} timezone={timezone} colors={colors} isMultiTrack={isMultiTrack} speakerMap={speakerMap} onClick={onSessionClick} />
                         );
                       })}
                       {hasUntracked && (() => {
@@ -205,7 +205,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
                           return names.length === 0;
                         });
                         if (!untrackedSession) return <div className="p-1" />;
-                        return <SessionCard session={untrackedSession} timezone={timezone} colors={null} speakerMap={speakerMap} />;
+                        return <SessionCard session={untrackedSession} timezone={timezone} colors={null} speakerMap={speakerMap} onClick={onSessionClick} />;
                       })()}
                     </div>
                   );
@@ -220,7 +220,7 @@ function ScheduleGrid({ sessions, timezone, trackColorMap, eventTracks, speakerM
   );
 }
 
-function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {} }) {
+function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerMap = {}, onClick }) {
   const hasCustomColors = colors?.lightStyle;
   const fallbackClass = "bg-slate-50 border-slate-300";
 
@@ -237,9 +237,10 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
 
   return (
     <div
-      className={`p-3 rounded-md border space-y-1 ${hasCustomColors ? '' : fallbackClass}`}
+      className={`p-3 rounded-md border space-y-1 cursor-pointer transition-shadow hover:shadow-md ${hasCustomColors ? '' : fallbackClass}`}
       style={hasCustomColors ? { ...colors.lightStyle, ...colors.borderStyle } : undefined}
       data-testid={`session-card-${session.id}`}
+      onClick={() => onClick?.(session)}
     >
       <div className="flex items-center gap-1.5">
         <span className="font-medium text-sm text-slate-900">{session.title}</span>
@@ -309,10 +310,159 @@ function SessionCard({ session, timezone, colors, isMultiTrack = false, speakerM
   );
 }
 
-function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap }) {
+function ExpandedSessionOverlay({ session, timezone, speakerMap, eventImageUrl, onClose }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setVisible(false);
+    setTimeout(onClose, 250);
+  }, [onClose]);
+
+  const sessionSpeakers = useMemo(() => {
+    if (session.speaker_ids?.length) {
+      return session.speaker_ids.map(id => speakerMap[id]).filter(Boolean);
+    }
+    return [];
+  }, [session.speaker_ids, speakerMap]);
+
+  const fallbackSpeakerNames = sessionSpeakers.length === 0 && session.speaker_names?.length > 0
+    ? session.speaker_names
+    : [];
+
+  const imageUrl = session.image_url || eventImageUrl || null;
+
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-center justify-center p-4 transition-all duration-250"
+      style={{ backgroundColor: visible ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0)', backdropFilter: visible ? 'blur(6px)' : 'blur(0px)' }}
+      onClick={handleClose}
+      data-testid="session-overlay-backdrop"
+    >
+      <div
+        className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden transition-all duration-250 ease-out flex flex-col"
+        style={{
+          width: visible ? '80%' : '20%',
+          maxHeight: visible ? '80%' : '10%',
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'scale(1)' : 'scale(0.85)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+        data-testid={`session-expanded-${session.id}`}
+      >
+        {imageUrl && (
+          <div className="h-36 shrink-0 overflow-hidden bg-slate-100">
+            <img src={imageUrl} alt={session.title} className="w-full h-full object-cover" />
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="text-lg font-semibold text-slate-900">{session.title}</h3>
+            <button
+              onClick={handleClose}
+              className="shrink-0 p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              data-testid="button-close-session-overlay"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+            {session.start_time && (
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-slate-400" />
+                {formatTime(session.start_time, timezone)}
+                {session.end_time && ` - ${formatTime(session.end_time, timezone)}`}
+              </span>
+            )}
+            {session.start_time && (
+              <span className="flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-slate-400" />
+                {formatDate(session.start_time, timezone)}
+              </span>
+            )}
+            {session.location && (
+              <span className="flex items-center gap-1.5">
+                <MapPin className="w-4 h-4 text-slate-400" />
+                {session.location}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {session.track_names?.length > 0 && session.track_names.map((name, i) => (
+              <Badge key={i} variant="secondary" className="text-xs">{name}</Badge>
+            ))}
+            {session.delivery_mode === 'virtual' && (
+              <Badge variant="secondary" className="text-xs"><Monitor className="h-3 w-3 mr-1" />Virtual</Badge>
+            )}
+            {session.delivery_mode === 'hybrid' && (
+              <Badge variant="secondary" className="text-xs"><Video className="h-3 w-3 mr-1" />Hybrid</Badge>
+            )}
+            {session.delivery_mode === 'in_person' && (
+              <Badge variant="secondary" className="text-xs"><Building2 className="h-3 w-3 mr-1" />In-Person</Badge>
+            )}
+            {session.is_online && !session.delivery_mode && (
+              <Badge variant="secondary" className="text-xs"><Monitor className="h-3 w-3 mr-1" />Online</Badge>
+            )}
+          </div>
+
+          {session.description && (
+            <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+              {session.description}
+            </div>
+          )}
+
+          {sessionSpeakers.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <Mic className="w-4 h-4 text-slate-400" />
+                Speakers
+              </h4>
+              <div className="flex flex-col gap-2">
+                {sessionSpeakers.map(speaker => {
+                  const displayName = speaker.full_name || speaker.name || '?';
+                  return (
+                    <div key={speaker.id} className="flex items-center gap-3" data-testid={`expanded-speaker-${speaker.id}`}>
+                      <Avatar className="h-8 w-8">
+                        {speaker.profile_photo_url ? (
+                          <AvatarImage src={speaker.profile_photo_url} alt={displayName} />
+                        ) : null}
+                        <AvatarFallback className="text-xs bg-purple-100 text-purple-700">
+                          {displayName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">{displayName}</div>
+                        {speaker.title && <div className="text-xs text-slate-500">{speaker.title}</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {fallbackSpeakerNames.length > 0 && (
+            <div className="flex items-center gap-1.5 text-sm text-slate-600">
+              <Mic className="w-4 h-4 text-slate-400" />
+              <span>{fallbackSpeakerNames.join(", ")}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, speakerMap, eventImageUrl }) {
   const scrollRef = useRef(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
+  const [expandedSession, setExpandedSession] = useState(null);
 
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -333,20 +483,30 @@ function ScrollableSchedule({ sessions, timezone, trackColorMap, eventTracks, sp
 
   return (
     <div className="relative">
-      {canScrollUp && (
+      {canScrollUp && !expandedSession && (
         <div className="absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white to-transparent z-10 pointer-events-none" />
       )}
-      <div ref={scrollRef} className="max-h-[500px] overflow-y-auto">
+      <div ref={scrollRef} className={`max-h-[500px] overflow-y-auto transition-[filter] duration-250 ${expandedSession ? 'filter blur-[3px] pointer-events-none' : ''}`}>
         <ScheduleGrid
           sessions={sessions}
           timezone={timezone}
           trackColorMap={trackColorMap}
           eventTracks={eventTracks}
           speakerMap={speakerMap}
+          onSessionClick={setExpandedSession}
         />
       </div>
-      {canScrollDown && (
+      {canScrollDown && !expandedSession && (
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
+      )}
+      {expandedSession && (
+        <ExpandedSessionOverlay
+          session={expandedSession}
+          timezone={timezone}
+          speakerMap={speakerMap}
+          eventImageUrl={eventImageUrl}
+          onClose={() => setExpandedSession(null)}
+        />
       )}
     </div>
   );
@@ -1392,6 +1552,7 @@ export default function ComplexEventDetail() {
                     trackColorMap={trackColorMap}
                     eventTracks={event?.tracks || []}
                     speakerMap={speakerMap}
+                    eventImageUrl={event?.image_url}
                   />
                 </CardContent>
               </Card>
