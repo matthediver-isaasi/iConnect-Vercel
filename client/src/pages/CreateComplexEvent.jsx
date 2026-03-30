@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
+import SEOSettings from "@/components/blog/SEOSettings";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
@@ -127,6 +128,7 @@ export default function CreateComplexEvent() {
     internal_reference: "",
     event_type: "",
     registration_closes_at: "",
+    program_tag: "",
   });
 
   const [tracks, setTracks] = useState([]);
@@ -191,6 +193,14 @@ export default function CreateComplexEvent() {
 
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [filterTagsInitialized, setFilterTagsInitialized] = useState(false);
+  const [seoTitle, setSeoTitle] = useState("");
+  const [seoDescription, setSeoDescription] = useState("");
+  const [isProgramEvent, setIsProgramEvent] = useState(false);
+
+  const { data: programs = [], isLoading: loadingPrograms } = useQuery({
+    queryKey: ['/api/entities/Program'],
+    queryFn: () => base44.entities.Program.list({ sort: { name: 'asc' } })
+  });
 
   const summaryMaxLength = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
@@ -331,8 +341,14 @@ export default function CreateComplexEvent() {
         internal_reference: existingEvent.internal_reference || "",
         event_type: existingEvent.event_type || "",
         registration_closes_at: existingEvent.registration_closes_at ? existingEvent.registration_closes_at.slice(0, 16) : "",
+        program_tag: existingEvent.program_tag || "",
       });
       setSlugManuallyEdited(true);
+      setSeoTitle(existingEvent.seo_title || "");
+      setSeoDescription(existingEvent.seo_description || "");
+      if (existingEvent.program_tag) {
+        setIsProgramEvent(true);
+      }
     }
   }, [existingEvent, isEditMode]);
 
@@ -642,6 +658,9 @@ export default function CreateComplexEvent() {
         filter_tags: selectedFilterTags.length > 0
           ? selectedFilterTags.map(key => parseFilterTagKey(key).label)
           : null,
+        seo_title: seoTitle || null,
+        seo_description: seoDescription || null,
+        program_tag: formData.program_tag || null,
       };
 
       let eventId;
@@ -943,6 +962,69 @@ export default function CreateComplexEvent() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Program vs One-off Toggle */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="program-toggle" className="text-base font-medium">
+                      {isProgramEvent ? "Program Event" : "One-off Event"}
+                    </Label>
+                    <p className="text-sm text-slate-500">
+                      {isProgramEvent
+                        ? "Event is part of a program - requires program tickets to attend"
+                        : "Standalone event - not linked to any program"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-sm ${!isProgramEvent ? 'text-slate-900 font-medium' : 'text-slate-500'}`}>
+                      One-off
+                    </span>
+                    <Switch
+                      id="program-toggle"
+                      checked={isProgramEvent}
+                      onCheckedChange={(checked) => {
+                        setIsProgramEvent(checked);
+                        if (!checked) {
+                          updateField('program_tag', '');
+                        }
+                      }}
+                      data-testid="switch-program-toggle"
+                    />
+                    <span className={`text-sm ${isProgramEvent ? 'text-slate-900 font-medium' : 'text-slate-500'}`}>
+                      Program
+                    </span>
+                  </div>
+                </div>
+
+                {isProgramEvent && (
+                  <div className="space-y-2">
+                    <Label htmlFor="program">Program *</Label>
+                    <Select
+                      value={formData.program_tag}
+                      onValueChange={(value) => updateField('program_tag', value)}
+                      disabled={loadingPrograms}
+                      data-testid="select-program"
+                    >
+                      <SelectTrigger data-testid="select-program-trigger">
+                        <SelectValue placeholder={loadingPrograms ? "Loading programs..." : "Select a program"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {programs.map((program) => (
+                          <SelectItem
+                            key={program.id}
+                            value={program.program_tag || program.name}
+                            data-testid={`select-program-${program.id}`}
+                          >
+                            {program.name || program.program_tag}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      The program determines ticket types that can be used for this event
+                    </p>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="title">Event Title *</Label>
                   <Input
@@ -1286,6 +1368,16 @@ export default function CreateComplexEvent() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* SEO Settings Card */}
+            <SEOSettings
+              seoTitle={seoTitle}
+              onSeoTitleChange={setSeoTitle}
+              seoDescription={seoDescription}
+              onSeoDescriptionChange={setSeoDescription}
+              defaultTitle={formData.title}
+              defaultDescription={formData.summary}
+            />
           </>
         )}
 
